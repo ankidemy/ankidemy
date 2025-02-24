@@ -39,7 +39,7 @@ Las entidades principales de nuestra base de datos son Usuario, Tema y Temario. 
 \chapter{Módulos}
 
 \section{Módulo 1: BD Administrador}
-Este módulo se encargará de administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
+Este módulo pensamos que ayude administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
 
 \begin{figure}[H]
     \centering
@@ -48,7 +48,7 @@ Este módulo se encargará de administrar la conexión de base de datos, así co
 \end{figure}
 
 \section{Módulo 2: Autenticación}
-Descripción del módulo.
+EL módulo se encargaría de hacer el inicio de sesión, verificando los datos del usuario e iniciando la sesión.
 
 \begin{figure}[H]
     \centering
@@ -57,7 +57,7 @@ Descripción del módulo.
 \end{figure}
 
 \section{Módulo 3: ED\_Temas y Jerarquía}
-Este módulo se encargará de administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
+Se encarga de proporcionar la estructura de datos de gráfica de conocimientos, además de dar un gestor que permita transmitir los cambios en la sesión a la base de datos.
 
 \begin{figure}[H]
     \centering
@@ -66,7 +66,7 @@ Este módulo se encargará de administrar la conexión de base de datos, así co
 \end{figure}
 
 \section{Módulo 4: Sesión de Estudio}
-Descripción del módulo.
+Este módulo es el principal en el modo de estudio, el objeto SesiónRevisión a través del Elector\_Tema regresa el ejercicio a realizar utilizando los parámetros de avance en el tema y fecha de última revisión basándose en el concepto de repetición espaciada.
 
 \begin{figure}[H]
     \centering
@@ -75,7 +75,7 @@ Descripción del módulo.
 \end{figure}
 
 \section{Módulo 5: Compartir}
-Este módulo se encargará de administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
+El módulo se encargará a traves del objeto Temario de crear y compartir los Temarios.
 
 \begin{figure}[H]
     \centering
@@ -84,7 +84,7 @@ Este módulo se encargará de administrar la conexión de base de datos, así co
 \end{figure}
 
 \section{Módulo 6: Main}
-Descripción del módulo.
+Utilizando la librería Gin que proporciona Go para establecer un servidor sería el punto de entrada para el backend.
 
 \begin{figure}[H]
     \centering
@@ -93,7 +93,7 @@ Descripción del módulo.
 \end{figure}
 
 \section{Módulo 7: UI}
-Descripción del módulo.
+Es el módulo de la interfaz gráfica.
 
 \begin{figure}[H]
     \centering
