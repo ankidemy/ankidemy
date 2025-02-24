@@ -1,0 +1,120 @@
+\documentclass{report}
+\usepackage[spanish]{babel}  % Idioma español
+\usepackage{graphicx}       % Para incluir imágenes
+\usepackage{float}          % Para controlar la posición de las imágenes
+\usepackage{titlesec}       % Para modificar títulos de capítulos
+\usepackage{geometry}       % Para ajustar márgenes
+
+% Ajustar márgenes
+\geometry{a4paper, margin=2.5cm}
+
+% Configurar capítulos sin la palabra "Capítulo"
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}{}{0pt}{\Huge}
+
+% Portada
+\begin{document}
+\begin{titlepage}
+    \centering
+    \vfill
+    {\Huge\bfseries Ankidyemy}\par
+    \vspace{1cm}
+    {\LARGE Diseño de Software}\par
+    \vfill
+\end{titlepage}
+
+% Diagrama Entidad-Relación
+\chapter{Diagrama Entidad-Relación}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Diagrama-ER.png}
+    \caption{Diagrama Entidad-Relación del sistema}
+    \label{fig:er}
+\end{figure}
+
+\section{Explicación del Diagrama}
+Las entidades principales de nuestra base de datos son Usuario, Tema y Temario. El ususario se relaciona con los Temas y los Temarios de dos formas distintas, como diseñador o creador de los diferentes temas y ejercicios por temario, y como alumno de los temarios.
+
+% Módulos
+\chapter{Módulos}
+
+\section{Módulo 1: BD Administrador}
+Este módulo se encargará de administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Modulo1.png}
+    \caption{Diagrama UML del Módulo 1}
+\end{figure}
+
+\section{Módulo 2: Autenticación}
+Descripción del módulo.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Modulo2.png}
+    \caption{Diagrama UML del Módulo 2}
+\end{figure}
+
+\section{Módulo 3: ED\_Temas y Jerarquía}
+Este módulo se encargará de administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Modulo3.png}
+    \caption{Diagrama UML del Módulo 3}
+\end{figure}
+
+\section{Módulo 4: Sesión de Estudio}
+Descripción del módulo.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Modulo4.png}
+    \caption{Diagrama UML del Módulo 4}
+\end{figure}
+
+\section{Módulo 5: Compartir}
+Este módulo se encargará de administrar la conexión de base de datos, así como proveer las operaciones básicas de CRUD a los demás módulos del sistema.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Modulo6.png}
+    \caption{Diagrama UML del Módulo 5}
+\end{figure}
+
+\section{Módulo 6: Main}
+Descripción del módulo.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.4\textwidth]{./Diagramas/Modulo7.png}
+    \caption{Diagrama UML del Módulo 6}
+\end{figure}
+
+\section{Módulo 7: UI}
+Descripción del módulo.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.15\textwidth]{./Diagramas/Modulo8.png}
+    \caption{Diagrama UML del Módulo 8}
+\end{figure}
+\section{Relación entre módulos}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.55\textwidth, angle=270]{./Diagramas/Diagrama-Modulos.png}
+    \caption{Diagrama general de la relación entre módulos}
+\end{figure}
+
+% Wireframes
+\chapter{Wireframes}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./Diagramas/Wireframe.png}
+    \caption{Ejemplo de wireframe del sistema}
+\end{figure}
+
+\end{document}
