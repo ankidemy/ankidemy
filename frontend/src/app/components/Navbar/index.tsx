@@ -33,7 +33,7 @@ export default function Navbar() {
           <Button asChild>
             <Link
               href="/register"
-              className="bg-orange-400 text-white px-3 py-2 rounded-lg hover:bg-orange-300"
+              className="bg-orange-500 text-white px-3 py-2 rounded-lg hover:bg-orange-300"
             >
               Registrame gratis
             </Link>
@@ -41,7 +41,7 @@ export default function Navbar() {
           <Button variant="secondary" asChild>
             <Link
               href="/login"
-              className="bg-orange-100 text-orange-700 px-3 py-2 rounded-lg border border-orange-400 hover:bg-orange-300"
+              className="bg-orange-100 text-orange-600 px-3 py-2 rounded-lg border border-orange-400 hover:bg-orange-300"
             >
               Iniciar sesion
             </Link>
