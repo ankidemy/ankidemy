@@ -1,0 +1,117 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+// User model
+type User struct {
+	gorm.Model
+	Username string `gorm:"unique;not null" json:"username"` // Use "unique" instead of "uniqueIndex"
+	Email    string `gorm:"unique;not null" json:"email"`    // Use "unique" instead of "uniqueIndex"
+	Password string `gorm:"not null" json:"-"`
+}
+
+// Item model
+type Item struct {
+	gorm.Model
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	UserID      uint   `json:"user_id"`
+    User        User   `gorm:"foreignKey:UserID" json:"-"`
+}
+
+func main() {
+	// Load env variables, handle missing .env gracefully
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Info: .env file not found, relying on environment variables: %v", err)
+	}
+
+	// Set Gin mode
+	if os.Getenv("APP_ENV") == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	// Connect to database
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"),
+		os.Getenv("DB_NAME"),
+		os.Getenv("DB_PORT"),
+	)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	// Auto migrate the schema.  Let GORM handle constraint creation.
+	db.AutoMigrate(&User{}, &Item{})
+
+	// Initialize router
+	router := gin.Default()
+
+	// Configure CORS
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"*"} // Allow all origins in development
+	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	router.Use(cors.New(config))
+
+	// Health check endpoint
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status": "ok",
+		})
+	})
+
+	// API routes
+	api := router.Group("/api")
+	{
+		api.GET("/", func(c *gin.Context) {
+			c.JSON(200, gin.H{
+				"message": "API is running.  Use /api/users, /api/items, etc.",
+			})
+		})
+
+		api.GET("/users", func(c *gin.Context) {
+			var users []User
+			db.Find(&users)
+			c.JSON(200, users)
+		})
+
+		api.GET("/items", func(c *gin.Context) {
+			var items []Item
+			db.Find(&items)
+			c.JSON(200, items)
+		})
+
+		api.POST("/items", func(c *gin.Context) {
+			var item Item
+			if err := c.ShouldBindJSON(&item); err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			db.Create(&item)
+			c.JSON(201, item)
+		})
+	}
+
+	// Start server
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("Server starting on port %s", port)
+    router.SetTrustedProxies([]string{"127.0.0.1", "localhost", "nginx"})
+	router.Run(":" + port)
+}
