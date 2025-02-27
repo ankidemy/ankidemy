@@ -1,0 +1,130 @@
+services:
+  # Database Service (Postgres)
+  db:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+      # Enable BuildKit
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: myapp-postgres:latest
+    container_name: myapp-postgres
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    volumes:
+      - postgres_data:/usr/local/share/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Server Service (Go)
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      # Enable BuildKit
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: myapp-server:latest
+    container_name: myapp-server
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      - DB_HOST=db
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_PORT=${DB_PORT}
+      - SERVER_PORT=${SERVER_PORT}
+      - ENV=${APP_ENV}
+      # Add the new environment variables here
+      - SERVER_TIMEOUT=30
+      - CORS_ENABLED=true
+      - CORS_ALLOWED_ORIGIN=http://localhost:3000
+      - DB_MAX_IDLE_CONNECTIONS=10
+      - DB_MAX_OPEN_CONNECTIONS=50
+      - DB_CONNECTION_MAX_LIFETIME=5
+    networks:
+      - app-network
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${SERVER_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Client Service (NextJS)
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      # Enable BuildKit
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: myapp-client:latest
+    container_name: myapp-client
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost
+      - PORT=${CLIENT_PORT}
+    volumes:
+      - client_node_modules:/app/node_modules
+    networks:
+      - app-network
+    depends_on:
+      - server
+      - nginx
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${CLIENT_PORT}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  nginx:  # Optimized Nginx service
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+      # Enable BuildKit
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: myapp-nginx:latest
+    container_name: myapp-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"  # Map host port 80 to container port 80
+    networks:
+      - app-network
+    depends_on:
+      - server
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  client_node_modules:
+    driver: local
