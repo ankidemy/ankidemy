@@ -1,0 +1,24 @@
+# Development Dockerfile for Go server
+FROM golang:1.21-alpine
+
+WORKDIR /app
+
+# Install development tools
+RUN apk add --no-cache git curl wget bash \
+    && go install github.com/cosmtrek/air@latest \
+    && go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Set up Air for hot reloading
+COPY .air.toml .air.toml
+
+# Copy go mod files for dependency pre-loading
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Note: source code will be mounted as a volume in docker-compose.dev.yml
+
+# Expose application and debugger ports
+EXPOSE 8080 2345
+
+# Default command (will be overridden by docker-compose.dev.yml)
+CMD ["air"]

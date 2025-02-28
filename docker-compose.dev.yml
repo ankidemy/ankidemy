@@ -1,25 +1,32 @@
 # docker-compose.dev.yml - Development overrides
-# This file is used with docker-compose.yml using: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Run with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 services:
-  # Database Service - Development overrides
+  # Database Service - Development configuration
   db:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init-scripts:/docker-entrypoint-initdb.d
-    command: postgres -c log_statement=all -c shared_buffers=256MB -c max_connections=200
+      # Mount a development-specific postgresql.conf if needed
+      - ./db/dev-config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    environment:
+      # Add development-specific environment variables
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - PGDATA=/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
-      timeout: 2s
+      timeout: 3s
       retries: 3
       start_period: 5s
 
-  # Server Service - Development overrides
+  # Server Service - Development with hot reload using golang-dev image
   server:
-    # Use the golang image directly for development to ensure we have all development tools
     image: golang:1.21-alpine
     working_dir: /app
     volumes:
@@ -28,6 +35,8 @@ services:
       - server_go_build_cache:/root/.cache/go-build
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+      # Expose delve debugger port
+      - "2345:2345"
     environment:
       - APP_ENV=development
       - GIN_MODE=debug
@@ -40,26 +49,36 @@ services:
       - SERVER_PORT=${SERVER_PORT:-8080}
       - CORS_ALLOWED_ORIGIN=${CLIENT_URL:-http://localhost:3000}
       - CORS_ENABLED=true
-    # Use Alpine's shell to run Go directly
-    command: sh -c "cd /app && go mod tidy && go run -gcflags='all=-N -l' ."
+    # Install air on container start, then run the server with hot reload
+    command: >
+      sh -c "
+        echo 'Setting up Go development environment...' &&
+        apk add --no-cache git wget curl bash &&
+        go install github.com/cosmtrek/air@v1.44.0 &&
+        cd /app && /go/bin/air -c .air.toml
+      "
+    # Development-specific dependencies
+    depends_on:
+      db:
+        condition: service_healthy
+    # Fixed health check that uses GET instead of HEAD/wget and uses appropriate host
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${SERVER_PORT:-8080}/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:${SERVER_PORT:-8080}/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 20s
 
-  # Client Service - Development overrides
+  # Client Service - Development with optimal hot reload
   client:
     build:
-      target: development
-      args:
-        BUILDKIT_INLINE_CACHE: 1
+      context: ./client
+      dockerfile: Dockerfile.dev
     volumes:
-      # Mount source code but exclude node_modules and .next
-      - ./client:/app:cached
-      - client_node_modules:/app/node_modules
-      - client_next_cache:/app/.next
+      # Mount source code with exclusions
+      - ./client:/app:delegated
+      - /app/node_modules
+      - /app/.next
     ports:
       - "${CLIENT_PORT:-3000}:3000"
     environment:
@@ -67,41 +86,56 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT:-8080}
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
       - NEXT_TELEMETRY_DISABLED=1
-    # Run as root to fix permissions, then switch to node user
-    user: root
-    command: >
-      sh -c "
-        echo 'Setting up Next.js development environment...' &&
-        mkdir -p /app/.next &&
-        chown -R node:node /app/node_modules /app/.next &&
-        echo 'Creating JavaScript config from TypeScript config...' &&
-        if [ -f next.config.ts ]; then
-          echo 'module.exports = require(\"./next.config\");' > next.config.js
-          chown node:node /app/next.config.js
-        fi &&
-        echo 'Installing TypeScript dependencies...' &&
-        npm install --save-exact --save-dev typescript @types/react @types/node &&
-        echo 'Starting Next.js development server...' &&
-        su - node -c 'cd /app && npm run dev'
-      "
-
-  # Nginx - Development overrides
-  nginx:
-    ports:
-      - "${NGINX_PORT:-80}:80"
-    volumes:
-      # Make sure the file exists and mount it properly
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Add useful development variables
+      - NEXT_WEBPACK_USEPOLLING=1
+      - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
+    # Run the dev command directly - permissions set in Dockerfile.dev
+    command: npm run dev
+    depends_on:
+      server:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
 
-# Additional volumes for development
+  # Nginx - Simple development config
+  nginx:
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      # Mount the existing nginx.conf file instead of a non-existent nginx.dev.conf
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - server
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Development utility services
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@example.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+      - PGADMIN_LISTEN_PORT=5050
+    ports:
+      - "${PGADMIN_PORT:-5050}:5050"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+    networks:
+      - app-network
+    restart: unless-stopped
+
 volumes:
   server_go_mod_cache:
   server_go_build_cache:
-  client_node_modules:
-  client_next_cache:
+  pgadmin_data:
+  postgres_data:
