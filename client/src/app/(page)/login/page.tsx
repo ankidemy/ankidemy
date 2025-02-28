@@ -8,10 +8,8 @@ import { useRouter } from "next/navigation";
 export default function Login() {
   const router = useRouter();
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [hasError, setHasError] = useState(false);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
