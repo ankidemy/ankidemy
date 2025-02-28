@@ -59,25 +59,27 @@ services:
 
   # Client Service (NextJS) - Development Overrides
   client:
-    # Use Node image directly
-    image: node:18-slim
-    # Set working directory
-    working_dir: /app
-    # Override original command
-    command: sh -c "if [ ! -d 'node_modules/.bin' ]; then npm ci; else echo 'Dependencies installed'; fi && npm run dev"
-    # Override original environment
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT}
-      - PORT=3000
-      - NODE_ENV=development
-    # Override original volumes
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: development
+    # Override volumes for hot reloading
     volumes:
       - ./client:/app:delegated
-      - client_node_modules:/app/node_modules
-    # Override original ports to expose client directly
+      - /app/node_modules
+      - /app/.next
+    # Override environment
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT}
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - CHOKIDAR_USEPOLLING=true # Better hot reload in Docker
+    # Override ports to expose client directly
     ports:
       - "${CLIENT_PORT}:3000"
-    # Override healthcheck for faster startup detection
+    # Add command override to ensure correct permissions
+    user: node
+    # Override healthcheck
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
