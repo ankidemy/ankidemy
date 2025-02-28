@@ -1,0 +1,30 @@
+# Development Dockerfile for Next.js client
+FROM node:18-slim
+
+WORKDIR /app
+
+# Set proper permissions and create required directories
+RUN mkdir -p .next && \
+    chown -R node:node /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies including TypeScript and types
+RUN npm ci && \
+    npm install --save-dev typescript @types/react @types/node
+
+# Switch to non-root user for better security
+USER node
+
+# Expose port
+EXPOSE 3000
+
+# Disable telemetry
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development
+
+# Note: source code will be mounted as a volume in docker-compose.dev.yml
+
+# Default command (will be overridden by docker-compose.dev.yml)
+CMD ["npm", "run", "dev"]
