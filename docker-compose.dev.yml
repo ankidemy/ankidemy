@@ -1,99 +1,59 @@
 # docker-compose.dev.yml - Development overrides
-# This file contains overrides for the base docker-compose.yml configuration
+# This file is used with docker-compose.yml using: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 services:
-  # Database Service (Postgres) - Development Overrides
+  # Database Service - Development overrides
   db:
-    # Use the official postgres image directly
-    image: postgres:alpine
-    # Override original ports to expose PostgreSQL directly
     ports:
-      - "${DB_PORT}:5432"
-    # Add development-specific command
-    command: postgres -c shared_buffers=256MB -c max_connections=200
-    # Override original volumes to use the appropriate paths
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init-scripts:/docker-entrypoint-initdb.d
-    # Override healthcheck for faster startup detection
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
-      interval: 5s
-      timeout: 2s
-      retries: 3
-      start_period: 5s
+    command: postgres -c log_statement=all -c shared_buffers=256MB -c max_connections=200
 
-  # Server Service (Go) - Development Overrides
+  # Server Service - Development overrides
   server:
-    # Use the Go development image directly
-    image: golang:alpine
-    # Set the working directory
-    working_dir: /app
-    # Override original command
-    command: sh -c "if [ ! -f go.sum ] || [ go.mod -nt go.sum ]; then go mod tidy && go mod download; else echo 'Dependencies up to date'; fi && GO_FLAGS='-gcflags=all=-N -l' go run $GO_FLAGS main.go"
-    # Override original environment
-    environment:
-      - DB_HOST=db
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - DB_PORT=${DB_PORT}
-      - SERVER_PORT=${SERVER_PORT}
-      - APP_ENV=development
-      - CGO_ENABLED=0
-    # Override original volumes
+    build:
+      target: development
     volumes:
-      - ./server:/app
+      - ./server:/app:cached
       - server_go_mod_cache:/go/pkg/mod
-      - server_go_build_cache:/root/.cache/go-build
-    # Override original ports to expose server directly
     ports:
-      - "${SERVER_PORT}:${SERVER_PORT}"
-    # Override healthcheck for faster startup detection
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${SERVER_PORT}/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    environment:
+      - APP_ENV=development
+      - GIN_MODE=debug
+      - LOG_LEVEL=debug
 
-  # Client Service (NextJS) - Development Overrides
+  # Client Service - Development overrides
   client:
     build:
-      context: ./client
-      dockerfile: Dockerfile
       target: development
-    # Override volumes for hot reloading
     volumes:
-      - ./client:/app:delegated
-      - /app/node_modules
-      - /app/.next
-    # Override environment
+      # Mount source code but exclude node_modules and .next
+      - ./client:/app:cached
+      - client_node_modules:/app/node_modules
+      - client_next_cache:/app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT}
       - NODE_ENV=development
-      - NEXT_TELEMETRY_DISABLED=1
-      - CHOKIDAR_USEPOLLING=true # Better hot reload in Docker
-    # Override ports to expose client directly
-    ports:
-      - "${CLIENT_PORT}:3000"
-    # Add command override to ensure correct permissions
-    user: node
-    # Override healthcheck
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT:-8080}
+      - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
+    # Ensure the .next directory has proper permissions before starting
+    command: >
+      sh -c "
+        mkdir -p /app/.next &&
+        npm run dev
+      "
 
-  # Nginx Service - Development Overrides
+  # Nginx - Development overrides
   nginx:
-    # Add development-specific volumes
+    ports:
+      - "${NGINX_PORT:-80}:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
 
 # Additional volumes for development
 volumes:
   server_go_mod_cache:
-  server_go_build_cache:
+  client_node_modules:
+  client_next_cache:

@@ -1,37 +1,34 @@
-# --- Base Stage (Dependencies) ---
+# --- Base Stage for Dependencies ---
 FROM node:18-slim AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy only package files for better caching
+COPY package.json package-lock.json ./
 
-# Install ALL dependencies including dev dependencies and TypeScript
-# We need to install these before Next.js tries to auto-install them
+# Install dependencies with clear separation between dev and prod
 RUN npm ci
-RUN npm install --save-dev typescript@latest @types/react @types/node
 
 # --- Development Stage ---
 FROM node:18-slim AS development
 WORKDIR /app
 
-# Copy dependencies from deps stage with TypeScript already installed
+# Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/package*.json ./
+COPY package.json package-lock.json ./
 
-# Copy project files
+# Copy application source
 COPY . .
 
-# Create an empty font-manifest.json
-RUN mkdir -p .next/server && echo "{}" > .next/server/font-manifest.json
+# Create .next directory and set proper permissions
+RUN mkdir -p .next && \
+    chown -R node:node /app
 
-# Make sure node user owns everything
-RUN chown -R node:node /app
-
-# Switch to non-root user
+# Set non-root user for security
 USER node
 
-# Create a .env.local file to disable telemetry
-RUN echo "NEXT_TELEMETRY_DISABLED=1" > .env.local
+# Disable telemetry
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development
 
 EXPOSE 3000
 CMD ["npm", "run", "dev"]
@@ -40,45 +37,43 @@ CMD ["npm", "run", "dev"]
 FROM node:18-slim AS builder
 WORKDIR /app
 
-# Copy dependencies from deps stage with TypeScript already installed
+# Copy dependencies
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/package*.json ./
+COPY package.json package-lock.json ./
 
-# Copy project files
+# Copy application source
 COPY . .
 
-# Create a temporary .env.local file to disable telemetry
-RUN echo "NEXT_TELEMETRY_DISABLED=1" > .env.local
+# Disable telemetry 
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 
-# Run the build with error handling and continue
-RUN NEXT_TELEMETRY_DISABLED=1 npm run build || (echo "Build had errors, creating minimal build output" && mkdir -p .next/server && echo "{}" > .next/server/font-manifest.json)
+# Build the application
+RUN npm run build
 
 # --- Production Stage ---
 FROM node:18-slim AS production
 WORKDIR /app
 
 # Copy package files
-COPY --from=deps /app/package*.json ./
+COPY package.json package-lock.json ./
 
 # Install only production dependencies
 RUN npm ci --omit=dev
 
-# Copy the .next directory
+# Copy build artifacts and public files
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.js ./next.config.js
 
-# Create empty font-manifest.json if it doesn't exist
-RUN mkdir -p .next/server && \
-    if [ ! -f .next/server/font-manifest.json ]; then \
-    echo "{}" > .next/server/font-manifest.json; \
-    fi
-
-# Set correct permissions and switch to non-root user
-RUN chown -R node:node /app
+# Set non-root user
 USER node
+
+# Disable telemetry
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 
 EXPOSE 3000
 
-# Use development mode as it's more reliable with our current setup
-CMD ["npm", "run", "dev"]
+# Use proper production command
+CMD ["npm", "start"]
