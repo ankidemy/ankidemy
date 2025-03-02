@@ -1,30 +1,24 @@
-# Development Dockerfile for Next.js client
-FROM node:18-slim
+# Development Dockerfile for Go server
+FROM golang:1.21-alpine
 
 WORKDIR /app
 
-# Set proper permissions and create required directories
-RUN mkdir -p .next && \
-    chown -R node:node /app
+# Install development tools
+RUN apk add --no-cache git curl wget bash \
+    && go install github.com/cosmtrek/air@latest \
+    && go install github.com/go-delve/delve/cmd/dlv@latest
 
-# Copy package files
-COPY package.json package-lock.json ./
+# Set up Air for hot reloading
+COPY .air.toml .air.toml
 
-# Install dependencies including TypeScript and types
-RUN npm ci && \
-    npm install --save-dev typescript @types/react @types/node
-
-# Switch to non-root user for better security
-USER node
-
-# Expose port
-EXPOSE 3000
-
-# Disable telemetry
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=development
+# Copy go mod files for dependency pre-loading
+COPY go.mod go.sum ./
+RUN go mod download
 
 # Note: source code will be mounted as a volume in docker-compose.dev.yml
 
+# Expose application and debugger ports
+EXPOSE 8080 2345
+
 # Default command (will be overridden by docker-compose.dev.yml)
-CMD ["npm", "run", "dev"]
+CMD ["air"]
