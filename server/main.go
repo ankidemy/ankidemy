@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,20 @@ type Item struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	UserID      uint   `json:"user_id"`
-    User        User   `gorm:"foreignKey:UserID" json:"-"`
+	User        User   `gorm:"foreignKey:UserID" json:"-"`
+}
+
+// LoginRequest struct
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// LoginResponse struct
+type LoginResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	// Add other fields as needed (e.g., token, user data)
 }
 
 func main() {
@@ -54,15 +68,26 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	// Auto migrate the schema.  Let GORM handle constraint creation.
+	// Auto migrate the schema
 	db.AutoMigrate(&User{}, &Item{})
 
 	// Initialize router
 	router := gin.Default()
 
-	// Configure CORS
+	// Configure CORS for direct client-server communication
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"*"} // Allow all origins in development
+	
+	// Define allowed origins - get from env or use defaults
+	allowedOrigins := []string{"http://localhost:3000", "http://client:3000"}
+	if corsOrigin := os.Getenv("CORS_ALLOWED_ORIGIN"); corsOrigin != "" {
+		// Split in case multiple origins are provided
+		origins := strings.Split(corsOrigin, ",")
+		for _, origin := range origins {
+			allowedOrigins = append(allowedOrigins, strings.TrimSpace(origin))
+		}
+	}
+	
+	config.AllowOrigins = allowedOrigins
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
 	router.Use(cors.New(config))
@@ -79,7 +104,7 @@ func main() {
 	{
 		api.GET("/", func(c *gin.Context) {
 			c.JSON(200, gin.H{
-				"message": "API is running.  Use /api/users, /api/items, etc.",
+				"message": "API is running. Use /api/users, /api/items, etc.",
 			})
 		})
 
@@ -104,6 +129,33 @@ func main() {
 			db.Create(&item)
 			c.JSON(201, item)
 		})
+
+		// Login endpoint
+		api.POST("/login", func(c *gin.Context) {
+			var loginReq LoginRequest
+			if err := c.ShouldBindJSON(&loginReq); err != nil {
+				c.JSON(400, LoginResponse{Success: false, Message: "Invalid request body"})
+				return
+			}
+
+			// Find the user by email
+			var user User
+			result := db.Where("email = ?", loginReq.Email).First(&user)
+			if result.Error != nil {
+				// User not found or other DB error
+				c.JSON(401, LoginResponse{Success: false, Message: "Invalid credentials"})
+				return
+			}
+
+			// IMPORTANT: In a real app, use bcrypt to compare passwords
+			if loginReq.Password != user.Password {
+				c.JSON(401, LoginResponse{Success: false, Message: "Invalid credentials"})
+				return
+			}
+
+			// Successful login
+			c.JSON(200, LoginResponse{Success: true, Message: "Login successful"})
+		})
 	}
 
 	// Start server
@@ -112,6 +164,9 @@ func main() {
 		port = "8080"
 	}
 	log.Printf("Server starting on port %s", port)
-    router.SetTrustedProxies([]string{"127.0.0.1", "localhost", "nginx"})
+	
+	// Only trust localhost and loopback address (no more need for nginx in trusted proxies)
+	router.SetTrustedProxies([]string{"127.0.0.1", "localhost"})
+	
 	router.Run(":" + port)
 }

@@ -8,31 +8,6 @@ COPY package.json package-lock.json ./
 # Install dependencies with clear separation between dev and prod
 RUN npm ci
 
-# --- Development Stage ---
-FROM node:18-slim AS development
-WORKDIR /app
-
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json package-lock.json ./
-
-# Copy application source
-COPY . .
-
-# Create .next directory and set proper permissions
-RUN mkdir -p .next && \
-    chown -R node:node /app
-
-# Set non-root user for security
-USER node
-
-# Disable telemetry
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=development
-
-EXPOSE 3000
-CMD ["npm", "run", "dev"]
-
 # --- Builder Stage ---
 FROM node:18-slim AS builder
 WORKDIR /app
@@ -52,7 +27,7 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # --- Production Stage ---
-FROM node:18-slim AS production
+FROM node:18-slim
 WORKDIR /app
 
 # Copy package files
@@ -61,12 +36,22 @@ COPY package.json package-lock.json ./
 # Install only production dependencies
 RUN npm ci --omit=dev
 
-# Copy build artifacts and public files
+# Create cache directory with appropriate permissions
+# This approach is safer than mounting volumes
+RUN mkdir -p .next/cache/images .next/cache/fetch \
+    && chmod -R 777 .next
+
+# Copy build output and public files
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.js ./next.config.js
+COPY --from=builder /app/next.config.* ./
 
-# Set non-root user
+# Set appropriate permissions on all files
+# This will handle any current and future directory structure
+RUN chmod -R 777 /app/.next \
+    && chown -R node:node /app
+
+# Use node user for better security
 USER node
 
 # Disable telemetry
