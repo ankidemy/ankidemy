@@ -91,7 +91,7 @@ services:
 
 networks:
   app-network:
-    driver: bridge
+    name: ankidemy_app-network
 
 volumes:
   postgres_data:

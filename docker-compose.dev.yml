@@ -24,6 +24,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    networks:
+      - app-network
 
   # Server Service - Development with simple build approach
   server:
@@ -68,6 +70,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    networks:
+      - app-network
 
   # Client Service - Development with hot reload
   client:
@@ -101,6 +105,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - app-network
 
   # Development utility services
   pgadmin:
@@ -124,3 +130,7 @@ volumes:
   server_go_build_cache:
   pgadmin_data:
   postgres_data:
+
+networks:
+  app-network:
+    name: ankidemy_app-network
