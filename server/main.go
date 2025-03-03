@@ -78,7 +78,7 @@ func main() {
 	config := cors.DefaultConfig()
 	
 	// Define allowed origins - get from env or use defaults
-	allowedOrigins := []string{"http://localhost:3000", "http://client:3000"}
+	allowedOrigins := []string{"*"}
 	if corsOrigin := os.Getenv("CORS_ALLOWED_ORIGIN"); corsOrigin != "" {
 		// Split in case multiple origins are provided
 		origins := strings.Split(corsOrigin, ",")
