@@ -1,0 +1,42 @@
+package dao
+
+import "project-root/models" // Asegúrate de cambiar esto por el path correcto
+
+// UserDAO implements CRUD for User
+type UserDAO struct {
+	db *gorm.DB
+}
+
+// NewUserDAO creates a new UserDAO instance
+func NewUserDAO() *UserDAO {
+	return &UserDAO{db: GetDB()}
+}
+
+// GetAll retrieves all users
+func (u *UserDAO) GetAll() ([]models.User, error) {
+	var users []models.User
+	result := u.db.Find(&users)
+	return users, result.Error
+}
+
+// GetByID retrieves a user by ID
+func (u *UserDAO) GetByID(id uint) (*models.User, error) {
+	var user models.User
+	result := u.db.First(&user, id)
+	return &user, result.Error
+}
+
+// Create adds a new user
+func (u *UserDAO) Create(user *models.User) error {
+	return u.db.Create(user).Error
+}
+
+// Update modifies an existing user
+func (u *UserDAO) Update(user *models.User) error {
+	return u.db.Save(user).Error
+}
+
+// Delete removes a user by ID
+func (u *UserDAO) Delete(id uint) error {
+	return u.db.Delete(&models.User{}, id).Error
+}
