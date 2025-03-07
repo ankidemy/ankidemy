@@ -6,7 +6,7 @@ import (
 
 func TestInitDB(t *testing.T) {
 	// Intentamos inicializar la base de datos
-	InitDB()
+	db,err := InitDB()
 
 	// Verificamos que la conexión no sea nil
 	if db == nil {
@@ -21,17 +21,5 @@ func TestInitDB(t *testing.T) {
 
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("Error al hacer ping a la base de datos: %v", err)
-	}
-}
-
-func TestGetDB(t *testing.T) {
-	// Aseguramos que la base de datos esté inicializada
-	InitDB()
-
-	// Obtenemos la conexión usando GetDB()
-	dbInstance := GetDB()
-
-	if dbInstance == nil {
-		t.Fatal("GetDB() debería devolver una conexión válida")
 	}
 }
