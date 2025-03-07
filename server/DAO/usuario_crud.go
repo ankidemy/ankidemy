@@ -1,7 +1,7 @@
 package dao
 
 import (
-	"ankidemy/server/modelos"
+	"myapp/server/modelos"
 	"gorm.io/gorm"
 )
 
@@ -12,8 +12,9 @@ type UsuarioCRUD struct {
 
 // NewUsuarioCRUD crea una nueva instancia de UsuarioCRUD usando la conexión a la base de datos
 func NewUsuarioCRUD() *UsuarioCRUD {
-	
-	return &UsuarioCRUD{db: GetDB()}
+	var dbu = GetDB()
+	dbu.AutoMigrate(&modelos.Usuario{})
+	return &UsuarioCRUD{dbu}
 }
 
 // GetAll obtiene todos los usuarios de la base de datos
@@ -28,6 +29,19 @@ func (uc *UsuarioCRUD) GetByID(id uint) (*modelos.Usuario, error) {
 	var usuario modelos.Usuario
 	err := uc.db.First(&usuario, id).Error
 	if err != nil {
+		return nil, err
+	}
+	return &usuario, nil
+}
+
+// verificarUsuario obtiene un usuario por su username y contraseña
+func (uc *UsuarioCRUD) verificarUsuario(username string, password string) (*modelos.Usuario, error) {
+	var usuario modelos.Usuario
+	err := uc.db.Where("username=?",username).First(&usuario).Error
+	if err != nil {
+		return nil, err
+	}
+	if password != usuario.Contrasena {
 		return nil, err
 	}
 	return &usuario, nil

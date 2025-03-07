@@ -1,7 +1,5 @@
 package dao
 
-import "gorm.io/gorm"
-
 // Operaciones de CRUD para las tablas de bd
 type CRUD[T any] interface {
 	GetAll() ([]T, error)
