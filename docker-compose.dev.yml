@@ -20,11 +20,13 @@ services:
 
   # Server Service - Development with hot reload and optimized startup
   server:
+    image: golang:1.21-alpine
     working_dir: /app
     volumes:
       - ./server:/app:cached
       - server_go_mod_cache:/go/pkg/mod
       - server_go_build_cache:/root/.cache/go-build
+      - server_apk_cache:/etc/apk/cache
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
       - "2345:2345" # Debugger port
@@ -36,13 +38,22 @@ services:
       - GOFLAGS=-mod=readonly         # Don't update go.mod during development
     command: >
       sh -c "
-        if [ ! -f /tmp/.go_deps_installed ]; then
-          echo 'Setting up Go development environment...' &&
-          apk add --no-cache git &&
+        # Install git only if not already installed
+        if ! command -v git >/dev/null 2>&1; then
+          echo 'Installing git...' &&
+          apk add --no-cache git;
+        fi &&
+        
+        # Check if go.mod has changed since last build
+        if [ ! -f /tmp/go.mod.md5sum ] || ! md5sum -c /tmp/go.mod.md5sum >/dev/null 2>&1; then
+          echo 'Dependencies changed, updating...' &&
           cd /app &&
           go mod download &&
-          touch /tmp/.go_deps_installed;
+          go mod tidy &&
+          md5sum go.mod > /tmp/go.mod.md5sum;
         fi &&
+        
+        # Build and run
         cd /app &&
         go build -o ./tmp/main . &&
         ./tmp/main
@@ -56,11 +67,15 @@ services:
 
   # Client Service - Development with hot reload and optimized startup
   client:
+    image: node:18-alpine
     working_dir: /app
     volumes:
       - ./client:/app:delegated
       - client_node_modules:/app/node_modules
       - client_next_cache:/app/.next
+      - client_npm_cache:/root/.npm
+    ports:
+      - "${CLIENT_PORT:-3000}:3000"
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
@@ -68,12 +83,29 @@ services:
       - NEXT_WEBPACK_USEPOLLING=1
       - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
       # Optimize Next.js development experience
-      - NEXT_TURBO=${NEXT_TURBO:-true}           # Use Turbopack for faster development builds
+      - NEXT_TURBO=${NEXT_TURBO:-true}
       - TURBOPACK=true
-      - NEXT_OPTIMIZE_FONTS=false                # Skip font optimization in dev
-      - NEXT_OPTIMIZE_IMAGES=false               # Skip image optimization in dev
-      - NEXT_DISABLE_SOURCEMAPS=true             # Disable source maps in dev
-    command: sh -c "[ ! -d node_modules ] && npm install || echo 'Dependencies already installed'; npx next dev --turbo"
+      - NEXT_OPTIMIZE_FONTS=false
+      - NEXT_OPTIMIZE_IMAGES=false
+      - NEXT_DISABLE_SOURCEMAPS=true
+    command: >
+      sh -c "
+        # Check if package.json has changed since last install
+        if [ ! -f /tmp/package.json.md5sum ] || ! md5sum -c /tmp/package.json.md5sum >/dev/null 2>&1; then
+          echo 'Dependencies changed, updating...' &&
+          npm install &&
+          md5sum package.json > /tmp/package.json.md5sum;
+        fi &&
+        
+        # Check if package-lock.json exists, regenerate if missing
+        if [ ! -f package-lock.json ]; then
+          echo 'Generating package-lock.json...' &&
+          npm install;
+        fi &&
+        
+        # Run Next.js dev server with turbo
+        npx next dev --turbo
+      "
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
@@ -101,6 +133,8 @@ services:
 volumes:
   server_go_mod_cache:
   server_go_build_cache:
+  server_apk_cache:
   pgadmin_data:
   client_node_modules:
   client_next_cache:
+  client_npm_cache:
