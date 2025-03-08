@@ -18,7 +18,7 @@ services:
       retries: 3
       start_period: 5s
 
-  # Server Service - Development with hot reload
+  # Server Service - Development with hot reload and optimized startup
   server:
     working_dir: /app
     volumes:
@@ -32,12 +32,18 @@ services:
       - APP_ENV=development
       - GIN_MODE=debug
       - LOG_LEVEL=debug
+      - GOGC=off                      # Disable GC during development for faster builds
+      - GOFLAGS=-mod=readonly         # Don't update go.mod during development
     command: >
       sh -c "
-        echo 'Setting up Go development environment...' &&
-        apk add --no-cache git &&
+        if [ ! -f /tmp/.go_deps_installed ]; then
+          echo 'Setting up Go development environment...' &&
+          apk add --no-cache git &&
+          cd /app &&
+          go mod download &&
+          touch /tmp/.go_deps_installed;
+        fi &&
         cd /app &&
-        go mod download &&
         go build -o ./tmp/main . &&
         ./tmp/main
       "
@@ -46,22 +52,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 10s
 
-  # Client Service - Development with hot reload
+  # Client Service - Development with hot reload and optimized startup
   client:
     working_dir: /app
     volumes:
       - ./client:/app:delegated
-      - /app/node_modules
-      - /app/.next
+      - client_node_modules:/app/node_modules
+      - client_next_cache:/app/.next
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
       - NEXT_TELEMETRY_DISABLED=1
       - NEXT_WEBPACK_USEPOLLING=1
       - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
-    command: sh -c "npm install && npm run dev"
+      # Optimize Next.js development experience
+      - NEXT_TURBO=${NEXT_TURBO:-true}           # Use Turbopack for faster development builds
+      - TURBOPACK=true
+      - NEXT_OPTIMIZE_FONTS=false                # Skip font optimization in dev
+      - NEXT_OPTIMIZE_IMAGES=false               # Skip image optimization in dev
+      - NEXT_DISABLE_SOURCEMAPS=true             # Disable source maps in dev
+    command: sh -c "[ ! -d node_modules ] && npm install || echo 'Dependencies already installed'; npx next dev --turbo"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
@@ -90,3 +102,5 @@ volumes:
   server_go_mod_cache:
   server_go_build_cache:
   pgadmin_data:
+  client_node_modules:
+  client_next_cache:
