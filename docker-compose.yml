@@ -1,11 +1,8 @@
+# docker-compose.yml - Base configuration
 services:
   # Database Service (Postgres)
   db:
-    build:
-      context: ./db
-      dockerfile: Dockerfile
-    image: myapp-postgres:latest
-    container_name: myapp-postgres
+    image: postgres:alpine
     restart: unless-stopped
     env_file:
       - ./.env
@@ -25,11 +22,7 @@ services:
 
   # Server Service (Go)
   server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    image: myapp-server:latest
-    container_name: myapp-server
+    image: golang:1.21-alpine
     restart: unless-stopped
     env_file:
       - ./.env
@@ -43,31 +36,17 @@ services:
       - DB_PORT=${DB_PORT}
       - SERVER_PORT=${SERVER_PORT}
       - ENV=${APP_ENV}
-      - SERVER_TIMEOUT=30
       - CORS_ENABLED=true
       - CORS_ALLOWED_ORIGIN=${CLIENT_URL:-http://localhost:3000}
-      - DB_MAX_IDLE_CONNECTIONS=10
-      - DB_MAX_OPEN_CONNECTIONS=50
-      - DB_CONNECTION_MAX_LIFETIME=5
     networks:
       - app-network
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
 
   # Client Service (NextJS)
   client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-    image: myapp-client:latest
-    container_name: myapp-client
+    image: node:18-alpine
     restart: unless-stopped
     env_file:
       - ./.env
@@ -75,23 +54,16 @@ services:
       - "${CLIENT_PORT:-3000}:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT:-8080}
-      - PORT=${CLIENT_PORT:-3000}
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=${NODE_ENV:-development}
       - NEXT_TELEMETRY_DISABLED=1
     networks:
       - app-network
     depends_on:
       - server
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
 
 networks:
   app-network:
-    name: ankidemy_app-network
+    name: myapp_app-network
 
 volumes:
   postgres_data:

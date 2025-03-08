@@ -7,29 +7,19 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
       - ./db/init-scripts:/docker-entrypoint-initdb.d
-      # Mount a development-specific postgresql.conf if needed
       - ./db/dev-config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     environment:
-      # Add development-specific environment variables
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
       - PGDATA=/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 3s
       retries: 3
       start_period: 5s
-    networks:
-      - app-network
 
-  # Server Service - Development with simple build approach
+  # Server Service - Development with hot reload
   server:
-    image: golang:1.21-alpine
     working_dir: /app
     volumes:
       - ./server:/app:cached
@@ -37,21 +27,11 @@ services:
       - server_go_build_cache:/root/.cache/go-build
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
-      # Expose debugger port
-      - "2345:2345"
+      - "2345:2345" # Debugger port
     environment:
       - APP_ENV=development
       - GIN_MODE=debug
       - LOG_LEVEL=debug
-      - DB_HOST=db
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - DB_PORT=${DB_PORT}
-      - SERVER_PORT=${SERVER_PORT:-8080}
-      - CORS_ALLOWED_ORIGIN=${CLIENT_URL:-http://localhost:3000}
-      - CORS_ENABLED=true
-    # Simple recompile and run approach
     command: >
       sh -c "
         echo 'Setting up Go development environment...' &&
@@ -61,54 +41,35 @@ services:
         go build -o ./tmp/main . &&
         ./tmp/main
       "
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8080}/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
-    networks:
-      - app-network
 
   # Client Service - Development with hot reload
   client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile.dev
-    image: myapp-client-dev:latest
+    working_dir: /app
     volumes:
-      # Mount source code with exclusions
       - ./client:/app:delegated
       - /app/node_modules
       - /app/.next
-    ports:
-      - "${CLIENT_PORT:-3000}:3000"
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT:-8080}
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
       - NEXT_TELEMETRY_DISABLED=1
-      # Add useful development variables
       - NEXT_WEBPACK_USEPOLLING=1
       - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
-    # Run the dev command directly
-    command: npm run dev
-    depends_on:
-      server:
-        condition: service_healthy
+    command: sh -c "npm install && npm run dev"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
-    networks:
-      - app-network
 
-  # Development utility services
+  # Development utility service - Database admin
   pgadmin:
     image: dpage/pgadmin4:latest
     environment:
@@ -129,8 +90,3 @@ volumes:
   server_go_mod_cache:
   server_go_build_cache:
   pgadmin_data:
-  postgres_data:
-
-networks:
-  app-network:
-    name: ankidemy_app-network
