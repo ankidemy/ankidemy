@@ -41,3 +41,26 @@ export const loginUser = async (credentials: { email: string; password: string }
   
   return response.json();
 };
+
+type UserRegistrationDetails = {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+};
+
+export const registerUser = async (userDetails: UserRegistrationDetails) => {
+  const response = await fetch(`${API_URL}/api/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(userDetails),
+  });
+
+  if (!response.ok) {
+    // Handle HTTP errors
+    const errorDetails = await response.json();
+    throw new Error(errorDetails.message || 'Failed to register user.');
+  }
+
+  return response.json();
+};
