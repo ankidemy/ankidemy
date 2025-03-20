@@ -4,19 +4,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { registerUser } from "@/lib/api"; // Assume a function for registration API call
+import { registerUser } from "@/lib/api"; // Import the register function
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/solid";
-
-interface RegistrationResponse {
-  success: boolean;
-  message?: string;
-  user?: any;
-}
 
 export default function Register() {
   const router = useRouter();
-  const [id, setId] = useState("");
-  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -33,17 +28,19 @@ export default function Register() {
     setError(null);
 
     try {
-      const data: RegistrationResponse = await registerUser({ id, name, email, password });
+      // Use the new API client register function
+      await registerUser({ 
+        username, 
+        email, 
+        password,
+        firstName: firstName || undefined, 
+        lastName: lastName || undefined
+      });
 
-      if (data.success) {
-        console.log("Registration successful:", data);
-        // Redirect to login page or another appropriate page
-        router.push("/login");
-      } else {
-        setError(data.message || "Registration failed. Please try again.");
-      }
+      // If successful, redirect to login page
+      router.push("/login");
     } catch (err: any) {
-      setError("An unexpected error occurred. Please try again.");
+      setError(err.message || "Registration failed. Please try again.");
       console.error("Registration error:", err);
     } finally {
       setIsLoading(false);
@@ -76,38 +73,51 @@ export default function Register() {
                 <form className="mt-8 space-y-6 w-full" onSubmit={handleSubmit}>
                   <div className="rounded-md">
                     <div className="mb-6">
-                      <label htmlFor="id" className="sr-only">
-                        ID
+                      <label htmlFor="username" className="sr-only">
+                        Username
                       </label>
                       <input
-                        id="id"
-                        name="id"
+                        id="username"
+                        name="username"
                         type="text"
                         required
                         className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 focus:z-10 sm:text-sm"
-                        placeholder="ID"
-                        value={id}
-                        onChange={(e) => setId(e.target.value)}
+                        placeholder="Username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
                       />
                     </div>
                     <div className="mb-6">
-                      <label htmlFor="name" className="sr-only">
-                        Nombre
+                      <label htmlFor="firstName" className="sr-only">
+                        First Name
                       </label>
                       <input
-                        id="name"
-                        name="name"
+                        id="firstName"
+                        name="firstName"
                         type="text"
-                        required
                         className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 focus:z-10 sm:text-sm"
-                        placeholder="Name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        placeholder="First Name"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                      />
+                    </div>
+                    <div className="mb-6">
+                      <label htmlFor="lastName" className="sr-only">
+                        Last Name
+                      </label>
+                      <input
+                        id="lastName"
+                        name="lastName"
+                        type="text"
+                        className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 focus:z-10 sm:text-sm"
+                        placeholder="Last Name"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
                       />
                     </div>
                     <div className="mb-6">
                       <label htmlFor="email" className="sr-only">
-                        Correo electrónico
+                        Email
                       </label>
                       <input
                         id="email"
@@ -123,7 +133,7 @@ export default function Register() {
                     </div>
                     <div className="relative mb-6">
                       <label htmlFor="password" className="sr-only">
-                        Contraseña
+                        Password
                       </label>
                       <input
                         id="password"

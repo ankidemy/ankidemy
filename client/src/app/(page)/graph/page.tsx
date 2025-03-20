@@ -2,11 +2,19 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { MathJaxContext } from 'better-react-mathjax';
 import GraphLayout from '@/app/components/Layout/GraphLayout';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import KnowledgeGraph from '@/app/components/Graph/KnowledgeGraph';
+import { 
+  getMyDomains, 
+  getEnrolledDomains, 
+  getPublicDomains,
+  exportDomain,
+  updateGraphPositions,
+  Domain
+} from '@/lib/api';
 
 // MathJax configuration
 const config = {
@@ -19,131 +27,178 @@ const config = {
 };
 
 export default function GraphPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  // Get domain ID from URL if present
+  const domainIdParam = searchParams.get('domainId');
+  
   // State to track selected subject matter
-  const [selectedSubjectMatter, setSelectedSubjectMatter] = useState<string | null>(null);
-  const [subjectMatters, setSubjectMatters] = useState([
-    { id: 'algebra', name: 'Algebra', nodeCount: 24, exerciseCount: 12 },
-    { id: 'calculus', name: 'Calculus', nodeCount: 18, exerciseCount: 9 },
-    { id: 'geometry', name: 'Geometry', nodeCount: 15, exerciseCount: 8 }
-  ]);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(domainIdParam);
+  const [domains, setDomains] = useState<Domain[]>([]);
   
   // State to hold the current graph data
   const [graphData, setGraphData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
-  // Load graph data when a subject matter is selected
+  // Fetch domains on component mount
   useEffect(() => {
-    if (selectedSubjectMatter) {
-      setIsLoading(true);
-      
-      // In production, this would be an API call
-      // Simulating API call with timeout
-      setTimeout(() => {
-        // Mock data for the selected subject matter
-        const mockGraphData = {
-          "definitions": {
-            "D1": {
-              "code": "D1",
-              "name": "Set Theory",
-              "description": [
-                "A set is a collection of distinct objects. Formally, $S = \\{x : P(x)\\}$ where $P$ is a property that elements of $S$ satisfy."
-              ],
-              "notes": "Fundamental concept in mathematics",
-              "references": [
-                "Cantor, G. (1874). On a Property of the Collection of All Real Algebraic Numbers"
-              ],
-              "prerequisites": []
-            },
-            "D2": {
-              "code": "D2",
-              "name": "Functions",
-              "description": [
-                "A function $f: X \\to Y$ is a relation that associates each element $x \\in X$ with exactly one element $y \\in Y$."
-              ],
-              "notes": "Central concept connecting different areas of mathematics",
-              "references": [
-                "Bourbaki, N. (1939). Elements of Mathematics"
-              ],
-              "prerequisites": ["D1"]
-            },
-            "D3": {
-              "code": "D3",
-              "name": "Limit of a Function",
-              "description": [
-                "The limit of a function $f(x)$ as $x$ approaches $a$ is $L$, written as $\\lim_{x \\to a} f(x) = L$, if for every $\\epsilon > 0$ there exists a $\\delta > 0$ such that $|f(x) - L| < \\epsilon$ whenever $0 < |x - a| < \\delta$."
-              ],
-              "notes": "Foundation of calculus",
-              "references": [
-                "Cauchy, A. (1823). Résumé des Leçons sur le Calcul Infinitésimal"
-              ],
-              "prerequisites": ["D2"]
-            }
-          },
-          "exercises": {
-            "E1": {
-              "code": "E1",
-              "name": "Function Evaluation",
-              "difficulty": "1",
-              "statement": "If $f(x) = x^2 + 2x + 1$, find $f(3)$.",
-              "description": "Substitute $x = 3$ into the function: $f(3) = 3^2 + 2(3) + 1 = 9 + 6 + 1 = 16$.",
-              "hints": "Substitute the value of $x$ into the function and evaluate.",
-              "verifiable": true,
-              "result": "16",
-              "prerequisites": ["D2"]
-            },
-            "E2": {
-              "code": "E2",
-              "name": "Limit Calculation",
-              "difficulty": "3",
-              "statement": "Calculate $\\lim_{x \\to 2} (3x^2 - 4x + 1)$.",
-              "description": "Substitute $x = 2$ directly: $\\lim_{x \\to 2} (3x^2 - 4x + 1) = 3(2)^2 - 4(2) + 1 = 12 - 8 + 1 = 5$.",
-              "hints": "This is a continuous function, so you can directly substitute the value.",
-              "verifiable": true,
-              "result": "5",
-              "prerequisites": ["D3"]
-            }
-          }
-        };
+    const fetchDomains = async () => {
+      try {
+        // Get all available domains
+        const myDomains = await getMyDomains();
+        const enrolledDomains = await getEnrolledDomains();
+        const publicDomains = await getPublicDomains();
         
-        setGraphData(mockGraphData);
-        setIsLoading(false);
-      }, 1000);
+        // Combine and remove duplicates
+        const combinedDomains = [...myDomains];
+        
+        // Add enrolled domains that aren't already in the list
+        enrolledDomains.forEach(domain => {
+          if (!combinedDomains.some(d => d.id === domain.id)) {
+            combinedDomains.push(domain);
+          }
+        });
+        
+        // Add public domains that aren't already in the list
+        publicDomains.forEach(domain => {
+          if (!combinedDomains.some(d => d.id === domain.id)) {
+            combinedDomains.push(domain);
+          }
+        });
+        
+        setDomains(combinedDomains);
+      } catch (err: any) {
+        console.error("Error fetching domains:", err);
+        setError("Failed to load domains. Please check your connection and try again.");
+      } finally {
+        // If we're not loading a specific domain, we can stop loading here
+        if (!selectedDomainId) {
+          setIsLoading(false);
+        }
+      }
+    };
+    
+    fetchDomains();
+  }, []);
+
+  // Load graph data when a domain is selected
+  useEffect(() => {
+    if (selectedDomainId) {
+      const fetchGraphData = async () => {
+        setIsLoading(true);
+        
+        try {
+          // Fetch the domain data using the API
+          const data = await exportDomain(parseInt(selectedDomainId));
+          setGraphData(data);
+          
+          // Update URL with selected domain ID
+          const url = new URL(window.location.href);
+          url.searchParams.set('domainId', selectedDomainId);
+          window.history.pushState({}, '', url);
+        } catch (err: any) {
+          console.error("Error fetching graph data:", err);
+          setError("Failed to load graph data. Please try again.");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      fetchGraphData();
     } else {
       setGraphData(null);
+      setIsLoading(false);
+      
+      // Remove domainId from URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('domainId');
+      window.history.pushState({}, '', url);
     }
-  }, [selectedSubjectMatter]);
+  }, [selectedDomainId]);
   
-  // Handle subject matter selection
-  const handleSelectSubjectMatter = (id: string) => {
-    setSelectedSubjectMatter(id);
+  // Handle domain selection
+  const handleSelectDomain = (id: string) => {
+    setSelectedDomainId(id);
   };
+  
+  // Handle going back to domain selection
+  const handleBack = () => {
+    setSelectedDomainId(null);
+    setGraphData(null);
+  };
+  
+  // Handle position updates from the graph
+  const handlePositionUpdate = async (positions: Record<string, { x: number; y: number }>) => {
+    if (!selectedDomainId) return;
+    
+    try {
+      await updateGraphPositions(parseInt(selectedDomainId), positions);
+    } catch (err: any) {
+      console.error("Error updating positions:", err);
+      // Don't show an error to the user, just log it
+    }
+  };
+  
+  // Convert domains to the format expected by SubjectMatterGraph
+  const subjectMatters = domains.map(domain => ({
+    id: domain.id.toString(),
+    name: domain.name,
+    // Estimate node count and exercise count if we don't have the actual data
+    nodeCount: domain.definitions?.length || 0,
+    exerciseCount: domain.exercises?.length || 0
+  }));
+  
+  // Get selected domain details
+  const selectedDomain = domains.find(d => d.id.toString() === selectedDomainId);
   
   return (
     <MathJaxContext config={config}>
       <GraphLayout>
         <div className="h-full w-full flex flex-col">
-          {selectedSubjectMatter ? (
+          {error && (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-red-500 text-xl p-8 bg-white rounded shadow-md">
+                {error}
+                <button
+                  onClick={() => window.location.reload()}
+                  className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
+          {!error && selectedDomainId ? (
             isLoading ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-xl text-gray-500">Loading {selectedSubjectMatter} graph...</p>
+                <p className="text-xl text-gray-500">Loading {selectedDomain?.name || selectedDomainId} graph...</p>
               </div>
             ) : (
               <div className="flex-1">
                 {graphData && (
                   <KnowledgeGraph 
                     graphData={graphData} 
-                    subjectMatterId={selectedSubjectMatter}
-                    onBack={() => setSelectedSubjectMatter(null)}
+                    subjectMatterId={selectedDomain?.name || selectedDomainId}
+                    onBack={handleBack}
+                    onPositionUpdate={handlePositionUpdate}
                   />
                 )}
               </div>
             )
           ) : (
             <div className="flex-1">
-              <SubjectMatterGraph 
-                subjectMatters={subjectMatters}
-                onSelectSubjectMatter={handleSelectSubjectMatter}
-              />
+              {isLoading ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <p className="text-xl text-gray-500">Loading domains...</p>
+                </div>
+              ) : (
+                <SubjectMatterGraph 
+                  subjectMatters={subjectMatters}
+                  onSelectSubjectMatter={handleSelectDomain}
+                />
+              )}
             </div>
           )}
         </div>

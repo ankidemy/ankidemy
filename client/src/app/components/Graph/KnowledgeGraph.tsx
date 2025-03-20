@@ -1,5 +1,7 @@
 // src/app/components/Graph/KnowledgeGraph.tsx
+// Updated with position update handling and API integration
 "use client";
+
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
@@ -9,6 +11,13 @@ import { Input } from "@/app/components/core/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import { Card, CardContent } from "@/app/components/core/card";
 import { ArrowLeft, Search, Plus, Edit, Eye, EyeOff, ZoomIn, Settings, Book, BarChart, X } from 'lucide-react';
+import { 
+  reviewDefinition, 
+  attemptExercise,
+  getDefinitionByCode,
+  getExerciseByCode,
+  GraphData 
+} from '@/lib/api';
 
 // Import ForceGraph dynamically to avoid SSR issues
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -35,11 +44,6 @@ interface Exercise {
   verifiable: boolean;
   result?: string;
   prerequisites: string[];
-}
-
-interface GraphData {
-  definitions: Record<string, Definition>;
-  exercises: Record<string, Exercise>;
 }
 
 interface GraphNode {
@@ -69,9 +73,15 @@ interface KnowledgeGraphProps {
   graphData: GraphData;
   subjectMatterId: string;
   onBack: () => void;
+  onPositionUpdate?: (positions: Record<string, { x: number; y: number }>) => void;
 }
 
-const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatterId, onBack }) => {
+const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ 
+  graphData, 
+  subjectMatterId, 
+  onBack,
+  onPositionUpdate 
+}) => {
   // References
   const graphRef = useRef<any>(null);
   
@@ -98,8 +108,23 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
   const [filteredNodeType, setFilteredNodeType] = useState<'all' | 'definition' | 'exercise'>('all');
   const [showNodeLabels, setShowNodeLabels] = useState(true);
   const [selectedDefinitionIndex, setSelectedDefinitionIndex] = useState(0);
+  const [positionsChanged, setPositionsChanged] = useState(false);
+  const [isSavingPositions, setIsSavingPositions] = useState(false);
   
-  // Prepare graph data from the new JSON format
+  // Track node position changes
+  const nodePositions = useRef<Record<string, { x: number; y: number }>>({});
+  
+  // Save node positions on component unmount or when explicitly requested
+  useEffect(() => {
+    // Save positions when component unmounts
+    return () => {
+      if (positionsChanged && onPositionUpdate && Object.keys(nodePositions.current).length > 0) {
+        onPositionUpdate(nodePositions.current);
+      }
+    };
+  }, [positionsChanged, onPositionUpdate]);
+  
+  // Prepare graph data from the provided GraphData format
   useEffect(() => {
     if (!graphData) return;
     
@@ -112,17 +137,21 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
         id,
         name: def.name,
         type: 'definition',
-        isRootDefinition: def.prerequisites.length === 0
+        isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
+        x: def.xPosition,
+        y: def.yPosition
       });
       
       // Add links from prerequisites
-      def.prerequisites.forEach(prereqId => {
-        links.push({
-          source: prereqId,
-          target: id,
-          type: 'prerequisite'
+      if (def.prerequisites) {
+        def.prerequisites.forEach(prereqId => {
+          links.push({
+            source: prereqId,
+            target: id,
+            type: 'prerequisite'
+          });
         });
-      });
+      }
     });
     
     // Process exercises
@@ -132,22 +161,33 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
           id,
           name: exercise.name,
           type: 'exercise',
-          difficulty: exercise.difficulty
+          difficulty: exercise.difficulty,
+          x: exercise.xPosition,
+          y: exercise.yPosition
         });
         
         // Add links from prerequisites
-        exercise.prerequisites.forEach(prereqId => {
-          links.push({
-            source: prereqId,
-            target: id,
-            type: 'prerequisite'
+        if (exercise.prerequisites) {
+          exercise.prerequisites.forEach(prereqId => {
+            links.push({
+              source: prereqId,
+              target: id,
+              type: 'prerequisite'
+            });
           });
-        });
+        }
       });
     }
     
     setGraphNodes(nodes);
     setGraphLinks(links);
+    
+    // Initialize nodePositions ref with existing positions
+    nodes.forEach(node => {
+      if (node.x !== undefined && node.y !== undefined) {
+        nodePositions.current[node.id] = { x: node.x, y: node.y };
+      }
+    });
     
   }, [graphData, mode]);
   
@@ -159,6 +199,21 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
       }, 500);
     }
   }, [graphNodes]);
+  
+  // Save positions to backend
+  const savePositions = async () => {
+    if (!onPositionUpdate || Object.keys(nodePositions.current).length === 0) return;
+    
+    setIsSavingPositions(true);
+    try {
+      await onPositionUpdate(nodePositions.current);
+      setPositionsChanged(false);
+    } catch (err) {
+      console.error("Failed to save positions:", err);
+    } finally {
+      setIsSavingPositions(false);
+    }
+  };
   
   // Get combined definitions and exercises
   const getAllNodes = useCallback(() => {
@@ -217,7 +272,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
       // Find related exercises for definitions
       if (node.type === 'definition') {
         const relatedExIds = Object.entries(graphData.exercises)
-          .filter(([, ex]) => ex.prerequisites.includes(node.id))
+          .filter(([, ex]) => ex.prerequisites && ex.prerequisites.includes(node.id))
           .map(([id]) => id);
         
         setRelatedExercises(relatedExIds);
@@ -281,14 +336,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
       if (node.type === 'definition') {
         // Find exercises that depend on this definition
         Object.entries(graphData.exercises).forEach(([exId, ex]) => {
-          if (ex.prerequisites.includes(node.id)) {
+          if (ex.prerequisites && ex.prerequisites.includes(node.id)) {
             highlightNodes.add(exId);
           }
         });
         
         // Find definitions that depend on this definition
         Object.entries(graphData.definitions).forEach(([defId, def]) => {
-          if (def.prerequisites.includes(node.id)) {
+          if (def.prerequisites && def.prerequisites.includes(node.id)) {
             highlightNodes.add(defId);
           }
         });
@@ -310,8 +365,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
     setHighlightLinks(new Set(highlightLinks));
   }, [graphLinks, getAllNodes, graphData]);
   
+  // Handle node drag end - save the position
+  const handleNodeDragEnd = useCallback((node: GraphNode) => {
+    if (node.x !== undefined && node.y !== undefined) {
+      nodePositions.current[node.id] = { x: node.x, y: node.y };
+      setPositionsChanged(true);
+    }
+  }, []);
+  
   // Verify exercise answer
-  const verifyAnswer = useCallback(() => {
+  const verifyAnswer = useCallback(async () => {
     if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'exercise') return;
     
     const exercise = selectedNodeDetails as Exercise;
@@ -323,16 +386,26 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
       return;
     }
     
-    // Compare with expected result
-    if (userAnswer.trim() === exercise.result?.trim()) {
-      setAnswerFeedback({
-        correct: true,
-        message: "Correct! Well done."
+    try {
+      // Track the attempt and get verification from API
+      const response = await attemptExercise(parseInt(selectedNode.id), {
+        exerciseId: parseInt(selectedNode.id),
+        answer: userAnswer,
+        timeTaken: 0 // We're not tracking time in the UI for now
       });
-    } else {
+      
+      // Simple local verification as fallback
+      const isCorrect = userAnswer.trim() === exercise.result?.trim();
+      
+      setAnswerFeedback({
+        correct: isCorrect,
+        message: isCorrect ? "Correct! Well done." : "Incorrect. Try again or check the solution."
+      });
+    } catch (err) {
+      console.error("Error verifying answer:", err);
       setAnswerFeedback({
         correct: false,
-        message: "Incorrect. Try again or check the solution."
+        message: "Error verifying your answer. Please try again."
       });
     }
   }, [selectedNode, selectedNodeDetails, userAnswer]);
@@ -343,6 +416,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
       ...personalNotes,
       [nodeId]: notes
     });
+    // Here we could also save to localStorage or to an API
   }, [personalNotes]);
   
   // Toggle panels
@@ -468,6 +542,29 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
     return selectedNodeDetails.description.length;
   }, [selectedNodeDetails]);
   
+  // Handle review for definition
+  const handleReviewDefinition = useCallback(async (result: 'again' | 'hard' | 'good' | 'easy') => {
+    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
+    
+    try {
+      // Get the actual definition from the backend to get its ID
+      const definition = await getDefinitionByCode(selectedNode.id);
+      
+      // Submit the review
+      await reviewDefinition(definition.id, {
+        definitionId: definition.id,
+        result,
+        timeTaken: 0 // We're not tracking time in the UI for now
+      });
+      
+      // Show feedback to the user
+      alert(`Review recorded: ${result}`);
+    } catch (err) {
+      console.error("Error submitting review:", err);
+      alert("Failed to record review. Please try again.");
+    }
+  }, [selectedNode, selectedNodeDetails]);
+  
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Top Controls */}
@@ -476,7 +573,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
           <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
             <ArrowLeft size={18} />
           </Button>
-          <h2 className="text-xl font-bold">{subjectMatterId.charAt(0).toUpperCase() + subjectMatterId.slice(1)}</h2>
+          <h2 className="text-xl font-bold">{subjectMatterId}</h2>
         </div>
         
         <div className="flex space-x-2">
@@ -517,6 +614,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
             <ZoomIn size={16} className="mr-1" />
             Fit View
           </Button>
+          {positionsChanged && (
+            <Button 
+              variant="outline"
+
+              size="sm"
+              onClick={savePositions}
+              disabled={isSavingPositions}
+              className="flex items-center"
+            >
+              {isSavingPositions ? "Saving..." : "Save Positions"}
+            </Button>
+          )}
           <Button 
             onClick={() => createNewNode('definition')}
             className="flex items-center"
@@ -677,6 +786,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
             linkCurvature={0.25}
             onNodeClick={handleNodeClick}
             onNodeHover={handleNodeHover}
+            onNodeDragEnd={handleNodeDragEnd}
             d3AlphaDecay={0.01}
             d3VelocityDecay={0.3}
             warmupTicks={100}
@@ -962,6 +1072,45 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ graphData, subjectMatte
                             </ul>
                           </div>
                         )}
+                        
+                        {/* Review buttons */}
+                        <div>
+                          <h4 className="font-medium text-sm text-gray-500 mb-2">RATE YOUR UNDERSTANDING</h4>
+                          <div className="flex flex-wrap gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="bg-red-50 hover:bg-red-100"
+                              onClick={() => handleReviewDefinition('again')}
+                            >
+                              Again
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="bg-orange-50 hover:bg-orange-100"
+                              onClick={() => handleReviewDefinition('hard')}
+                            >
+                              Hard
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="bg-green-50 hover:bg-green-100"
+                              onClick={() => handleReviewDefinition('good')}
+                            >
+                              Good
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="bg-blue-50 hover:bg-blue-100"
+                              onClick={() => handleReviewDefinition('easy')}
+                            >
+                              Easy
+                            </Button>
+                          </div>
+                        </div>
                         
                         <div>
                           <h4 className="font-medium text-sm text-gray-500 mb-2">PERSONAL NOTES</h4>

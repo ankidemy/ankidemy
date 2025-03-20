@@ -6,14 +6,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { loginUser } from "@/lib/api"; // Import the login function
-import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/solid"; // Import eye icons
-
-interface LoginResponse {
-  success: boolean;
-  message?: string; // Optional message for success/failure
-  token?: string;   // If you're using token-based auth
-  user?: any;       // Optional:  User data on successful login
-}
+import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/solid";
 
 export default function Login() {
   const router = useRouter();
@@ -33,22 +26,14 @@ export default function Login() {
     setError(null); // Clear previous errors
 
     try {
-      const data = await loginUser({ email, password });
-
-      if (data.success) {
-        // Successful login!
-        console.log("Login successful:", data);
-        // Handle success by redirecting to dashboard
-        router.push("/dashboard");
-        // If using token authentication:
-        // localStorage.setItem('token', data.token);
-      } else {
-        // Login failed
-        setError(data.message || "Login failed. Please check your credentials.");
-      }
+      // Use the new API client login function
+      await loginUser({ email, password });
+      
+      // If successful, redirect to dashboard
+      router.push("/dashboard");
     } catch (err: any) {
-      // Network error or other unexpected error
-      setError("An unexpected error occurred. Please try again.");
+      // Handle login failures
+      setError(err.message || "Login failed. Please check your credentials.");
       console.error("Login error:", err);
     } finally {
       setIsLoading(false);
