@@ -95,67 +95,94 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
     }
   }, [graphData]);
 
-  // Custom node renderer
+  // Custom node renderer with error handling
   const nodeCanvasObject = (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-    const { id, name, nodeCount = 0, exerciseCount = 0, x, y } = node;
-    const fontSize = 14/globalScale;
-    const isHovered = hoveredNode && hoveredNode.id === id;
-    
-    // Draw node background with gradient
-    const size = isHovered ? 18 : 15;
-    const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-    gradient.addColorStop(0, 'rgba(249, 115, 22, 0.8)'); // Orange core
-    gradient.addColorStop(1, 'rgba(249, 115, 22, 0.4)'); // Faded edge
-    
-    ctx.beginPath();
-    ctx.fillStyle = gradient;
-    ctx.arc(x, y, size, 0, 2 * Math.PI, false);
-    ctx.fill();
+    try {
+      // Validate coordinates to prevent non-finite values
+      const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
+      const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
+      const name = node.name || 'Unknown';
+      const nodeCount = node.nodeCount || 0;
+      const exerciseCount = node.exerciseCount || 0;
+      
+      const fontSize = 14/globalScale;
+      const isHovered = hoveredNode && hoveredNode.id === node.id;
+      
+      // Draw node background with gradient
+      const size = isHovered ? 18 : 15;
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
+      gradient.addColorStop(0, 'rgba(249, 115, 22, 0.8)'); // Orange core
+      gradient.addColorStop(1, 'rgba(249, 115, 22, 0.4)'); // Faded edge
+      
+      ctx.beginPath();
+      ctx.fillStyle = gradient;
+      ctx.arc(x, y, size, 0, 2 * Math.PI, false);
+      ctx.fill();
 
-    // Draw node border
-    ctx.strokeStyle = isHovered ? 'rgba(249, 115, 22, 1)' : 'rgba(249, 115, 22, 0.6)';
-    ctx.lineWidth = isHovered ? 2/globalScale : 1.5/globalScale;
-    ctx.stroke();
-    
-    // Draw node label with shadow for better visibility
-    ctx.font = `${isHovered ? fontSize + 1 : fontSize}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Add shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.fillText(name, x + 1, y + 1);
-    
-    // Draw actual text
-    ctx.fillStyle = 'white';
-    ctx.fillText(name, x, y);
+      // Draw node border
+      ctx.strokeStyle = isHovered ? 'rgba(249, 115, 22, 1)' : 'rgba(249, 115, 22, 0.6)';
+      ctx.lineWidth = isHovered ? 2/globalScale : 1.5/globalScale;
+      ctx.stroke();
+      
+      // Draw node label with shadow for better visibility
+      ctx.font = `${isHovered ? fontSize + 1 : fontSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      // Add shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fillText(name, x + 1, y + 1);
+      
+      // Draw actual text
+      ctx.fillStyle = 'white';
+      ctx.fillText(name, x, y);
 
-    // Draw stats below the node if hovered
-    if (isHovered) {
-      ctx.font = `${fontSize * 0.8}px sans-serif`;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.shadowColor = 'black';
-      ctx.shadowBlur = 3;
-      ctx.shadowOffsetX = 1;
-      ctx.shadowOffsetY = 1;
-      ctx.fillText(
-        `${nodeCount} definitions, ${exerciseCount} exercises`, 
-        x, 
-        y + 25
-      );
-      ctx.shadowColor = 'transparent';
+      // Draw stats below the node if hovered
+      if (isHovered) {
+        ctx.font = `${fontSize * 0.8}px sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 3;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+        ctx.fillText(
+          `${nodeCount} definitions, ${exerciseCount} exercises`, 
+          x, 
+          y + 25
+        );
+        ctx.shadowColor = 'transparent';
+      }
+    } catch (err) {
+      // Fallback rendering if an error occurs
+      console.error("Error rendering node:", err);
+      
+      // Use safe values for coordinates
+      const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
+      const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
+      
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(249, 115, 22, 0.6)';
+      ctx.arc(x, y, 10, 0, 2 * Math.PI);
+      ctx.fill();
     }
   };
   
-  // Link styling
+  // Link styling with safety checks
   const getLinkColor = (link: any) => {
-    const sourceNode = graphData.nodes.find(n => n.id === link.source);
-    const targetNode = graphData.nodes.find(n => n.id === link.target);
-    
-    const isHovered = hoveredNode && 
-      (hoveredNode.id === sourceNode?.id || hoveredNode.id === targetNode?.id);
-    
-    return isHovered ? 'rgba(249, 115, 22, 0.6)' : 'rgba(249, 115, 22, 0.2)';
+    try {
+      const source = typeof link.source === 'object' ? link.source.id : link.source;
+      const target = typeof link.target === 'object' ? link.target.id : link.target;
+      
+      const sourceNode = graphData.nodes.find(n => n.id === source);
+      const targetNode = graphData.nodes.find(n => n.id === target);
+      
+      const isHovered = hoveredNode && 
+        (hoveredNode.id === source || hoveredNode.id === target);
+      
+      return isHovered ? 'rgba(249, 115, 22, 0.6)' : 'rgba(249, 115, 22, 0.2)';
+    } catch (err) {
+      return 'rgba(249, 115, 22, 0.2)'; // Default color on error
+    }
   };
 
   if (error) {
@@ -206,7 +233,11 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
           nodeRelSize={6}
           linkWidth={2}
           linkColor={getLinkColor}
-          onNodeClick={(node) => onSelectSubjectMatter(node.id)}
+          onNodeClick={(node) => {
+            if (node && node.id) {
+              onSelectSubjectMatter(node.id)
+            }
+          }}
           onNodeHover={setHoveredNode}
           cooldownTicks={100}
           cooldownTime={2000}
