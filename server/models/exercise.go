@@ -9,7 +9,7 @@ import (
 // Exercise represents a practice exercise
 type Exercise struct {
 	gorm.Model
-	Code        string    `gorm:"column:code;unique;not null" json:"code"`
+	Code        string    `gorm:"column:code;not null" json:"code"` // Removed unique constraint
 	Name        string    `gorm:"column:name;not null" json:"name"`
 	Statement   string    `gorm:"column:statement;not null" json:"statement"`
 	Description string    `gorm:"column:description" json:"description"`
@@ -18,7 +18,7 @@ type Exercise struct {
 	OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
 	Verifiable  bool      `gorm:"column:verifiable;default:false" json:"verifiable"`
 	Result      string    `gorm:"column:result" json:"result"`
-	Difficulty  string    `gorm:"column:difficulty" json:"difficulty"`
+	Difficulty  int       `gorm:"column:difficulty" json:"difficulty"` // Changed from string to int
 	XPosition   float64   `gorm:"column:x_position" json:"xPosition"`
 	YPosition   float64   `gorm:"column:y_position" json:"yPosition"`
 	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
@@ -47,7 +47,7 @@ type ExerciseRequest struct {
 	DomainID       uint     `json:"domainId"`
 	Verifiable     bool     `json:"verifiable,omitempty"`
 	Result         string   `json:"result,omitempty"`
-	Difficulty     string   `json:"difficulty,omitempty"`
+	Difficulty     int      `json:"difficulty,omitempty"` // Changed from string to int
 	PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
 	XPosition      float64  `json:"xPosition,omitempty"`
 	YPosition      float64  `json:"yPosition,omitempty"`
@@ -65,7 +65,7 @@ type ExerciseResponse struct {
 	OwnerID       uint      `json:"ownerId"`
 	Verifiable    bool      `json:"verifiable"`
 	Result        string    `json:"result,omitempty"`
-	Difficulty    string    `json:"difficulty,omitempty"`
+	Difficulty    int       `json:"difficulty,omitempty"` // Changed from string to int
 	Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes
 	XPosition     float64   `json:"xPosition,omitempty"`
 	YPosition     float64   `json:"yPosition,omitempty"`

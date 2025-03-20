@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"myapp/server/dao"
@@ -45,7 +46,7 @@ type ExerciseNode struct {
 	Statement     string   `json:"statement"`
 	Description   string   `json:"description,omitempty"`
 	Hints         string   `json:"hints,omitempty"`
-	Difficulty    string   `json:"difficulty,omitempty"`
+	Difficulty    string      `json:"difficulty,omitempty"`
 	Verifiable    bool     `json:"verifiable,omitempty"`
 	Result        string   `json:"result,omitempty"`
 	Prerequisites []string `json:"prerequisites,omitempty"`
@@ -381,9 +382,16 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 	// Create exercises
 	exercises := make(map[string]*models.Exercise)
 	for code, ex := range graphData.Exercises {
-		difficulty := ex.Difficulty
-		if difficulty == "" {
-			difficulty = "3" // Default medium difficulty
+		difficultyStr := ex.Difficulty
+		if difficultyStr == "" {
+			difficultyStr = "3" // Default medium difficulty
+		}
+
+		// Convert string difficulty to int
+		difficultyInt, err := strconv.Atoi(difficultyStr)
+		if err != nil {
+			// Handle error or set a default value
+			difficultyInt = 3 // Default to medium difficulty (integer)
 		}
 
 		exercise := &models.Exercise{
@@ -396,7 +404,7 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 			OwnerID:     adminUser.ID,
 			Verifiable:  ex.Verifiable,
 			Result:      ex.Result,
-			Difficulty:  difficulty,
+			Difficulty:  difficultyInt, // Now using the integer value
 			XPosition:   ex.XPosition,
 			YPosition:   ex.YPosition,
 		}

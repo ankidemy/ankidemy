@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS domain_comments (
 -- Definitions 
 CREATE TABLE IF NOT EXISTS definitions (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
+    code VARCHAR(50) NOT NULL,  -- Removed UNIQUE constraint, code is for ordering
     name VARCHAR(200) NOT NULL,
     description TEXT NOT NULL,
     notes TEXT,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS definition_prerequisites (
 -- Exercises
 CREATE TABLE IF NOT EXISTS exercises (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
+    code VARCHAR(50) NOT NULL,  -- Removed UNIQUE constraint, code is for ordering
     name VARCHAR(200) NOT NULL,
     statement TEXT NOT NULL,
     description TEXT,
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS exercises (
     owner_id INT NOT NULL,
     verifiable BOOLEAN DEFAULT FALSE,
     result TEXT,
-    difficulty VARCHAR(20) CHECK (difficulty IN ('easy', 'medium', 'hard')),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 7),  -- Changed to integer 1-7
     x_position FLOAT,
     y_position FLOAT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

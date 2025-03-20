@@ -61,7 +61,7 @@ interface Definition {
   description: string | string[];
   notes?: string;
   references?: string[];
-  prerequisites: string[];
+  prerequisites?: string[]; // Updated: Now optional to match API
   xPosition?: number;
   yPosition?: number;
 }
@@ -70,13 +70,13 @@ interface Exercise {
   id: number;
   code: string;
   name: string;
-  difficulty: string;
+  difficulty: string; // The API expects this as a number between 1-7
   statement: string;
   description: string;
   hints?: string;
   verifiable: boolean;
   result?: string;
-  prerequisites: string[];
+  prerequisites?: string[]; // Updated: Now optional to match API
   xPosition?: number;
   yPosition?: number;
 }
@@ -244,8 +244,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         y: def.yPosition
       });
       
-      // Add links from prerequisites
-      if (def.prerequisites) {
+      // Add links from prerequisites - now check if prerequisites exist first
+      if (def.prerequisites && def.prerequisites.length > 0) {
         def.prerequisites.forEach(prereqId => {
           links.push({
             source: prereqId,
@@ -268,8 +268,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           y: exercise.yPosition
         });
         
-        // Add links from prerequisites
-        if (exercise.prerequisites) {
+        // Add links from prerequisites - now check if prerequisites exist first
+        if (exercise.prerequisites && exercise.prerequisites.length > 0) {
           exercise.prerequisites.forEach(prereqId => {
             links.push({
               source: prereqId,
@@ -307,16 +307,22 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     
     setIsSavingPositions(true);
     try {
+      // The API expects a record where keys are node IDs and values are {x, y} objects
+      // This is already the format we're using in nodePositions.current
       await onPositionUpdate(nodePositions.current);
       setPositionsChanged(false);
     } catch (err) {
       console.error("Failed to save positions:", err);
+      // Show error to user
+      alert("Failed to save node positions. Please try again.");
     } finally {
       setIsSavingPositions(false);
     }
   };
   
-  // Current description for display - handles multiple description formats
+  // Current description for display - handles multiple description formats.
+  // The backend API stores descriptions as strings, possibly with '|||' delimiter
+  // to represent multiple alternative descriptions.
   const currentDescription = useCallback(() => {
     if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return '';
     
@@ -339,6 +345,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   }, [selectedNodeDetails, selectedDefinitionIndex]);
   
   // Check if the definition has multiple descriptions
+  // Backend stores multiple descriptions as a single string with '|||' delimiter
   const hasMultipleDescriptions = useCallback(() => {
     if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return false;
     
@@ -368,6 +375,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   }, [selectedNodeDetails]);
   
   // Handle definition edit form submission
+  // Note: When sending to the API, multiple descriptions are joined with '|||'
+  // to maintain compatibility with the backend's string format expectations
   const handleDefinitionEditSubmit = async () => {
     if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
     
@@ -394,7 +403,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         
         // Update only the current description
         descriptions[selectedDefinitionIndex] = description;
-        description = descriptions.join('|||');
+        description = descriptions.join('|||');  // Join with delimiter for API compatibility
       }
       
       const notes = notesInput?.value || '';
@@ -451,7 +460,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       const statement = statementInput?.value || '';
       const description = descriptionInput?.value || '';
       const hints = hintsInput?.value || '';
-      const difficulty = difficultyInput?.value || '3';
+      
+      // Ensure difficulty is a valid number between 1-7
+      const rawDifficulty = difficultyInput?.value || '3';
+      const validatedDifficulty = Math.min(7, Math.max(1, parseInt(rawDifficulty, 10))).toString();
+      
       const verifiable = verifiableInput?.checked || false;
       const result = resultInput?.value || '';
       
@@ -466,7 +479,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         statement,
         description,
         hints,
-        difficulty,
+        difficulty: validatedDifficulty,
         verifiable,
         result,
         prerequisiteIds
@@ -490,8 +503,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       alert('Failed to update exercise. Please try again.');
     }
   };
-  
-  // Get combined definitions and exercises
+// Get combined definitions and exercises
   const getAllNodes = useCallback(() => {
     const allNodeDetails: Record<string, Definition | Exercise> = {
       ...graphData.definitions,
@@ -602,7 +614,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       const allNodes = getAllNodes();
       const nodeDetails = allNodes[node.id];
       
-      if (nodeDetails && nodeDetails.prerequisites) {
+      // Check if prerequisites exists first
+      if (nodeDetails && nodeDetails.prerequisites && nodeDetails.prerequisites.length > 0) {
         nodeDetails.prerequisites.forEach(prereqId => {
           highlightNodes.add(prereqId);
         });
@@ -644,7 +657,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // Handle node drag end - save the position
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
     if (node.x !== undefined && node.y !== undefined) {
+      // Store position for later saving to API
       nodePositions.current[node.id] = { x: node.x, y: node.y };
+      // Flag that positions have changed and need saving
       setPositionsChanged(true);
     }
   }, []);
@@ -669,10 +684,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         : parseInt(selectedNode.id);
         
       // Track the attempt and get verification from API
+      // Note: The exerciseAttemptRequest structure must match the API expectation
       const response = await attemptExercise(exerciseId, {
         exerciseId: exerciseId,
         answer: userAnswer,
-        timeTaken: 0 // We're not tracking time in the UI for now
+        timeTaken: 0 // Required by API but we're not tracking time in the UI for now
       });
       
       setAnswerFeedback({
@@ -744,6 +760,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   }, []);
   
   // Handle review for definition
+  // The API expects result to be one of: 'again', 'hard', 'good', 'easy'
   const handleReviewDefinition = useCallback(async (result: 'again' | 'hard' | 'good' | 'easy') => {
     if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
     
@@ -753,11 +770,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         ? await getDefinitionIdByCode(selectedNode.id)
         : parseInt(selectedNode.id);
         
-      // Submit the review
+      // Submit the review with the structure expected by the API
       await reviewDefinition(definitionId, {
         definitionId: definitionId,
-        result: result,
-        timeTaken: 0 // We're not tracking time in the UI for now
+        result: result, // Must be one of: 'again', 'hard', 'good', 'easy' as specified in API
+        timeTaken: 0 // Required by API but we're not tracking time in the UI for now
       });
       
       // Show feedback to the user
@@ -780,10 +797,17 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     if (type === 'definition') {
       color = node.isRootDefinition ? '#34a853' : '#4285f4';
     } else {
-      // Exercise color based on difficulty
+      // Exercise color based on difficulty - ensure it's a valid number in range 1-7
       const difficultyColors = ['#66bb6a', '#26a69a', '#ffb74d', '#ff7043', '#e53935'];
-      const difficultyLevel = parseInt(node.difficulty || '3', 10) - 1;
-      color = difficultyColors[Math.max(0, Math.min(4, difficultyLevel))];
+      let difficultyLevel = 2; // Default to middle level (3-1=2)
+      if (node.difficulty) {
+        // Parse as integer and constrain to 1-7 range
+        const parsedDifficulty = parseInt(node.difficulty, 10);
+        if (!isNaN(parsedDifficulty)) {
+          difficultyLevel = Math.max(0, Math.min(4, parsedDifficulty - 1));
+        }
+      }
+      color = difficultyColors[difficultyLevel];
     }
     
     // Adjust for selection/highlight
@@ -1019,7 +1043,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               </Tabs>
             </div>
           </div>
-          
           {/* Toggle button for left panel */}
           {!showLeftPanel && (
             <Button 
@@ -1204,15 +1227,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                           </div>
                           <div className="flex space-x-4 mt-3">
                             <div>
-                              <label className="block text-sm font-medium mb-1">Difficulty (1-5)</label>
+                              <label className="block text-sm font-medium mb-1">Difficulty (1-7)</label>
                               <Input
                                 id="difficulty" 
                                 type="number" 
                                 min="1" 
-                                max="5" 
+                                max="7" 
                                 defaultValue={(selectedNodeDetails as Exercise).difficulty || '3'} 
                                 className="w-20"
                               />
+                              <p className="text-xs text-gray-500 mt-1">Value must be between 1-7</p>
                             </div>
                             <div>
                               <label className="block text-sm font-medium mb-1">Verifiable</label>
@@ -1248,7 +1272,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                               <option 
                                 key={node.id} 
                                 value={node.id}
-                                selected={selectedNodeDetails.prerequisites.includes(node.id)}
+                                selected={selectedNodeDetails.prerequisites?.includes(node.id) || false}
                               >
                                 {node.id}: {node.name}
                               </option>
@@ -1340,7 +1364,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                           
                           <div>
                             <h4 className="font-medium text-sm text-gray-500 mb-2">PREREQUISITES</h4>
-                            {selectedNodeDetails.prerequisites.length > 0 ? (
+                            {selectedNodeDetails.prerequisites && selectedNodeDetails.prerequisites.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {selectedNodeDetails.prerequisites.map(prereqId => (
                                   <Button 
@@ -1533,7 +1557,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                           
                           <div>
                             <h4 className="font-medium text-sm text-gray-500 mb-2">RELATED CONCEPTS</h4>
-                            {selectedNodeDetails.prerequisites.length > 0 ? (
+                            {selectedNodeDetails.prerequisites && selectedNodeDetails.prerequisites.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {selectedNodeDetails.prerequisites.map(prereqId => (
                                   <Button 
@@ -1583,4 +1607,4 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   );
 };
 
-export default KnowledgeGraph;
+export default KnowledgeGraph;  
