@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-)
 
 	"gorm.io/gorm"
 )
@@ -215,7 +214,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		}
 		
 		// Create exercises
-		for nodeID, exNode := range data.Exercises {
+		for _, exNode := range data.Exercises {
 			ex := &models.Exercise{
 				Code:        exNode.Code,
 				Name:        exNode.Name,
