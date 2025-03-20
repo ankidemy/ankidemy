@@ -69,15 +69,19 @@ const DomainForm: React.FC<DomainFormProps> = ({ domainId, onSuccess, onCancel }
       let domain;
       
       if (isEditing && domainId) {
+        // For updating, ensure we're only sending fields that are valid for update
+        // According to API doc: name, privacy, description are the valid update fields
         domain = await updateDomain(parseInt(domainId), {
           name,
-          description,
+          description: description.trim() || undefined, // Only send if it has content
           privacy
         });
       } else {
+        // For creating, ensure we're sending all required fields
+        // According to API doc: name and privacy are required, description is optional
         domain = await createDomain({
           name,
-          description,
+          description: description.trim() || undefined, // Only send if it has content
           privacy
         });
       }

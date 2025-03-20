@@ -169,6 +169,26 @@ const handleResponse = async (response: Response) => {
       // Could not parse JSON, use status text
       errorMessage = response.statusText || `HTTP error ${response.status}`;
     }
+
+    // Add more specific error messages based on status codes from API documentation
+    switch (response.status) {
+      case 400:
+        errorMessage = `Bad Request: ${errorMessage}`;
+        break;
+      case 401:
+        errorMessage = 'Authentication required. Please log in again.';
+        break;
+      case 403:
+        errorMessage = 'You do not have permission to perform this action.';
+        break;
+      case 404:
+        errorMessage = 'The requested resource was not found.';
+        break;
+      case 409:
+        errorMessage = 'This operation could not be completed due to a conflict (resource may already exist).';
+        break;
+    }
+    
     console.error(`API Error: ${errorMessage}`, { status: response.status, url: response.url });
     throw new Error(errorMessage);
   }
@@ -688,10 +708,14 @@ export const checkHealth = async (): Promise<{ status: string }> => {
   return handleResponse(response);
 };
 
-
-
-
-// Utility function to parse description strings that might contain multiple descriptions
+/**
+ * Parses a description string that may contain multiple descriptions separated by '|||'
+ * The backend stores descriptions as a single string, but the frontend can display
+ * them as multiple alternatives.
+ * 
+ * @param description Description string potentially containing multiple parts
+ * @returns An array of individual description strings
+ */
 export const parseDescriptions = (description: string): string[] => {
   if (description.includes('|||')) {
     return description.split('|||');
@@ -699,8 +723,13 @@ export const parseDescriptions = (description: string): string[] => {
   return [description];
 };
 
-
-// Function to handle refreshing graph data
+/**
+ * Fetches updated graph data from the backend
+ * This is useful after making updates to ensure the UI reflects the current state
+ * 
+ * @param domainId The ID of the domain to refresh graph data for
+ * @returns Promise resolving to the updated VisualGraph data
+ */
 export const refreshGraphData = async (domainId: number): Promise<VisualGraph> => {
   const response = await fetch(`${API_URL}/api/domains/${domainId}/graph`, {
     headers: getAuthHeaders(),
