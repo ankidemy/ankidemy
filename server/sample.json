@@ -48,7 +48,7 @@
       "statement": "Given sets $A = \\{1, 2, 3\\}$ and $B = \\{2, 3, 4\\}$, find $A \\cup B$ and $A \\cap B$.",
       "description": "The union $A \\cup B = \\{1, 2, 3, 4\\}$ contains all elements that are in either set.\nThe intersection $A \\cap B = \\{2, 3\\}$ contains elements that are in both sets.",
       "hints": "Remember that union contains all elements from both sets, while intersection contains only common elements.",
-      "difficulty": "easy",
+      "difficulty": "1",
       "verifiable": true,
       "result": "{1,2,3,4},{2,3}",
       "prerequisites": ["math_1.2"]
@@ -59,7 +59,7 @@
       "statement": "Given functions $f(x) = x^2$ and $g(x) = x+1$, find $(f \\circ g)(x)$ and $(g \\circ f)(x)$.",
       "description": "$(f \\circ g)(x) = f(g(x)) = f(x+1) = (x+1)^2 = x^2 + 2x + 1$\n$(g \\circ f)(x) = g(f(x)) = g(x^2) = x^2 + 1$",
       "hints": "Remember that $(f \\circ g)(x) = f(g(x))$.",
-      "difficulty": "medium",
+      "difficulty": "2",
       "verifiable": true,
       "result": "x^2+2x+1,x^2+1",
       "prerequisites": ["math_2.1"]

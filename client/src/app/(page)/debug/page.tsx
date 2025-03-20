@@ -909,13 +909,13 @@ function ExerciseDebugPanel() {
     setActionStatus('Processing...');
     
     try {
-      // Make sure position values are properly converted, but keep difficulty as string
+      // Make sure position values are properly converted and convert difficulty to a number
       const processedFormData = {
         ...formData,
         xPosition: formData.xPosition ? Number(formData.xPosition) : 0,
         yPosition: formData.yPosition ? Number(formData.yPosition) : 0,
-        // Keep difficulty as string since that's what the backend expects
-        difficulty: formData.difficulty?.toString() || '3',
+        // Convert difficulty to a number since that's what the backend expects
+        difficulty: formData.difficulty ? parseInt(formData.difficulty, 10) : 3,
         prerequisiteIds: formData.prerequisiteIds?.map(id => 
           typeof id === 'string' ? Number(id) : id
         )
