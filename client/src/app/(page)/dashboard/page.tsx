@@ -1,200 +1,176 @@
+// src/app/dashboard/page.tsx
 "use client";
 
-import Link from "next/link";
-import Image from "next/image";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { logout, getCurrentUser, getMyDomains, getEnrolledDomains, User, Domain } from "@/lib/api";
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from "@/app/components/core/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/app/components/core/card";
+import { getAllDomains, getMyDomains, getEnrolledDomains, Domain } from '@/lib/api';
+import { Plus, Book, Users, User } from 'lucide-react';
 
-export default function Dashboard() {
+export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [ownedDomains, setOwnedDomains] = useState<Domain[]>([]);
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [myDomains, setMyDomains] = useState<Domain[]>([]);
   const [enrolledDomains, setEnrolledDomains] = useState<Domain[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'my' | 'enrolled'>('all');
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchDomains = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        // Fetch current user data
-        const userData = await getCurrentUser();
-        setUser(userData);
+        // Fetch domains based on active tab
+        let fetchedDomains: Domain[] = [];
         
-        // Fetch domains created by the user
-        const myDomains = await getMyDomains();
-        setOwnedDomains(myDomains);
-        
-        // Fetch domains the user is enrolled in
-        const enrolled = await getEnrolledDomains();
-        setEnrolledDomains(enrolled);
-      } catch (err: any) {
-        console.error("Error fetching dashboard data:", err);
-        setError("Failed to load your data. Please try logging in again.");
-        
-        // Redirect to login if unauthorized
-        if (err.message?.includes("unauthorized") || err.message?.includes("token")) {
-          router.push("/login");
+        if (activeTab === 'all') {
+          fetchedDomains = await getAllDomains();
+        } else if (activeTab === 'my') {
+          fetchedDomains = await getMyDomains();
+        } else if (activeTab === 'enrolled') {
+          fetchedDomains = await getEnrolledDomains();
         }
+        
+        if (activeTab === 'all') {
+          setDomains(fetchedDomains);
+        } else if (activeTab === 'my') {
+          setMyDomains(fetchedDomains);
+        } else if (activeTab === 'enrolled') {
+          setEnrolledDomains(fetchedDomains);
+        }
+      } catch (err: any) {
+        console.error("Error fetching domains:", err);
+        setError(`Failed to load domains: ${err.message}`);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
-    
-    fetchData();
-  }, [router]);
 
-  // Function to handle logout
-  const handleLogout = () => {
-    logout();
-    router.push("/");
+    fetchDomains();
+  }, [activeTab]);
+
+  const navigateToDomain = (domainId: number) => {
+    router.push(`/dashboard/domains/${domainId}/study`);
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100">
-        <div className="text-xl">Loading...</div>
-      </div>
-    );
-  }
+  const createNewDomain = () => {
+    router.push('/dashboard/domains/new');
+  };
 
-  if (error) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100">
-        <div className="text-red-500 text-xl">{error}</div>
-      </div>
-    );
-  }
+  const displayDomains = activeTab === 'all' ? domains : (activeTab === 'my' ? myDomains : enrolledDomains);
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      <aside className="w-64 bg-orange-100 text-orange-800 flex flex-col p-4">
-        <Image
-          src="/img/logo.png"
-          alt="Logo"
-          width={130} 
-          height={32} 
-        />
-        <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-        <nav className="flex-1">
-          <ul>
-            <li>
-              <Link href="/dashboard" className="block py-2 px-4 hover:bg-orange-400 rounded">
-                Home
-              </Link>
-            </li>
-            <li>
-              <Link href="/dashboard/profile" className="block py-2 px-4 hover:bg-orange-400 rounded">
-                Profile
-              </Link>
-            </li>
-            <li>
-              <Link href="/graph" className="block py-2 px-4 hover:bg-orange-400 rounded">
-                Knowledge Graphs
-              </Link>
-            </li>
-            <li>
-              <Link href="/dashboard/settings" className="block py-2 px-4 hover:bg-orange-400 rounded">
-                Settings
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <button
-          onClick={handleLogout}
-          className="py-2 px-4 text-white bg-orange-500 hover:bg-orange-400 rounded text-center mt-4"
-        >
-          Log Out
-        </button>
-      </aside>
+    <div className="container mx-auto py-10 px-4">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Knowledge Domains</h1>
+        <Button onClick={createNewDomain} className="flex items-center">
+          <Plus size={16} className="mr-2" />
+          Create Domain
+        </Button>
+      </div>
 
-      <main className="flex-1 p-6">
-        <h2 className="text-3xl font-semibold mb-4">
-          {user ? `Welcome, ${user.firstName || user.username}!` : 'Welcome to Ankidemy'}
-        </h2>
-        
-        {/* Your Domains Section */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-medium">Your Domains</h3>
-            <Link 
-              href="/dashboard/domains/create" 
-              className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-400"
-            >
-              Create New Domain
-            </Link>
-          </div>
-          
-          {ownedDomains.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {ownedDomains.map(domain => (
-                <div key={domain.id} className="bg-white p-6 rounded shadow">
-                  <h4 className="text-lg font-bold">{domain.name}</h4>
-                  <p className="text-sm text-gray-600">{domain.description || 'No description'}</p>
-                  <div className="mt-4 flex justify-between">
-                    <Link 
-                      href={`/graph?domainId=${domain.id}`}
-                      className="text-orange-500 hover:underline"
-                    >
-                      View Graph
-                    </Link>
-                    <Link 
-                      href={`/dashboard/domains/${domain.id}/edit`}
-                      className="text-blue-500 hover:underline"
-                    >
-                      Edit
-                    </Link>
-                  </div>
-                </div>
-              ))}
+      <div className="mb-6">
+        <div className="flex border-b border-gray-200">
+          <button
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'all'
+                ? 'border-b-2 border-orange-500 text-orange-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('all')}
+          >
+            <div className="flex items-center">
+              <Book size={16} className="mr-2" />
+              All Domains
             </div>
-          ) : (
-            <div className="bg-white p-6 rounded shadow">
-              <p>You haven't created any domains yet. Create your first domain to get started!</p>
+          </button>
+          <button
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'my'
+                ? 'border-b-2 border-orange-500 text-orange-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('my')}
+          >
+            <div className="flex items-center">
+              <User size={16} className="mr-2" />
+              My Domains
             </div>
+          </button>
+          <button
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'enrolled'
+                ? 'border-b-2 border-orange-500 text-orange-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('enrolled')}
+          >
+            <div className="flex items-center">
+              <Users size={16} className="mr-2" />
+              Enrolled Domains
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-md mb-6">
+          {error}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div>
+        </div>
+      ) : displayDomains.length === 0 ? (
+        <div className="text-center py-12">
+          <h3 className="text-lg font-medium text-gray-600 mb-2">No domains found</h3>
+          <p className="text-gray-500">
+            {activeTab === 'all'
+              ? 'No domains are available.'
+              : activeTab === 'my'
+              ? 'You have not created any domains yet.'
+              : 'You are not enrolled in any domains.'}
+          </p>
+          {activeTab === 'my' && (
+            <Button onClick={createNewDomain} variant="outline" className="mt-4">
+              Create Your First Domain
+            </Button>
           )}
         </div>
-        
-        {/* Enrolled Domains Section */}
-        <div>
-          <h3 className="text-xl font-medium mb-4">Enrolled Domains</h3>
-          
-          {enrolledDomains.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {enrolledDomains.map(domain => (
-                <div key={domain.id} className="bg-white p-6 rounded shadow">
-                  <h4 className="text-lg font-bold">{domain.name}</h4>
-                  <p className="text-sm text-gray-600">{domain.description || 'No description'}</p>
-                  <div className="mt-4 flex justify-between">
-                    <Link 
-                      href={`/graph?domainId=${domain.id}`}
-                      className="text-orange-500 hover:underline"
-                    >
-                      View Graph
-                    </Link>
-                    <Link 
-                      href={`/dashboard/domains/${domain.id}/study`}
-                      className="text-green-500 hover:underline"
-                    >
-                      Study
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-white p-6 rounded shadow">
-              <p>You're not enrolled in any domains. Explore public domains to find something to study!</p>
-              <Link 
-                href="/dashboard/domains/explore"
-                className="mt-4 inline-block px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-400"
-              >
-                Explore Domains
-              </Link>
-            </div>
-          )}
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {displayDomains.map((domain) => (
+            <Card key={domain.id} className="hover:shadow-md transition-shadow">
+              <CardHeader>
+                <CardTitle>{domain.name}</CardTitle>
+                <CardDescription>
+                  {domain.privacy === 'public' ? 'Public' : 'Private'} Domain
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600 line-clamp-3">
+                  {domain.description || 'No description available.'}
+                </p>
+              </CardContent>
+              <CardFooter className="flex justify-between">
+                <Button
+                  variant="outline"
+                  onClick={() => router.push(`/dashboard/domains/${domain.id}`)}
+                >
+                  Details
+                </Button>
+                <Button onClick={() => navigateToDomain(domain.id)}>
+                  Open Graph
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
         </div>
-      </main>
+      )}
     </div>
   );
 }

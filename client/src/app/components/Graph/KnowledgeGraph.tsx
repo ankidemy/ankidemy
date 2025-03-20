@@ -1,8 +1,4 @@
-// src/app/components/Graph/KnowledgeGraph.tsx
-// Updated with position update handling and API integration
-"use client";
-
-
+// Updated KnowledgeGraph.tsx with proper editing functionality for LaTeX content
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { MathJax } from 'better-react-mathjax';
@@ -16,6 +12,8 @@ import {
   attemptExercise,
   getDefinitionByCode,
   getExerciseByCode,
+  updateDefinition,
+  updateExercise,
   GraphData 
 } from '@/lib/api';
 
@@ -24,17 +22,50 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false
 });
 
-// Define types for our data structures
+// Type definitions for API objects and utility variables
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
+const handleResponse = async (response) => {
+  if (!response.ok) {
+    let errorMessage = 'An error occurred';
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch (e) {
+      errorMessage = response.statusText || `HTTP error ${response.status}`;
+    }
+    console.error(`API Error: ${errorMessage}`, { status: response.status, url: response.url });
+    throw new Error(errorMessage);
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  const data = await response.json();
+  return data;
+};
+
+// Define types
 interface Definition {
+  id: number;
   code: string;
   name: string;
-  description: string[];
+  description: string | string[];
   notes?: string;
   references?: string[];
   prerequisites: string[];
+  xPosition?: number;
+  yPosition?: number;
 }
 
 interface Exercise {
+  id: number;
   code: string;
   name: string;
   difficulty: string;
@@ -44,6 +75,8 @@ interface Exercise {
   verifiable: boolean;
   result?: string;
   prerequisites: string[];
+  xPosition?: number;
+  yPosition?: number;
 }
 
 interface GraphNode {
@@ -113,6 +146,67 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   
   // Track node position changes
   const nodePositions = useRef<Record<string, { x: number; y: number }>>({});
+
+  // Utility function to get definition ID by code
+  const getDefinitionIdByCode = async (code) => {
+    try {
+      const definition = await getDefinitionByCode(code);
+      return definition.id;
+    } catch (error) {
+      console.error('Error getting definition ID by code:', error);
+      throw error;
+    }
+  };
+  
+  // Utility function to get exercise ID by code
+  const getExerciseIdByCode = async (code) => {
+    try {
+      const exercise = await getExerciseByCode(code);
+      return exercise.id;
+    } catch (error) {
+      console.error('Error getting exercise ID by code:', error);
+      throw error;
+    }
+  };
+  
+  // Refresh graph data after changes
+  const refreshGraph = async () => {
+    try {
+      // Refetch the domain data with the updated information
+      const domainId = graphData?.definitions?.[Object.keys(graphData.definitions)[0]]?.domainId;
+      
+      if (!domainId) {
+        console.error('Unable to determine domain ID for refresh');
+        return;
+      }
+      
+      const response = await fetch(`${API_URL}/api/domains/${domainId}/graph`, {
+        headers: getAuthHeaders(),
+      });
+      
+      const updatedGraph = await handleResponse(response);
+      
+      // Update nodes and links
+      setGraphNodes(updatedGraph.nodes);
+      setGraphLinks(updatedGraph.links);
+      
+      // Refresh selected node details if needed
+      if (selectedNode) {
+        let updatedDetails;
+        if (selectedNode.type === 'definition') {
+          updatedDetails = await getDefinitionByCode(selectedNode.id);
+        } else if (selectedNode.type === 'exercise') {
+          updatedDetails = await getExerciseByCode(selectedNode.id);
+        }
+        
+        if (updatedDetails) {
+          setSelectedNodeDetails(updatedDetails);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to refresh graph:', error);
+    }
+  };
   
   // Save node positions on component unmount or when explicitly requested
   useEffect(() => {
@@ -124,27 +218,57 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     };
   }, [positionsChanged, onPositionUpdate]);
   
-  // Prepare graph data from the provided GraphData format
-  useEffect(() => {
-    if (!graphData) return;
+// Add this safety check at the beginning of your useEffect in KnowledgeGraph.tsx
+useEffect(() => {
+  // Add safety check to prevent "can't convert undefined to object" error
+  if (!graphData || !graphData.definitions) {
+    console.warn('Graph data is missing or incomplete', graphData);
+    setGraphNodes([]);
+    setGraphLinks([]);
+    return;
+  }
+  
+  const nodes: GraphNode[] = [];
+  const links: GraphLink[] = [];
+  
+  // Process definitions
+  Object.entries(graphData.definitions).forEach(([id, def]) => {
+    nodes.push({
+      id,
+      name: def.name,
+      type: 'definition',
+      isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
+      x: def.xPosition,
+      y: def.yPosition
+    });
     
-    const nodes: GraphNode[] = [];
-    const links: GraphLink[] = [];
-    
-    // Process definitions
-    Object.entries(graphData.definitions).forEach(([id, def]) => {
+    // Add links from prerequisites
+    if (def.prerequisites) {
+      def.prerequisites.forEach(prereqId => {
+        links.push({
+          source: prereqId,
+          target: id,
+          type: 'prerequisite'
+        });
+      });
+    }
+  });
+  
+  // Process exercises - with safety check
+  if (mode === 'practice' && graphData.exercises) {
+    Object.entries(graphData.exercises).forEach(([id, exercise]) => {
       nodes.push({
         id,
-        name: def.name,
-        type: 'definition',
-        isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
-        x: def.xPosition,
-        y: def.yPosition
+        name: exercise.name,
+        type: 'exercise',
+        difficulty: exercise.difficulty,
+        x: exercise.xPosition,
+        y: exercise.yPosition
       });
       
       // Add links from prerequisites
-      if (def.prerequisites) {
-        def.prerequisites.forEach(prereqId => {
+      if (exercise.prerequisites) {
+        exercise.prerequisites.forEach(prereqId => {
           links.push({
             source: prereqId,
             target: id,
@@ -153,43 +277,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         });
       }
     });
-    
-    // Process exercises
-    if (mode === 'practice') {
-      Object.entries(graphData.exercises).forEach(([id, exercise]) => {
-        nodes.push({
-          id,
-          name: exercise.name,
-          type: 'exercise',
-          difficulty: exercise.difficulty,
-          x: exercise.xPosition,
-          y: exercise.yPosition
-        });
-        
-        // Add links from prerequisites
-        if (exercise.prerequisites) {
-          exercise.prerequisites.forEach(prereqId => {
-            links.push({
-              source: prereqId,
-              target: id,
-              type: 'prerequisite'
-            });
-          });
-        }
-      });
+  }
+  
+  setGraphNodes(nodes);
+  setGraphLinks(links);
+  
+  // Initialize nodePositions ref with existing positions
+  nodes.forEach(node => {
+    if (node.x !== undefined && node.y !== undefined) {
+      nodePositions.current[node.id] = { x: node.x, y: node.y };
     }
-    
-    setGraphNodes(nodes);
-    setGraphLinks(links);
-    
-    // Initialize nodePositions ref with existing positions
-    nodes.forEach(node => {
-      if (node.x !== undefined && node.y !== undefined) {
-        nodePositions.current[node.id] = { x: node.x, y: node.y };
-      }
-    });
-    
-  }, [graphData, mode]);
+  });
+}, [graphData, mode]);
   
   // Fit graph to view when data changes
   useEffect(() => {
@@ -212,6 +311,181 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       console.error("Failed to save positions:", err);
     } finally {
       setIsSavingPositions(false);
+    }
+  };
+  
+  // Current description for display - handles multiple description formats
+  const currentDescription = useCallback(() => {
+    if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return '';
+    
+    // Handle descriptions that might be stored as delimited strings
+    if (typeof selectedNodeDetails.description === 'string') {
+      if (selectedNodeDetails.description.includes('|||')) {
+        const descriptions = selectedNodeDetails.description.split('|||');
+        return descriptions[selectedDefinitionIndex % descriptions.length] || descriptions[0] || '';
+      }
+      return selectedNodeDetails.description;
+    }
+    
+    // Handle descriptions that might be stored as arrays
+    if (Array.isArray(selectedNodeDetails.description)) {
+      return selectedNodeDetails.description[selectedDefinitionIndex % selectedNodeDetails.description.length] || 
+             selectedNodeDetails.description[0] || '';
+    }
+    
+    return String(selectedNodeDetails.description);
+  }, [selectedNodeDetails, selectedDefinitionIndex]);
+  
+  // Check if the definition has multiple descriptions
+  const hasMultipleDescriptions = useCallback(() => {
+    if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return false;
+    
+    if (typeof selectedNodeDetails.description === 'string') {
+      return selectedNodeDetails.description.includes('|||');
+    }
+    
+    return Array.isArray(selectedNodeDetails.description) && selectedNodeDetails.description.length > 1;
+  }, [selectedNodeDetails]);
+  
+  // Get the total number of descriptions
+  const totalDescriptions = useCallback(() => {
+    if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return 0;
+    
+    if (typeof selectedNodeDetails.description === 'string') {
+      if (selectedNodeDetails.description.includes('|||')) {
+        return selectedNodeDetails.description.split('|||').length;
+      }
+      return 1;
+    }
+    
+    if (Array.isArray(selectedNodeDetails.description)) {
+      return selectedNodeDetails.description.length;
+    }
+    
+    return 1;
+  }, [selectedNodeDetails]);
+  
+  // Handle definition edit form submission
+  const handleDefinitionEditSubmit = async () => {
+    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
+    
+    try {
+      // Get form values
+      const nameInput = document.getElementById('name') as HTMLInputElement;
+      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
+      const notesInput = document.getElementById('notes') as HTMLTextAreaElement;
+      const referencesInput = document.getElementById('references') as HTMLTextAreaElement;
+      
+      const name = nameInput?.value || selectedNodeDetails.name;
+      
+      // Handle multiple descriptions
+      let description = descriptionInput?.value || '';
+      // If we're editing a specific version of multiple descriptions
+      if (hasMultipleDescriptions()) {
+        let descriptions = [];
+        
+        if (typeof selectedNodeDetails.description === 'string' && selectedNodeDetails.description.includes('|||')) {
+          descriptions = selectedNodeDetails.description.split('|||');
+        } else if (Array.isArray(selectedNodeDetails.description)) {
+          descriptions = [...selectedNodeDetails.description];
+        }
+        
+        // Update only the current description
+        descriptions[selectedDefinitionIndex] = description;
+        description = descriptions.join('|||');
+      }
+      
+      const notes = notesInput?.value || '';
+      const references = referencesInput?.value.split('\n').filter(r => r.trim() !== '');
+      
+      // Get selected prerequisites
+      const prerequisiteSelectElement = document.getElementById('prerequisites') as HTMLSelectElement;
+      const prerequisiteIds = Array.from(prerequisiteSelectElement?.selectedOptions || [])
+        .map(option => parseInt(option.value));
+      
+      // Prepare update data
+      const updateData = {
+        name,
+        description,
+        notes,
+        references,
+        prerequisiteIds
+      };
+      
+      // Get definition ID from node ID if it's a string
+      const definitionId = typeof selectedNode.id === 'string' 
+        ? await getDefinitionIdByCode(selectedNode.id)
+        : parseInt(selectedNode.id);
+      
+      // Update the definition
+      await updateDefinition(definitionId, updateData);
+      
+      // Refresh data and graph
+      await refreshGraph();
+      
+      // Exit edit mode
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Failed to update definition:', error);
+      alert('Failed to update definition. Please try again.');
+    }
+  };
+  
+  // Handle exercise edit form submission
+  const handleExerciseEditSubmit = async () => {
+    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'exercise') return;
+    
+    try {
+      // Get form values
+      const nameInput = document.getElementById('name') as HTMLInputElement;
+      const statementInput = document.getElementById('statement') as HTMLTextAreaElement;
+      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
+      const hintsInput = document.getElementById('hints') as HTMLTextAreaElement;
+      const difficultyInput = document.getElementById('difficulty') as HTMLInputElement;
+      const verifiableInput = document.getElementById('verifiable') as HTMLInputElement;
+      const resultInput = document.getElementById('result') as HTMLInputElement;
+      
+      const name = nameInput?.value || selectedNodeDetails.name;
+      const statement = statementInput?.value || '';
+      const description = descriptionInput?.value || '';
+      const hints = hintsInput?.value || '';
+      const difficulty = difficultyInput?.value || '3';
+      const verifiable = verifiableInput?.checked || false;
+      const result = resultInput?.value || '';
+      
+      // Get selected prerequisites
+      const prerequisiteSelectElement = document.getElementById('prerequisites') as HTMLSelectElement;
+      const prerequisiteIds = Array.from(prerequisiteSelectElement?.selectedOptions || [])
+        .map(option => parseInt(option.value));
+      
+      // Prepare update data
+      const updateData = {
+        name,
+        statement,
+        description,
+        hints,
+        difficulty,
+        verifiable,
+        result,
+        prerequisiteIds
+      };
+      
+      // Get exercise ID from node ID if it's a string
+      const exerciseId = typeof selectedNode.id === 'string' 
+        ? await getExerciseIdByCode(selectedNode.id)
+        : parseInt(selectedNode.id);
+      
+      // Update the exercise
+      await updateExercise(exerciseId, updateData);
+      
+      // Refresh data and graph
+      await refreshGraph();
+      
+      // Exit edit mode
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Failed to update exercise:', error);
+      alert('Failed to update exercise. Please try again.');
     }
   };
   
@@ -387,19 +661,21 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
     
     try {
+      // Get the exercise ID
+      const exerciseId = typeof selectedNode.id === 'string'
+        ? await getExerciseIdByCode(selectedNode.id)
+        : parseInt(selectedNode.id);
+        
       // Track the attempt and get verification from API
-      const response = await attemptExercise(parseInt(selectedNode.id), {
-        exerciseId: parseInt(selectedNode.id),
+      const response = await attemptExercise(exerciseId, {
+        exerciseId: exerciseId,
         answer: userAnswer,
         timeTaken: 0 // We're not tracking time in the UI for now
       });
       
-      // Simple local verification as fallback
-      const isCorrect = userAnswer.trim() === exercise.result?.trim();
-      
       setAnswerFeedback({
-        correct: isCorrect,
-        message: isCorrect ? "Correct! Well done." : "Incorrect. Try again or check the solution."
+        correct: response.correct,
+        message: response.correct ? "Correct! Well done." : "Incorrect. Try again or check the solution."
       });
     } catch (err) {
       console.error("Error verifying answer:", err);
@@ -416,8 +692,22 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       ...personalNotes,
       [nodeId]: notes
     });
-    // Here we could also save to localStorage or to an API
+    // In a real app, you would store this in a database or localStorage
+    localStorage.setItem(`notes_${nodeId}`, notes);
   }, [personalNotes]);
+  
+  // Load personal notes from localStorage
+  useEffect(() => {
+    if (selectedNode?.id) {
+      const savedNotes = localStorage.getItem(`notes_${selectedNode.id}`);
+      if (savedNotes) {
+        setPersonalNotes(prev => ({
+          ...prev,
+          [selectedNode.id]: savedNotes
+        }));
+      }
+    }
+  }, [selectedNode]);
   
   // Toggle panels
   const toggleLeftPanel = useCallback(() => {
@@ -450,6 +740,31 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       graphRef.current.zoomToFit(400, 40);
     }
   }, []);
+  
+  // Handle review for definition
+  const handleReviewDefinition = useCallback(async (result: 'again' | 'hard' | 'good' | 'easy') => {
+    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
+    
+    try {
+      // Get the definition ID
+      const definitionId = typeof selectedNode.id === 'string'
+        ? await getDefinitionIdByCode(selectedNode.id)
+        : parseInt(selectedNode.id);
+        
+      // Submit the review
+      await reviewDefinition(definitionId, {
+        definitionId: definitionId,
+        result: result,
+        timeTaken: 0 // We're not tracking time in the UI for now
+      });
+      
+      // Show feedback to the user
+      alert(`Review recorded: ${result}`);
+    } catch (err) {
+      console.error("Error submitting review:", err);
+      alert("Failed to record review. Please try again.");
+    }
+  }, [selectedNode, selectedNodeDetails]);
   
   // Custom node rendering
   const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -517,54 +832,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     return highlightLinks.has(linkId) ? '#f59e0b' : '#999';
   }, [highlightLinks]);
   
-  // Current definition description for display
-  const currentDescription = useCallback(() => {
-    if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return '';
-    
-    // Handle array or string
-    if (Array.isArray(selectedNodeDetails.description)) {
-      return selectedNodeDetails.description[selectedDefinitionIndex] || '';
-    }
-    
-    return selectedNodeDetails.description;
-  }, [selectedNodeDetails, selectedDefinitionIndex]);
-  
-  // Navigation buttons for multiple descriptions
-  const hasMultipleDescriptions = useCallback(() => {
-    if (!selectedNodeDetails || !('description' in selectedNodeDetails)) return false;
-    return Array.isArray(selectedNodeDetails.description) && selectedNodeDetails.description.length > 1;
-  }, [selectedNodeDetails]);
-  
-  const totalDescriptions = useCallback(() => {
-    if (!selectedNodeDetails || !('description' in selectedNodeDetails) || !Array.isArray(selectedNodeDetails.description)) {
-      return 0;
-    }
-    return selectedNodeDetails.description.length;
-  }, [selectedNodeDetails]);
-  
-  // Handle review for definition
-  const handleReviewDefinition = useCallback(async (result: 'again' | 'hard' | 'good' | 'easy') => {
-    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
-    
-    try {
-      // Get the actual definition from the backend to get its ID
-      const definition = await getDefinitionByCode(selectedNode.id);
-      
-      // Submit the review
-      await reviewDefinition(definition.id, {
-        definitionId: definition.id,
-        result,
-        timeTaken: 0 // We're not tracking time in the UI for now
-      });
-      
-      // Show feedback to the user
-      alert(`Review recorded: ${result}`);
-    } catch (err) {
-      console.error("Error submitting review:", err);
-      alert("Failed to record review. Please try again.");
-    }
-  }, [selectedNode, selectedNodeDetails]);
-  
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Top Controls */}
@@ -617,7 +884,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           {positionsChanged && (
             <Button 
               variant="outline"
-
               size="sm"
               onClick={savePositions}
               disabled={isSavingPositions}
@@ -862,51 +1128,82 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Name</label>
-                      <Input defaultValue={selectedNode.name} />
+                      <Input id="name" defaultValue={selectedNode.name} />
                     </div>
                     
                     {selectedNode.type === 'definition' ? (
                       // Definition editing
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Description</label>
-                        <textarea 
-                          className="w-full border rounded p-2 h-32 text-sm" 
-                          defaultValue={currentDescription()}
-                        />
-                        <label className="block text-sm font-medium mt-3 mb-1">Notes</label>
-                        <textarea 
-                          className="w-full border rounded p-2 h-20 text-sm" 
-                          defaultValue={(selectedNodeDetails as Definition).notes || ''}
-                        />
-                        <label className="block text-sm font-medium mt-3 mb-1">References</label>
-                        <textarea 
-                          className="w-full border rounded p-2 h-20 text-sm" 
-                          defaultValue={(selectedNodeDetails as Definition).references?.join('\n') || ''}
-                          placeholder="One reference per line"
-                        />
-                      </div>
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Description</label>
+                          <div className="mb-2">
+                            {hasMultipleDescriptions() && (
+                              <div className="text-sm text-gray-500 mb-1">
+                                Editing version {selectedDefinitionIndex + 1} of {totalDescriptions()}
+                              </div>
+                            )}
+                          </div>
+                          <textarea
+                            id="description"
+                            className="flex h-40 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                            defaultValue={currentDescription()}
+                            placeholder="Enter definition description with LaTeX support (e.g. $\sqrt{2}$)"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mt-3 mb-1">Notes</label>
+                          <textarea
+                            id="notes"
+                            className="flex h-20 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                            defaultValue={(selectedNodeDetails as Definition).notes || ''}
+                            placeholder="Additional notes about this definition"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mt-3 mb-1">References</label>
+                          <textarea
+                            id="references"
+                            className="flex h-20 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                            defaultValue={(selectedNodeDetails as Definition).references?.join('\n') || ''}
+                            placeholder="One reference per line"
+                          />
+                        </div>
+                      </>
                     ) : (
                       // Exercise editing
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Statement</label>
-                        <textarea 
-                          className="w-full border rounded p-2 h-24 text-sm" 
-                          defaultValue={(selectedNodeDetails as Exercise).statement}
-                        />
-                        <label className="block text-sm font-medium mt-3 mb-1">Solution</label>
-                        <textarea 
-                          className="w-full border rounded p-2 h-24 text-sm" 
-                          defaultValue={(selectedNodeDetails as Exercise).description}
-                        />
-                        <label className="block text-sm font-medium mt-3 mb-1">Hints</label>
-                        <textarea 
-                          className="w-full border rounded p-2 h-16 text-sm" 
-                          defaultValue={(selectedNodeDetails as Exercise).hints || ''}
-                        />
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Statement</label>
+                          <textarea
+                            id="statement"
+                            className="flex h-24 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                            defaultValue={(selectedNodeDetails as Exercise).statement}
+                            placeholder="Exercise statement with LaTeX support (e.g. $\sqrt{2}$)"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mt-3 mb-1">Solution</label>
+                          <textarea
+                            id="description"
+                            className="flex h-24 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                            defaultValue={(selectedNodeDetails as Exercise).description}
+                            placeholder="Solution details with LaTeX support"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mt-3 mb-1">Hints</label>
+                          <textarea
+                            id="hints"
+                            className="flex h-16 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                            defaultValue={(selectedNodeDetails as Exercise).hints || ''}
+                            placeholder="Hints for solving the exercise"
+                          />
+                        </div>
                         <div className="flex space-x-4 mt-3">
                           <div>
                             <label className="block text-sm font-medium mb-1">Difficulty (1-5)</label>
-                            <Input 
+                            <Input
+                              id="difficulty" 
                               type="number" 
                               min="1" 
                               max="5" 
@@ -916,25 +1213,32 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                           </div>
                           <div>
                             <label className="block text-sm font-medium mb-1">Verifiable</label>
-                            <Input 
+                            <input
+                              id="verifiable"
                               type="checkbox" 
                               defaultChecked={(selectedNodeDetails as Exercise).verifiable}
                               className="h-6 w-6 mt-1"
                             />
                           </div>
                         </div>
-                        {(selectedNodeDetails as Exercise).verifiable && (
-                          <div className="mt-3">
-                            <label className="block text-sm font-medium mb-1">Expected Result</label>
-                            <Input defaultValue={(selectedNodeDetails as Exercise).result || ''} />
-                          </div>
-                        )}
-                      </div>
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium mb-1">Expected Result</label>
+                          <Input
+                            id="result"
+                            defaultValue={(selectedNodeDetails as Exercise).result || ''}
+                            placeholder="Expected answer for automated verification"
+                          />
+                        </div>
+                      </>
                     )}
                     
                     <div>
                       <label className="block text-sm font-medium mb-1">Prerequisites</label>
-                      <select multiple className="w-full border rounded p-2 h-28 text-sm">
+                      <select 
+                        id="prerequisites" 
+                        multiple 
+                        className="w-full border rounded p-2 h-28 text-sm"
+                      >
                         {graphNodes
                           .filter(node => node.type === 'definition' && node.id !== selectedNode.id)
                           .map(node => (
@@ -951,8 +1255,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                     </div>
                     
                     <div className="flex justify-between pt-2">
-                      <Button>Save Changes</Button>
-                      <Button variant="destructive">Delete Node</Button>
+                      <Button 
+                        onClick={selectedNode.type === 'definition' ? 
+                          handleDefinitionEditSubmit : handleExerciseEditSubmit}
+                      >
+                        Save Changes
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setIsEditMode(false)}
+                      >
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 ) : (
@@ -1062,11 +1376,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                         )}
                         
                         {(selectedNodeDetails as Definition).references && 
-                         (selectedNodeDetails as Definition).references!.length > 0 && (
+                         (selectedNodeDetails as Definition).references.length > 0 && (
                           <div>
                             <h4 className="font-medium text-sm text-gray-500 mb-2">REFERENCES</h4>
                             <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
-                              {(selectedNodeDetails as Definition).references!.map((ref, index) => (
+                              {(selectedNodeDetails as Definition).references.map((ref, index) => (
                                 <li key={index}>{ref}</li>
                               ))}
                             </ul>

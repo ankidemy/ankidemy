@@ -413,14 +413,23 @@ export const getDefinition = async (id: number): Promise<Definition> => {
   return handleResponse(response);
 };
 
-export const updateDefinition = async (id: number, definition: Partial<DefinitionRequest>): Promise<Definition> => {
+// Utility functions for definition updates
+export const updateDefinition = async (id: number, definitionData: {
+  name?: string;
+  description?: string;
+  notes?: string;
+  references?: string[];
+  prerequisiteIds?: number[];
+  xPosition?: number;
+  yPosition?: number;
+}): Promise<Definition> => {
   const response = await fetch(`${API_URL}/api/definitions/${id}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(definition),
+    body: JSON.stringify(definitionData),
   });
   
   return handleResponse(response);
@@ -473,14 +482,26 @@ export const getExercise = async (id: number): Promise<Exercise> => {
   return handleResponse(response);
 };
 
-export const updateExercise = async (id: number, exercise: Partial<ExerciseRequest>): Promise<Exercise> => {
+// Utility functions for exercise updates
+export const updateExercise = async (id: number, exerciseData: {
+  name?: string;
+  statement?: string;
+  description?: string;
+  hints?: string;
+  difficulty?: string;
+  verifiable?: boolean;
+  result?: string;
+  prerequisiteIds?: number[];
+  xPosition?: number;
+  yPosition?: number;
+}): Promise<Exercise> => {
   const response = await fetch(`${API_URL}/api/exercises/${id}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(exercise),
+    body: JSON.stringify(exerciseData),
   });
   
   return handleResponse(response);
@@ -664,5 +685,26 @@ export const importDomain = async (domainId: number, graphData: GraphData): Prom
 // Health check API
 export const checkHealth = async (): Promise<{ status: string }> => {
   const response = await fetch(`${API_URL}/health`);
+  return handleResponse(response);
+};
+
+
+
+
+// Utility function to parse description strings that might contain multiple descriptions
+export const parseDescriptions = (description: string): string[] => {
+  if (description.includes('|||')) {
+    return description.split('|||');
+  }
+  return [description];
+};
+
+
+// Function to handle refreshing graph data
+export const refreshGraphData = async (domainId: number): Promise<VisualGraph> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/graph`, {
+    headers: getAuthHeaders(),
+  });
+  
   return handleResponse(response);
 };
