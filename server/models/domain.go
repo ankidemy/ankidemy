@@ -6,18 +6,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// Domain represents a knowledge domain (formerly "temario")
 type Domain struct {
-	gorm.Model
-	Name        string `gorm:"column:name;not null" json:"name"`
-	Privacy     string `gorm:"column:privacy;not null" json:"privacy"`
-	OwnerID     uint   `gorm:"column:owner_id;not null" json:"ownerId"`
-	Description string `gorm:"column:description" json:"description"`
-
-	// Relationships - only included when explicitly loaded
-	Owner       *User        `gorm:"foreignKey:OwnerID" json:"-"`
-	Definitions []Definition `json:"definitions,omitempty"`
-	Exercises   []Exercise   `json:"exercises,omitempty"`
+    ID          uint           `gorm:"primaryKey" json:"id"`
+    CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+    UpdatedAt   time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+    DeletedAt   gorm.DeletedAt `gorm:"column:deleted_at;index" json:"-"`
+    Name        string         `gorm:"column:name;not null" json:"name"`
+    Privacy     string         `gorm:"column:privacy;not null" json:"privacy"`
+    OwnerID     uint           `gorm:"column:owner_id;not null" json:"ownerId"`
+    Description string         `gorm:"column:description" json:"description"`
+    
+    // Relationships
+    Owner       *User        `gorm:"foreignKey:OwnerID" json:"-"`
+    Definitions []Definition `json:"definitions,omitempty"`
+    Exercises   []Exercise   `json:"exercises,omitempty"`
 }
 
 // TableName overrides the table name

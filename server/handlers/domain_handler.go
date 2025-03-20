@@ -59,24 +59,35 @@ func (h *DomainHandler) GetMyDomains(c *gin.Context) {
 	c.JSON(http.StatusOK, domains)
 }
 
-// GetEnrolledDomains returns domains the user is enrolled in
+// Update the GetEnrolledDomains handler in domain_handler.go
 func (h *DomainHandler) GetEnrolledDomains(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
+    userID, exists := c.Get("userID")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+        return
+    }
 
-	// This will need to be implemented in the DAO
-	// For now, we'll just return the user's progress
-	progress, err := h.progressDAO.GetUserDomainProgress(userID.(uint))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve enrolled domains"})
-		return
-	}
+    // Get the progress records
+    progress, err := h.progressDAO.GetUserDomainProgress(userID.(uint))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve enrolled domains"})
+        return
+    }
 
-	// We should enhance this to return the full domain data
-	c.JSON(http.StatusOK, progress)
+    // Collect domain IDs from progress
+    domainIDs := make([]uint, 0, len(progress))
+    for _, p := range progress {
+        domainIDs = append(domainIDs, p.DomainID)
+    }
+
+    // Get the actual domain objects
+    domains, err := h.domainDAO.GetByIDs(domainIDs)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve domain details"})
+        return
+    }
+
+    c.JSON(http.StatusOK, domains)
 }
 
 // GetDomain returns a domain by ID

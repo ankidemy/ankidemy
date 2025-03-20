@@ -82,11 +82,21 @@ const DomainForm: React.FC<DomainFormProps> = ({ domainId, onSuccess, onCancel }
         });
       }
       
+      console.log("Domain after creation/update:", domain);
+      
+      // Validate domain data
+      if (!domain || typeof domain.id !== 'number') {
+        console.error("Invalid domain data received:", domain);
+        setError("Server returned invalid domain data. Please try again.");
+        return;
+      }
+      
       // Success handling
       if (onSuccess) {
         onSuccess(domain);
       } else {
         // Default behavior - redirect to domain view/edit page
+        console.log(`Redirecting to /dashboard/domains/${domain.id}`);
         router.push(`/dashboard/domains/${domain.id}`);
       }
     } catch (err: any) {

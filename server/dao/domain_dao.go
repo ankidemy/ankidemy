@@ -132,3 +132,13 @@ func (d *DomainDAO) DeleteComment(commentID uint, userID uint) error {
 	
 	return result.Error
 }
+
+// GetByIDs returns domains with the given IDs
+func (d *DomainDAO) GetByIDs(ids []uint) ([]models.Domain, error) {
+    var domains []models.Domain
+    if len(ids) == 0 {
+        return domains, nil
+    }
+    result := d.db.Where("id IN ?", ids).Find(&domains)
+    return domains, result.Error
+}

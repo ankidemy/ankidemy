@@ -158,6 +158,7 @@ const getAuthHeaders = () => {
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 };
 
+// Enhance the handleResponse function to better handle API responses
 const handleResponse = async (response: Response) => {
   if (!response.ok) {
     let errorMessage = 'An error occurred';
@@ -166,8 +167,9 @@ const handleResponse = async (response: Response) => {
       errorMessage = errorData.error || errorMessage;
     } catch (e) {
       // Could not parse JSON, use status text
-      errorMessage = response.statusText;
+      errorMessage = response.statusText || `HTTP error ${response.status}`;
     }
+    console.error(`API Error: ${errorMessage}`, { status: response.status, url: response.url });
     throw new Error(errorMessage);
   }
 
@@ -176,7 +178,12 @@ const handleResponse = async (response: Response) => {
     return null;
   }
 
-  return response.json();
+  const data = await response.json();
+  
+  // For debugging purposes, log the response data
+  console.debug(`API Response from ${response.url}:`, data);
+  
+  return data;
 };
 
 // Authentication API
@@ -307,21 +314,38 @@ export const getDomain = async (id: number): Promise<Domain> => {
   return handleResponse(response);
 };
 
+// Enhanced createDomain function with better error handling
 export const createDomain = async (domain: {
   name: string;
   privacy: 'public' | 'private';
   description?: string;
 }): Promise<Domain> => {
-  const response = await fetch(`${API_URL}/api/domains`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(domain),
-  });
+  console.log("Creating domain:", domain);
   
-  return handleResponse(response);
+  try {
+    const response = await fetch(`${API_URL}/api/domains`, {
+      method: 'POST',
+      headers: { 
+        ...getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(domain),
+    });
+    
+    const data = await handleResponse(response);
+    
+    // Verify the response has the expected shape
+    if (!data || typeof data.id === 'undefined') {
+      console.error("Invalid domain response:", data);
+      throw new Error("Server returned incomplete domain data");
+    }
+    
+    console.log("Domain created successfully:", data);
+    return data as Domain;
+  } catch (error) {
+    console.error("Error creating domain:", error);
+    throw error;
+  }
 };
 
 export const updateDomain = async (id: number, domain: {

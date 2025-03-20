@@ -11,6 +11,15 @@ import (
 	"myapp/server/models"
 )
 
+// RegisterRequest represents the registration request data
+type RegisterRequest struct {
+    Username  string `json:"username" binding:"required"`
+    Email     string `json:"email" binding:"required,email"`
+    Password  string `json:"password" binding:"required,min=8"` // Now password will be bound
+    FirstName string `json:"firstName"`
+    LastName  string `json:"lastName"`
+}
+
 // AuthHandler handles authentication-related requests
 type AuthHandler struct {
 	userDAO *dao.UserDAO
@@ -71,49 +80,69 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Register handles user registration
 func (h *AuthHandler) Register(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+    var req RegisterRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	// Check if user already exists
-	existingUser, _ := h.userDAO.FindUserByEmail(user.Email)
-	if existingUser != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
-		return
-	}
+    // Check if email already exists
+    existingUser, err := h.userDAO.FindUserByEmail(req.Email)
+    // If no error and user exists = conflict
+    if err == nil && existingUser != nil {
+        c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+        return
+    }
+    // If error but not "not found" error = server error
+    if err != nil && err.Error() != "user not found" {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking email"})
+        return
+    }
 
-	existingUser, _ = h.userDAO.FindUserByUsername(user.Username)
-	if existingUser != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Username already in use"})
-		return
-	}
+    // Check if username already exists
+    existingUser, err = h.userDAO.FindUserByUsername(req.Username)
+    // If no error and user exists = conflict
+    if err == nil && existingUser != nil {
+        c.JSON(http.StatusConflict, gin.H{"error": "Username already in use"})
+        return
+    }
+    // If error but not "not found" error = server error
+    if err != nil && err.Error() != "user not found" {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking username"})
+        return
+    }
 
-	// Set default values
-	user.Level = "user"
-	user.IsActive = true
-	user.IsAdmin = false
+    // Create user from request data
+    user := models.User{
+        Username:  req.Username,
+        Email:     req.Email,
+        Password:  req.Password,
+        FirstName: req.FirstName,
+        LastName:  req.LastName,
+        Level:     "user",
+        IsActive:  true,
+        IsAdmin:   false,
+    }
 
-	// Create user
-	if err := h.userDAO.CreateUser(&user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
-		return
-	}
+    // Create user
+    if err := h.userDAO.CreateUser(&user); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+        return
+    }
 
-	// Generate token
-	token, err := middleware.GenerateToken(user.ID, user.IsAdmin)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
+    // Generate token
+    token, err := middleware.GenerateToken(user.ID, user.IsAdmin)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+        return
+    }
 
-	// Return response
-	c.JSON(http.StatusCreated, LoginResponse{
-		Token:    token,
-		User:     user,
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-	})
+    // Return response
+    c.JSON(http.StatusCreated, LoginResponse{
+        Token:     token,
+        User:      user,
+        ExpiresAt: time.Now().Add(24 * time.Hour),
+    })
 }
 
 // RefreshToken handles token refresh
