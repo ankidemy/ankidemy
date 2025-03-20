@@ -3,6 +3,10 @@ package dao
 import (
 	"errors"
 	"myapp/server/models"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 	"gorm.io/gorm"
 )
@@ -44,7 +48,7 @@ type ExerciseNode struct {
 	Hints         string   `json:"hints,omitempty"`
 	Verifiable    bool     `json:"verifiable,omitempty"`
 	Result        string   `json:"result,omitempty"`
-	Difficulty    string   `json:"difficulty,omitempty"`
+	Difficulty    int      `json:"difficulty,omitempty"` // Changed from string to int
 	Prerequisites []string `json:"prerequisites,omitempty"`
 	XPosition     float64  `json:"xPosition,omitempty"`
 	YPosition     float64  `json:"yPosition,omitempty"`
@@ -75,7 +79,7 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		Exercises:   make(map[string]ExerciseNode),
 	}
 	
-	// Add definitions
+	// Add definitions - use ID as key in the map since code is no longer unique
 	for _, def := range domain.Definitions {
 		// Extract references
 		references := make([]string, 0, len(def.References))
@@ -89,8 +93,8 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			prerequisites = append(prerequisites, prereq.Code)
 		}
 		
-		// Add to graph data
-		graphData.Definitions[def.Code] = DefinitionNode{
+		// Add to graph data using ID string as key
+		graphData.Definitions[idToString(def.ID)] = DefinitionNode{
 			Code:          def.Code,
 			Name:          def.Name,
 			Description:   def.Description,
@@ -102,7 +106,7 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		}
 	}
 	
-	// Add exercises
+	// Add exercises - use ID as key in the map since code is no longer unique
 	for _, ex := range domain.Exercises {
 		// Extract prerequisites
 		prerequisites := make([]string, 0, len(ex.Prerequisites))
@@ -110,8 +114,8 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			prerequisites = append(prerequisites, prereq.Code)
 		}
 		
-		// Add to graph data
-		graphData.Exercises[ex.Code] = ExerciseNode{
+		// Add to graph data using ID string as key
+		graphData.Exercises[idToString(ex.ID)] = ExerciseNode{
 			Code:          ex.Code,
 			Name:          ex.Name,
 			Statement:     ex.Statement,
@@ -127,6 +131,11 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 	}
 	
 	return graphData, nil
+}
+
+// Helper function to convert uint ID to string
+func idToString(id uint) string {
+	return strconv.FormatUint(uint64(id), 10)
 }
 
 // ImportDomain imports a domain from the graph format
@@ -151,9 +160,9 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		
 		// Create definitions first
 		definitions := make(map[string]*models.Definition)
-		for code, defNode := range data.Definitions {
+		for nodeID, defNode := range data.Definitions {
 			def := &models.Definition{
-				Code:        code,
+				Code:        defNode.Code,
 				Name:        defNode.Name,
 				Description: defNode.Description,
 				Notes:       defNode.Notes,
@@ -167,8 +176,8 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				return err
 			}
 			
-			// Store for later use
-			definitions[code] = def
+			// Store for later use - use nodeID from import as the key
+			definitions[nodeID] = def
 			
 			// Add references
 			for _, refText := range defNode.References {
@@ -182,15 +191,23 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			}
 		}
 		
+		// Create a code-to-definition map for looking up prerequisites
+		codeToDefinition := make(map[string][]*models.Definition)
+		for _, def := range definitions {
+			codeToDefinition[def.Code] = append(codeToDefinition[def.Code], def)
+		}
+		
 		// Add definition prerequisites
-		for code, defNode := range data.Definitions {
-			def := definitions[code]
+		for nodeID, defNode := range data.Definitions {
+			def := definitions[nodeID]
 			for _, prereqCode := range defNode.Prerequisites {
-				prereq, exists := definitions[prereqCode]
-				if !exists {
-					return errors.New("prerequisite definition not found: " + prereqCode)
+				prereqList, exists := codeToDefinition[prereqCode]
+				if !exists || len(prereqList) == 0 {
+					continue // Skip if prerequisite not found
 				}
 				
+				// Use first matching code as prerequisite
+				prereq := prereqList[0]
 				if err := tx.Model(def).Association("Prerequisites").Append(prereq); err != nil {
 					return err
 				}
@@ -198,9 +215,9 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		}
 		
 		// Create exercises
-		for code, exNode := range data.Exercises {
+		for nodeID, exNode := range data.Exercises {
 			ex := &models.Exercise{
-				Code:        code,
+				Code:        exNode.Code,
 				Name:        exNode.Name,
 				Statement:   exNode.Statement,
 				Description: exNode.Description,
@@ -218,13 +235,15 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				return err
 			}
 			
-			// Add prerequisites
+			// Add prerequisites using code matching
 			for _, prereqCode := range exNode.Prerequisites {
-				prereq, exists := definitions[prereqCode]
-				if !exists {
-					return errors.New("prerequisite definition not found: " + prereqCode)
+				prereqList, exists := codeToDefinition[prereqCode]
+				if !exists || len(prereqList) == 0 {
+					continue // Skip if prerequisite not found
 				}
 				
+				// Use first matching code as prerequisite
+				prereq := prereqList[0]
 				if err := tx.Model(ex).Association("Prerequisites").Append(prereq); err != nil {
 					return err
 				}
@@ -280,8 +299,15 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 		}, 0),
 	}
 	
+	// Create maps to track unique IDs for nodes (since code is no longer unique)
+	definitionIDs := make(map[string]string)
+	
 	// Add definitions to nodes
 	for _, def := range domain.Definitions {
+		// Create a unique ID for this node
+		nodeID := fmt.Sprintf("def_%d", def.ID)
+		definitionIDs[def.Code+"_"+strconv.FormatUint(uint64(def.ID), 10)] = nodeID
+		
 		// Get prerequisite codes
 		prereqCodes := make([]string, 0, len(def.Prerequisites))
 		for _, prereq := range def.Prerequisites {
@@ -290,7 +316,7 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 		
 		// Add node
 		graph.Nodes = append(graph.Nodes, VisualNode{
-			ID:            def.Code,
+			ID:            nodeID,
 			Type:          "definition",
 			Name:          def.Name,
 			Code:          def.Code,
@@ -298,21 +324,13 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 			Y:             def.YPosition,
 			Prerequisites: prereqCodes,
 		})
-		
-		// Add links
-		for _, prereq := range def.Prerequisites {
-			graph.Links = append(graph.Links, struct {
-				Source string `json:"source"`
-				Target string `json:"target"`
-			}{
-				Source: prereq.Code,
-				Target: def.Code,
-			})
-		}
 	}
 	
 	// Add exercises to nodes
 	for _, ex := range domain.Exercises {
+		// Create a unique ID for this node
+		nodeID := fmt.Sprintf("ex_%d", ex.ID)
+		
 		// Get prerequisite codes
 		prereqCodes := make([]string, 0, len(ex.Prerequisites))
 		for _, prereq := range ex.Prerequisites {
@@ -321,7 +339,7 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 		
 		// Add node
 		graph.Nodes = append(graph.Nodes, VisualNode{
-			ID:            ex.Code,
+			ID:            nodeID,
 			Type:          "exercise",
 			Name:          ex.Name,
 			Code:          ex.Code,
@@ -329,15 +347,40 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 			Y:             ex.YPosition,
 			Prerequisites: prereqCodes,
 		})
+	}
+	
+	// Add definition links - we need to be careful with non-unique codes
+	for _, def := range domain.Definitions {
+		targetID := fmt.Sprintf("def_%d", def.ID)
 		
-		// Add links
-		for _, prereq := range ex.Prerequisites {
+		for _, prereq := range def.Prerequisites {
+			// Since code is no longer unique, we need to use the actual prereq ID
+			sourceID := fmt.Sprintf("def_%d", prereq.ID)
+			
 			graph.Links = append(graph.Links, struct {
 				Source string `json:"source"`
 				Target string `json:"target"`
 			}{
-				Source: prereq.Code,
-				Target: ex.Code,
+				Source: sourceID,
+				Target: targetID,
+			})
+		}
+	}
+	
+	// Add exercise links
+	for _, ex := range domain.Exercises {
+		targetID := fmt.Sprintf("ex_%d", ex.ID)
+		
+		for _, prereq := range ex.Prerequisites {
+			// Since code is no longer unique, we need to use the actual prereq ID
+			sourceID := fmt.Sprintf("def_%d", prereq.ID)
+			
+			graph.Links = append(graph.Links, struct {
+				Source string `json:"source"`
+				Target string `json:"target"`
+			}{
+				Source: sourceID,
+				Target: targetID,
 			})
 		}
 	}
@@ -349,26 +392,42 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 func (d *GraphDAO) UpdateGraphPositions(positionUpdates map[string]struct{ X, Y float64 }) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		for nodeID, pos := range positionUpdates {
-			// Try to update as definition
-			result := tx.Model(&models.Definition{}).
-				Where("code = ?", nodeID).
-				Updates(map[string]interface{}{
-					"x_position": pos.X,
-					"y_position": pos.Y,
-				})
+			// Parse the node ID to determine if it's a definition or exercise
+			parts := strings.Split(nodeID, "_")
+			if len(parts) != 2 {
+				return errors.New("invalid node ID format: " + nodeID)
+			}
 			
-			if result.RowsAffected == 0 {
-				// Try to update as exercise
-				result = tx.Model(&models.Exercise{}).
-					Where("code = ?", nodeID).
+			nodeType := parts[0]
+			nodeIDStr := parts[1]
+			
+			id, err := strconv.ParseUint(nodeIDStr, 10, 32)
+			if err != nil {
+				return errors.New("invalid node ID number: " + nodeIDStr)
+			}
+			
+			if nodeType == "def" {
+				// Update definition position
+				if err := tx.Model(&models.Definition{}).
+					Where("id = ?", id).
 					Updates(map[string]interface{}{
 						"x_position": pos.X,
 						"y_position": pos.Y,
-					})
-				
-				if result.RowsAffected == 0 {
-					return errors.New("node not found: " + nodeID)
+					}).Error; err != nil {
+					return err
 				}
+			} else if nodeType == "ex" {
+				// Update exercise position
+				if err := tx.Model(&models.Exercise{}).
+					Where("id = ?", id).
+					Updates(map[string]interface{}{
+						"x_position": pos.X,
+						"y_position": pos.Y,
+					}).Error; err != nil {
+					return err
+				}
+			} else {
+				return errors.New("unknown node type: " + nodeType)
 			}
 		}
 		

@@ -9,7 +9,7 @@ import (
 // Definition represents a concept or definition
 type Definition struct {
 	gorm.Model
-	Code        string    `gorm:"column:code;unique;not null" json:"code"`
+	Code        string    `gorm:"column:code;not null" json:"code"` // Removed unique constraint
 	Name        string    `gorm:"column:name;not null" json:"name"`
 	Description string    `gorm:"column:description;not null" json:"description"`
 	Notes       string    `gorm:"column:notes" json:"notes"`

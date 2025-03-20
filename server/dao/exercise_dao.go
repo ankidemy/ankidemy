@@ -108,12 +108,31 @@ func (d *ExerciseDAO) FindByID(id uint) (*models.Exercise, error) {
 	return &exercise, nil
 }
 
-// FindByCode finds an exercise by its code
-func (d *ExerciseDAO) FindByCode(code string) (*models.Exercise, error) {
-	var exercise models.Exercise
+// FindByCode finds exercises by code (may return multiple since code is no longer unique)
+func (d *ExerciseDAO) FindByCode(code string) ([]*models.Exercise, error) {
+	var exercises []*models.Exercise
 	result := d.db.
 		Preload("Prerequisites").
 		Where("code = ?", code).
+		Find(&exercises)
+	
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	
+	if len(exercises) == 0 {
+		return nil, errors.New("exercises not found")
+	}
+	
+	return exercises, nil
+}
+
+// FindByCodeAndDomain finds an exercise by code within a specific domain
+func (d *ExerciseDAO) FindByCodeAndDomain(code string, domainID uint) (*models.Exercise, error) {
+	var exercise models.Exercise
+	result := d.db.
+		Preload("Prerequisites").
+		Where("code = ? AND domain_id = ?", code, domainID).
 		First(&exercise)
 	
 	if result.Error != nil {
@@ -148,11 +167,22 @@ func (d *ExerciseDAO) GetAll() ([]models.Exercise, error) {
 }
 
 // GetByDifficulty returns exercises with a specific difficulty
-func (d *ExerciseDAO) GetByDifficulty(difficulty string) ([]models.Exercise, error) {
+func (d *ExerciseDAO) GetByDifficulty(difficulty int) ([]models.Exercise, error) {
 	var exercises []models.Exercise
 	result := d.db.
 		Preload("Prerequisites").
 		Where("difficulty = ?", difficulty).
+		Find(&exercises)
+	
+	return exercises, result.Error
+}
+
+// GetByDifficultyRange returns exercises within a difficulty range
+func (d *ExerciseDAO) GetByDifficultyRange(minDifficulty, maxDifficulty int) ([]models.Exercise, error) {
+	var exercises []models.Exercise
+	result := d.db.
+		Preload("Prerequisites").
+		Where("difficulty BETWEEN ? AND ?", minDifficulty, maxDifficulty).
 		Find(&exercises)
 	
 	return exercises, result.Error

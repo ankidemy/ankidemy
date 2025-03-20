@@ -145,13 +145,33 @@ func (d *DefinitionDAO) FindByID(id uint) (*models.Definition, error) {
 	return &definition, nil
 }
 
-// FindByCode finds a definition by its code
-func (d *DefinitionDAO) FindByCode(code string) (*models.Definition, error) {
-	var definition models.Definition
+// FindByCode finds definitions by code (may return multiple since code is no longer unique)
+func (d *DefinitionDAO) FindByCode(code string) ([]*models.Definition, error) {
+	var definitions []*models.Definition
 	result := d.db.
 		Preload("References").
 		Preload("Prerequisites").
 		Where("code = ?", code).
+		Find(&definitions)
+	
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	
+	if len(definitions) == 0 {
+		return nil, errors.New("definitions not found")
+	}
+	
+	return definitions, nil
+}
+
+// FindByCodeAndDomain finds a definition by code within a specific domain
+func (d *DefinitionDAO) FindByCodeAndDomain(code string, domainID uint) (*models.Definition, error) {
+	var definition models.Definition
+	result := d.db.
+		Preload("References").
+		Preload("Prerequisites").
+		Where("code = ? AND domain_id = ?", code, domainID).
 		First(&definition)
 	
 	if result.Error != nil {
