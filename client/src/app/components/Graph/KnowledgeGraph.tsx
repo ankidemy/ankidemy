@@ -1,7 +1,9 @@
-// Updated KnowledgeGraph.tsx with proper editing functionality for LaTeX content
+// src/app/components/Graph/KnowledgeGraph.tsx
+"use client";
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { MathJax } from 'better-react-mathjax';
+import { MathJaxProvider, MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
@@ -218,57 +220,33 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     };
   }, [positionsChanged, onPositionUpdate]);
   
-// Add this safety check at the beginning of your useEffect in KnowledgeGraph.tsx
-useEffect(() => {
-  // Add safety check to prevent "can't convert undefined to object" error
-  if (!graphData || !graphData.definitions) {
-    console.warn('Graph data is missing or incomplete', graphData);
-    setGraphNodes([]);
-    setGraphLinks([]);
-    return;
-  }
-  
-  const nodes: GraphNode[] = [];
-  const links: GraphLink[] = [];
-  
-  // Process definitions
-  Object.entries(graphData.definitions).forEach(([id, def]) => {
-    nodes.push({
-      id,
-      name: def.name,
-      type: 'definition',
-      isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
-      x: def.xPosition,
-      y: def.yPosition
-    });
-    
-    // Add links from prerequisites
-    if (def.prerequisites) {
-      def.prerequisites.forEach(prereqId => {
-        links.push({
-          source: prereqId,
-          target: id,
-          type: 'prerequisite'
-        });
-      });
+  // Add this safety check at the beginning of your useEffect in KnowledgeGraph.tsx
+  useEffect(() => {
+    // Add safety check to prevent "can't convert undefined to object" error
+    if (!graphData || !graphData.definitions) {
+      console.warn('Graph data is missing or incomplete', graphData);
+      setGraphNodes([]);
+      setGraphLinks([]);
+      return;
     }
-  });
-  
-  // Process exercises - with safety check
-  if (mode === 'practice' && graphData.exercises) {
-    Object.entries(graphData.exercises).forEach(([id, exercise]) => {
+    
+    const nodes: GraphNode[] = [];
+    const links: GraphLink[] = [];
+    
+    // Process definitions
+    Object.entries(graphData.definitions).forEach(([id, def]) => {
       nodes.push({
         id,
-        name: exercise.name,
-        type: 'exercise',
-        difficulty: exercise.difficulty,
-        x: exercise.xPosition,
-        y: exercise.yPosition
+        name: def.name,
+        type: 'definition',
+        isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
+        x: def.xPosition,
+        y: def.yPosition
       });
       
       // Add links from prerequisites
-      if (exercise.prerequisites) {
-        exercise.prerequisites.forEach(prereqId => {
+      if (def.prerequisites) {
+        def.prerequisites.forEach(prereqId => {
           links.push({
             source: prereqId,
             target: id,
@@ -277,18 +255,42 @@ useEffect(() => {
         });
       }
     });
-  }
-  
-  setGraphNodes(nodes);
-  setGraphLinks(links);
-  
-  // Initialize nodePositions ref with existing positions
-  nodes.forEach(node => {
-    if (node.x !== undefined && node.y !== undefined) {
-      nodePositions.current[node.id] = { x: node.x, y: node.y };
+    
+    // Process exercises - with safety check
+    if (mode === 'practice' && graphData.exercises) {
+      Object.entries(graphData.exercises).forEach(([id, exercise]) => {
+        nodes.push({
+          id,
+          name: exercise.name,
+          type: 'exercise',
+          difficulty: exercise.difficulty,
+          x: exercise.xPosition,
+          y: exercise.yPosition
+        });
+        
+        // Add links from prerequisites
+        if (exercise.prerequisites) {
+          exercise.prerequisites.forEach(prereqId => {
+            links.push({
+              source: prereqId,
+              target: id,
+              type: 'prerequisite'
+            });
+          });
+        }
+      });
     }
-  });
-}, [graphData, mode]);
+    
+    setGraphNodes(nodes);
+    setGraphLinks(links);
+    
+    // Initialize nodePositions ref with existing positions
+    nodes.forEach(node => {
+      if (node.x !== undefined && node.y !== undefined) {
+        nodePositions.current[node.id] = { x: node.x, y: node.y };
+      }
+    });
+  }, [graphData, mode]);
   
   // Fit graph to view when data changes
   useEffect(() => {
@@ -833,749 +835,751 @@ useEffect(() => {
   }, [highlightLinks]);
   
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Controls */}
-      <div className="bg-white border-b p-4 flex justify-between items-center">
-        <div className="flex items-center">
-          <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
-            <ArrowLeft size={18} />
-          </Button>
-          <h2 className="text-xl font-bold">{subjectMatterId}</h2>
-        </div>
-        
-        <div className="flex space-x-2">
-          <Button 
-            variant={mode === 'study' ? 'default' : 'outline'} 
-            onClick={() => changeMode('study')}
-            className="flex items-center"
-          >
-            <Book size={16} className="mr-2" />
-            Study Mode
-          </Button>
-          <Button 
-            variant={mode === 'practice' ? 'default' : 'outline'} 
-            onClick={() => changeMode('practice')}
-            className="flex items-center"
-          >
-            <BarChart size={16} className="mr-2" />
-            Practice Mode
-          </Button>
-        </div>
-        
-        <div className="flex space-x-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setShowNodeLabels(!showNodeLabels)}
-            className="flex items-center"
-          >
-            {showNodeLabels ? <EyeOff size={16} className="mr-1" /> : <Eye size={16} className="mr-1" />}
-            {showNodeLabels ? 'Hide Labels' : 'Show Labels'}
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={zoomToFit}
-            className="flex items-center"
-          >
-            <ZoomIn size={16} className="mr-1" />
-            Fit View
-          </Button>
-          {positionsChanged && (
+    <MathJaxProvider>
+      <div className="h-full flex flex-col overflow-hidden">
+        {/* Top Controls */}
+        <div className="bg-white border-b p-4 flex justify-between items-center">
+          <div className="flex items-center">
+            <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
+              <ArrowLeft size={18} />
+            </Button>
+            <h2 className="text-xl font-bold">{subjectMatterId}</h2>
+          </div>
+          
+          <div className="flex space-x-2">
             <Button 
-              variant="outline"
-              size="sm"
-              onClick={savePositions}
-              disabled={isSavingPositions}
+              variant={mode === 'study' ? 'default' : 'outline'} 
+              onClick={() => changeMode('study')}
               className="flex items-center"
             >
-              {isSavingPositions ? "Saving..." : "Save Positions"}
+              <Book size={16} className="mr-2" />
+              Study Mode
             </Button>
-          )}
-          <Button 
-            onClick={() => createNewNode('definition')}
-            className="flex items-center"
-          >
-            <Plus size={16} className="mr-1" />
-            Definition
-          </Button>
-          {mode === 'practice' && (
             <Button 
-              onClick={() => createNewNode('exercise')}
+              variant={mode === 'practice' ? 'default' : 'outline'} 
+              onClick={() => changeMode('practice')}
+              className="flex items-center"
+            >
+              <BarChart size={16} className="mr-2" />
+              Practice Mode
+            </Button>
+          </div>
+          
+          <div className="flex space-x-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowNodeLabels(!showNodeLabels)}
+              className="flex items-center"
+            >
+              {showNodeLabels ? <EyeOff size={16} className="mr-1" /> : <Eye size={16} className="mr-1" />}
+              {showNodeLabels ? 'Hide Labels' : 'Show Labels'}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={zoomToFit}
+              className="flex items-center"
+            >
+              <ZoomIn size={16} className="mr-1" />
+              Fit View
+            </Button>
+            {positionsChanged && (
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={savePositions}
+                disabled={isSavingPositions}
+                className="flex items-center"
+              >
+                {isSavingPositions ? "Saving..." : "Save Positions"}
+              </Button>
+            )}
+            <Button 
+              onClick={() => createNewNode('definition')}
               className="flex items-center"
             >
               <Plus size={16} className="mr-1" />
-              Exercise
+              Definition
             </Button>
-          )}
-        </div>
-      </div>
-      
-      {/* Main content - flexbox layout */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel - Node browser and search */}
-        <div className={`bg-white border-r transition-all duration-300 ${
-          showLeftPanel ? 'w-64' : 'w-0'
-        } overflow-hidden`}>
-          <div className="p-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Browse Nodes</h3>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={toggleLeftPanel}
-                className="h-8 w-8"
-              >
-                <X size={16} />
-              </Button>
-            </div>
-            
-            <div className="mb-4">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
-                <Input
-                  type="search"
-                  placeholder="Search nodes..."
-                  className="pl-8"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-            </div>
-            
-            <Tabs defaultValue="definitions">
-              <TabsList className="w-full">
-                <TabsTrigger 
-                  value="definitions" 
-                  className="flex-1"
-                  onClick={() => setFilteredNodeType('definition')}
-                >
-                  Definitions
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="exercises" 
-                  className="flex-1"
-                  onClick={() => setFilteredNodeType('exercise')}
-                >
-                  Exercises
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="definitions" className="mt-2">
-                {filteredNodes().filter(n => n.type === 'definition').length > 0 ? (
-                  <ul className="space-y-1">
-                    {filteredNodes()
-                      .filter(n => n.type === 'definition')
-                      .map(node => (
-                        <li 
-                          key={node.id}
-                          className={`px-2 py-1.5 text-sm rounded cursor-pointer ${
-                            selectedNode?.id === node.id 
-                              ? 'bg-blue-100 text-blue-800' 
-                              : 'hover:bg-gray-100'
-                          }`}
-                          onClick={() => handleNodeClick(node)}
-                        >
-                          <div className="font-medium">{node.id}: {node.name}</div>
-                        </li>
-                      ))
-                    }
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 text-sm p-2">No definitions found.</p>
-                )}
-              </TabsContent>
-              
-              <TabsContent value="exercises" className="mt-2">
-                {filteredNodes().filter(n => n.type === 'exercise').length > 0 ? (
-                  <ul className="space-y-1">
-                    {filteredNodes()
-                      .filter(n => n.type === 'exercise')
-                      .map(node => (
-                        <li 
-                          key={node.id}
-                          className={`px-2 py-1.5 text-sm rounded cursor-pointer ${
-                            selectedNode?.id === node.id 
-                              ? 'bg-red-100 text-red-800' 
-                              : 'hover:bg-gray-100'
-                          }`}
-                          onClick={() => handleNodeClick(node)}
-                        >
-                          <div className="font-medium">{node.id}: {node.name}</div>
-                          <div className="text-xs text-gray-500">
-                            Difficulty: {"★".repeat(parseInt(node.difficulty || '1', 10))}
-                          </div>
-                        </li>
-                      ))
-                    }
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 text-sm p-2">No exercises found.</p>
-                )}
-              </TabsContent>
-            </Tabs>
-          </div>
-        </div>
-        
-        {/* Toggle button for left panel */}
-        {!showLeftPanel && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={toggleLeftPanel}
-            className="absolute left-4 top-20 z-10 bg-white shadow-md"
-          >
-            <Settings size={18} />
-          </Button>
-        )}
-        
-        {/* Main Graph Canvas */}
-        <div className="flex-1 bg-gray-50 overflow-hidden relative">
-          <ForceGraph2D
-            ref={graphRef}
-            graphData={{ 
-              nodes: graphNodes, 
-              links: graphLinks 
-            }}
-            nodeId="id"
-            nodeVal={node => node.type === 'definition' ? 20 : 15}
-            nodeCanvasObject={nodeCanvasObject}
-            linkSource="source"
-            linkTarget="target"
-            linkColor={linkColor}
-            linkWidth={link => {
-              const linkId = `${link.source}-${link.target}`;
-              return highlightLinks.has(linkId) ? 2 : 1;
-            }}
-            linkDirectionalArrowLength={3.5}
-            linkDirectionalArrowRelPos={1}
-            linkCurvature={0.25}
-            onNodeClick={handleNodeClick}
-            onNodeHover={handleNodeHover}
-            onNodeDragEnd={handleNodeDragEnd}
-            d3AlphaDecay={0.01}
-            d3VelocityDecay={0.3}
-            warmupTicks={100}
-            cooldownTicks={Infinity}
-            cooldownTime={2000}
-          />
-          
-          {/* Legend */}
-          <div className="absolute bottom-4 left-4 bg-white p-2 rounded shadow-md text-sm">
-            <div className="flex items-center mb-1">
-              <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-              <span>Root Definition</span>
-            </div>
-            <div className="flex items-center mb-1">
-              <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
-              <span>Definition</span>
-            </div>
             {mode === 'practice' && (
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
-                <span>Exercise</span>
-              </div>
+              <Button 
+                onClick={() => createNewNode('exercise')}
+                className="flex items-center"
+              >
+                <Plus size={16} className="mr-1" />
+                Exercise
+              </Button>
             )}
           </div>
         </div>
         
-        {/* Right Panel - Node Details */}
-        <div className={`bg-white border-l transition-all duration-300 ${
-          showRightPanel ? 'w-80' : 'w-0'
-        } overflow-hidden`}>
-          {selectedNode && selectedNodeDetails ? (
-            <div className="h-full flex flex-col">
-              <div className="border-b p-4">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center">
-                    {nodeHistory.length > 0 && (
-                      <Button variant="ghost" size="icon" onClick={navigateBack} className="mr-2 h-8 w-8">
-                        <ArrowLeft size={16} />
-                      </Button>
-                    )}
-                    <h3 className="font-semibold text-lg truncate">
-                      {selectedNode.id}: {selectedNode.name}
-                    </h3>
-                  </div>
-                  <div className="flex">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => setIsEditMode(!isEditMode)}
-                      className="h-8 w-8 mr-1"
-                    >
-                      <Edit size={16} />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={toggleRightPanel} 
-                      className="h-8 w-8"
-                    >
-                      <X size={16} />
-                    </Button>
-                  </div>
+        {/* Main content - flexbox layout */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel - Node browser and search */}
+          <div className={`bg-white border-r transition-all duration-300 ${
+            showLeftPanel ? 'w-64' : 'w-0'
+          } overflow-hidden`}>
+            <div className="p-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold text-lg">Browse Nodes</h3>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={toggleLeftPanel}
+                  className="h-8 w-8"
+                >
+                  <X size={16} />
+                </Button>
+              </div>
+              
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="search"
+                    placeholder="Search nodes..."
+                    className="pl-8"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
                 </div>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-4">
-                {isEditMode ? (
-                  // Edit Mode
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">ID</label>
-                      <Input value={selectedNode.id} disabled />
+              <Tabs defaultValue="definitions">
+                <TabsList className="w-full">
+                  <TabsTrigger 
+                    value="definitions" 
+                    className="flex-1"
+                    onClick={() => setFilteredNodeType('definition')}
+                  >
+                    Definitions
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="exercises" 
+                    className="flex-1"
+                    onClick={() => setFilteredNodeType('exercise')}
+                  >
+                    Exercises
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="definitions" className="mt-2">
+                  {filteredNodes().filter(n => n.type === 'definition').length > 0 ? (
+                    <ul className="space-y-1">
+                      {filteredNodes()
+                        .filter(n => n.type === 'definition')
+                        .map(node => (
+                          <li 
+                            key={node.id}
+                            className={`px-2 py-1.5 text-sm rounded cursor-pointer ${
+                              selectedNode?.id === node.id 
+                                ? 'bg-blue-100 text-blue-800' 
+                                : 'hover:bg-gray-100'
+                            }`}
+                            onClick={() => handleNodeClick(node)}
+                          >
+                            <div className="font-medium">{node.id}: {node.name}</div>
+                          </li>
+                        ))
+                      }
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 text-sm p-2">No definitions found.</p>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="exercises" className="mt-2">
+                  {filteredNodes().filter(n => n.type === 'exercise').length > 0 ? (
+                    <ul className="space-y-1">
+                      {filteredNodes()
+                        .filter(n => n.type === 'exercise')
+                        .map(node => (
+                          <li 
+                            key={node.id}
+                            className={`px-2 py-1.5 text-sm rounded cursor-pointer ${
+                              selectedNode?.id === node.id 
+                                ? 'bg-red-100 text-red-800' 
+                                : 'hover:bg-gray-100'
+                            }`}
+                            onClick={() => handleNodeClick(node)}
+                          >
+                            <div className="font-medium">{node.id}: {node.name}</div>
+                            <div className="text-xs text-gray-500">
+                              Difficulty: {"★".repeat(parseInt(node.difficulty || '1', 10))}
+                            </div>
+                          </li>
+                        ))
+                      }
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 text-sm p-2">No exercises found.</p>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+          
+          {/* Toggle button for left panel */}
+          {!showLeftPanel && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={toggleLeftPanel}
+              className="absolute left-4 top-20 z-10 bg-white shadow-md"
+            >
+              <Settings size={18} />
+            </Button>
+          )}
+          
+          {/* Main Graph Canvas */}
+          <div className="flex-1 bg-gray-50 overflow-hidden relative">
+            <ForceGraph2D
+              ref={graphRef}
+              graphData={{ 
+                nodes: graphNodes, 
+                links: graphLinks 
+              }}
+              nodeId="id"
+              nodeVal={node => node.type === 'definition' ? 20 : 15}
+              nodeCanvasObject={nodeCanvasObject}
+              linkSource="source"
+              linkTarget="target"
+              linkColor={linkColor}
+              linkWidth={link => {
+                const linkId = `${link.source}-${link.target}`;
+                return highlightLinks.has(linkId) ? 2 : 1;
+              }}
+              linkDirectionalArrowLength={3.5}
+              linkDirectionalArrowRelPos={1}
+              linkCurvature={0.25}
+              onNodeClick={handleNodeClick}
+              onNodeHover={handleNodeHover}
+              onNodeDragEnd={handleNodeDragEnd}
+              d3AlphaDecay={0.01}
+              d3VelocityDecay={0.3}
+              warmupTicks={100}
+              cooldownTicks={Infinity}
+              cooldownTime={2000}
+            />
+            
+            {/* Legend */}
+            <div className="absolute bottom-4 left-4 bg-white p-2 rounded shadow-md text-sm">
+              <div className="flex items-center mb-1">
+                <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
+                <span>Root Definition</span>
+              </div>
+              <div className="flex items-center mb-1">
+                <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                <span>Definition</span>
+              </div>
+              {mode === 'practice' && (
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+                  <span>Exercise</span>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Right Panel - Node Details */}
+          <div className={`bg-white border-l transition-all duration-300 ${
+            showRightPanel ? 'w-80' : 'w-0'
+          } overflow-hidden`}>
+            {selectedNode && selectedNodeDetails ? (
+              <div className="h-full flex flex-col">
+                <div className="border-b p-4">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center">
+                      {nodeHistory.length > 0 && (
+                        <Button variant="ghost" size="icon" onClick={navigateBack} className="mr-2 h-8 w-8">
+                          <ArrowLeft size={16} />
+                        </Button>
+                      )}
+                      <h3 className="font-semibold text-lg truncate">
+                        {selectedNode.id}: {selectedNode.name}
+                      </h3>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Name</label>
-                      <Input id="name" defaultValue={selectedNode.name} />
-                    </div>
-                    
-                    {selectedNode.type === 'definition' ? (
-                      // Definition editing
-                      <>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Description</label>
-                          <div className="mb-2">
-                            {hasMultipleDescriptions() && (
-                              <div className="text-sm text-gray-500 mb-1">
-                                Editing version {selectedDefinitionIndex + 1} of {totalDescriptions()}
-                              </div>
-                            )}
-                          </div>
-                          <textarea
-                            id="description"
-                            className="flex h-40 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                            defaultValue={currentDescription()}
-                            placeholder="Enter definition description with LaTeX support (e.g. $\sqrt{2}$)"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mt-3 mb-1">Notes</label>
-                          <textarea
-                            id="notes"
-                            className="flex h-20 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                            defaultValue={(selectedNodeDetails as Definition).notes || ''}
-                            placeholder="Additional notes about this definition"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mt-3 mb-1">References</label>
-                          <textarea
-                            id="references"
-                            className="flex h-20 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                            defaultValue={(selectedNodeDetails as Definition).references?.join('\n') || ''}
-                            placeholder="One reference per line"
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      // Exercise editing
-                      <>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Statement</label>
-                          <textarea
-                            id="statement"
-                            className="flex h-24 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                            defaultValue={(selectedNodeDetails as Exercise).statement}
-                            placeholder="Exercise statement with LaTeX support (e.g. $\sqrt{2}$)"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mt-3 mb-1">Solution</label>
-                          <textarea
-                            id="description"
-                            className="flex h-24 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                            defaultValue={(selectedNodeDetails as Exercise).description}
-                            placeholder="Solution details with LaTeX support"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mt-3 mb-1">Hints</label>
-                          <textarea
-                            id="hints"
-                            className="flex h-16 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                            defaultValue={(selectedNodeDetails as Exercise).hints || ''}
-                            placeholder="Hints for solving the exercise"
-                          />
-                        </div>
-                        <div className="flex space-x-4 mt-3">
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Difficulty (1-5)</label>
-                            <Input
-                              id="difficulty" 
-                              type="number" 
-                              min="1" 
-                              max="5" 
-                              defaultValue={(selectedNodeDetails as Exercise).difficulty || '3'} 
-                              className="w-20"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Verifiable</label>
-                            <input
-                              id="verifiable"
-                              type="checkbox" 
-                              defaultChecked={(selectedNodeDetails as Exercise).verifiable}
-                              className="h-6 w-6 mt-1"
-                            />
-                          </div>
-                        </div>
-                        <div className="mt-3">
-                          <label className="block text-sm font-medium mb-1">Expected Result</label>
-                          <Input
-                            id="result"
-                            defaultValue={(selectedNodeDetails as Exercise).result || ''}
-                            placeholder="Expected answer for automated verification"
-                          />
-                        </div>
-                      </>
-                    )}
-                    
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Prerequisites</label>
-                      <select 
-                        id="prerequisites" 
-                        multiple 
-                        className="w-full border rounded p-2 h-28 text-sm"
-                      >
-                        {graphNodes
-                          .filter(node => node.type === 'definition' && node.id !== selectedNode.id)
-                          .map(node => (
-                            <option 
-                              key={node.id} 
-                              value={node.id}
-                              selected={selectedNodeDetails.prerequisites.includes(node.id)}
-                            >
-                              {node.id}: {node.name}
-                            </option>
-                          ))}
-                      </select>
-                      <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
-                    </div>
-                    
-                    <div className="flex justify-between pt-2">
+                    <div className="flex">
                       <Button 
-                        onClick={selectedNode.type === 'definition' ? 
-                          handleDefinitionEditSubmit : handleExerciseEditSubmit}
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setIsEditMode(!isEditMode)}
+                        className="h-8 w-8 mr-1"
                       >
-                        Save Changes
+                        <Edit size={16} />
                       </Button>
                       <Button 
-                        variant="outline" 
-                        onClick={() => setIsEditMode(false)}
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={toggleRightPanel} 
+                        className="h-8 w-8"
                       >
-                        Cancel
+                        <X size={16} />
                       </Button>
                     </div>
                   </div>
-                ) : (
-                  // View Mode
-                  <div>
-                    {selectedNode.type === 'definition' ? (
-                      // Definition content
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-medium text-sm text-gray-500">DEFINITION</h4>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-4">
+                  {isEditMode ? (
+                    // Edit Mode
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">ID</label>
+                        <Input value={selectedNode.id} disabled />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Name</label>
+                        <Input id="name" defaultValue={selectedNode.name} />
+                      </div>
+                      
+                      {selectedNode.type === 'definition' ? (
+                        // Definition editing
+                        <>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Description</label>
+                            <div className="mb-2">
+                              {hasMultipleDescriptions() && (
+                                <div className="text-sm text-gray-500 mb-1">
+                                  Editing version {selectedDefinitionIndex + 1} of {totalDescriptions()}
+                                </div>
+                              )}
+                            </div>
+                            <textarea
+                              id="description"
+                              className="flex h-40 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                              defaultValue={currentDescription()}
+                              placeholder="Enter definition description with LaTeX support (e.g. $\sqrt{2}$)"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mt-3 mb-1">Notes</label>
+                            <textarea
+                              id="notes"
+                              className="flex h-20 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                              defaultValue={(selectedNodeDetails as Definition).notes || ''}
+                              placeholder="Additional notes about this definition"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mt-3 mb-1">References</label>
+                            <textarea
+                              id="references"
+                              className="flex h-20 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                              defaultValue={(selectedNodeDetails as Definition).references?.join('\n') || ''}
+                              placeholder="One reference per line"
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        // Exercise editing
+                        <>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Statement</label>
+                            <textarea
+                              id="statement"
+                              className="flex h-24 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                              defaultValue={(selectedNodeDetails as Exercise).statement}
+                              placeholder="Exercise statement with LaTeX support (e.g. $\sqrt{2}$)"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mt-3 mb-1">Solution</label>
+                            <textarea
+                              id="description"
+                              className="flex h-24 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                              defaultValue={(selectedNodeDetails as Exercise).description}
+                              placeholder="Solution details with LaTeX support"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mt-3 mb-1">Hints</label>
+                            <textarea
+                              id="hints"
+                              className="flex h-16 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                              defaultValue={(selectedNodeDetails as Exercise).hints || ''}
+                              placeholder="Hints for solving the exercise"
+                            />
+                          </div>
+                          <div className="flex space-x-4 mt-3">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Difficulty (1-5)</label>
+                              <Input
+                                id="difficulty" 
+                                type="number" 
+                                min="1" 
+                                max="5" 
+                                defaultValue={(selectedNodeDetails as Exercise).difficulty || '3'} 
+                                className="w-20"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Verifiable</label>
+                              <input
+                                id="verifiable"
+                                type="checkbox" 
+                                defaultChecked={(selectedNodeDetails as Exercise).verifiable}
+                                className="h-6 w-6 mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <label className="block text-sm font-medium mb-1">Expected Result</label>
+                            <Input
+                              id="result"
+                              defaultValue={(selectedNodeDetails as Exercise).result || ''}
+                              placeholder="Expected answer for automated verification"
+                            />
+                          </div>
+                        </>
+                      )}
+                      
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Prerequisites</label>
+                        <select 
+                          id="prerequisites" 
+                          multiple 
+                          className="w-full border rounded p-2 h-28 text-sm"
+                        >
+                          {graphNodes
+                            .filter(node => node.type === 'definition' && node.id !== selectedNode.id)
+                            .map(node => (
+                              <option 
+                                key={node.id} 
+                                value={node.id}
+                                selected={selectedNodeDetails.prerequisites.includes(node.id)}
+                              >
+                                {node.id}: {node.name}
+                              </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                      </div>
+                      
+                      <div className="flex justify-between pt-2">
+                        <Button 
+                          onClick={selectedNode.type === 'definition' ? 
+                            handleDefinitionEditSubmit : handleExerciseEditSubmit}
+                        >
+                          Save Changes
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setIsEditMode(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    // View Mode
+                    <div>
+                      {selectedNode.type === 'definition' ? (
+                        // Definition content
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex justify-between items-center mb-2">
+                              <h4 className="font-medium text-sm text-gray-500">DEFINITION</h4>
+                              
+                              {mode === 'study' && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => setShowDefinition(!showDefinition)}
+                                  className="h-7 text-xs"
+                                >
+                                  {showDefinition ? 'Hide' : 'Show'}
+                                </Button>
+                              )}
+                            </div>
                             
-                            {mode === 'study' && (
+                            {(showDefinition || mode !== 'study') && (
+                              <Card className="bg-gray-50">
+                                <CardContent className="p-3">
+                                  {hasMultipleDescriptions() && (
+                                    <div className="flex justify-between items-center mb-2 text-sm">
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        disabled={selectedDefinitionIndex === 0}
+                                        onClick={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
+                                        className="h-6 px-2"
+                                      >
+                                        Previous
+                                      </Button>
+                                      <span>Version {selectedDefinitionIndex + 1} of {totalDescriptions()}</span>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        disabled={selectedDefinitionIndex >= totalDescriptions() - 1}
+                                        onClick={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptions() - 1, i + 1))}
+                                        className="h-6 px-2"
+                                      >
+                                        Next
+                                      </Button>
+                                    </div>
+                                  )}
+                                  
+                                  <MathJaxContent>
+                                    {currentDescription()}
+                                  </MathJaxContent>
+                                </CardContent>
+                              </Card>
+                            )}
+                          </div>
+                          
+                          {(selectedNodeDetails as Definition).notes && (
+                            <div>
+                              <h4 className="font-medium text-sm text-gray-500 mb-2">NOTES</h4>
+                              <p className="text-sm text-gray-700">
+                                {(selectedNodeDetails as Definition).notes}
+                              </p>
+                            </div>
+                          )}
+                          
+                          <div>
+                            <h4 className="font-medium text-sm text-gray-500 mb-2">PREREQUISITES</h4>
+                            {selectedNodeDetails.prerequisites.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {selectedNodeDetails.prerequisites.map(prereqId => (
+                                  <Button 
+                                    key={prereqId} 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => navigateToNode(prereqId)}
+                                    className="h-7 text-xs bg-blue-50 hover:bg-blue-100"
+                                  >
+                                    {prereqId}
+                                  </Button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500">No prerequisites</p>
+                            )}
+                          </div>
+                          
+                          {relatedExercises.length > 0 && (
+                            <div>
+                              <h4 className="font-medium text-sm text-gray-500 mb-2">RELATED EXERCISES</h4>
+                              <div className="flex flex-wrap gap-1">
+                                {relatedExercises.map(exId => (
+                                  <Button 
+                                    key={exId} 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => navigateToNode(exId)}
+                                    className="h-7 text-xs bg-red-50 hover:bg-red-100"
+                                  >
+                                    {exId}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {(selectedNodeDetails as Definition).references && 
+                           (selectedNodeDetails as Definition).references.length > 0 && (
+                            <div>
+                              <h4 className="font-medium text-sm text-gray-500 mb-2">REFERENCES</h4>
+                              <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
+                                {(selectedNodeDetails as Definition).references.map((ref, index) => (
+                                  <li key={index}>{ref}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          
+                          {/* Review buttons */}
+                          <div>
+                            <h4 className="font-medium text-sm text-gray-500 mb-2">RATE YOUR UNDERSTANDING</h4>
+                            <div className="flex flex-wrap gap-2">
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-red-50 hover:bg-red-100"
+                                onClick={() => handleReviewDefinition('again')}
+                              >
+                                Again
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-orange-50 hover:bg-orange-100"
+                                onClick={() => handleReviewDefinition('hard')}
+                              >
+                                Hard
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-green-50 hover:bg-green-100"
+                                onClick={() => handleReviewDefinition('good')}
+                              >
+                                Good
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-blue-50 hover:bg-blue-100"
+                                onClick={() => handleReviewDefinition('easy')}
+                              >
+                                Easy
+                              </Button>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <h4 className="font-medium text-sm text-gray-500 mb-2">PERSONAL NOTES</h4>
+                            <textarea 
+                              className="w-full border rounded p-2 h-24 text-sm" 
+                              placeholder="Add your personal notes here..."
+                              value={personalNotes[selectedNode.id] || ''}
+                              onChange={(e) => saveNotes(selectedNode.id, e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        // Exercise content
+                        <div className="space-y-4">
+                          <div>
+                            <h4 className="font-medium text-sm text-gray-500 mb-2">PROBLEM STATEMENT</h4>
+                            <Card className="bg-gray-50">
+                              <CardContent className="p-3">
+                                <MathJaxContent>
+                                  {(selectedNodeDetails as Exercise).statement}
+                                </MathJaxContent>
+                              </CardContent>
+                            </Card>
+                          </div>
+                          
+                          <div>
+                            <div className="flex justify-between items-center mb-2">
+                              <h4 className="font-medium text-sm text-gray-500">HINTS</h4>
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                onClick={() => setShowDefinition(!showDefinition)}
+                                onClick={() => setShowHints(!showHints)}
                                 className="h-7 text-xs"
                               >
-                                {showDefinition ? 'Hide' : 'Show'}
+                                {showHints ? 'Hide' : 'Show'}
                               </Button>
+                            </div>
+                            
+                            {showHints && (selectedNodeDetails as Exercise).hints && (
+                              <Card className="bg-gray-50">
+                                <CardContent className="p-3">
+                                  <MathJaxContent>
+                                    {(selectedNodeDetails as Exercise).hints}
+                                  </MathJaxContent>
+                                </CardContent>
+                              </Card>
                             )}
                           </div>
                           
-                          {(showDefinition || mode !== 'study') && (
-                            <Card className="bg-gray-50">
-                              <CardContent className="p-3">
-                                {hasMultipleDescriptions() && (
-                                  <div className="flex justify-between items-center mb-2 text-sm">
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
-                                      disabled={selectedDefinitionIndex === 0}
-                                      onClick={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
-                                      className="h-6 px-2"
-                                    >
-                                      Previous
-                                    </Button>
-                                    <span>Version {selectedDefinitionIndex + 1} of {totalDescriptions()}</span>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
-                                      disabled={selectedDefinitionIndex >= totalDescriptions() - 1}
-                                      onClick={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptions() - 1, i + 1))}
-                                      className="h-6 px-2"
-                                    >
-                                      Next
-                                    </Button>
-                                  </div>
-                                )}
-                                
-                                <MathJax>
-                                  {currentDescription()}
-                                </MathJax>
-                              </CardContent>
-                            </Card>
-                          )}
-                        </div>
-                        
-                        {(selectedNodeDetails as Definition).notes && (
                           <div>
-                            <h4 className="font-medium text-sm text-gray-500 mb-2">NOTES</h4>
-                            <p className="text-sm text-gray-700">
-                              {(selectedNodeDetails as Definition).notes}
-                            </p>
-                          </div>
-                        )}
-                        
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-500 mb-2">PREREQUISITES</h4>
-                          {selectedNodeDetails.prerequisites.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {selectedNodeDetails.prerequisites.map(prereqId => (
-                                <Button 
-                                  key={prereqId} 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => navigateToNode(prereqId)}
-                                  className="h-7 text-xs bg-blue-50 hover:bg-blue-100"
-                                >
-                                  {prereqId}
-                                </Button>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500">No prerequisites</p>
-                          )}
-                        </div>
-                        
-                        {relatedExercises.length > 0 && (
-                          <div>
-                            <h4 className="font-medium text-sm text-gray-500 mb-2">RELATED EXERCISES</h4>
-                            <div className="flex flex-wrap gap-1">
-                              {relatedExercises.map(exId => (
-                                <Button 
-                                  key={exId} 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => navigateToNode(exId)}
-                                  className="h-7 text-xs bg-red-50 hover:bg-red-100"
-                                >
-                                  {exId}
-                                </Button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {(selectedNodeDetails as Definition).references && 
-                         (selectedNodeDetails as Definition).references.length > 0 && (
-                          <div>
-                            <h4 className="font-medium text-sm text-gray-500 mb-2">REFERENCES</h4>
-                            <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
-                              {(selectedNodeDetails as Definition).references.map((ref, index) => (
-                                <li key={index}>{ref}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        
-                        {/* Review buttons */}
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-500 mb-2">RATE YOUR UNDERSTANDING</h4>
-                          <div className="flex flex-wrap gap-2">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="bg-red-50 hover:bg-red-100"
-                              onClick={() => handleReviewDefinition('again')}
-                            >
-                              Again
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="bg-orange-50 hover:bg-orange-100"
-                              onClick={() => handleReviewDefinition('hard')}
-                            >
-                              Hard
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="bg-green-50 hover:bg-green-100"
-                              onClick={() => handleReviewDefinition('good')}
-                            >
-                              Good
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="bg-blue-50 hover:bg-blue-100"
-                              onClick={() => handleReviewDefinition('easy')}
-                            >
-                              Easy
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-500 mb-2">PERSONAL NOTES</h4>
-                          <textarea 
-                            className="w-full border rounded p-2 h-24 text-sm" 
-                            placeholder="Add your personal notes here..."
-                            value={personalNotes[selectedNode.id] || ''}
-                            onChange={(e) => saveNotes(selectedNode.id, e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      // Exercise content
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-500 mb-2">PROBLEM STATEMENT</h4>
-                          <Card className="bg-gray-50">
-                            <CardContent className="p-3">
-                              <MathJax>
-                                {(selectedNodeDetails as Exercise).statement}
-                              </MathJax>
-                            </CardContent>
-                          </Card>
-                        </div>
-                        
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-medium text-sm text-gray-500">HINTS</h4>
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => setShowHints(!showHints)}
-                              className="h-7 text-xs"
-                            >
-                              {showHints ? 'Hide' : 'Show'}
-                            </Button>
-                          </div>
-                          
-                          {showHints && (selectedNodeDetails as Exercise).hints && (
-                            <Card className="bg-gray-50">
-                              <CardContent className="p-3">
-                                <MathJax>
-                                  {(selectedNodeDetails as Exercise).hints}
-                                </MathJax>
-                              </CardContent>
-                            </Card>
-                          )}
-                        </div>
-                        
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-medium text-sm text-gray-500">SOLUTION</h4>
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => setShowSolution(!showSolution)}
-                              className="h-7 text-xs"
-                            >
-                              {showSolution ? 'Hide' : 'Show'}
-                            </Button>
-                          </div>
-                          
-                          {showSolution && (
-                            <Card className="bg-gray-50">
-                              <CardContent className="p-3">
-                                <MathJax>
-                                  {(selectedNodeDetails as Exercise).description}
-                                </MathJax>
-                              </CardContent>
-                            </Card>
-                          )}
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-500 mb-2">YOUR ANSWER</h4>
-                          <textarea 
-                            className="w-full border rounded p-2 h-20 text-sm" 
-                            placeholder="Enter your solution here..."
-                            value={userAnswer}
-                            onChange={(e) => setUserAnswer(e.target.value)}
-                          />
-                          
-                          {(selectedNodeDetails as Exercise).verifiable && (
-                            <div className="mt-2 flex justify-end">
+                            <div className="flex justify-between items-center mb-2">
+                              <h4 className="font-medium text-sm text-gray-500">SOLUTION</h4>
                               <Button 
+                                variant="outline" 
                                 size="sm" 
-                                onClick={verifyAnswer}
-                                className="h-8"
+                                onClick={() => setShowSolution(!showSolution)}
+                                className="h-7 text-xs"
                               >
-                                Verify Answer
+                                {showSolution ? 'Hide' : 'Show'}
                               </Button>
                             </div>
-                          )}
+                            
+                            {showSolution && (
+                              <Card className="bg-gray-50">
+                                <CardContent className="p-3">
+                                  <MathJaxContent>
+                                    {(selectedNodeDetails as Exercise).description}
+                                  </MathJaxContent>
+                                </CardContent>
+                              </Card>
+                            )}
+                          </div>
                           
-                          {answerFeedback && (
-                            <div className={`mt-2 p-2 text-sm rounded ${
-                              answerFeedback.correct ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {answerFeedback.message}
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-500 mb-2">RELATED CONCEPTS</h4>
-                          {selectedNodeDetails.prerequisites.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {selectedNodeDetails.prerequisites.map(prereqId => (
+                          <div>
+                            <h4 className="font-medium text-sm text-gray-500 mb-2">YOUR ANSWER</h4>
+                            <textarea 
+                              className="w-full border rounded p-2 h-20 text-sm" 
+                              placeholder="Enter your solution here..."
+                              value={userAnswer}
+                              onChange={(e) => setUserAnswer(e.target.value)}
+                            />
+                            
+                            {(selectedNodeDetails as Exercise).verifiable && (
+                              <div className="mt-2 flex justify-end">
                                 <Button 
-                                  key={prereqId} 
-                                  variant="outline" 
                                   size="sm" 
-                                  onClick={() => navigateToNode(prereqId)}
-                                  className="h-7 text-xs bg-blue-50 hover:bg-blue-100"
+                                  onClick={verifyAnswer}
+                                  className="h-8"
                                 >
-                                  {prereqId}
+                                  Verify Answer
                                 </Button>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500">No related concepts</p>
-                          )}
+                              </div>
+                            )}
+                            
+                            {answerFeedback && (
+                              <div className={`mt-2 p-2 text-sm rounded ${
+                                answerFeedback.correct ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                                {answerFeedback.message}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div>
+                            <h4 className="font-medium text-sm text-gray-500 mb-2">RELATED CONCEPTS</h4>
+                            {selectedNodeDetails.prerequisites.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {selectedNodeDetails.prerequisites.map(prereqId => (
+                                  <Button 
+                                    key={prereqId} 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => navigateToNode(prereqId)}
+                                    className="h-7 text-xs bg-blue-50 hover:bg-blue-100"
+                                  >
+                                    {prereqId}
+                                  </Button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500">No related concepts</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="h-full flex items-center justify-center p-4">
-              <p className="text-gray-500 text-center">
-                Select a node to view details
-              </p>
-            </div>
+            ) : (
+              <div className="h-full flex items-center justify-center p-4">
+                <p className="text-gray-500 text-center">
+                  Select a node to view details
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* Toggle button for right panel */}
+          {!showRightPanel && selectedNode && (
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={toggleRightPanel}
+              className="absolute right-4 top-20 z-10 bg-white shadow-md"
+            >
+              <Settings size={18} />
+            </Button>
           )}
         </div>
-        
-        {/* Toggle button for right panel */}
-        {!showRightPanel && selectedNode && (
-          <Button 
-            variant="outline" 
-            size="icon" 
-            onClick={toggleRightPanel}
-            className="absolute right-4 top-20 z-10 bg-white shadow-md"
-          >
-            <Settings size={18} />
-          </Button>
-        )}
       </div>
-    </div>
+    </MathJaxProvider>
   );
 };
 

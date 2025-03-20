@@ -1,8 +1,9 @@
+// src/app/(page)/dashboard/domains/[id]/study/page.tsx
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { use } from 'react'; // Import React.use
+import { use } from 'react';
 import KnowledgeGraph from '@/app/components/Graph/KnowledgeGraph';
 import { exportDomain, updateGraphPositions, GraphData } from '@/lib/api';
 
@@ -46,7 +47,7 @@ export default function StudyPage({ params }: StudyPageProps) {
     };
     
     fetchData();
-  }, [id]); // Updated dependency to use the unwrapped id
+  }, [id]);
 
   const handleBack = () => {
     router.push('/dashboard');
@@ -94,6 +95,8 @@ export default function StudyPage({ params }: StudyPageProps) {
     );
   }
 
+  // Note: We don't need to wrap the KnowledgeGraph with MathJaxProvider here
+  // because KnowledgeGraph already has its own MathJaxProvider
   return (
     <div className="h-screen">
       <KnowledgeGraph
