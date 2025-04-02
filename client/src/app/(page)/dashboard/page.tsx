@@ -1,12 +1,14 @@
 // src/app/(page)/dashboard/page.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
 import { Plus, ArrowRight } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
+import { useRouter } from 'next/navigation';
+import { logout } from '@/lib/api';
 
 import {
   Domain,
@@ -29,6 +31,9 @@ export default function DashboardPage() {
   
   // Selected domain
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
+
+  // Menu
+  const [showMenu, setShowMenu] = useState(false);
 
   // Load initial domain data
   useEffect(() => {
@@ -110,17 +115,86 @@ export default function DashboardPage() {
     setSelectedDomain(domain);
   };
 
+  // Handle hamburger menu
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !(menuRef.current as any).contains(event.target)) {
+        setShowMenu(false);
+      }
+    };
+    
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+const router = useRouter();
+
+const handleLogout = async () => {
+  try {
+    await logout();
+    router.push('/login');
+  } catch (error) {
+    console.error('Error cerrando sesion:', error);
+  }
+};
+
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Knowledge Domains</h1>
-        <Link href="/dashboard/domains/new">
-          <Button className="flex items-center">
-            <Plus size={16} className="mr-1" />
-            Create Domain
-          </Button>
-        </Link>
-      </div>
+      <div className="flex justify-between items-start mb-6" ref={menuRef}>
+  <div>
+    <div className="text-xl font-bold mb-2">
+      Bienvenido, <span className="text-orange-500">usuario</span>
+    </div>
+  </div>
+
+  {/* Botón hamburger */}
+  <button
+    onClick={() => setShowMenu(!showMenu)}
+    className="relative group"
+    aria-label="Abrir menú"
+  >
+    <div className="flex flex-col justify-center items-end w-8 h-8 space-y-1">
+      <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
+      <span className="w-2/3 h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
+      <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
+    </div>
+  </button>
+
+  {showMenu && (
+    <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border z-50">
+      <ul className="py-2 text-sm text-gray-800">
+        <li>
+          <Link 
+            href="/profile"
+            className="block px-4 py-2 hover:bg-orange-100 transition rounded-md"
+            >
+              Profile
+          </Link>
+        </li>
+        <li>
+          <Link 
+            href="/settings"
+            className="block px-4 py-2 hover:bg-orange-100 transition rounded-md"
+          > 
+            Settings 
+          </Link>
+        </li>
+        <li>
+          <button 
+            onClick={handleLogout}
+            className="w-full text-left block px-4 py-2 text-red-500 hover:bg-red-100 transition rounded-md"
+          >
+             Logout
+          </button>
+        </li>
+      </ul>
+    </div>
+  )}
+</div>
       
       {/* Tabs */}
       <div className="flex border-b mb-6">
@@ -143,6 +217,14 @@ export default function DashboardPage() {
           Enrolled Domains
         </button>
       </div>
+
+      {/* Create Domain Button */}
+      <Link href="/dashboard/domains/create">
+         <Button className="flex items-center">
+          <Plus size={16} className="mr-1" />
+          Create Domain
+         </Button>
+       </Link>
       
       {/* Error Message */}
       {error && (
@@ -217,7 +299,6 @@ export default function DashboardPage() {
                 handleSelectDomain(domain);
               }
             }}
-            onCreateSubjectMatter={() => {/* Handle creation */}}
           />
         </div>
       </div>
