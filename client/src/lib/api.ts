@@ -482,13 +482,18 @@ export const getDomainExercises = async (domainId: number): Promise<Exercise[]> 
 };
 
 export const createExercise = async (domainId: number, exercise: ExerciseRequest): Promise<Exercise> => {
+  // Convert difficulty from string to number for API compatibility
+  const exerciseData = {
+    ...exercise,
+    difficulty: exercise.difficulty ? parseInt(exercise.difficulty, 10) : undefined
+  };
   const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(exercise),
+    body: JSON.stringify(exerciseData),
   });
   
   return handleResponse(response);
@@ -515,13 +520,18 @@ export const updateExercise = async (id: number, exerciseData: {
   xPosition?: number;
   yPosition?: number;
 }): Promise<Exercise> => {
+  // Convert difficulty from string to number for API compatibility
+  const dataToSend = {
+    ...exerciseData,
+    difficulty: exerciseData.difficulty ? parseInt(exerciseData.difficulty, 10) : undefined
+  };
   const response = await fetch(`${API_URL}/api/exercises/${id}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(exerciseData),
+    body: JSON.stringify(dataToSend),
   });
   
   return handleResponse(response);

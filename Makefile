@@ -13,6 +13,10 @@ prod:
 prod-build:
 	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 
+# Build and start dev environment
+dev-build:
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
 # Stop all services (dev or prod)
 down:
 	docker compose down
