@@ -1,0 +1,74 @@
+package models
+
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// Exercise represents a practice exercise
+type Exercise struct {
+	gorm.Model
+	Code        string    `gorm:"column:code;not null" json:"code"` // Removed unique constraint
+	Name        string    `gorm:"column:name;not null" json:"name"`
+	Statement   string    `gorm:"column:statement;not null" json:"statement"`
+	Description string    `gorm:"column:description" json:"description"`
+	Hints       string    `gorm:"column:hints" json:"hints"`
+	DomainID    uint      `gorm:"column:domain_id;not null" json:"domainId"`
+	OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
+	Verifiable  bool      `gorm:"column:verifiable;default:false" json:"verifiable"`
+	Result      string    `gorm:"column:result" json:"result"`
+	Difficulty  int       `gorm:"column:difficulty" json:"difficulty"` // Changed from string to int
+	XPosition   float64   `gorm:"column:x_position" json:"xPosition"`
+	YPosition   float64   `gorm:"column:y_position" json:"yPosition"`
+	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt   time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+	
+	// Relationships
+	Domain *Domain `gorm:"foreignKey:DomainID" json:"-"`
+	Owner  *User   `gorm:"foreignKey:OwnerID" json:"-"`
+	
+	// Many-to-many relationships
+	Prerequisites []Definition `gorm:"many2many:exercise_prerequisites;joinForeignKey:exercise_id;joinReferences:prerequisite_id" json:"prerequisites,omitempty"`
+}
+
+// TableName overrides the table name
+func (Exercise) TableName() string {
+	return "exercises"
+}
+
+// ExerciseRequest is used for creating or updating exercises
+type ExerciseRequest struct {
+	Code           string   `json:"code"`
+	Name           string   `json:"name"`
+	Statement      string   `json:"statement"`
+	Description    string   `json:"description,omitempty"`
+	Hints          string   `json:"hints,omitempty"`
+	DomainID       uint     `json:"domainId"`
+	Verifiable     bool     `json:"verifiable,omitempty"`
+	Result         string   `json:"result,omitempty"`
+	Difficulty     int      `json:"difficulty,omitempty"` // Changed from string to int
+	PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
+	XPosition      float64  `json:"xPosition,omitempty"`
+	YPosition      float64  `json:"yPosition,omitempty"`
+}
+
+// ExerciseResponse is used for returning exercises
+type ExerciseResponse struct {
+	ID            uint      `json:"id"`
+	Code          string    `json:"code"`
+	Name          string    `json:"name"`
+	Statement     string    `json:"statement"`
+	Description   string    `json:"description,omitempty"`
+	Hints         string    `json:"hints,omitempty"`
+	DomainID      uint      `json:"domainId"`
+	OwnerID       uint      `json:"ownerId"`
+	Verifiable    bool      `json:"verifiable"`
+	Result        string    `json:"result,omitempty"`
+	Difficulty    int       `json:"difficulty,omitempty"` // Changed from string to int
+	Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes
+	XPosition     float64   `json:"xPosition,omitempty"`
+	YPosition     float64   `json:"yPosition,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}

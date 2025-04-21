@@ -7,108 +7,109 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
       - ./db/init-scripts:/docker-entrypoint-initdb.d
-      # Mount a development-specific postgresql.conf if needed
       - ./db/dev-config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     environment:
-      # Add development-specific environment variables
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
       - PGDATA=/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 3s
       retries: 3
       start_period: 5s
-    networks:
-      - app-network
 
-  # Server Service - Development with simple build approach
+  # Server Service - Development with hot reload and optimized startup
   server:
-    image: golang:1.21-alpine
     working_dir: /app
     volumes:
       - ./server:/app:cached
       - server_go_mod_cache:/go/pkg/mod
       - server_go_build_cache:/root/.cache/go-build
+      - server_apk_cache:/etc/apk/cache
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
-      # Expose debugger port
-      - "2345:2345"
+      - "2345:2345" # Debugger port
     environment:
       - APP_ENV=development
       - GIN_MODE=debug
       - LOG_LEVEL=debug
-      - DB_HOST=db
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - DB_PORT=${DB_PORT}
-      - SERVER_PORT=${SERVER_PORT:-8080}
-      - CORS_ALLOWED_ORIGIN=${CLIENT_URL:-http://localhost:3000}
-      - CORS_ENABLED=true
-    # Simple recompile and run approach
+      - GOGC=off                      # Disable GC during development for faster builds
+      - GOFLAGS=-mod=readonly         # Don't update go.mod during development
     command: >
       sh -c "
-        echo 'Setting up Go development environment...' &&
-        apk add --no-cache git &&
+        # Install git only if not already installed
+        if ! command -v git >/dev/null 2>&1; then
+          echo 'Installing git...' &&
+          apk add --no-cache git;
+        fi &&
+        
+        # Check if go.mod has changed since last build
+        if [ ! -f /tmp/go.mod.md5sum ] || ! md5sum -c /tmp/go.mod.md5sum >/dev/null 2>&1; then
+          echo 'Dependencies changed, updating...' &&
+          cd /app &&
+          go mod download &&
+          go mod tidy &&
+          md5sum go.mod > /tmp/go.mod.md5sum;
+        fi &&
+        
+        # Build and run
         cd /app &&
-        go mod download &&
         go build -o ./tmp/main . &&
         ./tmp/main
       "
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8080}/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 20s
-    networks:
-      - app-network
+      start_period: 10s
 
-  # Client Service - Development with hot reload
+  # Client Service - Development with hot reload and optimized startup
   client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile.dev
-    image: myapp-client-dev:latest
+    working_dir: /app
     volumes:
-      # Mount source code with exclusions
       - ./client:/app:delegated
-      - /app/node_modules
-      - /app/.next
-    ports:
-      - "${CLIENT_PORT:-3000}:3000"
+      - client_node_modules:/app/node_modules
+      - client_next_cache:/app/.next
+      - client_npm_cache:/root/.npm
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:${SERVER_PORT:-8080}
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
       - NEXT_TELEMETRY_DISABLED=1
-      # Add useful development variables
       - NEXT_WEBPACK_USEPOLLING=1
       - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
-    # Run the dev command directly
-    command: npm run dev
-    depends_on:
-      server:
-        condition: service_healthy
+      # Optimize Next.js development experience
+      - NEXT_TURBO=${NEXT_TURBO:-true}
+      - TURBOPACK=true
+      - NEXT_OPTIMIZE_FONTS=false
+      - NEXT_OPTIMIZE_IMAGES=false
+      - NEXT_DISABLE_SOURCEMAPS=true
+    command: >
+      sh -c "
+        # Check if package.json has changed since last install
+        if [ ! -f /tmp/package.json.md5sum ] || ! md5sum -c /tmp/package.json.md5sum >/dev/null 2>&1; then
+          echo 'Dependencies changed, updating...' &&
+          npm install &&
+          md5sum package.json > /tmp/package.json.md5sum;
+        fi &&
+        
+        # Check if package-lock.json exists, regenerate if missing
+        if [ ! -f package-lock.json ]; then
+          echo 'Generating package-lock.json...' &&
+          npm install;
+        fi &&
+        
+        # Run Next.js dev server with turbo
+        npx next dev --turbo
+      "
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
-    networks:
-      - app-network
 
-  # Development utility services
+  # Development utility service - Database admin
   pgadmin:
     image: dpage/pgadmin4:latest
     environment:
@@ -128,9 +129,8 @@ services:
 volumes:
   server_go_mod_cache:
   server_go_build_cache:
+  server_apk_cache:
   pgadmin_data:
-  postgres_data:
-
-networks:
-  app-network:
-    name: ankidemy_app-network
+  client_node_modules:
+  client_next_cache:
+  client_npm_cache:

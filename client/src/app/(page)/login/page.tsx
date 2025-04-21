@@ -6,13 +6,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { loginUser } from "@/lib/api"; // Import the login function
-
-interface LoginResponse {
-  success: boolean;
-  message?: string; // Optional message for success/failure
-  token?: string;   // If you're using token-based auth
-  user?: any;       // Optional:  User data on successful login
-}
+import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/solid";
 
 export default function Login() {
   const router = useRouter();
@@ -20,6 +14,11 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+
+  const togglePasswordVisibility = () => {
+    setPasswordVisible(!passwordVisible);
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -27,22 +26,14 @@ export default function Login() {
     setError(null); // Clear previous errors
 
     try {
-      const data = await loginUser({ email, password });
-
-      if (data.success) {
-        // Successful login!
-        console.log("Login successful:", data);
-        // Handle success by redirecting to dashboard
-        router.push("/dashboard");
-        // If using token authentication:
-        // localStorage.setItem('token', data.token);
-      } else {
-        // Login failed
-        setError(data.message || "Login failed. Please check your credentials.");
-      }
+      // Use the new API client login function
+      await loginUser({ email, password });
+      
+      // If successful, redirect to dashboard
+      router.push("/dashboard");
     } catch (err: any) {
-      // Network error or other unexpected error
-      setError("An unexpected error occurred. Please try again.");
+      // Handle login failures
+      setError(err.message || "Login failed. Please check your credentials.");
       console.error("Login error:", err);
     } finally {
       setIsLoading(false);
@@ -92,21 +83,33 @@ export default function Login() {
                         onChange={(e) => setEmail(e.target.value)}
                       />
                     </div>
-                    <div>
+                    <div className="relative mb-6">
                       <label htmlFor="password" className="sr-only">
                         Password
                       </label>
                       <input
                         id="password"
                         name="password"
-                        type="password"
+                        type={passwordVisible ? "text" : "password"}
                         autoComplete="current-password"
                         required
-                        className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-gray-500 focus:border-gray-500 focus:z-10 sm:text-sm"
+                        className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 focus:z-10 sm:text-sm"
                         placeholder="Password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
+                        style={{ paddingRight: '2.5rem' }} // Adjust padding to account for icon
                       />
+                      <button
+                        type="button"
+                        onClick={togglePasswordVisibility}
+                        className="absolute inset-y-0 right-0 flex items-center px-2 text-gray-600 hover:text-gray-900 focus:outline-none"
+                      >
+                        {passwordVisible ? (
+                          <EyeSlashIcon className="h-5 w-5" aria-hidden="true" />
+                        ) : (
+                          <EyeIcon className="h-5 w-5" aria-hidden="true" />
+                        )}
+                      </button>
                     </div>
                   </div>
 

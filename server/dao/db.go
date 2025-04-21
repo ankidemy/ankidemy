@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"myapp/server/models"
 )
 
@@ -22,7 +23,17 @@ func InitDB() (*gorm.DB, error) {
 		os.Getenv("DB_PORT"),
 	)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	// Configure logger based on environment
+	logLevel := logger.Silent
+	if os.Getenv("APP_ENV") != "production" {
+		logLevel = logger.Info
+	}
+
+	config := &gorm.Config{
+		Logger: logger.Default.LogMode(logLevel),
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), config)
 	if err != nil {
 		return nil, err
 	}
@@ -30,11 +41,24 @@ func InitDB() (*gorm.DB, error) {
 	// Store in package variable for global access if needed
 	DB = db
 	
-	// Ensure our models match the schema or handle migrations as needed
-	// Note: This is just for development; in production you might want more
-	// controlled migrations
-	if err := db.AutoMigrate(&models.User{}); err != nil {
-		log.Printf("Warning: AutoMigrate had issues: %v", err)
+	// Define the models to automigrate
+	models := []interface{}{
+		&models.User{},
+		&models.Domain{},
+		&models.DomainComment{},
+		&models.Definition{},
+		&models.Reference{},
+		&models.Exercise{},
+		&models.UserDomainProgress{},
+		&models.UserDefinitionProgress{},
+		&models.UserExerciseProgress{},
+	}
+	
+	// AutoMigrate all models - note that in production you might want more controlled migrations
+	for _, model := range models {
+		if err := db.AutoMigrate(model); err != nil {
+			log.Printf("Warning: AutoMigrate for %T had issues: %v", model, err)
+		}
 	}
 
 	return db, nil

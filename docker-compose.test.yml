@@ -1,0 +1,64 @@
+# docker-compose.test.yml - Testing environment configuration
+# Run with: docker-compose -f docker-compose.yml -f docker-compose.test.yml up
+
+services:
+  # Database Service - Testing configuration
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    volumes:
+      - ./db/init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "${TEST_DB_PORT:-5433}:5432"
+    tmpfs:
+      # Use tmpfs for test database - faster and no persistence needed
+      - /var/lib/postgresql/data
+    healthcheck:
+      interval: 1s
+      timeout: 1s
+      retries: 3
+      start_period: 1s
+
+  # Server Service - Testing configuration
+  server:
+    image: golang:1.21-alpine
+    working_dir: /app
+    volumes:
+      - ./server:/app:cached
+      - server_test_cache:/go/pkg/mod
+    environment:
+      - APP_ENV=testing
+      - DB_HOST=db
+      - DB_PORT=5432
+      - LOG_LEVEL=debug
+    command: >
+      sh -c "
+        apk add --no-cache git &&
+        cd /app &&
+        go mod download &&
+        go test -v ./...
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Client Service - Testing configuration
+  client:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./client:/app:cached
+      - client_test_node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=test
+      - NEXT_TELEMETRY_DISABLED=1
+    command: >
+      sh -c "
+        npm ci &&
+        npm test
+      "
+
+volumes:
+  server_test_cache:
+  client_test_node_modules:

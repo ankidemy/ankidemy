@@ -1,0 +1,68 @@
+{
+  "definitions": {
+    "math_1.1": {
+      "code": "math_1.1",
+      "name": "Set Theory Basics",
+      "description": [
+        "A set is a collection of distinct objects, considered as an object in its own right.",
+        "In mathematics, a set is a well-defined collection of distinct objects."
+      ],
+      "notes": "Fundamental concept in mathematics",
+      "references": [
+        "Halmos, P. Naive Set Theory",
+        "Jech, T. Set Theory"
+      ],
+      "prerequisites": []
+    },
+    "math_1.2": {
+      "code": "math_1.2",
+      "name": "Set Operations",
+      "description": [
+        "Basic operations on sets include union, intersection, difference, and complement.",
+        "Set operations provide ways to combine and compare sets."
+      ],
+      "notes": "Important for understanding relationships between sets",
+      "references": [
+        "Halmos, P. Naive Set Theory"
+      ],
+      "prerequisites": ["math_1.1"]
+    },
+    "math_2.1": {
+      "code": "math_2.1",
+      "name": "Functions",
+      "description": [
+        "A function $f: X \\rightarrow Y$ is a relation that associates each element $x \\in X$ with exactly one element $y \\in Y$.",
+        "Functions map elements from a domain to a codomain with each input having exactly one output."
+      ],
+      "notes": "Key concept in all areas of mathematics",
+      "references": [
+        "Rudin, W. Principles of Mathematical Analysis"
+      ],
+      "prerequisites": ["math_1.1"]
+    }
+  },
+  "exercises": {
+    "math_E1": {
+      "code": "math_E1",
+      "name": "Set Operations Practice",
+      "statement": "Given sets $A = \\{1, 2, 3\\}$ and $B = \\{2, 3, 4\\}$, find $A \\cup B$ and $A \\cap B$.",
+      "description": "The union $A \\cup B = \\{1, 2, 3, 4\\}$ contains all elements that are in either set.\nThe intersection $A \\cap B = \\{2, 3\\}$ contains elements that are in both sets.",
+      "hints": "Remember that union contains all elements from both sets, while intersection contains only common elements.",
+      "difficulty": "1",
+      "verifiable": true,
+      "result": "{1,2,3,4},{2,3}",
+      "prerequisites": ["math_1.2"]
+    },
+    "math_E2": {
+      "code": "math_E2",
+      "name": "Function Composition",
+      "statement": "Given functions $f(x) = x^2$ and $g(x) = x+1$, find $(f \\circ g)(x)$ and $(g \\circ f)(x)$.",
+      "description": "$(f \\circ g)(x) = f(g(x)) = f(x+1) = (x+1)^2 = x^2 + 2x + 1$\n$(g \\circ f)(x) = g(f(x)) = g(x^2) = x^2 + 1$",
+      "hints": "Remember that $(f \\circ g)(x) = f(g(x))$.",
+      "difficulty": "2",
+      "verifiable": true,
+      "result": "x^2+2x+1,x^2+1",
+      "prerequisites": ["math_2.1"]
+    }
+  }
+}
