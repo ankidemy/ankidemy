@@ -98,4 +98,5 @@ Este proyecto está inspirado en:
 
 ---
 
+
 **Nota**: Este proyecto está en desarrollo activo. Las funcionalidades y la documentación se actualizarán regularmente.
