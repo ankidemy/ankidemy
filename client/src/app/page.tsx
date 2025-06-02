@@ -1,12 +1,11 @@
-import Layout from "./layout";
-import Navbar from "./components/Navbar";
-import HomePage from "@/app/components/HomePage";
+// pages/index.tsx
+import Layout from "./layout"
+import Landing from "@/app/components/Landing"
 
 export default function Home() {
   return (
     <Layout>
-      <Navbar />
-      <HomePage />
+      <Landing />
     </Layout>
-  );
+  )
 }

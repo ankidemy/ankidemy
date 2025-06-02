@@ -472,6 +472,47 @@ export const getDefinitionByCode = async (code: string): Promise<Definition> => 
   return handleResponse(response);
 };
 
+
+/**
+ * Gets the ID of a definition by its code
+ * @param code The code of the definition
+ * @returns Promise resolving to the ID of the definition
+ */
+export const getDefinitionIdByCode = async (code: string): Promise<number> => {
+  try {
+    const response = await getDefinitionByCode(code);
+    // Handle array response (API might return array of matching definitions)
+    const definition = Array.isArray(response) ? response[0] : response;
+    if (!definition || !definition.id) {
+      throw new Error(`No definition found with code: ${code}`);
+    }
+    return definition.id;
+  } catch (error) {
+    console.error('Error getting definition ID by code:', error);
+    throw error;
+  }
+};
+
+/**
+ * Gets the ID of an exercise by its code
+ * @param code The code of the exercise
+ * @returns Promise resolving to the ID of the exercise
+ */
+export const getExerciseIdByCode = async (code: string): Promise<number> => {
+  try {
+    const response = await getExerciseByCode(code);
+    // Handle array response (API might return array of matching exercises)
+    const exercise = Array.isArray(response) ? response[0] : response;
+    if (!exercise || !exercise.id) {
+      throw new Error(`No exercise found with code: ${code}`);
+    }
+    return exercise.id;
+  } catch (error) {
+    console.error('Error getting exercise ID by code:', error);
+    throw error;
+  }
+};
+
 // Exercise API
 export const getDomainExercises = async (domainId: number): Promise<Exercise[]> => {
   const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {

@@ -13,10 +13,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Ankidemy",
-  description: "Learn with spaced repetition for hierarchical knowledge structures",
-};
+// export const metadata: Metadata = {
+//   title: "Ankidemy",
+//   description: "Learn with spaced repetition for hierarchical knowledge structures",
+// };
 
 export default function RootLayout({
   children,

@@ -29,7 +29,7 @@ export default function Login() {
       // Use the new API client login function
       await loginUser({ email, password });
       
-      // If successful, redirect to dashboard
+      // If successful, redirect dashboard
       router.push("/dashboard");
     } catch (err: any) {
       // Handle login failures

@@ -68,10 +68,9 @@ services:
   client:
     working_dir: /app
     volumes:
-      - ./client:/app:delegated
-      - client_node_modules:/app/node_modules
-      - client_next_cache:/app/.next
-      - client_npm_cache:/root/.npm
+      - ./client:/app:cached
+      - /app/node_modules
+      - /app/.next
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}

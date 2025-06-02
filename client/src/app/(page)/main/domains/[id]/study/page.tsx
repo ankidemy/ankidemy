@@ -3,11 +3,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { use } from 'react';
 import KnowledgeGraph from '@/app/components/Graph/KnowledgeGraph';
 import { exportDomain, updateGraphPositions, GraphData } from '@/lib/api';
 
-// Add correct typing for params
 interface StudyPageProps {
   params: {
     id: string;
@@ -16,9 +14,7 @@ interface StudyPageProps {
 
 export default function StudyPage({ params }: StudyPageProps) {
   const router = useRouter();
-  // Unwrap params to access the id safely
-  const resolvedParams = use(params);
-  const id = resolvedParams.id;
+  const id = params.id;
   
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
