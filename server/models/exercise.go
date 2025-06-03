@@ -13,6 +13,7 @@ type Exercise struct {
 	Name        string    `gorm:"column:name;not null" json:"name"`
 	Statement   string    `gorm:"column:statement;not null" json:"statement"`
 	Description string    `gorm:"column:description" json:"description"`
+	Notes       string    `gorm:"column:notes" json:"notes"`
 	Hints       string    `gorm:"column:hints" json:"hints"`
 	DomainID    uint      `gorm:"column:domain_id;not null" json:"domainId"`
 	OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
@@ -43,6 +44,7 @@ type ExerciseRequest struct {
 	Name           string   `json:"name"`
 	Statement      string   `json:"statement"`
 	Description    string   `json:"description,omitempty"`
+	Notes          string   `json:"notes,omitempty"`
 	Hints          string   `json:"hints,omitempty"`
 	DomainID       uint     `json:"domainId"`
 	Verifiable     bool     `json:"verifiable,omitempty"`
@@ -60,6 +62,7 @@ type ExerciseResponse struct {
 	Name          string    `json:"name"`
 	Statement     string    `json:"statement"`
 	Description   string    `json:"description,omitempty"`
+	Notes         string    `json:"notes,omitempty"`
 	Hints         string    `json:"hints,omitempty"`
 	DomainID      uint      `json:"domainId"`
 	OwnerID       uint      `json:"ownerId"`

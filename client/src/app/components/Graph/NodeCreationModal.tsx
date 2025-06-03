@@ -142,6 +142,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           name: name.trim(),
           statement: statement.trim(),
           description: description.trim() || undefined, // Solution
+          notes: notes.trim() || undefined,
           hints: hints.trim() || undefined,
           domainId,
           difficulty: difficulty, // Already a string '1'-'7'
@@ -323,6 +324,21 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                   rows={2}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
                   placeholder="Optional hints for this exercise..."
+                  disabled={isSubmitting}
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="exerciseNotes" className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  id="exerciseNotes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+                  placeholder="Additional notes about this exercise..."
                   disabled={isSubmitting}
                 />
               </div>

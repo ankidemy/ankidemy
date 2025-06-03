@@ -94,6 +94,20 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         )}
       </div>
 
+      {/* Exercise Notes */}
+      {exercise.notes && (
+        <div>
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Notes</h4>
+          <Card className="bg-blue-50 border border-blue-200 shadow-sm">
+            <CardContent className="p-3 text-sm">
+              <MathJaxContent>
+                {exercise.notes}
+              </MathJaxContent>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div>
         <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Your Answer</h4>
         <textarea
