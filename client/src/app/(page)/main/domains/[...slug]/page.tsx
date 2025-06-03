@@ -1,6 +1,7 @@
 // src/app/(page)/dashboard/domains/[...slug]/page.tsx
 "use client";
 
+import ProtectedRoute from "@/app/components/ProtectedRoute";
 import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -85,29 +86,31 @@ export default function DomainPage() {
   }
   
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-8 flex items-center">
-          <Button 
-            variant="ghost" 
-            onClick={() => router.back()} 
-            className="mr-4"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gray-100 p-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-8 flex items-center">
+            <Button 
+              variant="ghost" 
+              onClick={() => router.back()} 
+              className="mr-4"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            
+            <h1 className="text-2xl font-bold">
+              {mode === 'create' ? 'Create New Domain' : 'Edit Domain'}
+            </h1>
+          </div>
           
-          <h1 className="text-2xl font-bold">
-            {mode === 'create' ? 'Create New Domain' : 'Edit Domain'}
-          </h1>
+          <DomainForm 
+            domainId={domainId} 
+            onSuccess={handleFormSuccess}
+            onCancel={() => router.back()}
+          />
         </div>
-        
-        <DomainForm 
-          domainId={domainId} 
-          onSuccess={handleFormSuccess}
-          onCancel={() => router.back()}
-        />
       </div>
-    </div>
+    </ProtectedRoute>
   );
 }

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
 import { Plus, ArrowRight } from 'lucide-react';
+import ProtectedRoute from "@/app/components/ProtectedRoute";
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import { logout } from '@/lib/api';
@@ -142,77 +143,90 @@ const handleLogout = async () => {
   }
 };
 
-  return (
+return (
+  <ProtectedRoute>
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-start mb-6" ref={menuRef}>
-  <div>
-    <div className="text-xl font-bold mb-2">
-      Bienvenido, <span className="text-orange-500">usuario</span>
-    </div>
-  </div>
+        <div>
+          <div className="text-xl font-bold mb-2">
+            Bienvenido, <span className="text-orange-500">usuario</span>
+          </div>
+        </div>
 
-  {/* Botón hamburger */}
-  <button
-    onClick={() => setShowMenu(!showMenu)}
-    className="relative group"
-    aria-label="Abrir menú"
-  >
-    <div className="flex flex-col justify-center items-end w-8 h-8 space-y-1">
-      <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
-      <span className="w-2/3 h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
-      <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
-    </div>
-  </button>
+        {/* Botón hamburger */}
+        <button
+          onClick={() => setShowMenu(!showMenu)}
+          className="relative group"
+          aria-label="Abrir menú"
+        >
+          <div className="flex flex-col justify-center items-end w-8 h-8 space-y-1">
+            <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
+            <span className="w-2/3 h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
+            <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all" />
+          </div>
+        </button>
 
-  {showMenu && (
-    <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border z-50">
-      <ul className="py-2 text-sm text-gray-800">
-        <li>
-          <Link 
-            href="/profile"
-            className="block px-4 py-2 hover:bg-orange-100 transition rounded-md"
-            >
-              Profile
-          </Link>
-        </li>
-        <li>
-          <Link 
-            href="/settings"
-            className="block px-4 py-2 hover:bg-orange-100 transition rounded-md"
-          > 
-            Settings 
-          </Link>
-        </li>
-        <li>
-          <button 
-            onClick={handleLogout}
-            className="w-full text-left block px-4 py-2 text-red-500 hover:bg-red-100 transition rounded-md"
-          >
-             Logout
-          </button>
-        </li>
-      </ul>
-    </div>
-  )}
-</div>
-      
+        {showMenu && (
+          <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border z-50">
+            <ul className="py-2 text-sm text-gray-800">
+              <li>
+                <Link
+                  href="/profile"
+                  className="block px-4 py-2 hover:bg-orange-100 transition rounded-md"
+                >
+                  Profile
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/settings"
+                  className="block px-4 py-2 hover:bg-orange-100 transition rounded-md"
+                >
+                  Settings
+                </Link>
+              </li>
+              <li>
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left block px-4 py-2 text-red-500 hover:bg-red-100 transition rounded-md"
+                >
+                  Logout
+                </button>
+              </li>
+            </ul>
+          </div>
+        )}
+      </div>
+
       {/* Tabs */}
       <div className="flex border-b mb-6">
         <button
-          className={`px-4 py-2 font-medium ${activeTab === 'all' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
-          onClick={() => handleTabChange('all')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === "all"
+              ? "text-orange-500 border-b-2 border-orange-500"
+              : "text-gray-500"
+          }`}
+          onClick={() => handleTabChange("all")}
         >
           All Domains
         </button>
         <button
-          className={`px-4 py-2 font-medium ${activeTab === 'my' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
-          onClick={() => handleTabChange('my')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === "my"
+              ? "text-orange-500 border-b-2 border-orange-500"
+              : "text-gray-500"
+          }`}
+          onClick={() => handleTabChange("my")}
         >
           My Domains
         </button>
         <button
-          className={`px-4 py-2 font-medium ${activeTab === 'enrolled' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
-          onClick={() => handleTabChange('enrolled')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === "enrolled"
+              ? "text-orange-500 border-b-2 border-orange-500"
+              : "text-gray-500"
+          }`}
+          onClick={() => handleTabChange("enrolled")}
         >
           Enrolled Domains
         </button>
@@ -220,19 +234,19 @@ const handleLogout = async () => {
 
       {/* Create Domain Button */}
       <Link href="/dashboard/domains/create">
-         <Button className="flex items-center">
+        <Button className="flex items-center">
           <Plus size={16} className="mr-1" />
           Create Domain
-         </Button>
-       </Link>
-      
+        </Button>
+      </Link>
+
       {/* Error Message */}
       {error && (
         <div className="bg-red-50 text-red-500 p-4 rounded-md mb-6">
           {error}
         </div>
       )}
-      
+
       {/* Domain Display */}
       {loading ? (
         <div className="flex justify-center items-center py-12">
@@ -240,36 +254,42 @@ const handleLogout = async () => {
         </div>
       ) : displayDomains.length === 0 ? (
         <div className="text-center py-12">
-          <h3 className="text-lg font-medium text-gray-600 mb-2">No domains found</h3>
+          <h3 className="text-lg font-medium text-gray-600 mb-2">
+            No domains found
+          </h3>
           <p className="text-gray-500">
-            {activeTab === 'all'
+            {activeTab === "all"
               ? "There are no public domains available."
-              : activeTab === 'my'
+              : activeTab === "my"
               ? "You haven't created any domains yet."
-              : "You haven't enrolled in any domains yet."
-            }
+              : "You haven't enrolled in any domains yet."}
           </p>
-          
-          {activeTab === 'my' && (
+
+          {activeTab === "my" && (
             <Link href="/dashboard/domains/new">
-              <Button className="mt-4">
-                Create Your First Domain
-              </Button>
+              <Button className="mt-4">Create Your First Domain</Button>
             </Link>
           )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {displayDomains.map((domain) => (
-            <Card key={domain.id} className="p-6 hover:shadow-md transition-shadow">
-              <h3 className="text-xl font-semibold mb-2">{domain.name}</h3>
-              <p className="text-gray-600 mb-4 line-clamp-2">{domain.description || "No description"}</p>
-              
+            <Card
+              key={domain.id}
+              className="p-6 hover:shadow-md transition-shadow"
+            >
+              <h3 className="text-xl font-semibold mb-2">
+                {domain.name}
+              </h3>
+              <p className="text-gray-600 mb-4 line-clamp-2">
+                {domain.description || "No description"}
+              </p>
+
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">
-                  {domain.privacy === 'public' ? 'Public' : 'Private'}
+                  {domain.privacy === "public" ? "Public" : "Private"}
                 </span>
-                <Link 
+                <Link
                   href={`/dashboard/domains/${domain.id}/study`}
                   className="text-orange-500 hover:text-orange-700 flex items-center"
                 >
@@ -281,20 +301,22 @@ const handleLogout = async () => {
           ))}
         </div>
       )}
-      
+
       {/* Domain Network Visualization */}
       <div className="mt-12">
         <h2 className="text-xl font-bold mb-6">Domain Network</h2>
         <div className="border rounded-lg h-96 overflow-hidden">
-          <SubjectMatterGraph 
-            subjectMatters={displayDomains.map(domain => ({
+          <SubjectMatterGraph
+            subjectMatters={displayDomains.map((domain) => ({
               id: domain.id.toString(),
               name: domain.name,
-              nodeCount: 0, // In a real app, you'd fetch this data
-              exerciseCount: 0
+              nodeCount: 0, // En producción, toma datos reales
+              exerciseCount: 0,
             }))}
             onSelectSubjectMatter={(id) => {
-              const domain = displayDomains.find(d => d.id.toString() === id);
+              const domain = displayDomains.find(
+                (d) => d.id.toString() === id
+              );
               if (domain) {
                 handleSelectDomain(domain);
               }
@@ -303,5 +325,6 @@ const handleLogout = async () => {
         </div>
       </div>
     </div>
-  );
+  </ProtectedRoute>
+);
 }

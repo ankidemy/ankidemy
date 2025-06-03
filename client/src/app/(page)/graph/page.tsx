@@ -1,6 +1,7 @@
 // src/app/(page)/graph/page.tsx
 "use client";
 
+import ProtectedRoute from "@/app/components/ProtectedRoute";
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MathJaxContext } from 'better-react-mathjax';
@@ -154,55 +155,57 @@ export default function GraphPage() {
   const selectedDomain = domains.find(d => d.id.toString() === selectedDomainId);
   
   return (
-    <MathJaxContext config={config}>
-      <GraphLayout>
-        <div className="h-full w-full flex flex-col">
-          {error && (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-red-500 text-xl p-8 bg-white rounded shadow-md">
-                {error}
-                <button
-                  onClick={() => window.location.reload()}
-                  className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          )}
-          {!error && selectedDomainId ? (
-            isLoading ? (
+    <ProtectedRoute>
+      <MathJaxContext config={config}>
+        <GraphLayout>
+          <div className="h-full w-full flex flex-col">
+            {error && (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-xl text-gray-500">Loading {selectedDomain?.name || selectedDomainId} graph...</p>
+                <div className="text-red-500 text-xl p-8 bg-white rounded shadow-md">
+                  {error}
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+                  >
+                    Retry
+                  </button>
+                </div>
               </div>
+            )}
+            {!error && selectedDomainId ? (
+              isLoading ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <p className="text-xl text-gray-500">Loading {selectedDomain?.name || selectedDomainId} graph...</p>
+                </div>
+              ) : (
+                <div className="flex-1">
+                  {graphData && (
+                    <KnowledgeGraph 
+                      graphData={graphData} 
+                      subjectMatterId={selectedDomain?.name || selectedDomainId}
+                      onBack={handleBack}
+                      onPositionUpdate={handlePositionUpdate}
+                    />
+                  )}
+                </div>
+              )
             ) : (
               <div className="flex-1">
-                {graphData && (
-                  <KnowledgeGraph 
-                    graphData={graphData} 
-                    subjectMatterId={selectedDomain?.name || selectedDomainId}
-                    onBack={handleBack}
-                    onPositionUpdate={handlePositionUpdate}
+                {isLoading ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <p className="text-xl text-gray-500">Loading domains...</p>
+                  </div>
+                ) : (
+                  <SubjectMatterGraph 
+                    subjectMatters={subjectMatters}
+                    onSelectSubjectMatter={handleSelectDomain}
                   />
                 )}
               </div>
-            )
-          ) : (
-            <div className="flex-1">
-              {isLoading ? (
-                <div className="flex-1 flex items-center justify-center">
-                  <p className="text-xl text-gray-500">Loading domains...</p>
-                </div>
-              ) : (
-                <SubjectMatterGraph 
-                  subjectMatters={subjectMatters}
-                  onSelectSubjectMatter={handleSelectDomain}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </GraphLayout>
-    </MathJaxContext>
+            )}
+          </div>
+        </GraphLayout>
+      </MathJaxContext>
+    </ProtectedRoute>
   );
 }

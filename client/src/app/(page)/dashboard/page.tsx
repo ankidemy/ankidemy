@@ -1,5 +1,6 @@
 "use client"
 
+import ProtectedRoute from "@/app/components/ProtectedRoute";
 import { useState } from 'react'
 import Layout from "@/app/layout";
 import Navbar from "@/app/components/Navbar";
@@ -13,10 +14,12 @@ export default function Dashboard() {
   const closeSidebar = () => setSidebarOpen(false)
   
   return (
-    <Layout>
-      <Navbar onMenuClick={openSidebar} />
-      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
-      <DashBoard />
-    </Layout>
+    <ProtectedRoute>
+      <Layout>
+        <Navbar onMenuClick={openSidebar} />
+        <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+        <DashBoard />
+      </Layout>
+    </ProtectedRoute> 
   );
 }

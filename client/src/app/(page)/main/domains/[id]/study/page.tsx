@@ -1,6 +1,7 @@
 // src/app/(page)/dashboard/domains/[id]/study/page.tsx
 "use client";
 
+import ProtectedRoute from "@/app/components/ProtectedRoute";
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import KnowledgeGraph from '@/app/components/Graph/KnowledgeGraph';
@@ -94,13 +95,15 @@ export default function StudyPage({ params }: StudyPageProps) {
   // Note: We don't need to wrap the KnowledgeGraph with MathJaxProvider here
   // because KnowledgeGraph already has its own MathJaxProvider
   return (
-    <div className="h-screen">
-      <KnowledgeGraph
-        graphData={graphData}
-        subjectMatterId={id}
-        onBack={handleBack}
-        onPositionUpdate={handlePositionUpdate}
-      />
-    </div>
+    <ProtectedRoute>
+      <div className="h-screen">
+        <KnowledgeGraph
+          graphData={graphData}
+          subjectMatterId={id}
+          onBack={handleBack}
+          onPositionUpdate={handlePositionUpdate}
+        />
+      </div>
+    </ProtectedRoute>
   );
 }

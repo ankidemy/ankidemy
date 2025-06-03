@@ -1,6 +1,7 @@
 // src/app/(page)/debug/page.tsx
 "use client";
 
+import ProtectedRoute from "@/app/components/ProtectedRoute";
 import { useState, useEffect } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/app/components/core/card";
@@ -574,203 +575,205 @@ function DefinitionDebugPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Domain selector */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Select Domain</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <select 
-            className="w-full p-2 border rounded-md"
-            value={selectedDomain || ''}
-            onChange={(e) => setSelectedDomain(Number(e.target.value) || null)}
-          >
-            <option value="">-- Select a domain --</option>
-            {domains.map(domain => (
-              <option key={domain.id} value={domain.id}>
-                {domain.name}
-              </option>
-            ))}
-          </select>
-        </CardContent>
-      </Card>
+    <ProtectedRoute>
+      <div className="space-y-6">
+        {/* Domain selector */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Select Domain</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <select 
+              className="w-full p-2 border rounded-md"
+              value={selectedDomain || ''}
+              onChange={(e) => setSelectedDomain(Number(e.target.value) || null)}
+            >
+              <option value="">-- Select a domain --</option>
+              {domains.map(domain => (
+                <option key={domain.id} value={domain.id}>
+                  {domain.name}
+                </option>
+              ))}
+            </select>
+          </CardContent>
+        </Card>
 
-      {selectedDomain && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Left panel - Definitions list */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Definitions</CardTitle>
-              <CardDescription>
-                {loading ? 'Loading definitions...' : 
-                error ? error : 
-                `${definitions.length} definitions found`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-h-[500px] overflow-y-auto">
-              {definitions.length > 0 ? (
-                <ul className="space-y-2">
-                  {definitions.map(definition => (
-                    <li 
-                      key={definition.id}
-                      className={`p-3 rounded-md cursor-pointer border ${
-                        selectedDefinition?.id === definition.id ? 'bg-gray-100 border-gray-400' : 'border-gray-200 hover:bg-gray-50'
-                      }`}
-                      onClick={() => { 
-                        setSelectedDefinition(definition);
-                        setIsEditing(true);
-                      }}
-                    >
-                      <div className="font-medium">{definition.name}</div>
-                      <div className="text-sm text-gray-500">Code: {definition.code}</div>
-                      <div className="text-xs text-gray-400 truncate">
-                        {definition.description.substring(0, 50)}
-                        {definition.description.length > 50 ? '...' : ''}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : loading ? (
-                <div className="text-center py-4 text-gray-500">Loading...</div>
-              ) : (
-                <div className="text-center py-4 text-gray-500">No definitions found</div>
-              )}
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button 
-                onClick={() => selectedDomain && fetchDefinitionsForDomain(selectedDomain)}
-              >
-                Refresh
-              </Button>
-              <Button onClick={() => { setIsEditing(false); setSelectedDefinition(null); }}>
-                Create New Definition
-              </Button>
-            </CardFooter>
-          </Card>
-
-          {/* Right panel - Edit/Create form */}
-          <Card>
-            <CardHeader>
-              <CardTitle>{isEditing ? 'Edit Definition' : 'Create Definition'}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Code</label>
-                  <Input
-                    name="code"
-                    value={formData.code}
-                    onChange={handleInputChange}
-                    required
-                    placeholder="Definition code (e.g., DEF001)"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Name</label>
-                  <Input
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    required
-                    placeholder="Definition name"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Description</label>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    className="w-full h-24 p-2 border rounded-md"
-                    placeholder="Definition description (can use LaTeX with $ symbols)"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Notes</label>
-                  <textarea
-                    name="notes"
-                    value={formData.notes}
-                    onChange={handleInputChange}
-                    className="w-full h-16 p-2 border rounded-md"
-                    placeholder="Additional notes"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">References</label>
-                  <textarea
-                    value={formData.references?.join('\n') || ''}
-                    onChange={handleReferencesChange}
-                    className="w-full h-16 p-2 border rounded-md"
-                    placeholder="One reference per line"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Prerequisites</label>
-                  <select
-                    multiple
-                    className="w-full h-24 p-2 border rounded-md"
-                    value={formData.prerequisiteIds?.map(String) || []}
-                    onChange={handlePrerequisitesChange}
-                  >
-                    {definitions
-                      .filter(def => def.id !== selectedDefinition?.id)
-                      .map(def => (
-                        <option key={def.id} value={def.id}>
-                          {def.code}: {def.name}
-                        </option>
-                      ))
-                    }
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">X Position</label>
-                    <Input
-                      type="number"
-                      name="xPosition"
-                      value={formData.xPosition}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Y Position</label>
-                    <Input
-                      type="number"
-                      name="yPosition"
-                      value={formData.yPosition}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                </div>
-                
-                {actionStatus && (
-                  <div className={`p-2 rounded text-sm ${
-                    actionStatus.includes('Failed') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                  }`}>
-                    {actionStatus}
-                  </div>
+        {selectedDomain && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Left panel - Definitions list */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Definitions</CardTitle>
+                <CardDescription>
+                  {loading ? 'Loading definitions...' : 
+                  error ? error : 
+                  `${definitions.length} definitions found`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="max-h-[500px] overflow-y-auto">
+                {definitions.length > 0 ? (
+                  <ul className="space-y-2">
+                    {definitions.map(definition => (
+                      <li 
+                        key={definition.id}
+                        className={`p-3 rounded-md cursor-pointer border ${
+                          selectedDefinition?.id === definition.id ? 'bg-gray-100 border-gray-400' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                        onClick={() => { 
+                          setSelectedDefinition(definition);
+                          setIsEditing(true);
+                        }}
+                      >
+                        <div className="font-medium">{definition.name}</div>
+                        <div className="text-sm text-gray-500">Code: {definition.code}</div>
+                        <div className="text-xs text-gray-400 truncate">
+                          {definition.description.substring(0, 50)}
+                          {definition.description.length > 50 ? '...' : ''}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : loading ? (
+                  <div className="text-center py-4 text-gray-500">Loading...</div>
+                ) : (
+                  <div className="text-center py-4 text-gray-500">No definitions found</div>
                 )}
-                
-                <div className="flex justify-between pt-2">
-                  <Button type="submit">
-                    {isEditing ? 'Update Definition' : 'Create Definition'}
-                  </Button>
+              </CardContent>
+              <CardFooter className="flex justify-between">
+                <Button 
+                  onClick={() => selectedDomain && fetchDefinitionsForDomain(selectedDomain)}
+                >
+                  Refresh
+                </Button>
+                <Button onClick={() => { setIsEditing(false); setSelectedDefinition(null); }}>
+                  Create New Definition
+                </Button>
+              </CardFooter>
+            </Card>
+
+            {/* Right panel - Edit/Create form */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{isEditing ? 'Edit Definition' : 'Create Definition'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Code</label>
+                    <Input
+                      name="code"
+                      value={formData.code}
+                      onChange={handleInputChange}
+                      required
+                      placeholder="Definition code (e.g., DEF001)"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Name</label>
+                    <Input
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      required
+                      placeholder="Definition name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Description</label>
+                    <textarea
+                      name="description"
+                      value={formData.description}
+                      onChange={handleInputChange}
+                      className="w-full h-24 p-2 border rounded-md"
+                      placeholder="Definition description (can use LaTeX with $ symbols)"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Notes</label>
+                    <textarea
+                      name="notes"
+                      value={formData.notes}
+                      onChange={handleInputChange}
+                      className="w-full h-16 p-2 border rounded-md"
+                      placeholder="Additional notes"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">References</label>
+                    <textarea
+                      value={formData.references?.join('\n') || ''}
+                      onChange={handleReferencesChange}
+                      className="w-full h-16 p-2 border rounded-md"
+                      placeholder="One reference per line"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Prerequisites</label>
+                    <select
+                      multiple
+                      className="w-full h-24 p-2 border rounded-md"
+                      value={formData.prerequisiteIds?.map(String) || []}
+                      onChange={handlePrerequisitesChange}
+                    >
+                      {definitions
+                        .filter(def => def.id !== selectedDefinition?.id)
+                        .map(def => (
+                          <option key={def.id} value={def.id}>
+                            {def.code}: {def.name}
+                          </option>
+                        ))
+                      }
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">X Position</label>
+                      <Input
+                        type="number"
+                        name="xPosition"
+                        value={formData.xPosition}
+                        onChange={handleInputChange}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Y Position</label>
+                      <Input
+                        type="number"
+                        name="yPosition"
+                        value={formData.yPosition}
+                        onChange={handleInputChange}
+                      />
+                    </div>
+                  </div>
                   
-                  {isEditing && selectedDefinition && (
-                    <Button type="button" variant="destructive" onClick={handleDelete}>
-                      Delete Definition
-                    </Button>
+                  {actionStatus && (
+                    <div className={`p-2 rounded text-sm ${
+                      actionStatus.includes('Failed') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                    }`}>
+                      {actionStatus}
+                    </div>
                   )}
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </div>
+                  
+                  <div className="flex justify-between pt-2">
+                    <Button type="submit">
+                      {isEditing ? 'Update Definition' : 'Create Definition'}
+                    </Button>
+                    
+                    {isEditing && selectedDefinition && (
+                      <Button type="button" variant="destructive" onClick={handleDelete}>
+                        Delete Definition
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </ProtectedRoute>
   );
 }
 
