@@ -1,7 +1,8 @@
 import { Button } from "@/app/components/core/button";
 import Image from "next/image";
+import Link from "next/link";
 
-export default function HomePage() {
+export default function Dashboard() {
   return (
     <main className="bg-white w-full min-h-screen flex flex-col gap-7 px-6 sm:px-8 lg:px-16 py-8 mt-16">
       {/* Upper Split */}
@@ -14,12 +15,14 @@ export default function HomePage() {
           <p>
           Ankidemy es un sistema de aprendizaje basado en repetición espaciada, diseñado específicamente para estructuras de conocimiento jerárquicas.
           </p>
-          <Button
-            size="lg"
-            className="bg-orange-400 text-white rounded-xl py-3 hover:bg-orange-300"
-          >
-            Empieza tu prueba gratis hoy
-          </Button>
+          <Link href="/main">
+            <Button
+              size="lg"
+              className="w-full bg-orange-400 text-white rounded-xl py-3 hover:bg-orange-300"
+            >
+              Ir a domain
+            </Button>
+          </Link>
         </div>
 
         {/* Upper Right */}
@@ -54,9 +57,12 @@ export default function HomePage() {
               Implementa la repetición espaciada en estructuras jerárquicas de conocimiento
             </p>
           </div>
-          <a href="/gratis" className="hover:text-orange-800">
-            Empieza tu prueba gratis hoy &rarr;
-          </a>
+          <Link
+            href="/main"
+            className="text-white font-medium hover:text-orange-200"
+          >
+            Ir a domain &rarr;
+          </Link>
         </div>
       </div>
     </main>
