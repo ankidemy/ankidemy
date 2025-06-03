@@ -87,12 +87,13 @@ func TestExerciseCreate(t *testing.T) {
 		Name:        "Test Exercise",
 		Statement:   "Solve this problem",
 		Description: "Exercise description",
+		Notes:       "These are test notes for the exercise",
 		Hints:       "Here's a hint",
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 		Verifiable:  true,
 		Result:      "42",
-		Difficulty:  "medium",
+		Difficulty:  3,
 		XPosition:   100.0,
 		YPosition:   200.0,
 	}
@@ -118,6 +119,9 @@ func TestExerciseCreate(t *testing.T) {
 	}
 	if foundEx.Result != "42" {
 		t.Errorf("Expected result '42', got '%s'", foundEx.Result)
+	}
+	if foundEx.Notes != "These are test notes for the exercise" {
+		t.Errorf("Expected notes 'These are test notes for the exercise', got '%s'", foundEx.Notes)
 	}
 
 	// Verify prerequisites
@@ -195,10 +199,11 @@ func TestExerciseUpdate(t *testing.T) {
 		Name:        "Original Exercise",
 		Statement:   "Original statement",
 		Description: "Original description",
+		Notes:       "Original notes",
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 		Verifiable:  false,
-		Difficulty:  "easy",
+		Difficulty:  1,
 	}
 	if err := exerciseDAO.Create(exercise, []uint{def1.ID}); err != nil {
 		t.Fatalf("Failed to create exercise: %v", err)
@@ -207,9 +212,10 @@ func TestExerciseUpdate(t *testing.T) {
 	// Update exercise with new properties and def2 as prerequisite
 	exercise.Name = "Updated Exercise"
 	exercise.Statement = "Updated statement"
+	exercise.Notes = "Updated notes"
 	exercise.Verifiable = true
 	exercise.Result = "updated result"
-	exercise.Difficulty = "hard"
+	exercise.Difficulty = 5
 	if err := exerciseDAO.Update(exercise, []uint{def2.ID}); err != nil {
 		t.Fatalf("Failed to update exercise: %v", err)
 	}
@@ -227,14 +233,17 @@ func TestExerciseUpdate(t *testing.T) {
 	if updatedEx.Statement != "Updated statement" {
 		t.Errorf("Expected updated statement 'Updated statement', got '%s'", updatedEx.Statement)
 	}
+	if updatedEx.Notes != "Updated notes" {
+		t.Errorf("Expected updated notes 'Updated notes', got '%s'", updatedEx.Notes)
+	}
 	if !updatedEx.Verifiable {
 		t.Error("Expected Verifiable to be true after update")
 	}
 	if updatedEx.Result != "updated result" {
 		t.Errorf("Expected updated result 'updated result', got '%s'", updatedEx.Result)
 	}
-	if updatedEx.Difficulty != "hard" {
-		t.Errorf("Expected updated difficulty 'hard', got '%s'", updatedEx.Difficulty)
+	if updatedEx.Difficulty != 5 {
+		t.Errorf("Expected updated difficulty 5, got %d", updatedEx.Difficulty)
 	}
 
 	// Verify updated prerequisites
@@ -287,8 +296,10 @@ func TestExerciseDelete(t *testing.T) {
 		Code:        "EX3",
 		Name:        "Exercise to Delete",
 		Statement:   "This exercise will be deleted",
+		Notes:       "Notes for exercise to delete",
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
+		Difficulty:  2,
 	}
 	if err := exerciseDAO.Create(exercise, nil); err != nil {
 		t.Fatalf("Failed to create exercise: %v", err)
@@ -357,8 +368,10 @@ func TestFindExercisesByDomain(t *testing.T) {
 		Code:        "EX4",
 		Name:        "Exercise in Domain 1",
 		Statement:   "This exercise is in domain 1",
+		Notes:       "Notes for domain 1 exercise",
 		DomainID:    domain1.ID,
 		OwnerID:     user.ID,
+		Difficulty:  3,
 	}
 	if err := exerciseDAO.Create(exercise1, nil); err != nil {
 		t.Fatalf("Failed to create exercise 1: %v", err)
@@ -368,8 +381,10 @@ func TestFindExercisesByDomain(t *testing.T) {
 		Code:        "EX5",
 		Name:        "Another Exercise in Domain 1",
 		Statement:   "This exercise is also in domain 1",
+		Notes:       "More notes for domain 1 exercise",
 		DomainID:    domain1.ID,
 		OwnerID:     user.ID,
+		Difficulty:  4,
 	}
 	if err := exerciseDAO.Create(exercise2, nil); err != nil {
 		t.Fatalf("Failed to create exercise 2: %v", err)
@@ -379,8 +394,10 @@ func TestFindExercisesByDomain(t *testing.T) {
 		Code:        "EX6",
 		Name:        "Exercise in Domain 2",
 		Statement:   "This exercise is in domain 2",
+		Notes:       "Notes for domain 2 exercise",
 		DomainID:    domain2.ID,
 		OwnerID:     user.ID,
+		Difficulty:  2,
 	}
 	if err := exerciseDAO.Create(exercise3, nil); err != nil {
 		t.Fatalf("Failed to create exercise 3: %v", err)
@@ -450,8 +467,10 @@ func TestFindExerciseByCode(t *testing.T) {
 		Code:        "UNIQUE_CODE",
 		Name:        "Exercise with Unique Code",
 		Statement:   "This exercise has a unique code",
+		Notes:       "Notes for exercise with unique code",
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
+		Difficulty:  3,
 	}
 	if err := exerciseDAO.Create(exercise, nil); err != nil {
 		t.Fatalf("Failed to create exercise: %v", err)
@@ -467,10 +486,93 @@ func TestFindExerciseByCode(t *testing.T) {
 	if foundEx.Name != "Exercise with Unique Code" {
 		t.Errorf("Expected exercise name 'Exercise with Unique Code', got '%s'", foundEx.Name)
 	}
+	if foundEx.Notes != "Notes for exercise with unique code" {
+		t.Errorf("Expected notes 'Notes for exercise with unique code', got '%s'", foundEx.Notes)
+	}
 
 	// Try to find exercise with non-existent code
 	_, err = exerciseDAO.FindByCode("NONEXISTENT_CODE")
 	if err == nil {
 		t.Error("Expected error when finding exercise with non-existent code, got nil")
+	}
+}
+
+func TestExerciseConvertToResponse(t *testing.T) {
+	// Setup
+	db, err := setupExerciseTestDB()
+	if err != nil {
+		t.Fatalf("Failed to setup test database: %v", err)
+	}
+
+	userDAO := NewUserDAO(db)
+	domainDAO := NewDomainDAO(db)
+	exerciseDAO := NewExerciseDAO(db)
+
+	// Create a user
+	user := &models.User{
+		Username:  "exuser6",
+		Email:     "ex6@example.com",
+		Password:  "password123",
+		Level:     "user",
+		FirstName: "Ex",
+		LastName:  "User",
+		IsActive:  true,
+	}
+	if err := userDAO.CreateUser(user); err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	// Create a domain
+	domain := &models.Domain{
+		Name:        "Exercise Domain",
+		Privacy:     "public",
+		OwnerID:     user.ID,
+		Description: "Domain for exercise tests",
+	}
+	if err := domainDAO.Create(domain); err != nil {
+		t.Fatalf("Failed to create domain: %v", err)
+	}
+
+	// Create an exercise with notes
+	exercise := &models.Exercise{
+		Code:        "EX_CONVERT",
+		Name:        "Exercise for Conversion",
+		Statement:   "This exercise tests the conversion to response",
+		Description: "Exercise description for conversion",
+		Notes:       "Notes for conversion test",
+		Hints:       "Hints for conversion test",
+		DomainID:    domain.ID,
+		OwnerID:     user.ID,
+		Verifiable:  true,
+		Result:      "conversion result",
+		Difficulty:  4,
+		XPosition:   150.0,
+		YPosition:   250.0,
+	}
+	if err := exerciseDAO.Create(exercise, nil); err != nil {
+		t.Fatalf("Failed to create exercise: %v", err)
+	}
+
+	// Convert to response
+	response := exerciseDAO.ConvertToResponse(exercise)
+
+	// Verify response fields
+	if response.ID != exercise.ID {
+		t.Errorf("Expected response ID %d, got %d", exercise.ID, response.ID)
+	}
+	if response.Code != "EX_CONVERT" {
+		t.Errorf("Expected response code 'EX_CONVERT', got '%s'", response.Code)
+	}
+	if response.Name != "Exercise for Conversion" {
+		t.Errorf("Expected response name 'Exercise for Conversion', got '%s'", response.Name)
+	}
+	if response.Notes != "Notes for conversion test" {
+		t.Errorf("Expected response notes 'Notes for conversion test', got '%s'", response.Notes)
+	}
+	if response.Hints != "Hints for conversion test" {
+		t.Errorf("Expected response hints 'Hints for conversion test', got '%s'", response.Hints)
+	}
+	if response.Difficulty != 4 {
+		t.Errorf("Expected response difficulty 4, got %d", response.Difficulty)
 	}
 }
