@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS exercises (
     name VARCHAR(200) NOT NULL,
     statement TEXT NOT NULL,
     description TEXT,
+    notes TEXT,
     hints TEXT,
     domain_id INT NOT NULL,
     owner_id INT NOT NULL,

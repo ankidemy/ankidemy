@@ -741,16 +741,54 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       let details: Definition | Exercise | null = null;
       const code = clickedNodeData.id;
 
-      if (clickedNodeData.type === 'definition') {
+      // Determine what to fetch based on mode and node type
+      if (mode === 'practice' && clickedNodeData.type === 'definition') {
+        // In practice mode, when clicking a definition node, check for related exercises first
+        if (graphData.exercises) {
+          const relatedExCodes = Object.values(graphData.exercises)
+            .filter(ex => ex.prerequisites?.includes(code))
+            .map(ex => ex.code);
+          
+          if (relatedExCodes.length > 0) {
+            // If there are related exercises, fetch the first one
+            const exerciseCode = relatedExCodes[0];
+            try {
+              const exerciseResponse = await getExerciseByCode(exerciseCode);
+              const exerciseDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
+              
+              if (exerciseDetails) {
+                exerciseDetails.type = 'exercise';
+                details = exerciseDetails;
+                console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
+                
+                // Store related exercises
+                setRelatedExercises(relatedExCodes);
+              }
+            } catch (exerciseError) {
+              console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
+              // Fall back to showing the definition
+            }
+          }
+        }
+        
+        // If no related exercise was found or fetched, fall back to showing the definition
+        if (!details) {
+          const response = await getDefinitionByCode(code);
+          details = Array.isArray(response) ? response[0] : response;
+          if (details) {
+            details.type = 'definition';
+          }
+        }
+      } else if (clickedNodeData.type === 'definition') {
+        // In study mode or other cases, show the definition
         const response = await getDefinitionByCode(code);
-        // Handle array response
         details = Array.isArray(response) ? response[0] : response;
         if (details) {
           details.type = 'definition';
         }
       } else if (clickedNodeData.type === 'exercise') {
+        // For exercise nodes, always show the exercise
         const response = await getExerciseByCode(code);
-        // Handle array response
         details = Array.isArray(response) ? response[0] : response;
         if (details) {
           details.type = 'exercise';
@@ -767,19 +805,20 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         setShowHints(false);
         setSelectedDefinitionIndex(0);
 
-        // Find related exercises for definitions
-        if (details.type === 'definition' && graphData.exercises) {
+        // Find related exercises for definitions if not already set
+        if (details.type === 'definition' && graphData.exercises && !relatedExercises.length) {
           const definitionCode = details.code;
           const relatedExCodes = Object.values(graphData.exercises)
             .filter(ex => ex.prerequisites?.includes(definitionCode))
             .map(ex => ex.code);
           setRelatedExercises(relatedExCodes);
-        } else {
+        } else if (details.type === 'exercise') {
           setRelatedExercises([]);
         }
       } else {
         console.warn(`Details not found for node ${code}`);
         setSelectedNodeDetails(null);
+        setRelatedExercises([]);
       }
     } catch (error) {
       console.error(`Error fetching details for node ${clickedNodeData.id}:`, error);
@@ -795,7 +834,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       graphRef.current.centerAt(node.x, node.y, 1000);
       graphRef.current.zoom(2, 1000);
     }
-  }, [selectedNode, nodeHistory, graphData.exercises, mode]);
+  }, [selectedNode, nodeHistory, graphData.exercises, mode, relatedExercises.length]);
 
   // Handle navigating to a specific node
   const navigateToNode = useCallback((nodeId: string) => {

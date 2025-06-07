@@ -58,6 +58,7 @@ export interface Exercise {
   name: string;
   statement: string;
   description: string;
+  notes?: string;
   hints?: string;
   domainId: number;
   ownerId: number;
@@ -88,6 +89,7 @@ export interface ExerciseRequest {
   name: string;
   statement: string;
   description?: string;
+  notes?: string;
   hints?: string;
   domainId: number;
   verifiable?: boolean;
@@ -142,6 +144,7 @@ export interface GraphData {
     name: string;
     statement: string;
     description?: string;
+    notes?: string;
     hints?: string;
     verifiable?: boolean;
     result?: string;
@@ -553,6 +556,7 @@ export const updateExercise = async (id: number, exerciseData: {
   name?: string;
   statement?: string;
   description?: string;
+  notes?: string;
   hints?: string;
   difficulty?: string;
   verifiable?: boolean;

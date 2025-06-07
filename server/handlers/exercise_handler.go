@@ -109,6 +109,7 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		Name:        req.Name,
 		Statement:   req.Statement,
 		Description: req.Description,
+		Notes:       req.Notes,
 		Hints:       req.Hints,
 		DomainID:    uint(domainID),
 		OwnerID:     userID.(uint),
@@ -204,6 +205,9 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 	}
 	if req.Description != "" {
 		exercise.Description = req.Description
+	}
+	if req.Notes != "" {
+		exercise.Notes = req.Notes
 	}
 	if req.Hints != "" {
 		exercise.Hints = req.Hints

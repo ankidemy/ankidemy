@@ -100,8 +100,8 @@ const DomainForm: React.FC<DomainFormProps> = ({ domainId, onSuccess, onCancel }
         onSuccess(domain);
       } else {
         // Default behavior - redirect to domain view/edit page
-        console.log(`Redirecting to /dashboard/domains/${domain.id}`);
-        router.push(`/dashboard/domains/${domain.id}`);
+        console.log(`Redirecting to /main/domains/${domain.id}/study`);
+        router.push(`/main/domains/${domain.id}/study`);
       }
     } catch (err: any) {
       console.error("Error saving domain:", err);
