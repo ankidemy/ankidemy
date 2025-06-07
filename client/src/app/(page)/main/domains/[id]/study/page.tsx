@@ -1,4 +1,4 @@
-// src/app/(page)/dashboard/domains/[id]/study/page.tsx
+// src/app/(page)/main/domains/[id]/study/page.tsx
 "use client";
 
 import React, { useState, useEffect } from 'react';

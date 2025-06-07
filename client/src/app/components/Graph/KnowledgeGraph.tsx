@@ -204,89 +204,131 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId, loadComprehensiveDomainData]);
 
-  const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
-    if (!nodeOnClick || !nodeOnClick.id) return;
-  
-    if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
-      setNodeHistory(prev => [...prev, selectedNode.id]);
-    }
-  
-    setSelectedNode(nodeOnClick);
-    setIsEditMode(false);
-    setAnswerFeedback(null);
-    setUserAnswer('');
-    setExerciseAttemptCompleted(false);
-  
-    try {
-      let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
-      
-      if (!apiDetails) {
-        console.log(`Node ${nodeOnClick.id} not in cache, fetching from API`);
-        if (nodeOnClick.type === 'definition') {
-          const res = await getDefinitionByCode(nodeOnClick.id);
-          apiDetails = Array.isArray(res) ? res[0] : res;
-        } else {
-          const res = await getExerciseByCode(nodeOnClick.id);
-          apiDetails = Array.isArray(res) ? res[0] : res;
-        }
+const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
+  if (!nodeOnClick || !nodeOnClick.id) return;
+
+  if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
+    setNodeHistory(prev => [...prev, selectedNode.id]);
+  }
+
+  setSelectedNode(nodeOnClick);
+  setIsEditMode(false);
+  setAnswerFeedback(null);
+  setUserAnswer('');
+  setExerciseAttemptCompleted(false);
+
+  try {
+    let details: Definition | Exercise | null = null;
+    const code = nodeOnClick.id;
+
+    // Check cache first (from HEAD)
+    let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
+    
+    // Determine what to fetch based on mode and node type (from incoming)
+    if (mode === 'practice' && nodeOnClick.type === 'definition') {
+      // In practice mode, when clicking a definition node, check for related exercises first
+      if (currentStructuralGraphData.exercises) { // Use currentStructuralGraphData from HEAD
+        const relatedExCodes = Object.values(currentStructuralGraphData.exercises)
+          .filter(ex => ex.prerequisites?.includes(code))
+          .map(ex => ex.code);
         
-        if (apiDetails) {
-          setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
-          setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
+        if (relatedExCodes.length > 0) {
+          // If there are related exercises, fetch the first one
+          const exerciseCode = relatedExCodes[0];
+          try {
+            apiDetails = nodeDataCache.get(exerciseCode) || null;
+            if (!apiDetails) {
+              const exerciseResponse = await getExerciseByCode(exerciseCode);
+              apiDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
+              if (apiDetails) {
+                setNodeDataCache(prev => new Map(prev).set(exerciseCode, apiDetails!));
+                setCodeToNumericIdMap(prev => new Map(prev).set(exerciseCode, apiDetails!.id));
+              }
+            }
+            
+            if (apiDetails) {
+              console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
+              // Store related exercises
+              setRelatedExercises(relatedExCodes);
+            }
+          } catch (exerciseError) {
+            console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
+            // Fall back to showing the definition
+            apiDetails = null;
+          }
         }
       }
-  
-      if (apiDetails) {
-        const localDetails: Definition | Exercise = {
-            ...apiDetails,
-            code: apiDetails.code, 
-            name: apiDetails.name,
-            type: nodeOnClick.type,
-            description: apiDetails.description,
-            ...(nodeOnClick.type === 'exercise' && { 
-              difficulty: (apiDetails as ApiExercise).difficulty || '3',
-              statement: (apiDetails as ApiExercise).statement,
-              hints: (apiDetails as ApiExercise).hints,
-              verifiable: (apiDetails as ApiExercise).verifiable,
-              result: (apiDetails as ApiExercise).result,
-            }),
-            prerequisites: apiDetails.prerequisites || [],
-        };
-        setSelectedNodeDetails(localDetails);
-  
-        setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
-        setShowSolution(false);
-        setShowHints(false);
-        setSelectedDefinitionIndex(0);
-  
-        if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises) {
-          const defCode = nodeOnClick.id;
-          const relEx = Object.values(currentStructuralGraphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(defCode))
-            .map(ex => ex.code);
-          setRelatedExercises(relEx);
-        } else {
-          setRelatedExercises([]);
-        }
+    }
+    
+    // If no specific exercise was found or we're not in practice mode, fetch the original node
+    if (!apiDetails) {
+      if (nodeOnClick.type === 'definition') {
+        const res = await getDefinitionByCode(nodeOnClick.id);
+        apiDetails = Array.isArray(res) ? res[0] : res;
       } else {
-        setSelectedNodeDetails(null);
-        setRelatedExercises([]);
-        showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
+        const res = await getExerciseByCode(nodeOnClick.id);
+        apiDetails = Array.isArray(res) ? res[0] : res;
       }
-    } catch (error) {
-      console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
-      showToast(error instanceof Error ? error.message : "Failed to fetch node details.", "error");
+      
+      if (apiDetails) {
+        setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
+        setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
+      }
+    }
+
+    // Convert API details to local format (from HEAD)
+    if (apiDetails) {
+      const localDetails: Definition | Exercise = {
+        ...apiDetails,
+        code: apiDetails.code, 
+        name: apiDetails.name,
+        type: nodeOnClick.type,
+        description: apiDetails.description,
+        ...(nodeOnClick.type === 'exercise' && { 
+          difficulty: (apiDetails as ApiExercise).difficulty || '3',
+          statement: (apiDetails as ApiExercise).statement,
+          hints: (apiDetails as ApiExercise).hints,
+          verifiable: (apiDetails as ApiExercise).verifiable,
+          result: (apiDetails as ApiExercise).result,
+        }),
+        prerequisites: apiDetails.prerequisites || [],
+      };
+      setSelectedNodeDetails(localDetails);
+
+      setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
+      setShowSolution(false);
+      setShowHints(false);
+      setSelectedDefinitionIndex(0);
+
+      // Handle related exercises (adapted from both versions)
+      if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises && !relatedExercises.length) {
+        const defCode = nodeOnClick.id;
+        const relEx = Object.values(currentStructuralGraphData.exercises)
+          .filter(ex => ex.prerequisites?.includes(defCode))
+          .map(ex => ex.code);
+        setRelatedExercises(relEx);
+      } else if (nodeOnClick.type === 'exercise') {
+        setRelatedExercises([]);
+      }
+    } else {
       setSelectedNodeDetails(null);
+      setRelatedExercises([]);
+      showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
     }
-  
-    if (!isRefresh) {
-        setShowRightPanel(true);
-        if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
-            graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
-            graphRef.current.zoom(2.5, 800);
-        }
+  } catch (error) {
+    console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
+    showToast(error instanceof Error ? error.message : "Failed to fetch node details.", "error");
+    setSelectedNodeDetails(null);
+  }
+
+  if (!isRefresh) {
+    setShowRightPanel(true);
+    if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
+      graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
+      graphRef.current.zoom(2.5, 800);
     }
-  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache]);
+  }
+}, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, relatedExercises.length]);
 
   const refreshGraphAndSRSData = useCallback(async () => {
     setIsProcessingData(true);
