@@ -219,7 +219,7 @@ const handleLogout = async () => {
       </div>
 
       {/* Create Domain Button */}
-      <Link href="/dashboard/domains/create">
+      <Link href="/main/domains/create">
          <Button className="flex items-center">
           <Plus size={16} className="mr-1" />
           Create Domain
@@ -251,7 +251,7 @@ const handleLogout = async () => {
           </p>
           
           {activeTab === 'my' && (
-            <Link href="/dashboard/domains/new">
+            <Link href="/main/domains/create">
               <Button className="mt-4">
                 Create Your First Domain
               </Button>
@@ -270,7 +270,7 @@ const handleLogout = async () => {
                   {domain.privacy === 'public' ? 'Public' : 'Private'}
                 </span>
                 <Link 
-                  href={`/dashboard/domains/${domain.id}/study`}
+                  href={`/main/domains/${domain.id}/study`}
                   className="text-orange-500 hover:text-orange-700 flex items-center"
                 >
                   Explore
