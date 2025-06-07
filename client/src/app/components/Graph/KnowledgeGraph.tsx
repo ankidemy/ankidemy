@@ -559,6 +559,381 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     return Array.isArray(detail.description) ? detail.description.length : 1;
   }, [selectedNodeDetails]);
 
+  // Handle definition edit form submission
+  const handleDefinitionEditSubmit = async () => {
+    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
+
+    try {
+      // Get form values
+      const nameInput = document.getElementById('name') as HTMLInputElement;
+      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
+      const notesInput = document.getElementById('notes') as HTMLTextAreaElement;
+      const referencesInput = document.getElementById('references') as HTMLTextAreaElement;
+
+      const name = nameInput?.value || selectedNodeDetails.name;
+
+      // Handle multiple descriptions
+      let description = descriptionInput?.value || '';
+      // If we're editing a specific version of multiple descriptions
+      if (hasMultipleDescriptions()) {
+        let descriptions = [];
+
+        if (typeof selectedNodeDetails.description === 'string' && selectedNodeDetails.description.includes('|||')) {
+          descriptions = selectedNodeDetails.description.split('|||');
+        } else if (Array.isArray(selectedNodeDetails.description)) {
+          descriptions = [...selectedNodeDetails.description];
+        }
+
+        // Update only the current description
+        descriptions[selectedDefinitionIndex] = description;
+        description = descriptions.join('|||');  // Join with delimiter for API
+      }
+
+      const notes = notesInput?.value || '';
+      const references = referencesInput?.value.split('\n').filter(r => r.trim() !== '');
+
+      // Get selected prerequisites
+      const prerequisiteSelectElement = document.getElementById('prerequisites') as HTMLSelectElement;
+      const selectedPrereqCodes = Array.from(prerequisiteSelectElement?.selectedOptions || [])
+        .map(option => option.value);
+
+      console.log("Selected prerequisite codes:", selectedPrereqCodes);
+
+      // Map selected codes to their numeric IDs for the API
+      const prerequisiteIds: number[] = [];
+      for (const code of selectedPrereqCodes) {
+        try {
+          const id = await getDefinitionIdByCode(code);
+          prerequisiteIds.push(id);
+        } catch (error) {
+          console.error(`Failed to get ID for prerequisite code ${code}`, error);
+          alert(`Error: Could not find prerequisite definition '${code}'. It will not be saved.`);
+        }
+      }
+
+      // Prepare update data
+      const updateData = {
+        name,
+        description,
+        notes,
+        references,
+        prerequisiteIds
+      };
+
+      // Get definition ID from node ID
+      const definitionCode = selectedNode.id;
+      const definitionId = await getDefinitionIdByCode(definitionCode);
+
+      // Update the definition
+      const updatedDef = await updateDefinition(definitionId, updateData);
+
+      // Success message
+      console.log("Definition updated successfully:", updatedDef);
+
+      // Refresh the node details immediately
+      if (updatedDef) {
+        updatedDef.type = 'definition';
+        setSelectedNodeDetails(updatedDef);
+      } else {
+        // If the API doesn't return the updated object, fetch it
+        const refreshedDef = await getDefinitionByCode(definitionCode);
+        const details = Array.isArray(refreshedDef) ? refreshedDef[0] : refreshedDef;
+        if (details) {
+          details.type = 'definition';
+          setSelectedNodeDetails(details);
+        }
+      }
+
+      // Refresh graph to update other nodes if needed
+      refreshGraph();
+
+      // Exit edit mode
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Failed to update definition:', error);
+      alert(`Failed to update definition: ${error.message || 'Unknown error'}`);
+    }
+  };
+
+  // Handle exercise edit form submission
+  const handleExerciseEditSubmit = async () => {
+    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'exercise') return;
+
+    try {
+      // Get form values
+      const nameInput = document.getElementById('name') as HTMLInputElement;
+      const statementInput = document.getElementById('statement') as HTMLTextAreaElement;
+      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
+      const hintsInput = document.getElementById('hints') as HTMLTextAreaElement;
+      const difficultyInput = document.getElementById('difficulty') as HTMLInputElement;
+      const verifiableInput = document.getElementById('verifiable') as HTMLInputElement;
+      const resultInput = document.getElementById('result') as HTMLInputElement;
+
+      const name = nameInput?.value || selectedNodeDetails.name;
+      const statement = statementInput?.value || '';
+      const description = descriptionInput?.value || '';
+      const hints = hintsInput?.value || '';
+
+      // Ensure difficulty is a valid number between 1-7
+      const rawDifficulty = difficultyInput?.value || '3';
+      const validatedDifficulty = Math.min(7, Math.max(1, parseInt(rawDifficulty, 10))).toString();
+
+      const verifiable = verifiableInput?.checked || false;
+      const result = verifiable ? (resultInput?.value || '') : undefined;
+
+      // Get selected prerequisites
+      const prerequisiteSelectElement = document.getElementById('prerequisites') as HTMLSelectElement;
+      const selectedPrereqCodes = Array.from(prerequisiteSelectElement?.selectedOptions || [])
+        .map(option => option.value);
+
+      console.log("Selected prerequisite codes:", selectedPrereqCodes);
+
+      // Map selected codes to their numeric IDs for the API
+      const prerequisiteIds: number[] = [];
+      for (const code of selectedPrereqCodes) {
+        try {
+          const id = await getDefinitionIdByCode(code);
+          prerequisiteIds.push(id);
+        } catch (error) {
+          console.error(`Failed to get ID for prerequisite code ${code}`, error);
+          alert(`Error: Could not find prerequisite definition '${code}'. It will not be saved.`);
+        }
+      }
+
+      // Prepare update data
+      const updateData = {
+        name,
+        statement,
+        description,
+        hints,
+        difficulty: validatedDifficulty,
+        verifiable,
+        result,
+        prerequisiteIds
+      };
+
+      // Get exercise ID from node ID
+      const exerciseCode = selectedNode.id;
+      const exerciseId = await getExerciseIdByCode(exerciseCode);
+
+      // Update the exercise
+      const updatedEx = await updateExercise(exerciseId, updateData);
+
+      // Success message
+      console.log("Exercise updated successfully:", updatedEx);
+
+      // Refresh the node details immediately
+      if (updatedEx) {
+        updatedEx.type = 'exercise';
+        setSelectedNodeDetails(updatedEx);
+      } else {
+        // If the API doesn't return the updated object, fetch it
+        const refreshedEx = await getExerciseByCode(exerciseCode);
+        const details = Array.isArray(refreshedEx) ? refreshedEx[0] : refreshedEx;
+        if (details) {
+          details.type = 'exercise';
+          setSelectedNodeDetails(details);
+        }
+      }
+
+      // Refresh graph to update other nodes if needed
+      refreshGraph();
+
+      // Exit edit mode
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Failed to update exercise:', error);
+      alert(`Failed to update exercise: ${error.message || 'Unknown error'}`);
+    }
+  };
+
+  // Calculate filtered nodes based on search and filters
+  const filteredNodes = useCallback(() => {
+    let filtered = [...graphNodes];
+
+    // Filter by type
+    if (filteredNodeType !== 'all') {
+      filtered = filtered.filter(node => node.type === filteredNodeType);
+    }
+
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(node =>
+        node.id.toLowerCase().includes(query) ||
+        node.name.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered.sort((a, b) => a.id.localeCompare(b.id));
+  }, [graphNodes, filteredNodeType, searchQuery]);
+
+  // Handle node selection
+  const handleNodeClick = useCallback(async (node: GraphNode) => {
+    if (!node || !node.id) {
+      console.warn("Node click received invalid node object:", node);
+      return;
+    }
+
+    // Extract core data from node
+    const clickedNodeData: GraphNode = {
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      isRootDefinition: node.isRootDefinition,
+      difficulty: node.difficulty,
+      xPosition: node.xPosition ?? node.fx,
+      yPosition: node.yPosition ?? node.fy,
+    };
+
+    console.log(`Node clicked: ${clickedNodeData.id} (${clickedNodeData.type})`);
+
+    // Store previous node in history
+    if (selectedNode && selectedNode.id !== clickedNodeData.id) {
+      setNodeHistory([...nodeHistory, selectedNode.id]);
+    }
+
+    // Set new selected node
+    setSelectedNode(clickedNodeData);
+
+    // Reset view state
+    setIsEditMode(false);
+    setAnswerFeedback(null);
+    setUserAnswer('');
+
+    // Fetch node details
+    try {
+      let details: Definition | Exercise | null = null;
+      const code = clickedNodeData.id;
+
+      // Determine what to fetch based on mode and node type
+      if (mode === 'practice' && clickedNodeData.type === 'definition') {
+        // In practice mode, when clicking a definition node, check for related exercises first
+        if (graphData.exercises) {
+          const relatedExCodes = Object.values(graphData.exercises)
+            .filter(ex => ex.prerequisites?.includes(code))
+            .map(ex => ex.code);
+          
+          if (relatedExCodes.length > 0) {
+            // If there are related exercises, fetch the first one
+            const exerciseCode = relatedExCodes[0];
+            try {
+              const exerciseResponse = await getExerciseByCode(exerciseCode);
+              const exerciseDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
+              
+              if (exerciseDetails) {
+                exerciseDetails.type = 'exercise';
+                details = exerciseDetails;
+                console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
+                
+                // Store related exercises
+                setRelatedExercises(relatedExCodes);
+              }
+            } catch (exerciseError) {
+              console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
+              // Fall back to showing the definition
+            }
+          }
+        }
+        
+        // If no related exercise was found or fetched, fall back to showing the definition
+        if (!details) {
+          const response = await getDefinitionByCode(code);
+          details = Array.isArray(response) ? response[0] : response;
+          if (details) {
+            details.type = 'definition';
+          }
+        }
+      } else if (clickedNodeData.type === 'definition') {
+        // In study mode or other cases, show the definition
+        const response = await getDefinitionByCode(code);
+        details = Array.isArray(response) ? response[0] : response;
+        if (details) {
+          details.type = 'definition';
+        }
+      } else if (clickedNodeData.type === 'exercise') {
+        // For exercise nodes, always show the exercise
+        const response = await getExerciseByCode(code);
+        details = Array.isArray(response) ? response[0] : response;
+        if (details) {
+          details.type = 'exercise';
+        }
+      }
+
+      if (details) {
+        console.log(`Fetched details for ${code}:`, details);
+        setSelectedNodeDetails(details);
+
+        // Set view state based on details
+        setShowDefinition(mode !== 'study');
+        setShowSolution(false);
+        setShowHints(false);
+        setSelectedDefinitionIndex(0);
+
+        // Find related exercises for definitions if not already set
+        if (details.type === 'definition' && graphData.exercises && !relatedExercises.length) {
+          const definitionCode = details.code;
+          const relatedExCodes = Object.values(graphData.exercises)
+            .filter(ex => ex.prerequisites?.includes(definitionCode))
+            .map(ex => ex.code);
+          setRelatedExercises(relatedExCodes);
+        } else if (details.type === 'exercise') {
+          setRelatedExercises([]);
+        }
+      } else {
+        console.warn(`Details not found for node ${code}`);
+        setSelectedNodeDetails(null);
+        setRelatedExercises([]);
+      }
+    } catch (error) {
+      console.error(`Error fetching details for node ${clickedNodeData.id}:`, error);
+      setSelectedNodeDetails(null);
+      setRelatedExercises([]);
+    }
+
+    // Show panel
+    setShowRightPanel(true);
+
+    // Center view on node
+    if (graphRef.current && node.x !== undefined && node.y !== undefined) {
+      graphRef.current.centerAt(node.x, node.y, 1000);
+      graphRef.current.zoom(2, 1000);
+    }
+  }, [selectedNode, nodeHistory, graphData.exercises, mode, relatedExercises.length]);
+
+  // Handle navigating to a specific node
+  const navigateToNode = useCallback((nodeId: string) => {
+    const node = graphNodes.find(n => n.id === nodeId);
+    if (node) {
+      // Try to find node in D3 simulation for more accurate coords
+      let nodeForClick = node;
+      if (graphRef.current && graphRef.current.graphData) {
+        const d3Nodes = graphRef.current.graphData().nodes;
+        const d3Node = d3Nodes.find((n: any) => n.id === nodeId);
+        if (d3Node) {
+          nodeForClick = d3Node;
+        }
+      }
+      handleNodeClick(nodeForClick);
+    } else {
+      console.warn(`Node with ID ${nodeId} not found in graphNodes.`);
+    }
+  }, [graphNodes, handleNodeClick]);
+
+  // Handle going back to previous node
+  const navigateBack = useCallback(() => {
+    if (nodeHistory.length === 0) return;
+
+    const newHistory = [...nodeHistory];
+    const prevNodeId = newHistory.pop();
+
+    if (prevNodeId) {
+      setNodeHistory(newHistory);
+      navigateToNode(prevNodeId);
+    }
+  }, [nodeHistory, navigateToNode]);
+
+  // Handle node hover
   const handleNodeHover = useCallback((node: GraphNode | null) => {
     const newHighlightNodes = new Set<string>();
     const newHighlightLinks = new Set<string>();

@@ -92,6 +92,43 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       )}
 
       <div>
+        <div className="flex justify-between items-center mb-1">
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Solution</h4>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggleSolution}
+            className="h-6 text-xs px-1"
+          >
+            {showSolution ? 'Hide' : 'Show'}
+          </Button>
+        </div>
+        {showSolution && (
+          <Card className="bg-green-50 border border-green-200 shadow-sm">
+            <CardContent className="p-3 text-sm">
+              <MathJaxContent>
+                {exercise.description || <span className="text-gray-400 italic">N/A</span>}
+              </MathJaxContent>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Exercise Notes */}
+      {exercise.notes && (
+        <div>
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Notes</h4>
+          <Card className="bg-blue-50 border border-blue-200 shadow-sm">
+            <CardContent className="p-3 text-sm">
+              <MathJaxContent>
+                {exercise.notes}
+              </MathJaxContent>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div>
         <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Your Answer</h4>
         <textarea
           className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"

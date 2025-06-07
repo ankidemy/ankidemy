@@ -125,14 +125,15 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           code: code.trim(),
           name: name.trim(),
           statement: statement.trim(),
-          description: description.trim() || undefined,
+          description: description.trim() || undefined, // Solution
+          notes: notes.trim() || undefined,
           hints: hints.trim() || undefined,
           domainId,
           difficulty: difficulty,
           verifiable,
           result: verifiable ? (result.trim() || undefined) : undefined,
-          prerequisiteIds: prerequisiteIdsToSend,
-          prerequisiteWeights: prerequisiteWeightsToSend, // NEW: include weights
+          prerequisiteIds: selectedPrereqNumericIds,
+          prerequisiteWeights: prerequisiteWeightsToSend,
           xPosition: position?.x,
           yPosition: position?.y
         };
@@ -214,6 +215,20 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
               <div>
                 <label htmlFor="hints" className="block text-sm font-medium text-gray-700 mb-1">Hints (Optional)</label>
                 <textarea id="hints" value={hints} onChange={(e) => setHints(e.target.value)} rows={2} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Optional hints..." disabled={isSubmitting}/>
+              </div>
+              <div>
+                <label htmlFor="exerciseNotes" className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  id="exerciseNotes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+                  placeholder="Additional notes about this exercise..."
+                  disabled={isSubmitting}
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                  <div>

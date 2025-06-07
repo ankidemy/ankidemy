@@ -237,6 +237,7 @@ func (d *ExerciseDAO) ConvertToResponse(exercise *models.ExerciseWithPrerequisit
 		Name:          exercise.Name,
 		Statement:     exercise.Statement,
 		Description:   exercise.Description,
+		Notes:         exercise.Notes,
 		Hints:         exercise.Hints,
 		DomainID:      exercise.DomainID,
 		OwnerID:       exercise.OwnerID,
