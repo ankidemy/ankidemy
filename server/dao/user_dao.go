@@ -3,6 +3,7 @@ package dao
 import (
 	"errors"
 	"myapp/server/models"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -69,6 +70,37 @@ func (d *UserDAO) FindUserByID(id uint) (*models.User, error) {
 		return nil, result.Error
 	}
 	return &user, nil
+}
+
+// isEmail checks if the given string is an email format
+func isEmail(identifier string) bool {
+	return strings.Contains(identifier, "@")
+}
+
+// AuthenticateUserByIdentifier verifies user credentials using either email or username
+func (d *UserDAO) AuthenticateUserByIdentifier(identifier, password string) (*models.User, error) {
+	var user *models.User
+	var err error
+
+	// Determine if identifier is email or username
+	if isEmail(identifier) {
+		// Try to find by email
+		user, err = d.FindUserByEmail(identifier)
+	} else {
+		// Try to find by username
+		user, err = d.FindUserByUsername(identifier)
+	}
+
+	if err != nil {
+		return nil, errors.New("invalid credentials")
+	}
+
+	// Compare provided password with stored hash
+	if err := ComparePasswords(user.Password, password); err != nil {
+		return nil, errors.New("invalid credentials")
+	}
+
+	return user, nil
 }
 
 // CreateUser creates a new user in the database
@@ -138,7 +170,8 @@ func (d *UserDAO) DeleteUser(id uint) error {
 	return d.db.Delete(&models.User{}, id).Error
 }
 
-// AuthenticateUser verifies user credentials
+// AuthenticateUser verifies user credentials (legacy method for email-only login)
+// Kept for backward compatibility
 func (d *UserDAO) AuthenticateUser(email, password string) (*models.User, error) {
 	user, err := d.FindUserByEmail(email)
 	if err != nil {

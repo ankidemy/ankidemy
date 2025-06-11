@@ -1,4 +1,4 @@
-// client/src/lib/api.ts - UPDATED INTERFACES
+// client/src/lib/api.ts
 // Complete API client for Ankidemy with support for all backend features
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -221,8 +221,8 @@ const handleResponse = async (response: Response) => {
   return data;
 };
 
-// Authentication API
-export const loginUser = async (credentials: { email: string; password: string }): Promise<AuthResponse> => {
+// UPDATED: Login now supports email OR username via identifier field
+export const loginUser = async (credentials: { identifier: string; password: string }): Promise<AuthResponse> => {
   const response = await fetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -278,6 +278,28 @@ export const refreshToken = async (token: string): Promise<AuthResponse> => {
 
 export const logout = (): void => {
   localStorage.removeItem('token');
+};
+
+// UTILITY: Check if user is currently authenticated
+export const isAuthenticated = (): boolean => {
+  return !!localStorage.getItem('token');
+};
+
+// UTILITY: Safe function to check authentication status
+export const checkAuthStatus = async (): Promise<{ isAuthenticated: boolean; user?: User }> => {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      return { isAuthenticated: false };
+    }
+    
+    const user = await getCurrentUser();
+    return { isAuthenticated: true, user };
+  } catch (error) {
+    // Token might be expired or invalid
+    localStorage.removeItem('token');
+    return { isAuthenticated: false };
+  }
 };
 
 // User API

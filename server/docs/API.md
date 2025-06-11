@@ -1,3 +1,4 @@
+```markdown
 # API Documentation for Front-End Team
 
 ## Overview
@@ -54,7 +55,7 @@ The API uses JWT (JSON Web Token) for authentication.
   - `400 Bad Request`: Invalid input data
   - `409 Conflict`: Email or username already in use
 
-#### Log in
+#### Log in (Updated)
 
 - **URL**: `/auth/login`
 - **Method**: `POST`
@@ -62,7 +63,7 @@ The API uses JWT (JSON Web Token) for authentication.
 - **Request Body**:
   ```json
   {
-    "email": "string (required)",
+    "identifier": "string (required - can be email OR username)",
     "password": "string (required)"
   }
   ```
@@ -85,7 +86,7 @@ The API uses JWT (JSON Web Token) for authentication.
   ```
 - **Error Responses**:
   - `400 Bad Request`: Invalid input format
-  - `401 Unauthorized`: Invalid credentials
+  - `401 Unauthorized`: Invalid credentials (wrong identifier or password)
 
 #### Refresh Token
 
@@ -433,7 +434,7 @@ Domains represent knowledge areas that contain definitions and exercises.
 - **URL**: `/domains/:id/comments/:commentId`
 - **Method**: `DELETE`
 - **Auth Required**: Yes
-- **URL Parameters**: 
+- **URL Parameters**:
   - `id` - Domain ID
   - `commentId` - Comment ID
 - **Response**: `200 OK`
@@ -981,7 +982,7 @@ Nodes (definitions and exercises) can have the following statuses:
 - **URL**: `/srs/reviews/history`
 - **Method**: `GET`
 - **Auth Required**: Yes
-- **Query Parameters**: 
+- **Query Parameters**:
   - `nodeId` - Optional node ID filter
   - `nodeType` - Optional node type filter
   - `limit` - Optional limit (default: 100)
@@ -1654,3 +1655,4 @@ When a user successfully reviews a node, positive credits flow to prerequisite n
 ### Review Types
 - **Explicit**: Direct user review with quality rating
 - **Implicit**: Automatic reviews through credit propagation
+```

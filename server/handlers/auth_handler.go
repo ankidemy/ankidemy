@@ -31,9 +31,10 @@ func NewAuthHandler(userDAO *dao.UserDAO) *AuthHandler {
 }
 
 // LoginRequest represents the login request body
+// Changed from email-specific to generic identifier
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Identifier string `json:"identifier" binding:"required"` // Can be email or username
+	Password   string `json:"password" binding:"required"`
 }
 
 // LoginResponse represents the login response
@@ -49,6 +50,7 @@ type RefreshRequest struct {
 }
 
 // Login handles user login and token generation
+// Now supports login with either email or username
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -56,8 +58,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Authenticate user
-	user, err := h.userDAO.AuthenticateUser(req.Email, req.Password)
+	// Determine if identifier is email or username and authenticate
+	user, err := h.userDAO.AuthenticateUserByIdentifier(req.Identifier, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
