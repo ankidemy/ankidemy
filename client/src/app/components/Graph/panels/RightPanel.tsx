@@ -171,7 +171,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
             onSubmit={onSubmitEdit}
           />
         ) : selectedNodeDetails ? (
-          selectedNode.type === 'definition' ? (
+          selectedNodeDetails.type === 'definition' ? (
             <DefinitionView
               definition={selectedNodeDetails as Definition}
               mode={mode}

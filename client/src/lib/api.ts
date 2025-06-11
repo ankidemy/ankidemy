@@ -138,6 +138,7 @@ export interface GraphData {
     prerequisites?: string[];
     xPosition?: number;
     yPosition?: number;
+    domainId?: number;
   }>;
   exercises: Record<string, {
     code: string;
@@ -152,6 +153,7 @@ export interface GraphData {
     prerequisites?: string[];
     xPosition?: number;
     yPosition?: number;
+    domainId?: number;
   }>;
 }
 

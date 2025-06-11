@@ -290,7 +290,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         xPosition: def.xPosition,
         yPosition: def.yPosition,
         fx: def.xPosition, // Use fixed position if available
-        fy: def.yPosition
+        fy: def.yPosition,
+	domainId: def.domain,
+	prerequisites: def.prerequisites
       });
     });
 
@@ -344,7 +346,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           xPosition: exercise.xPosition,
           yPosition: exercise.yPosition,
           fx: exercise.xPosition,
-          fy: exercise.yPosition
+          fy: exercise.yPosition,
+	  domainId: exercise.domain,
+	  prerequisites: exercise.prerequisites
         });
 
         // Process exercise links (prerequisites)
@@ -745,11 +749,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       if (mode === 'practice' && clickedNodeData.type === 'definition') {
         // In practice mode, when clicking a definition node, check for related exercises first
         if (graphData.exercises) {
-          const relatedExCodes = Object.values(graphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(code))
-            .map(ex => ex.code);
-          
+	console.log("Checking for related exercises to definition:", code);
+	console.log("Available exercises:", Object.values(graphDataState.exercises));
+    
+	const relatedExCodes = Object.values(graphDataState.exercises)
+      	.filter(ex => ex.code === code)
+	.map(ex => ex.code);
+    
+	console.log("Found related exercises:", relatedExCodes);
           if (relatedExCodes.length > 0) {
+	    console.log("encontre");  
             // If there are related exercises, fetch the first one
             const exerciseCode = relatedExCodes[0];
             try {
@@ -770,7 +779,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             }
           }
         }
-        
         // If no related exercise was found or fetched, fall back to showing the definition
         if (!details) {
           const response = await getDefinitionByCode(code);

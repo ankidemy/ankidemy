@@ -46,6 +46,8 @@ export interface GraphNode {
   fy?: number;
   xPosition?: number;
   yPosition?: number;
+  domainId?: number;
+  prerequisites?: string[];
 }
 
 export interface GraphLink {
