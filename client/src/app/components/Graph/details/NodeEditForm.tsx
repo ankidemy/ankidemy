@@ -124,8 +124,9 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               rows={3}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
               defaultValue={(selectedNodeDetails as Definition)?.notes || ''}
-              placeholder="Additional notes..."
+              placeholder="Additional notes... (supports LaTeX)"
             />
+            <p className="text-xs text-gray-500 mt-1">Supports LaTeX notation: $x^2$, $\sum_&#123;i=0&#125;^n i$</p>
           </div>
           
           <div>
@@ -172,6 +173,18 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               defaultValue={(selectedNodeDetails as Exercise)?.hints || ''}
               placeholder="Hints..."
             />
+          </div>
+
+          <div>
+            <label htmlFor="exerciseNotes" className="block text-xs font-medium mb-1 text-gray-600">Notes</label>
+            <textarea
+              id="exerciseNotes"
+              rows={3}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+              defaultValue={(selectedNodeDetails as Exercise)?.notes || ''}
+              placeholder="Additional notes... (supports LaTeX)"
+            />
+            <p className="text-xs text-gray-500 mt-1">Supports LaTeX notation: $x^2$, $\sum_&#123;i=0&#125;^n i$</p>
           </div>
           
           <div className="flex space-x-4 items-end">

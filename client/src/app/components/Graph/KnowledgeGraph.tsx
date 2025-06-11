@@ -15,6 +15,7 @@ import {
   getDomainExercises,
   getDefinitionIdByCode,
   getExerciseIdByCode,
+  getDomain, // Added to get domain name
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
 import { getStatusColor, isNodeDue, calculateDaysUntilReview, formatNextReview } from '../../../lib/srs-api';
@@ -42,7 +43,7 @@ import StudyModeModal from './StudyModeModal';
 import { showToast } from '@/app/components/core/ToastNotification';
 
 // ==============================================================================
-// 1. DEBOUNCE UTILITY - Add this at the top of KnowledgeGraph.tsx
+// 1. DEBOUNCE UTILITY
 // ==============================================================================
 function debounce<T extends (...args: any[]) => any>(
   func: T,
@@ -99,6 +100,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [isSavingPositions, setIsSavingPositions] = useState(false);
   
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
+  const [domainName, setDomainName] = useState<string>(subjectMatterId); // Store domain name
 
   const [codeToNumericIdMap, setCodeToNumericIdMap] = useState<Map<string, number>>(new Map());
   const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise>>(new Map());
@@ -119,6 +121,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       srs.setCurrentDomain(domainId);
       srs.loadDomainData(domainId).then(() => {
          console.log("Initial SRS data loaded for domain:", domainId);
+      });
+      
+      // Load domain name
+      getDomain(domainId).then(domain => {
+        setDomainName(domain.name);
+      }).catch(error => {
+        console.warn("Could not load domain name:", error);
+        setDomainName(subjectMatterId); // Fallback to ID
       });
     }
   }, [subjectMatterId, srs.setCurrentDomain, srs.loadDomainData]);
@@ -387,7 +397,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
 
-    // Process definitions
+    // Process definitions - ALWAYS show definitions regardless of mode
     Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
       if (!def || !def.code || !def.name) return;
       
@@ -504,88 +514,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       setIsSavingPositions(false);
     }
   };
-  
-  const currentDescriptionText = useCallback(() => {
-    const detail = selectedNodeDetails as Definition;
-    if (!detail || !('description' in detail)) return '';
-    if (typeof detail.description === 'string') {
-      return detail.description.includes('|||') ? detail.description.split('|||')[selectedDefinitionIndex] : detail.description;
-    }
-    if (Array.isArray(detail.description)) {
-      return detail.description[selectedDefinitionIndex] || detail.description[0] || '';
-    }
-    return String(detail.description);
-  }, [selectedNodeDetails, selectedDefinitionIndex]);
-
-  const hasMultipleDescriptions = useCallback(() => {
-    const detail = selectedNodeDetails as Definition;
-    if (!detail || !('description' in detail)) return false;
-    return (typeof detail.description === 'string' && detail.description.includes('|||')) || 
-           (Array.isArray(detail.description) && detail.description.length > 1);
-  }, [selectedNodeDetails]);
-
-  const totalDescriptionsCount = useCallback(() => {
-    const detail = selectedNodeDetails as Definition;
-    if (!detail || !('description'in detail)) return 0;
-    if (typeof detail.description === 'string') {
-      return detail.description.includes('|||') ? detail.description.split('|||').length : 1;
-    }
-    return Array.isArray(detail.description) ? detail.description.length : 1;
-  }, [selectedNodeDetails]);
-
-  // Handle navigating to a specific node
-  const navigateToNode = useCallback((nodeId: string) => {
-    const node = graphNodes.find(n => n.id === nodeId);
-    if (node) {
-      // Try to find node in D3 simulation for more accurate coords
-      let nodeForClick = node;
-      if (graphRef.current && graphRef.current.graphData) {
-        const d3Nodes = graphRef.current.graphData().nodes;
-        const d3Node = d3Nodes.find((n: any) => n.id === nodeId);
-        if (d3Node) {
-          nodeForClick = d3Node;
-        }
-      }
-      handleNodeClick(nodeForClick);
-    } else {
-      console.warn(`Node with ID ${nodeId} not found in graphNodes.`);
-    }
-  }, [graphNodes, handleNodeClick]);
-
-  // Handle going back to previous node
-  const navigateBack = useCallback(() => {
-    if (nodeHistory.length === 0) return;
-
-    const newHistory = [...nodeHistory];
-    const prevNodeId = newHistory.pop();
-
-    if (prevNodeId) {
-      setNodeHistory(newHistory);
-      navigateToNode(prevNodeId);
-    }
-  }, [nodeHistory, navigateToNode]);
-
-  // Handle node hover
-  const handleNodeHover = useCallback((node: GraphNode | null) => {
-    const newHighlightNodes = new Set<string>();
-    const newHighlightLinks = new Set<string>();
-    if (node?.id) {
-        newHighlightNodes.add(node.id);
-        graphLinks.forEach(link => {
-            const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
-            const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
-            if (sourceId === node.id) {
-                if (targetId) newHighlightNodes.add(targetId);
-                if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
-            } else if (targetId === node.id) {
-                if (sourceId) newHighlightNodes.add(sourceId);
-                if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
-            }
-        });
-    }
-    setHighlightNodes(newHighlightNodes);
-    setHighlightLinks(newHighlightLinks);
-  }, [graphLinks]);
 
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
     if (node?.id && typeof node.x === 'number' && typeof node.y === 'number') {
@@ -869,12 +797,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         const formDifficulty = (document.getElementById('difficulty') as HTMLInputElement)?.value;
         const formVerifiable = (document.getElementById('verifiable') as HTMLInputElement)?.checked;
         const formResult = (document.getElementById('result') as HTMLInputElement)?.value;
+        const formNotes = (document.getElementById('exerciseNotes') as HTMLTextAreaElement)?.value;
 
         await updateExercise(exDetails.id, {
           name: formName,
           statement: formStatement,
           description: formSolution,
           hints: formHints,
+          notes: formNotes,
           difficulty: formDifficulty,
           verifiable: formVerifiable,
           result: formVerifiable ? formResult : undefined,
@@ -891,6 +821,88 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
     }
   };
+
+  const currentDescriptionText = useCallback(() => {
+    const detail = selectedNodeDetails as Definition;
+    if (!detail || !('description' in detail)) return '';
+    if (typeof detail.description === 'string') {
+      return detail.description.includes('|||') ? detail.description.split('|||')[selectedDefinitionIndex] : detail.description;
+    }
+    if (Array.isArray(detail.description)) {
+      return detail.description[selectedDefinitionIndex] || detail.description[0] || '';
+    }
+    return String(detail.description);
+  }, [selectedNodeDetails, selectedDefinitionIndex]);
+
+  const hasMultipleDescriptions = useCallback(() => {
+    const detail = selectedNodeDetails as Definition;
+    if (!detail || !('description' in detail)) return false;
+    return (typeof detail.description === 'string' && detail.description.includes('|||')) || 
+           (Array.isArray(detail.description) && detail.description.length > 1);
+  }, [selectedNodeDetails]);
+
+  const totalDescriptionsCount = useCallback(() => {
+    const detail = selectedNodeDetails as Definition;
+    if (!detail || !('description'in detail)) return 0;
+    if (typeof detail.description === 'string') {
+      return detail.description.includes('|||') ? detail.description.split('|||').length : 1;
+    }
+    return Array.isArray(detail.description) ? detail.description.length : 1;
+  }, [selectedNodeDetails]);
+
+  // Handle navigating to a specific node
+  const navigateToNode = useCallback((nodeId: string) => {
+    const node = graphNodes.find(n => n.id === nodeId);
+    if (node) {
+      // Try to find node in D3 simulation for more accurate coords
+      let nodeForClick = node;
+      if (graphRef.current && graphRef.current.graphData) {
+        const d3Nodes = graphRef.current.graphData().nodes;
+        const d3Node = d3Nodes.find((n: any) => n.id === nodeId);
+        if (d3Node) {
+          nodeForClick = d3Node;
+        }
+      }
+      handleNodeClick(nodeForClick);
+    } else {
+      console.warn(`Node with ID ${nodeId} not found in graphNodes.`);
+    }
+  }, [graphNodes, handleNodeClick]);
+
+  // Handle going back to previous node
+  const navigateBack = useCallback(() => {
+    if (nodeHistory.length === 0) return;
+
+    const newHistory = [...nodeHistory];
+    const prevNodeId = newHistory.pop();
+
+    if (prevNodeId) {
+      setNodeHistory(newHistory);
+      navigateToNode(prevNodeId);
+    }
+  }, [nodeHistory, navigateToNode]);
+
+  // Handle node hover
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
+    const newHighlightNodes = new Set<string>();
+    const newHighlightLinks = new Set<string>();
+    if (node?.id) {
+        newHighlightNodes.add(node.id);
+        graphLinks.forEach(link => {
+            const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
+            const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
+            if (sourceId === node.id) {
+                if (targetId) newHighlightNodes.add(targetId);
+                if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
+            } else if (targetId === node.id) {
+                if (sourceId) newHighlightNodes.add(sourceId);
+                if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
+            }
+        });
+    }
+    setHighlightNodes(newHighlightNodes);
+    setHighlightLinks(newHighlightLinks);
+  }, [graphLinks]);
 
   const navigateToNodeById = useCallback((nodeId: string) => {
     const node = graphNodes.find(n => n.id === nodeId);
@@ -934,26 +946,39 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [selectedNode?.id, subjectMatterId]);
 
-  const availableDefinitionsForModal = React.useMemo(() => {
-    const availableDefs = graphNodes
-      .filter(node => node.type === 'definition')
+  const availableNodesForPrerequisites = React.useMemo(() => {
+    const availableNodes = graphNodes
+      .filter(node => node.type === 'definition' || node.type === 'exercise') // Include both definitions and exercises
       .map(node => {
           const numericId = codeToNumericIdMap.get(node.id);
           if (!numericId) {
-            console.warn(`No numeric ID found for definition code: ${node.id}`);
+            console.warn(`No numeric ID found for node code: ${node.id}`);
             return null;
           }
           return {
               code: node.id,
               name: node.name,
-              numericId: numericId
+              numericId: numericId,
+              type: node.type // Add type to distinguish between definitions and exercises
           };
       })
-      .filter((def): def is NonNullable<typeof def> => def !== null);
+      .filter((node): node is NonNullable<typeof node> => node !== null)
+      .sort((a, b) => {
+        // Sort by type first (definitions before exercises), then by code
+        if (a.type !== b.type) {
+          return a.type === 'definition' ? -1 : 1;
+        }
+        return a.code.localeCompare(b.code);
+      });
     
-    console.log("Available definitions for modal:", availableDefs);
-    return availableDefs;
+    console.log("Available nodes for prerequisites:", availableNodes);
+    return availableNodes;
   }, [graphNodes, codeToNumericIdMap]);
+
+  // Keep a separate list for just definitions (for display purposes in some components)
+  const availableDefinitionsOnly = React.useMemo(() => {
+    return availableNodesForPrerequisites.filter(node => node.type === 'definition');
+  }, [availableNodesForPrerequisites]);
 
   // Memoize credit flow animations to prevent unnecessary re-renders
   const memoizedCreditFlowAnimations = useMemo(() => {
@@ -969,7 +994,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           isOpen={showNodeCreationModal}
           onClose={() => setShowNodeCreationModal(false)}
           onSuccess={handleNodeCreationSuccess}
-          availablePrerequisites={availableDefinitionsForModal}
+          availablePrerequisites={availableNodesForPrerequisites}
           position={nodeCreationPosition}
         />
         <StudyModeModal
@@ -978,19 +1003,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           domainId={parseInt(subjectMatterId, 10)}
         />
         <TopControls
-          subjectMatterId={subjectMatterId}
+          subjectMatterId={domainName} // Use domain name instead of ID
           mode={mode}
           onModeChange={changeMode}
-          onBack={onBack}
+          onBack={onBack} // Use callback instead of router
           showNodeLabels={showNodeLabels}
           onToggleNodeLabels={() => setShowNodeLabels(!showNodeLabels)}
           onZoomToFit={() => graphRef.current?.zoomToFit(400)}
           onCreateDefinition={() => createNewNode('definition')}
           onCreateExercise={() => createNewNode('exercise')}
           onStartStudy={() => setShowStudyModeModal(true)}
-          positionsChanged={positionsChanged}
-          onSavePositions={savePositions}
-          isSavingPositions={isSavingPositions}
         />
         <div className="flex flex-1 overflow-hidden relative">
           <div className={`absolute top-0 left-0 h-full z-20 bg-white border-r shadow-lg transition-transform duration-300 ease-in-out ${showLeftPanel ? 'translate-x-0 w-64' : '-translate-x-full w-64'}`}>
@@ -1074,10 +1096,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                   exerciseAttemptCompleted={exerciseAttemptCompleted}
                   personalNotes={personalNotes}
                   onUpdateNotes={savePersonalNote}
-                  availableDefinitionsForEdit={availableDefinitionsForModal}
+                  availableDefinitionsForEdit={availableNodesForPrerequisites}
                   onSubmitEdit={handleSubmitEdit}
                   onStatusChange={handleStatusChange}
-                  availableDefinitions={availableDefinitionsForModal.map(d => ({code: d.code, name: d.name}))}
+                  availableDefinitions={availableDefinitionsOnly.map(d => ({code: d.code, name: d.name}))}
                 />
             )}
           </div>

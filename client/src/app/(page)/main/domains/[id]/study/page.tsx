@@ -50,7 +50,7 @@ export default function StudyPage({ params }: StudyPageProps) {
   }, [id]);
 
   const handleBack = () => {
-    router.push('/dashboard');
+    router.push('/main');
   };
 
   const handlePositionUpdate = async (positions: Record<string, { x: number; y: number }>) => {

@@ -132,14 +132,10 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     }
 
     // Add node type icon/symbol
-    if (globalScale > 1 && globalScale < 20) { // Show at very low zoom levels
-      // Calculate the actual visual node size on screen
+    if (globalScale > 1 && globalScale < 20) {
       const visualNodeSize = nodeSize * globalScale;
-      
-      // Font size should be a fixed proportion of the visual node size
-      // This ensures the text always fits within the node regardless of zoom
       const fontSize = Math.max(
-        3,  // Minimum readable size
+        3,
         Math.min(
           visualNodeSize * 0.9,
           nodeSize * 0.9
@@ -151,7 +147,6 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
-      // Add subtle shadow for better visibility
       ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
       ctx.shadowBlur = Math.max(1, fontSize * 0.08);
       ctx.shadowOffsetX = 0;
@@ -160,7 +155,6 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       const text = type === 'definition' ? 'D' : 'E';
       ctx.fillText(text, x, y);
       
-      // Reset shadow
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetX = 0;
@@ -187,43 +181,34 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     }
   }, [selectedNodeId, highlightNodes, showNodeLabels]);
 
-  // Weight-based color calculation
   const getLinkColor = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
     
-    // Highlighted links get bright color
-    if (highlightLinks.has(linkId)) return 'rgba(245, 158, 11, 0.9)'; // Orange with high opacity
+    if (highlightLinks.has(linkId)) return 'rgba(245, 158, 11, 0.9)';
     
     const targetNode = graphNodes.find(n => n.id === targetId);
     const weight = link.weight || 1.0;
     
-    // Exercise links
     if (targetNode?.type === 'exercise') {
-      // Calculate opacity based on weight: 0.01 -> 0.3, 1.0 -> 0.8
       const minOpacity = 0.3;
       const maxOpacity = 0.8;
       const opacity = minOpacity + (maxOpacity - minOpacity) * weight;
       return `rgba(255, 69, 0, ${opacity})`;
     }
     
-    // Definition prerequisite links
-    // Calculate opacity based on weight: 0.01 -> 0.25, 1.0 -> 0.7
     const minOpacity = 0.25;
     const maxOpacity = 0.7;
     const opacity = minOpacity + (maxOpacity - minOpacity) * weight;
     
     if (weight < 1.0) {
-      // Partial prerequisites - bluish color with weight-based opacity
       return `rgba(100, 120, 180, ${opacity})`;
     } else {
-      // Full prerequisites - gray color
       return `rgba(120, 120, 120, ${opacity})`;
     }
   }, [graphNodes, highlightLinks]);
 
-  // Weight-based width calculation
   const getLinkWidth = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
@@ -234,21 +219,17 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const targetNode = graphNodes.find(n => n.id === targetId);
     if (targetNode?.type === 'exercise') baseWidth = 1.8;
     
-    // Apply weight scaling: 0.01 -> 0.3 * baseWidth, 1.0 -> baseWidth
     const minWidthRatio = 0.3;
     const scaledWidth = baseWidth * (minWidthRatio + (1 - minWidthRatio) * weight);
     
-    // Highlighted links get extra width
     return highlightLinks.has(linkId) ? Math.max(3, scaledWidth * 2) : scaledWidth;
   }, [graphNodes, highlightLinks]);
 
-  // Curvature for links
   const getLinkCurvature = useCallback((link: GraphLink) => {
-    // Add slight curvature to make links more visible
     return 0.1;
   }, []);
 
-  // Custom link renderer for dotted lines
+  // Custom link renderer with FIXED ARROW SIZE AND POSITIONING
   const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { source, target, weight = 1.0 } = link;
     
@@ -264,7 +245,6 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const isHighlighted = highlightLinks.has(linkId);
     const isPartial = weight < 1.0;
     
-    // Get calculated color and width
     const color = getLinkColor(link);
     const width = getLinkWidth(link) / globalScale;
     
@@ -275,8 +255,12 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     
     if (distance === 0) return;
     
+    // Get target node size for arrow positioning
+    const targetNode = graphNodes.find(n => n.id === targetId);
+    const targetNodeSize = (targetNode?.type === 'definition' ? 7 : 6) / Math.sqrt(globalScale);
+    
     // Calculate curve control point
-    const curvature = 0.1; // Slight curve
+    const curvature = 0.1;
     const midX = (source.x + target.x) / 2;
     const midY = (source.y + target.y) / 2;
     const perpX = -dy / distance * curvature * distance;
@@ -287,14 +271,11 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     
-    // Set line style based on weight
     if (isPartial) {
-      // Dotted line for partial prerequisites
       const dashSize = Math.max(3, 5 / globalScale);
       const gapSize = Math.max(2, 3 / globalScale);
       ctx.setLineDash([dashSize, gapSize]);
     } else {
-      // Solid line for full prerequisites
       ctx.setLineDash([]);
     }
     
@@ -304,33 +285,61 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     ctx.quadraticCurveTo(controlX, controlY, target.x, target.y);
     ctx.stroke();
     
-    // Reset line dash
     ctx.setLineDash([]);
     
-    // Draw arrowhead
-    const arrowLength = Math.min(8 / globalScale, distance * 0.08);
+    // FIXED: Improved arrow size and positioning
+    // Arrow should be larger and closer to the target node
+    const arrowLength = Math.max(12 / globalScale, Math.min(25 / globalScale, distance * 0.15)); // Larger arrow
     const arrowAngle = Math.PI / 6;
     
-    // Calculate arrow position (85% along curve)
-    const t = 0.85;
+    // Position arrow much closer to target node (95% instead of 85%)
+    // Calculate point on curve that's exactly targetNodeSize distance from target center
+    const nodeRadius = targetNodeSize + 2 / globalScale; // Small buffer
+    const distanceFromTarget = nodeRadius;
+    
+    // Find the parameter t where the curve is distanceFromTarget away from target
+    let t = 0.95; // Start close to target
+    let iterations = 0;
+    const maxIterations = 10;
+    
+    while (iterations < maxIterations) {
+      const curveX = (1-t)*(1-t)*source.x + 2*(1-t)*t*controlX + t*t*target.x;
+      const curveY = (1-t)*(1-t)*source.y + 2*(1-t)*t*controlY + t*t*target.y;
+      const distToCurve = Math.sqrt((target.x - curveX)**2 + (target.y - curveY)**2);
+      
+      if (Math.abs(distToCurve - distanceFromTarget) < 1) break;
+      
+      if (distToCurve > distanceFromTarget) {
+        t += 0.01;
+      } else {
+        t -= 0.01;
+      }
+      
+      t = Math.max(0.5, Math.min(0.98, t)); // Keep t in reasonable range
+      iterations++;
+    }
+    
     const arrowX = (1-t)*(1-t)*source.x + 2*(1-t)*t*controlX + t*t*target.x;
     const arrowY = (1-t)*(1-t)*source.y + 2*(1-t)*t*controlY + t*t*target.y;
     
-    // Calculate arrow direction
-    const t2 = t + 0.01; // Slightly ahead for direction
-    const dirX = (1-t2)*(1-t2)*source.x + 2*(1-t2)*t2*controlX + t2*t2*target.x - arrowX;
-    const dirY = (1-t2)*(1-t2)*source.y + 2*(1-t2)*t2*controlY + t2*t2*target.y - arrowY;
+    // Calculate arrow direction using tangent at the arrow position
+    const t2 = Math.min(0.99, t + 0.02); // Look slightly ahead for direction
+    const dirX = ((1-t2)*(1-t2)*source.x + 2*(1-t2)*t2*controlX + t2*t2*target.x) - arrowX;
+    const dirY = ((1-t2)*(1-t2)*source.y + 2*(1-t2)*t2*controlY + t2*t2*target.y) - arrowY;
     const dirLength = Math.sqrt(dirX*dirX + dirY*dirY);
     
     if (dirLength > 0) {
       const unitDirX = dirX / dirLength;
       const unitDirY = dirY / dirLength;
       
+      // Calculate arrowhead points
       const arrowX1 = arrowX - arrowLength * (unitDirX * Math.cos(arrowAngle) - unitDirY * Math.sin(arrowAngle));
       const arrowY1 = arrowY - arrowLength * (unitDirX * Math.sin(arrowAngle) + unitDirY * Math.cos(arrowAngle));
       const arrowX2 = arrowX - arrowLength * (unitDirX * Math.cos(-arrowAngle) - unitDirY * Math.sin(-arrowAngle));
       const arrowY2 = arrowY - arrowLength * (unitDirX * Math.sin(-arrowAngle) + unitDirY * Math.cos(-arrowAngle));
       
+      // Draw thicker arrow lines
+      ctx.lineWidth = Math.max(1.5 / globalScale, width * 1.5);
       ctx.beginPath();
       ctx.moveTo(arrowX, arrowY);
       ctx.lineTo(arrowX1, arrowY1);
@@ -346,7 +355,6 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       const text = weight.toFixed(2);
       const textMetrics = ctx.measureText(text);
       
-      // Label position at curve midpoint
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.fillRect(
         controlX - textMetrics.width / 2 - 2,
@@ -360,7 +368,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.textBaseline = 'middle';
       ctx.fillText(text, controlX, controlY);
     }
-  }, [getLinkColor, getLinkWidth, highlightLinks]);
+  }, [getLinkColor, getLinkWidth, highlightLinks, graphNodes]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -374,13 +382,11 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         nodeVal={node => (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.2 : 1)}
         nodeCanvasObject={nodeCanvasObject}
         
-        // Link styling - use both custom renderer and built-in props for highlighting
         linkCanvasObject={linkCanvasObject}
         linkColor={getLinkColor}
         linkWidth={getLinkWidth}
         linkCurvature={getLinkCurvature}
         
-        // Add directional particles for highlighted links
         linkDirectionalParticles={link => {
           const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
           const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);

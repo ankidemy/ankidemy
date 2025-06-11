@@ -1,11 +1,12 @@
 // File: ./src/app/components/Graph/details/ExerciseView.tsx
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 import { Exercise, AnswerFeedback } from '../utils/types';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ExerciseViewProps {
   exercise: Exercise;
@@ -20,8 +21,6 @@ interface ExerciseViewProps {
   onRateExercise: (qualityInput: 'again' | 'hard' | 'good' | 'easy') => void; // For submitting review
   exerciseAttemptCompleted: boolean; // To show rating buttons
   onNavigateToNode: (nodeId: string) => void;
-  personalNotes: string;
-  onUpdateNotes: (notes: string) => void;
   // FIX: Add available definitions to look up prerequisite names
   availableDefinitions?: { code: string; name: string }[];
 }
@@ -39,10 +38,10 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   onRateExercise,
   exerciseAttemptCompleted,
   onNavigateToNode,
-  personalNotes,
-  onUpdateNotes,
   availableDefinitions = [], // FIX: Default to empty array
 }) => {
+  const [showNotes, setShowNotes] = useState(false);
+
   const qualityRatingButtons = [
     { label: "Again", value: 'again', color: 'bg-red-50 hover:bg-red-100 border-red-200 text-red-700' },
     { label: "Hard", value: 'hard', color: 'bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700' },
@@ -114,17 +113,30 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         )}
       </div>
 
-      {/* Exercise Notes */}
+      {/* Database Notes Section */}
       {exercise.notes && (
         <div>
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Notes</h4>
-          <Card className="bg-blue-50 border border-blue-200 shadow-sm">
-            <CardContent className="p-3 text-sm">
-              <MathJaxContent>
-                {exercise.notes}
-              </MathJaxContent>
-            </CardContent>
-          </Card>
+          <div className="flex justify-between items-center mb-1">
+            <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Notes</h4>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowNotes(!showNotes)}
+              className="h-6 text-xs px-1 flex items-center"
+            >
+              {showNotes ? <ChevronUp size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
+              {showNotes ? 'Hide' : 'Show'}
+            </Button>
+          </div>
+          {showNotes && (
+            <Card className="bg-blue-50 border border-blue-200 shadow-sm">
+              <CardContent className="p-3 text-sm">
+                <MathJaxContent>
+                  {exercise.notes}
+                </MathJaxContent>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -150,24 +162,6 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
           }`}>
             {answerFeedback.message}
           </div>
-        )}
-      </div>
-
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Solution</h4>
-          <Button variant="ghost" size="sm" onClick={onToggleSolution} className="h-6 text-xs px-1">
-            {showSolution ? 'Hide' : 'Show'}
-          </Button>
-        </div>
-        {showSolution && (
-          <Card className="bg-green-50 border border-green-200 shadow-sm">
-            <CardContent className="p-3 text-sm">
-              <MathJaxContent>
-                {exercise.description || <span className="text-gray-400 italic">N/A</span>}
-              </MathJaxContent>
-            </CardContent>
-          </Card>
         )}
       </div>
       
@@ -211,18 +205,6 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         ) : (
           <p className="text-sm text-gray-500 italic">None</p>
         )}
-      </div>
-
-      <div className="mt-3">
-        <div className="flex justify-between items-center mb-1">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Personal Notes (Saved Locally)</h4>
-        </div>
-        <textarea
-          className="w-full border border-gray-300 rounded p-2 h-20 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-          placeholder="Add your personal notes here..."
-          value={personalNotes}
-          onChange={(e) => onUpdateNotes(e.target.value)}
-        />
       </div>
     </>
   );

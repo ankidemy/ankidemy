@@ -1,7 +1,7 @@
 // File: ./src/app/components/Graph/panels/RightPanel.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { ArrowLeft, Edit, X, Eye, History, ChevronDown, ChevronUp } from 'lucide-react';
@@ -16,10 +16,11 @@ import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory } from '@/lib/srs-api';
 
 interface AvailableDefinitionOptionForEdit {
-  code: string; // Fixed: use code instead of id
+  code: string;
   name: string;
   numericId: number;
 }
+
 interface RightPanelProps {
   isVisible: boolean;
   onToggle: () => void;
@@ -41,7 +42,7 @@ interface RightPanelProps {
   onNavigatePrevDescription: () => void;
   onNavigateNextDescription: () => void;
   relatedExercises: string[];
-  onReviewDefinition: (result: 'again' | 'hard' | 'good' | 'easy') => void; // For definitions
+  onReviewDefinition: (result: 'again' | 'hard' | 'good' | 'easy') => void;
   
   showSolution: boolean;
   onToggleSolution: () => void;
@@ -50,22 +51,20 @@ interface RightPanelProps {
   userAnswer: string;
   onUpdateAnswer: (answer: string) => void;
   answerFeedback: AnswerFeedback | null;
-  onVerifyAnswer: () => void; // Verification only
-  onRateExercise: (qualityInput: 'again' | 'hard' | 'good' | 'easy') => void; // New for exercise rating
-  exerciseAttemptCompleted: boolean; // New to control visibility of rating buttons
+  onVerifyAnswer: () => void;
+  onRateExercise: (qualityInput: 'again' | 'hard' | 'good' | 'easy') => void;
+  exerciseAttemptCompleted: boolean;
 
-  personalNotes: Record<string, string>;
-  onUpdateNotes: (nodeId: string, notes: string) => void;
+  personalNotes: Record<string, string>; // Keep for compatibility but won't be used
+  onUpdateNotes: (nodeId: string, notes: string) => void; // Keep for compatibility but won't be used
   
-  availableDefinitionsForEdit: AvailableDefinitionOptionForEdit[]; // Updated prop name
+  availableDefinitionsForEdit: AvailableDefinitionOptionForEdit[];
   onSubmitEdit: () => void;
   onStatusChange: (nodeId: string, status: NodeStatus) => Promise<void>;
   
-  // FIX: Add available definitions for prerequisite display
   availableDefinitions: { code: string; name: string }[];
 }
 
-// ... (ReviewHistory component remains the same)
 const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercise'}> = ({ nodeId, nodeType}) => {
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -77,7 +76,7 @@ const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercis
     setIsLoading(true);
     setError(null);
     try {
-      const data = await getReviewHistory(nodeId, nodeType, 10); // Fetch last 10 reviews
+      const data = await getReviewHistory(nodeId, nodeType, 10);
       setHistory(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load history");
@@ -91,7 +90,7 @@ const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercis
     if (showHistory && nodeId) {
       fetchHistory();
     }
-     if (!showHistory) { // Reset if panel is hidden to avoid showing stale data
+     if (!showHistory) {
         setHistory([]);
     }
   }, [showHistory, nodeId, nodeType]);
@@ -123,7 +122,6 @@ const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercis
     </div>
   );
 };
-
 
 const RightPanel: React.FC<RightPanelProps> = ({
   isVisible,
@@ -159,13 +157,13 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onRateExercise, 
   exerciseAttemptCompleted,
 
+  // Keep personal notes props for compatibility but don't use them
   personalNotes,
   onUpdateNotes,
   
   availableDefinitionsForEdit,
   onSubmitEdit,
   onStatusChange,
-  // FIX: Accept available definitions prop
   availableDefinitions,
 }) => {
   const srs = useSRS();
@@ -249,10 +247,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     onNavigateNext={onNavigateNextDescription}
                     relatedExercises={relatedExercises}
                     onNavigateToNode={onNavigateToNode}
-                    personalNotes={personalNotes[selectedNode.id] || ''}
-                    onUpdateNotes={(notes) => onUpdateNotes(selectedNode.id, notes)}
                     onReview={onReviewDefinition}
-                    // FIX: Pass available definitions for prerequisite display
                     availableDefinitions={availableDefinitions}
                   />
                 ) : (
@@ -269,9 +264,6 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     onRateExercise={onRateExercise}
                     exerciseAttemptCompleted={exerciseAttemptCompleted}
                     onNavigateToNode={onNavigateToNode}
-                    personalNotes={personalNotes[selectedNode.id] || ''}
-                    onUpdateNotes={(notes) => onUpdateNotes(selectedNode.id, notes)}
-                    // FIX: Pass available definitions for prerequisite display
                     availableDefinitions={availableDefinitions}
                   />
                 )}

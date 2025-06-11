@@ -1,10 +1,11 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 import { Definition } from '../utils/types';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface DefinitionViewProps {
   definition: Definition;
@@ -18,8 +19,6 @@ interface DefinitionViewProps {
   onNavigateNext: () => void;
   relatedExercises: string[];
   onNavigateToNode: (nodeId: string) => void;
-  personalNotes: string;
-  onUpdateNotes: (notes: string) => void;
   onReview: (result: 'again' | 'hard' | 'good' | 'easy') => void;
   // FIX: Add available definitions to look up prerequisite names
   availableDefinitions?: { code: string; name: string }[];
@@ -37,12 +36,11 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   onNavigateNext,
   relatedExercises,
   onNavigateToNode,
-  personalNotes,
-  onUpdateNotes,
   onReview,
   availableDefinitions = [], // FIX: Default to empty array
 }) => {
   const hasMultipleDescriptions = totalDescriptions > 1;
+  const [showNotes, setShowNotes] = useState(false);
 
   // FIX: Helper function to get display text for prerequisites
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
@@ -110,12 +108,30 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
         )}
       </div>
 
+      {/* Database Notes Section */}
       {definition.notes && (
         <div>
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Official Notes</h4>
-          <p className="text-sm text-gray-800 bg-yellow-50 p-2 rounded border border-yellow-200">
-            {definition.notes}
-          </p>
+          <div className="flex justify-between items-center mb-1">
+            <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Notes</h4>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowNotes(!showNotes)}
+              className="h-6 text-xs px-1 flex items-center"
+            >
+              {showNotes ? <ChevronUp size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
+              {showNotes ? 'Hide' : 'Show'}
+            </Button>
+          </div>
+          {showNotes && (
+            <Card className="bg-yellow-50 border border-yellow-200 shadow-sm">
+              <CardContent className="p-3 text-sm">
+                <MathJaxContent>
+                  {definition.notes}
+                </MathJaxContent>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -193,20 +209,6 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
             </Button>
           ))}
         </div>
-      </div>
-
-      {/* Personal Notes */}
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Personal Notes (Saved Locally)</h4>
-          <div className="text-xs text-gray-500 italic">Auto-saving</div>
-        </div>
-        <textarea
-          className="w-full border border-gray-300 rounded p-2 h-20 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-          placeholder="Add your personal notes here. These are stored in your browser only."
-          value={personalNotes}
-          onChange={(e) => onUpdateNotes(e.target.value)}
-        />
       </div>
     </>
   );
