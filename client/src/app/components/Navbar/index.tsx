@@ -6,10 +6,11 @@ import { useRouter } from 'next/navigation';
 import { logout, User } from '@/lib/api';
 
 interface NavbarProps {
-  currentUser?: User | null; 
+  currentUser?: User | null;
+  onMenuClick?: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ currentUser }) => {
+const Navbar: React.FC<NavbarProps> = ({ currentUser, onMenuClick }) => {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);

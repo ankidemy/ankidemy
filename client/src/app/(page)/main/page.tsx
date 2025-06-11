@@ -10,6 +10,7 @@ import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
 import Sidebar from "@/app/components/Sidebar";
+import { getCurrentUser, type User } from '@/lib/api';
 
 import {
   Domain,
@@ -23,6 +24,7 @@ export default function MainPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'my' | 'enrolled'>('all');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Domain data
   const [publicDomains, setPublicDomains] = useState<Domain[]>([]);
@@ -35,6 +37,18 @@ export default function MainPage() {
 
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+      } catch {
+        router.push("/login");
+      }
+    })();
+  }, [router]);
 
   // Load initial domain data
   useEffect(() => {
@@ -102,13 +116,13 @@ export default function MainPage() {
     setSelectedDomain(domain);
   };
 
-  const router = useRouter();
-
   const openSidebar = () => setSidebarOpen(true);
   const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div>
+      <Navbar currentUser={currentUser} onMenuClick={openSidebar} />
+      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <Navbar onMenuClick={openSidebar} />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       
