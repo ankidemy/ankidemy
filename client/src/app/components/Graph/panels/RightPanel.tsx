@@ -55,8 +55,6 @@ interface RightPanelProps {
   onRateExercise: (qualityInput: 'again' | 'hard' | 'good' | 'easy') => void;
   exerciseAttemptCompleted: boolean;
 
-  personalNotes: Record<string, string>; // Keep for compatibility but won't be used
-  onUpdateNotes: (nodeId: string, notes: string) => void; // Keep for compatibility but won't be used
   
   availableDefinitionsForEdit: AvailableDefinitionOptionForEdit[];
   onSubmitEdit: () => void;
@@ -156,11 +154,6 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onVerifyAnswer,
   onRateExercise, 
   exerciseAttemptCompleted,
-
-  // Keep personal notes props for compatibility but don't use them
-  personalNotes,
-  onUpdateNotes,
-  
   availableDefinitionsForEdit,
   onSubmitEdit,
   onStatusChange,

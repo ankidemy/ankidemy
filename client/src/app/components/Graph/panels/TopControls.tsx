@@ -9,7 +9,7 @@ import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 
 interface TopControlsProps {
-  subjectMatterId: string;
+  subjectMatterId: string; // This prop holds the domain NAME
   mode: AppMode;
   onModeChange: (mode: AppMode) => void;
   onBack: () => void;
@@ -19,6 +19,9 @@ interface TopControlsProps {
   onCreateDefinition: () => void;
   onCreateExercise: () => void;
   onStartStudy: () => void;
+  positionsChanged: boolean;
+  isSavingPositions: boolean;
+  onSavePositions: () => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -32,6 +35,9 @@ const TopControls: React.FC<TopControlsProps> = ({
   onCreateDefinition,
   onCreateExercise,
   onStartStudy,
+  positionsChanged,
+  isSavingPositions,
+  onSavePositions
 }) => {
   const srs = useSRS();
 
@@ -45,7 +51,10 @@ const TopControls: React.FC<TopControlsProps> = ({
         <h2 className="text-lg font-semibold truncate" title={subjectMatterId}>
           {subjectMatterId || "Knowledge Graph"}
         </h2>
-        <DomainSelector currentDomainId={subjectMatterId} />
+        
+        {/* Pass the domain NAME to the selector */}
+        <DomainSelector currentDomainName={subjectMatterId} />
+
       </div>
 
       {/* Center: Mode Buttons & Study Button */}

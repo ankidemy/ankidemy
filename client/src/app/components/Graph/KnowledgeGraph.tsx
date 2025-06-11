@@ -88,7 +88,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [highlightLinks, setHighlightLinks] = useState(new Set<string>());
   const [userAnswer, setUserAnswer] = useState('');
   const [answerFeedback, setAnswerFeedback] = useState<AnswerFeedback | null>(null);
-  const [personalNotes, setPersonalNotes] = useState<Record<string, string>>({});
   const [relatedExercises, setRelatedExercises] = useState<string[]>([]);
   const [filteredNodeType, setFilteredNodeType] = useState<FilteredNodeType>('all');
   const [selectedDefinitionIndex, setSelectedDefinitionIndex] = useState(0);
@@ -204,7 +203,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       
     } catch (error) {
       console.error("Error loading comprehensive domain data:", error);
-      showToast("Failed to load complete domain data.", "error");
+    showToast("Failed to load complete domain data.", "error");
     }
   }, []);
 
@@ -218,6 +217,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
     if (!nodeOnClick || !nodeOnClick.id) return;
 
+    // following two lines are quite important do not delete
+    // they open the right panel after you click the node
     setSelectedNode(nodeOnClick);
     setShowRightPanel(true);
 
@@ -232,96 +233,49 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setExerciseAttemptCompleted(false);
 
     try {
-      let details: Definition | Exercise | null = null;
+      let apiDetails: ApiDefinition | ApiExercise | null = null;
       const code = nodeOnClick.id;
 
       // Check cache first
-      let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
+      apiDetails = nodeDataCache.get(code) || null;
       
-      // Determine what to fetch based on mode and node type
-      if (mode === 'practice' && nodeOnClick.type === 'definition') {
-        // In practice mode, when clicking a definition node, check for related exercises first
-        if (currentStructuralGraphData.exercises) {
-          const relatedExCodes = Object.values(currentStructuralGraphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(code))
-            .map(ex => ex.code);
-          
-          if (relatedExCodes.length > 0) {
-            // If there are related exercises, fetch the first one
-            const exerciseCode = relatedExCodes[0];
-            try {
-              apiDetails = nodeDataCache.get(exerciseCode) || null;
-              if (!apiDetails) {
-                const exerciseResponse = await getExerciseByCode(exerciseCode);
-                apiDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
-                if (apiDetails) {
-                  setNodeDataCache(prev => new Map(prev).set(exerciseCode, apiDetails!));
-                  setCodeToNumericIdMap(prev => new Map(prev).set(exerciseCode, apiDetails!.id));
-                }
-              }
-              
-              if (apiDetails) {
-                console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
-                // Store related exercises
-                setRelatedExercises(relatedExCodes);
-              }
-            } catch (exerciseError) {
-              console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
-              // Fall back to showing the definition
-              apiDetails = null;
-            }
-          }
-        }
-      }
-      
-      // If no specific exercise was found or we're not in practice mode, fetch the original node
+      // If not in cache, fetch from the API
       if (!apiDetails) {
         if (nodeOnClick.type === 'definition') {
-          const res = await getDefinitionByCode(nodeOnClick.id);
+          const res = await getDefinitionByCode(code);
           apiDetails = Array.isArray(res) ? res[0] : res;
         } else {
-          const res = await getExerciseByCode(nodeOnClick.id);
+          const res = await getExerciseByCode(code);
           apiDetails = Array.isArray(res) ? res[0] : res;
         }
         
         if (apiDetails) {
-          setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
-          setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
+          // Update cache for next time
+          setNodeDataCache(prev => new Map(prev).set(code, apiDetails!));
+          setCodeToNumericIdMap(prev => new Map(prev).set(code, apiDetails!.id));
         }
       }
 
-      // Convert API details to local format
+      // Convert API details to local format and set the state for the RightPanel
       if (apiDetails) {
-        const localDetails: Definition | Exercise = {
+        setSelectedNodeDetails({
           ...apiDetails,
-          code: apiDetails.code, 
-          name: apiDetails.name,
           type: nodeOnClick.type,
-          description: apiDetails.description,
-          ...(nodeOnClick.type === 'exercise' && { 
-            difficulty: (apiDetails as ApiExercise).difficulty || '3',
-            statement: (apiDetails as ApiExercise).statement,
-            hints: (apiDetails as ApiExercise).hints,
-            verifiable: (apiDetails as ApiExercise).verifiable,
-            result: (apiDetails as ApiExercise).result,
-          }),
-          prerequisites: apiDetails.prerequisites || [],
-        };
-        setSelectedNodeDetails(localDetails);
+        } as Definition | Exercise);
 
+        // Reset UI state for the panel
         setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
         setShowSolution(false);
         setShowHints(false);
         setSelectedDefinitionIndex(0);
 
-        // Handle related exercises
-        if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises && !relatedExercises.length) {
-          const defCode = nodeOnClick.id;
+        // Find and set related exercises for the definition
+        if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises) {
           const relEx = Object.values(currentStructuralGraphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(defCode))
+            .filter(ex => ex.prerequisites?.includes(code))
             .map(ex => ex.code);
           setRelatedExercises(relEx);
-        } else if (nodeOnClick.type === 'exercise') {
+        } else {
           setRelatedExercises([]);
         }
       } else {
@@ -342,7 +296,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         graphRef.current.zoom(2.5, 800);
       }
     }
-  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, relatedExercises.length]);
+  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache]);
 
   const refreshGraphAndSRSData = useCallback(async () => {
     setIsProcessingData(true);
@@ -747,6 +701,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const handleSubmitEdit = async () => {
     if (!selectedNode || !selectedNodeDetails) return;
     
+    // ... (The existing code to get data from the form remains the same)
     const formName = (document.getElementById('name') as HTMLInputElement)?.value || selectedNode.name;
     const formPrereqsEl = document.getElementById('prerequisites') as HTMLSelectElement;
     
@@ -765,6 +720,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
 
     try {
+      let updatedNode; // Variable to hold the response from the API
+
       if (selectedNode.type === 'definition') {
         const defDetails = selectedNodeDetails as Definition;
         let formDesc = (document.getElementById('description') as HTMLTextAreaElement)?.value || '';
@@ -780,7 +737,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         const formNotes = (document.getElementById('notes') as HTMLTextAreaElement)?.value;
         const formRefs = (document.getElementById('references') as HTMLTextAreaElement)?.value.split('\n').filter(r => r.trim());
 
-        await updateDefinition(defDetails.id, { 
+        // CAPTURE the response from the API call
+        updatedNode = await updateDefinition(defDetails.id, { 
           name: formName, 
           description: formDesc,
           notes: formNotes,
@@ -799,7 +757,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         const formResult = (document.getElementById('result') as HTMLInputElement)?.value;
         const formNotes = (document.getElementById('exerciseNotes') as HTMLTextAreaElement)?.value;
 
-        await updateExercise(exDetails.id, {
+        // CAPTURE the response from the API call
+        updatedNode = await updateExercise(exDetails.id, {
           name: formName,
           statement: formStatement,
           description: formSolution,
@@ -814,8 +773,33 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         showToast(`Exercise "${selectedNode.name}" updated.`, "success");
       }
       
+      // ---- NEW REFRESH LOGIC ----
+
+      // 1. Immediately update the right panel's details
+      setSelectedNodeDetails({ ...updatedNode, type: selectedNode.type });
+
+      // 2. Update the node in the main graph data structure
+      setCurrentStructuralGraphData(prevData => {
+        const newData = { ...prevData };
+        const nodeCode = updatedNode.code;
+
+        if (selectedNode.type === 'definition') {
+          newData.definitions[nodeCode] = { ...newData.definitions[nodeCode], ...updatedNode };
+        } else {
+          newData.exercises[nodeCode] = { ...newData.exercises[nodeCode], ...updatedNode };
+        }
+        return newData;
+      });
+
+      // 3. Update the cache to prevent stale data on re-click
+      setNodeDataCache(prevCache => new Map(prevCache).set(updatedNode.code, updatedNode));
+      
+      // 4. Switch back to view mode
       setIsEditMode(false);
-      await refreshGraphAndSRSData(); 
+
+      // We no longer need the slow full refresh:
+      // await refreshGraphAndSRSData(); // REMOVED
+
     } catch (error) {
       console.error("Error updating node:", error);
       showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
@@ -917,34 +901,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setNodeHistory(prev => prev.slice(0, -1));
     navigateToNodeById(prevNodeId);
   }, [nodeHistory, navigateToNodeById]);
-
-  const savePersonalNote = useCallback((nodeId: string, notes: string) => {
-    setPersonalNotes(prev => {
-      const newNotes = { ...prev, [nodeId]: notes };
-      try {
-        localStorage.setItem(`ankidemy_notes_${subjectMatterId}_${nodeId}`, notes);
-      } catch (e) {
-        console.warn("Failed to save personal notes to localStorage:", e);
-        showToast("Could not save notes locally.", "warning");
-      }
-      return newNotes;
-    });
-  }, [subjectMatterId]);
-
-  useEffect(() => {
-    if (selectedNode?.id) {
-      try {
-        const savedNotes = localStorage.getItem(`ankidemy_notes_${subjectMatterId}_${selectedNode.id}`);
-        if (savedNotes) {
-          setPersonalNotes(prev => ({ ...prev, [selectedNode.id]: savedNotes }));
-        } else {
-           setPersonalNotes(prev => ({ ...prev, [selectedNode.id]: '' }));
-        }
-      } catch (e) {
-        console.warn("Failed to load personal notes from localStorage:", e);
-      }
-    }
-  }, [selectedNode?.id, subjectMatterId]);
 
   const availableNodesForPrerequisites = React.useMemo(() => {
     const availableNodes = graphNodes
@@ -1094,8 +1050,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                   onVerifyAnswer={verifyAnswer}
                   onRateExercise={handleRateExerciseUnderstanding}
                   exerciseAttemptCompleted={exerciseAttemptCompleted}
-                  personalNotes={personalNotes}
-                  onUpdateNotes={savePersonalNote}
                   availableDefinitionsForEdit={availableNodesForPrerequisites}
                   onSubmitEdit={handleSubmitEdit}
                   onStatusChange={handleStatusChange}
