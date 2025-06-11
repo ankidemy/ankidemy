@@ -26,7 +26,7 @@ func InitDB() (*gorm.DB, error) {
 	// Configure logger based on environment
 	logLevel := logger.Silent
 	if os.Getenv("APP_ENV") != "production" {
-		logLevel = logger.Info
+		logLevel = logger.Warn
 	}
 
 	config := &gorm.Config{
@@ -52,6 +52,11 @@ func InitDB() (*gorm.DB, error) {
 		&models.UserDomainProgress{},
 		&models.UserDefinitionProgress{},
 		&models.UserExerciseProgress{},
+    &models.NodePrerequisite{},
+    &models.UserNodeProgress{},
+    &models.StudySession{},
+    &models.SessionReview{},
+    &models.ReviewHistory{},
 	}
 	
 	// AutoMigrate all models - note that in production you might want more controlled migrations

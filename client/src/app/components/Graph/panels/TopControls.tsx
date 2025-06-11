@@ -1,9 +1,11 @@
+// File: ./src/app/components/Graph/panels/TopControls.tsx
 "use client";
 
 import React from 'react';
 import { Button } from "@/app/components/core/button";
-import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus } from 'lucide-react';
+import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play } from 'lucide-react';
 import { AppMode } from '../utils/types';
+import { useSRS } from '@/contexts/SRSContext'; // Import useSRS hook
 
 interface TopControlsProps {
   subjectMatterId: string;
@@ -15,6 +17,7 @@ interface TopControlsProps {
   onZoomToFit: () => void;
   onCreateDefinition: () => void;
   onCreateExercise: () => void;
+  onStartStudy: () => void; // Added prop for starting study mode
   positionsChanged: boolean;
   onSavePositions: () => void;
   isSavingPositions: boolean;
@@ -30,10 +33,13 @@ const TopControls: React.FC<TopControlsProps> = ({
   onZoomToFit,
   onCreateDefinition,
   onCreateExercise,
+  onStartStudy, // Use the new prop
   positionsChanged,
   onSavePositions,
   isSavingPositions
 }) => {
+  const srs = useSRS(); // Get SRS context
+
   return (
     <div className="bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
       {/* Left: Back Button + Title */}
@@ -46,8 +52,8 @@ const TopControls: React.FC<TopControlsProps> = ({
         </h2>
       </div>
 
-      {/* Center: Mode Buttons */}
-      <div className="flex space-x-2">
+      {/* Center: Mode Buttons & Study Button */}
+      <div className="flex items-center space-x-2">
         <Button
           variant={mode === 'study' ? 'default' : 'outline'}
           size="sm"
@@ -65,6 +71,16 @@ const TopControls: React.FC<TopControlsProps> = ({
         >
           <BarChart size={14} className="mr-1" />
           Practice
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={onStartStudy} // Call onStartStudy passed from KnowledgeGraph
+          className="flex items-center bg-orange-500 hover:bg-orange-600 text-white"
+          title="Start a study session"
+        >
+          <Play size={14} className="mr-1" />
+          Review ({srs.state.domainStats?.dueReviews || srs.state.dueReviews.length || 0}) {/* Display due review count */}
         </Button>
       </div>
 
@@ -95,7 +111,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             onClick={onSavePositions}
             disabled={isSavingPositions}
             title="Save current node positions to server"
-            className={`flex items-center ${positionsChanged ? 'bg-blue-50 hover:bg-blue-100' : ''}`}
+            className={`flex items-center ${positionsChanged ? 'bg-blue-100 hover:bg-blue-200 border-blue-300' : ''}`}
           >
             {isSavingPositions ? "Saving..." : "Save Layout"}
           </Button>

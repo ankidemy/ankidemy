@@ -73,7 +73,8 @@ const (
 )
 
 // ReviewRequest is the request body for submitting a review
-type ReviewRequest struct {
+// DefinitionReviewRequest is the request body for submitting a definition review (older system)
+type DefinitionReviewRequest struct {
 	DefinitionID uint         `json:"definitionId"`
 	Result       ReviewResult `json:"result"`
 	TimeTaken    int          `json:"timeTaken"` // in seconds

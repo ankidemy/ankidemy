@@ -1,32 +1,33 @@
+// models/definition.go - Updated without GORM associations
+
 package models
 
 import (
 	"time"
-
 	"gorm.io/gorm"
 )
 
 // Definition represents a concept or definition
 type Definition struct {
 	gorm.Model
-	Code        string    `gorm:"column:code;not null" json:"code"` // Removed unique constraint
+	Code        string    `gorm:"column:code;not null" json:"code"`
 	Name        string    `gorm:"column:name;not null" json:"name"`
 	Description string    `gorm:"column:description;not null" json:"description"`
 	Notes       string    `gorm:"column:notes" json:"notes"`
 	DomainID    uint      `gorm:"column:domain_id;not null" json:"domainId"`
 	OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
-	XPosition   float64   `gorm:"column:x_position" json:"xPosition"`
-	YPosition   float64   `gorm:"column:y_position" json:"yPosition"`
+	XPosition   float64   `gorm:"column:x_position;default:0" json:"xPosition"`
+	YPosition   float64   `gorm:"column:y_position;default:0" json:"yPosition"`
 	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 	UpdatedAt   time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
 	
 	// Relationships
-	Domain       *Domain       `gorm:"foreignKey:DomainID" json:"-"`
-	Owner        *User         `gorm:"foreignKey:OwnerID" json:"-"`
-	References   []Reference   `gorm:"foreignKey:DefinitionID" json:"references,omitempty"`
+	Domain     *Domain     `gorm:"foreignKey:DomainID" json:"-"`
+	Owner      *User       `gorm:"foreignKey:OwnerID" json:"-"`
+	References []Reference `gorm:"foreignKey:DefinitionID" json:"references,omitempty"`
 	
-	// Many-to-many relationships
-	Prerequisites []Definition `gorm:"many2many:definition_prerequisites;joinForeignKey:definition_id;joinReferences:prerequisite_id" json:"prerequisites,omitempty"`
+	// Prerequisites are now managed via node_prerequisites table
+	// No GORM many-to-many association
 }
 
 // TableName overrides the table name
@@ -77,4 +78,10 @@ type DefinitionResponse struct {
 	YPosition     float64   `json:"yPosition,omitempty"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+// DefinitionWithPrerequisites holds a definition with its prerequisite data
+type DefinitionWithPrerequisites struct {
+	Definition
+	PrerequisiteCodes []string `json:"prerequisiteCodes"`
 }

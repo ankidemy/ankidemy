@@ -1,9 +1,10 @@
+// dao/definition_dao.go - Updated to use node_prerequisites directly
+
 package dao
 
 import (
 	"errors"
 	"myapp/server/models"
-
 	"gorm.io/gorm"
 )
 
@@ -17,9 +18,8 @@ func NewDefinitionDAO(db *gorm.DB) *DefinitionDAO {
 	return &DefinitionDAO{db: db}
 }
 
-// Create creates a new definition
+// Create creates a new definition with prerequisites managed via node_prerequisites
 func (d *DefinitionDAO) Create(definition *models.Definition, references []string, prerequisiteIDs []uint) error {
-	// Use transaction to ensure all operations succeed or fail together
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Create the definition
 		if err := tx.Create(definition).Error; err != nil {
@@ -39,16 +39,30 @@ func (d *DefinitionDAO) Create(definition *models.Definition, references []strin
 			}
 		}
 		
-		// Add prerequisites
+		// Add prerequisites to node_prerequisites table
 		if len(prerequisiteIDs) > 0 {
 			for _, prereqID := range prerequisiteIDs {
-				var prereq models.Definition
-				if err := tx.First(&prereq, prereqID).Error; err != nil {
+				// Verify prerequisite exists
+				var count int64
+				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
 					return err
 				}
+				if count == 0 {
+					continue // Skip invalid prerequisite
+				}
 				
-				if err := tx.Model(definition).Association("Prerequisites").Append(&prereq); err != nil {
-					return err
+				prerequisite := models.NodePrerequisite{
+					NodeID:           definition.ID,
+					NodeType:         "definition",
+					PrerequisiteID:   prereqID,
+					PrerequisiteType: "definition",
+					Weight:           1.0,
+					IsManual:         false,
+				}
+				
+				if err := tx.Create(&prerequisite).Error; err != nil {
+					// Ignore duplicates
+					continue
 				}
 			}
 		}
@@ -57,7 +71,7 @@ func (d *DefinitionDAO) Create(definition *models.Definition, references []strin
 	})
 }
 
-// Update updates an existing definition
+// Update updates an existing definition and its prerequisites
 func (d *DefinitionDAO) Update(definition *models.Definition, references []string, prerequisiteIDs []uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Update the definition
@@ -83,19 +97,34 @@ func (d *DefinitionDAO) Update(definition *models.Definition, references []strin
 		}
 		
 		// Update prerequisites (clear existing, add new ones)
-		if err := tx.Model(definition).Association("Prerequisites").Clear(); err != nil {
+		if err := tx.Where("node_id = ? AND node_type = ?", definition.ID, "definition").
+			Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
 		
 		if len(prerequisiteIDs) > 0 {
 			for _, prereqID := range prerequisiteIDs {
-				var prereq models.Definition
-				if err := tx.First(&prereq, prereqID).Error; err != nil {
+				// Verify prerequisite exists
+				var count int64
+				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
 					return err
 				}
+				if count == 0 {
+					continue // Skip invalid prerequisite
+				}
 				
-				if err := tx.Model(definition).Association("Prerequisites").Append(&prereq); err != nil {
-					return err
+				prerequisite := models.NodePrerequisite{
+					NodeID:           definition.ID,
+					NodeType:         "definition",
+					PrerequisiteID:   prereqID,
+					PrerequisiteType: "definition",
+					Weight:           1.0,
+					IsManual:         false,
+				}
+				
+				if err := tx.Create(&prerequisite).Error; err != nil {
+					// Ignore duplicates
+					continue
 				}
 			}
 		}
@@ -104,16 +133,12 @@ func (d *DefinitionDAO) Update(definition *models.Definition, references []strin
 	})
 }
 
-// Delete deletes a definition by ID
+// Delete deletes a definition and its prerequisites
 func (d *DefinitionDAO) Delete(id uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
-		// Clear associations first
-		var definition models.Definition
-		if err := tx.First(&definition, id).Error; err != nil {
-			return err
-		}
-		
-		if err := tx.Model(&definition).Association("Prerequisites").Clear(); err != nil {
+		// Delete prerequisites where this definition is involved
+		if err := tx.Where("(node_id = ? AND node_type = ?) OR (prerequisite_id = ? AND prerequisite_type = ?)", 
+			id, "definition", id, "definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
 		
@@ -127,13 +152,10 @@ func (d *DefinitionDAO) Delete(id uint) error {
 	})
 }
 
-// FindByID finds a definition by ID
+// FindByID finds a definition by ID and loads its prerequisites
 func (d *DefinitionDAO) FindByID(id uint) (*models.Definition, error) {
 	var definition models.Definition
-	result := d.db.
-		Preload("References").
-		Preload("Prerequisites").
-		First(&definition, id)
+	result := d.db.Preload("References").First(&definition, id)
 	
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -145,14 +167,28 @@ func (d *DefinitionDAO) FindByID(id uint) (*models.Definition, error) {
 	return &definition, nil
 }
 
-// FindByCode finds definitions by code (may return multiple since code is no longer unique)
-func (d *DefinitionDAO) FindByCode(code string) ([]*models.Definition, error) {
-	var definitions []*models.Definition
-	result := d.db.
-		Preload("References").
-		Preload("Prerequisites").
-		Where("code = ?", code).
-		Find(&definitions)
+// FindByIDWithPrerequisites finds a definition by ID and loads its prerequisites
+func (d *DefinitionDAO) FindByIDWithPrerequisites(id uint) (*models.DefinitionWithPrerequisites, error) {
+	definition, err := d.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	
+	prerequisiteCodes, err := d.getPrerequisiteCodes(id, "definition")
+	if err != nil {
+		return nil, err
+	}
+	
+	return &models.DefinitionWithPrerequisites{
+		Definition:        *definition,
+		PrerequisiteCodes: prerequisiteCodes,
+	}, nil
+}
+
+// FindByCode finds definitions by code and loads their prerequisites
+func (d *DefinitionDAO) FindByCode(code string) ([]*models.DefinitionWithPrerequisites, error) {
+	var definitions []models.Definition
+	result := d.db.Preload("References").Where("code = ?", code).Find(&definitions)
 	
 	if result.Error != nil {
 		return nil, result.Error
@@ -162,17 +198,27 @@ func (d *DefinitionDAO) FindByCode(code string) ([]*models.Definition, error) {
 		return nil, errors.New("definitions not found")
 	}
 	
-	return definitions, nil
+	// Load prerequisites for each definition
+	var results []*models.DefinitionWithPrerequisites
+	for _, def := range definitions {
+		prerequisiteCodes, err := d.getPrerequisiteCodes(def.ID, "definition")
+		if err != nil {
+			return nil, err
+		}
+		
+		results = append(results, &models.DefinitionWithPrerequisites{
+			Definition:        def,
+			PrerequisiteCodes: prerequisiteCodes,
+		})
+	}
+	
+	return results, nil
 }
 
 // FindByCodeAndDomain finds a definition by code within a specific domain
-func (d *DefinitionDAO) FindByCodeAndDomain(code string, domainID uint) (*models.Definition, error) {
+func (d *DefinitionDAO) FindByCodeAndDomain(code string, domainID uint) (*models.DefinitionWithPrerequisites, error) {
 	var definition models.Definition
-	result := d.db.
-		Preload("References").
-		Preload("Prerequisites").
-		Where("code = ? AND domain_id = ?", code, domainID).
-		First(&definition)
+	result := d.db.Preload("References").Where("code = ? AND domain_id = ?", code, domainID).First(&definition)
 	
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -181,44 +227,49 @@ func (d *DefinitionDAO) FindByCodeAndDomain(code string, domainID uint) (*models
 		return nil, result.Error
 	}
 	
-	return &definition, nil
-}
-
-// GetByDomainID returns all definitions for a domain
-func (d *DefinitionDAO) GetByDomainID(domainID uint) ([]models.Definition, error) {
-	var definitions []models.Definition
-	result := d.db.
-		Preload("References").
-		Preload("Prerequisites").
-		Where("domain_id = ?", domainID).
-		Find(&definitions)
+	prerequisiteCodes, err := d.getPrerequisiteCodes(definition.ID, "definition")
+	if err != nil {
+		return nil, err
+	}
 	
-	return definitions, result.Error
+	return &models.DefinitionWithPrerequisites{
+		Definition:        definition,
+		PrerequisiteCodes: prerequisiteCodes,
+	}, nil
 }
 
-// GetAll returns all definitions
-func (d *DefinitionDAO) GetAll() ([]models.Definition, error) {
+// GetByDomainID returns all definitions for a domain with their prerequisites
+func (d *DefinitionDAO) GetByDomainID(domainID uint) ([]models.DefinitionWithPrerequisites, error) {
 	var definitions []models.Definition
-	result := d.db.
-		Preload("References").
-		Preload("Prerequisites").
-		Find(&definitions)
+	result := d.db.Preload("References").Where("domain_id = ?", domainID).Find(&definitions)
 	
-	return definitions, result.Error
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	
+	// Load prerequisites for each definition
+	var results []models.DefinitionWithPrerequisites
+	for _, def := range definitions {
+		prerequisiteCodes, err := d.getPrerequisiteCodes(def.ID, "definition")
+		if err != nil {
+			return nil, err
+		}
+		
+		results = append(results, models.DefinitionWithPrerequisites{
+			Definition:        def,
+			PrerequisiteCodes: prerequisiteCodes,
+		})
+	}
+	
+	return results, nil
 }
 
-// ConvertToResponse converts a Definition model to a DefinitionResponse
-func (d *DefinitionDAO) ConvertToResponse(definition *models.Definition) models.DefinitionResponse {
+// ConvertToResponse converts a DefinitionWithPrerequisites to a DefinitionResponse
+func (d *DefinitionDAO) ConvertToResponse(definition *models.DefinitionWithPrerequisites) models.DefinitionResponse {
 	// Extract reference strings
 	references := make([]string, 0, len(definition.References))
 	for _, ref := range definition.References {
 		references = append(references, ref.Reference)
-	}
-	
-	// Extract prerequisite codes
-	prerequisites := make([]string, 0, len(definition.Prerequisites))
-	for _, prereq := range definition.Prerequisites {
-		prerequisites = append(prerequisites, prereq.Code)
 	}
 	
 	return models.DefinitionResponse{
@@ -228,7 +279,7 @@ func (d *DefinitionDAO) ConvertToResponse(definition *models.Definition) models.
 		Description:   definition.Description,
 		Notes:         definition.Notes,
 		References:    references,
-		Prerequisites: prerequisites,
+		Prerequisites: definition.PrerequisiteCodes,
 		DomainID:      definition.DomainID,
 		OwnerID:       definition.OwnerID,
 		XPosition:     definition.XPosition,
@@ -236,6 +287,24 @@ func (d *DefinitionDAO) ConvertToResponse(definition *models.Definition) models.
 		CreatedAt:     definition.CreatedAt,
 		UpdatedAt:     definition.UpdatedAt,
 	}
+}
+
+// Helper function to get prerequisite codes for a node
+func (d *DefinitionDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string, error) {
+	query := `
+		SELECT d.code 
+		FROM node_prerequisites np
+		JOIN definitions d ON np.prerequisite_id = d.id 
+		WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
+		ORDER BY d.code
+	`
+	
+	var codes []string
+	if err := d.db.Raw(query, nodeID, nodeType).Scan(&codes).Error; err != nil {
+		return nil, err
+	}
+	
+	return codes, nil
 }
 
 // UpdatePositions updates the x,y positions of multiple definitions

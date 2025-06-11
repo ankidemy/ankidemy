@@ -1,4 +1,4 @@
-// client/src/lib/api.ts
+// client/src/lib/api.ts - UPDATED INTERFACES
 // Complete API client for Ankidemy with support for all backend features
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -36,6 +36,7 @@ export interface Domain {
   exercises?: Exercise[];
 }
 
+// FIXED: Added prerequisiteWeights to Definition interface
 export interface Definition {
   id: number;
   code: string;
@@ -50,8 +51,10 @@ export interface Definition {
   updatedAt: string;
   references?: string[];
   prerequisites?: string[];
+  prerequisiteWeights?: Record<string, number>; // ADDED: weights for each prerequisite
 }
 
+// FIXED: Added prerequisiteWeights to Exercise interface
 export interface Exercise {
   id: number;
   code: string;
@@ -69,8 +72,10 @@ export interface Exercise {
   createdAt: string;
   updatedAt: string;
   prerequisites?: string[];
+  prerequisiteWeights?: Record<string, number>; // ADDED: weights for each prerequisite
 }
 
+// Updated DefinitionRequest interface
 export interface DefinitionRequest {
   code: string;
   name: string;
@@ -78,11 +83,13 @@ export interface DefinitionRequest {
   notes?: string;
   references?: string[];
   prerequisiteIds?: number[];
+  prerequisiteWeights?: Record<number, number>; // NEW: weights for each prerequisite ID
   domainId: number;
   xPosition?: number;
   yPosition?: number;
 }
 
+// Updated ExerciseRequest interface  
 export interface ExerciseRequest {
   code: string;
   name: string;
@@ -94,6 +101,7 @@ export interface ExerciseRequest {
   result?: string;
   difficulty?: string;
   prerequisiteIds?: number[];
+  prerequisiteWeights?: Record<number, number>; // NEW: weights for each prerequisite ID
   xPosition?: number;
   yPosition?: number;
 }
@@ -134,6 +142,7 @@ export interface GraphData {
     notes?: string;
     references?: string[];
     prerequisites?: string[];
+    prerequisiteWeights?: Record<string, number>; // ADDED: weights
     xPosition?: number;
     yPosition?: number;
   }>;
@@ -147,6 +156,7 @@ export interface GraphData {
     result?: string;
     difficulty?: string;
     prerequisites?: string[];
+    prerequisiteWeights?: Record<string, number>; // ADDED: weights
     xPosition?: number;
     yPosition?: number;
   }>;
@@ -440,6 +450,7 @@ export const updateDefinition = async (id: number, definitionData: {
   notes?: string;
   references?: string[];
   prerequisiteIds?: number[];
+  prerequisiteWeights?: Record<number, number>; // NEW: include weights
   xPosition?: number;
   yPosition?: number;
 }): Promise<Definition> => {
@@ -558,6 +569,7 @@ export const updateExercise = async (id: number, exerciseData: {
   verifiable?: boolean;
   result?: string;
   prerequisiteIds?: number[];
+  prerequisiteWeights?: Record<number, number>; // NEW: include weights
   xPosition?: number;
   yPosition?: number;
 }): Promise<Exercise> => {

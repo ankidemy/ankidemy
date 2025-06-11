@@ -4,6 +4,10 @@
 
 This document provides comprehensive information about the backend API endpoints available for the front-end team to interact with. The API follows RESTful principles and uses JWT-based authentication.
 
+The system now includes two learning systems:
+1. **Legacy Progress System** - Simple progress tracking with Anki-style spaced repetition
+2. **Advanced SRS (Spaced Repetition System)** - Sophisticated learning system with credit propagation, status management, and optimized review scheduling
+
 ## Base URL
 
 All API routes are prefixed with `/api`.
@@ -872,9 +876,393 @@ Exercises represent practice problems related to definitions.
   - `400 Bad Request`: This exercise is not automatically verifiable
   - `404 Not Found`: Exercise not found
 
-## Progress Tracking Endpoints
+## Advanced SRS (Spaced Repetition System) Endpoints
+
+The SRS system provides sophisticated learning features including credit propagation, status management, and optimized review scheduling.
+
+### Node Statuses
+
+Nodes (definitions and exercises) can have the following statuses:
+- **fresh**: Never studied
+- **tackling**: Currently being learned
+- **grasped**: Understood and ready for spaced repetition
+- **learned**: Mastered (optional future status)
+
+### Submit Review
+
+- **URL**: `/srs/reviews`
+- **Method**: `POST`
+- **Auth Required**: Yes
+- **Description**: Submit an explicit review for a node (definition or exercise)
+- **Request Body**:
+  ```json
+  {
+    "nodeId": "number (required)",
+    "nodeType": "string (required, definition|exercise)",
+    "success": "boolean (required)",
+    "quality": "number (required, 0-5)",
+    "timeTaken": "number (optional, seconds)",
+    "sessionId": "number (optional)"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "success": "boolean",
+    "message": "string",
+    "updatedNodes": [
+      {
+        "id": "number",
+        "userId": "number",
+        "nodeId": "number",
+        "nodeType": "string",
+        "status": "string",
+        "easinessFactor": "number",
+        "intervalDays": "number",
+        "repetitions": "number",
+        "lastReview": "timestamp",
+        "nextReview": "timestamp",
+        "accumulatedCredit": "number",
+        "creditPostponed": "boolean",
+        "totalReviews": "number",
+        "successfulReviews": "number"
+      }
+    ],
+    "creditFlow": [
+      {
+        "nodeId": "number",
+        "nodeType": "string",
+        "credit": "number",
+        "type": "string (explicit|implicit)"
+      }
+    ]
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid node type or quality value
+  - `500 Internal Server Error`: Review processing failed
+
+### Get Due Reviews
+
+- **URL**: `/srs/domains/:domainId/due`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `domainId` - Domain ID
+- **Query Parameters**: `type` - Optional filter (definition|exercise|mixed, default: mixed)
+- **Description**: Get nodes that are due for review, optimally ordered
+- **Response**: `200 OK`
+  ```json
+  {
+    "dueNodes": [
+      {
+        "nodeId": "number",
+        "nodeType": "string",
+        "nodeCode": "string",
+        "nodeName": "string",
+        "status": "string",
+        "easinessFactor": "number",
+        "intervalDays": "number",
+        "repetitions": "number",
+        "lastReview": "timestamp",
+        "nextReview": "timestamp",
+        "accumulatedCredit": "number",
+        "creditPostponed": "boolean",
+        "totalReviews": "number",
+        "successfulReviews": "number",
+        "daysUntilReview": "number",
+        "isDue": "boolean"
+      }
+    ]
+  }
+  ```
+
+### Get Review History
+
+- **URL**: `/srs/reviews/history`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **Query Parameters**: 
+  - `nodeId` - Optional node ID filter
+  - `nodeType` - Optional node type filter
+  - `limit` - Optional limit (default: 100)
+- **Description**: Get review history for the user
+- **Response**: `200 OK`
+  ```json
+  {
+    "history": [
+      {
+        "id": "number",
+        "userId": "number",
+        "nodeId": "number",
+        "nodeType": "string",
+        "reviewTime": "timestamp",
+        "reviewType": "string",
+        "success": "boolean",
+        "quality": "number",
+        "timeTaken": "number",
+        "creditApplied": "number",
+        "easinessFactorBefore": "number",
+        "easinessFactorAfter": "number",
+        "intervalBefore": "number",
+        "intervalAfter": "number"
+      }
+    ]
+  }
+  ```
 
 ### Get Domain Progress
+
+- **URL**: `/srs/domains/:domainId/progress`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `domainId` - Domain ID
+- **Description**: Get progress for all nodes in a domain
+- **Response**: `200 OK`
+  ```json
+  {
+    "progress": [
+      {
+        "nodeId": "number",
+        "nodeType": "string",
+        "nodeCode": "string",
+        "nodeName": "string",
+        "status": "string",
+        "easinessFactor": "number",
+        "intervalDays": "number",
+        "repetitions": "number",
+        "lastReview": "timestamp",
+        "nextReview": "timestamp",
+        "accumulatedCredit": "number",
+        "creditPostponed": "boolean",
+        "totalReviews": "number",
+        "successfulReviews": "number",
+        "daysUntilReview": "number",
+        "isDue": "boolean"
+      }
+    ]
+  }
+  ```
+
+### Get Domain Statistics
+
+- **URL**: `/srs/domains/:domainId/stats`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `domainId` - Domain ID
+- **Description**: Get comprehensive statistics for a domain
+- **Response**: `200 OK`
+  ```json
+  {
+    "domainId": "number",
+    "totalNodes": "number",
+    "freshNodes": "number",
+    "tacklingNodes": "number",
+    "graspedNodes": "number",
+    "learnedNodes": "number",
+    "dueReviews": "number",
+    "completedToday": "number",
+    "successRate": "number"
+  }
+  ```
+
+### Update Node Status
+
+- **URL**: `/srs/nodes/status`
+- **Method**: `PUT`
+- **Auth Required**: Yes
+- **Description**: Update the status of a node (with automatic propagation)
+- **Request Body**:
+  ```json
+  {
+    "nodeId": "number (required)",
+    "nodeType": "string (required, definition|exercise)",
+    "status": "string (required, fresh|tackling|grasped|learned)"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "message": "Node status updated successfully"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid status or node type
+
+### SRS Study Sessions
+
+#### Start SRS Session
+
+- **URL**: `/srs/sessions`
+- **Method**: `POST`
+- **Auth Required**: Yes
+- **Description**: Start a new SRS study session
+- **Request Body**:
+  ```json
+  {
+    "domainId": "number (required)",
+    "sessionType": "string (required, definition|exercise|mixed)"
+  }
+  ```
+- **Response**: `201 Created`
+  ```json
+  {
+    "id": "number",
+    "domainId": "number",
+    "sessionType": "string",
+    "startTime": "timestamp",
+    "endTime": "timestamp (null)",
+    "totalReviews": "number",
+    "successfulReviews": "number",
+    "duration": "number (null)"
+  }
+  ```
+
+#### End SRS Session
+
+- **URL**: `/srs/sessions/:sessionId/end`
+- **Method**: `PUT`
+- **Auth Required**: Yes
+- **URL Parameters**: `sessionId` - Session ID
+- **Description**: End an active SRS study session
+- **Response**: `200 OK`
+  ```json
+  {
+    "message": "Session ended successfully"
+  }
+  ```
+
+#### Get User SRS Sessions
+
+- **URL**: `/srs/sessions`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **Query Parameters**: `limit` - Optional limit (default: 20)
+- **Description**: Get user's SRS study sessions
+- **Response**: `200 OK`
+  ```json
+  {
+    "sessions": [
+      {
+        "id": "number",
+        "domainId": "number",
+        "sessionType": "string",
+        "startTime": "timestamp",
+        "endTime": "timestamp",
+        "totalReviews": "number",
+        "successfulReviews": "number",
+        "duration": "number"
+      }
+    ]
+  }
+  ```
+
+### Prerequisites Management
+
+#### Create Prerequisite
+
+- **URL**: `/srs/prerequisites`
+- **Method**: `POST`
+- **Auth Required**: Yes
+- **Description**: Create a manual prerequisite relationship
+- **Request Body**:
+  ```json
+  {
+    "nodeId": "number (required)",
+    "nodeType": "string (required, definition|exercise)",
+    "prerequisiteId": "number (required)",
+    "prerequisiteType": "string (required, definition|exercise)",
+    "weight": "number (required, 0-1)",
+    "isManual": "boolean (required)"
+  }
+  ```
+- **Response**: `201 Created`
+  ```json
+  {
+    "id": "number",
+    "nodeId": "number",
+    "nodeType": "string",
+    "prerequisiteId": "number",
+    "prerequisiteType": "string",
+    "weight": "number",
+    "isManual": "boolean",
+    "createdAt": "timestamp"
+  }
+  ```
+
+#### Get Prerequisites
+
+- **URL**: `/srs/domains/:domainId/prerequisites`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `domainId` - Domain ID
+- **Description**: Get all prerequisites for a domain
+- **Response**: `200 OK`
+  ```json
+  {
+    "prerequisites": [
+      {
+        "id": "number",
+        "nodeId": "number",
+        "nodeType": "string",
+        "prerequisiteId": "number",
+        "prerequisiteType": "string",
+        "weight": "number",
+        "isManual": "boolean",
+        "createdAt": "timestamp"
+      }
+    ]
+  }
+  ```
+
+#### Delete Prerequisite
+
+- **URL**: `/srs/prerequisites/:prerequisiteId`
+- **Method**: `DELETE`
+- **Auth Required**: Yes
+- **URL Parameters**: `prerequisiteId` - Prerequisite ID
+- **Response**: `200 OK`
+  ```json
+  {
+    "message": "Prerequisite deleted successfully"
+  }
+  ```
+
+### Test/Debug Endpoints
+
+#### Test Credit Propagation
+
+- **URL**: `/srs/test/credit-propagation`
+- **Method**: `POST`
+- **Auth Required**: Yes
+- **Description**: Test credit propagation for a specific node (debugging)
+- **Request Body**:
+  ```json
+  {
+    "domainId": "number (required)",
+    "nodeId": "number (required)",
+    "nodeType": "string (required)",
+    "success": "boolean (required)"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "credits": [
+      {
+        "nodeId": "number",
+        "nodeType": "string",
+        "credit": "number",
+        "type": "string"
+      }
+    ]
+  }
+  ```
+
+## Legacy Progress Tracking Endpoints
+
+The legacy system provides simpler progress tracking with basic spaced repetition.
+
+### Get Domain Progress (Legacy)
 
 - **URL**: `/progress/domains`
 - **Method**: `GET`
@@ -892,7 +1280,7 @@ Exercises represent practice problems related to definitions.
   ]
   ```
 
-### Get Definition Progress
+### Get Definition Progress (Legacy)
 
 - **URL**: `/progress/domains/:domainId/definitions`
 - **Method**: `GET`
@@ -916,10 +1304,8 @@ Exercises represent practice problems related to definitions.
     }
   ]
   ```
-- **Error Responses**:
-  - `404 Not Found`: Domain not found
 
-### Get Exercise Progress
+### Get Exercise Progress (Legacy)
 
 - **URL**: `/progress/domains/:domainId/exercises`
 - **Method**: `GET`
@@ -941,10 +1327,8 @@ Exercises represent practice problems related to definitions.
     }
   ]
   ```
-- **Error Responses**:
-  - `404 Not Found`: Domain not found
 
-### Submit Definition Review
+### Submit Definition Review (Legacy)
 
 - **URL**: `/progress/definitions/:id/review`
 - **Method**: `POST`
@@ -963,11 +1347,8 @@ Exercises represent practice problems related to definitions.
     "message": "Review recorded successfully"
   }
   ```
-- **Error Responses**:
-  - `400 Bad Request`: Invalid review result
-  - `404 Not Found`: Definition not found
 
-### Submit Exercise Attempt
+### Submit Exercise Attempt (Legacy)
 
 - **URL**: `/progress/exercises/:id/attempt`
 - **Method**: `POST`
@@ -987,10 +1368,8 @@ Exercises represent practice problems related to definitions.
     "message": "string"
   }
   ```
-- **Error Responses**:
-  - `404 Not Found`: Exercise not found
 
-### Get Definitions for Review
+### Get Definitions for Review (Legacy)
 
 - **URL**: `/progress/domains/:domainId/review`
 - **Method**: `GET`
@@ -1005,12 +1384,10 @@ Exercises represent practice problems related to definitions.
     }
   ]
   ```
-- **Error Responses**:
-  - `404 Not Found`: Domain not found
 
-## Study Session Endpoints
+## Legacy Study Session Endpoints
 
-### Start Session
+### Start Session (Legacy)
 
 - **URL**: `/sessions/start`
 - **Method**: `POST`
@@ -1031,10 +1408,8 @@ Exercises represent practice problems related to definitions.
     "endTime": "timestamp (null)"
   }
   ```
-- **Error Responses**:
-  - `404 Not Found`: Domain not found
 
-### End Session
+### End Session (Legacy)
 
 - **URL**: `/sessions/:id/end`
 - **Method**: `PUT`
@@ -1046,11 +1421,8 @@ Exercises represent practice problems related to definitions.
     "message": "Session ended successfully"
   }
   ```
-- **Error Responses**:
-  - `403 Forbidden`: Not authorized to end this session
-  - `404 Not Found`: Session not found
 
-### Get Sessions
+### Get Sessions (Legacy)
 
 - **URL**: `/sessions`
 - **Method**: `GET`
@@ -1068,7 +1440,7 @@ Exercises represent practice problems related to definitions.
   ]
   ```
 
-### Get Session Details
+### Get Session Details (Legacy)
 
 - **URL**: `/sessions/:id`
 - **Method**: `GET`
@@ -1109,9 +1481,6 @@ Exercises represent practice problems related to definitions.
     ]
   }
   ```
-- **Error Responses**:
-  - `403 Forbidden`: Not authorized to access this session
-  - `404 Not Found`: Session not found
 
 ## Knowledge Graph Endpoints
 
@@ -1143,9 +1512,6 @@ Exercises represent practice problems related to definitions.
     ]
   }
   ```
-- **Error Responses**:
-  - `403 Forbidden`: Not authorized to access this domain
-  - `404 Not Found`: Domain not found
 
 ### Update Graph Positions
 
@@ -1157,8 +1523,7 @@ Exercises represent practice problems related to definitions.
   ```json
   {
     "nodeId1": {"x": "number", "y": "number"},
-    "nodeId2": {"x": "number", "y": "number"},
-    /* ... */
+    "nodeId2": {"x": "number", "y": "number"}
   }
   ```
 - **Response**: `200 OK`
@@ -1167,9 +1532,6 @@ Exercises represent practice problems related to definitions.
     "message": "Positions updated successfully"
   }
   ```
-- **Error Responses**:
-  - `403 Forbidden`: Not authorized to update this domain
-  - `404 Not Found`: Domain not found
 
 ### Export Domain
 
@@ -1190,8 +1552,7 @@ Exercises represent practice problems related to definitions.
         "prerequisites": ["string"],
         "xPosition": "number",
         "yPosition": "number"
-      },
-      /* ... */
+      }
     },
     "exercises": {
       "exerciseId1": {
@@ -1206,14 +1567,10 @@ Exercises represent practice problems related to definitions.
         "prerequisites": ["string"],
         "xPosition": "number",
         "yPosition": "number"
-      },
-      /* ... */
+      }
     }
   }
   ```
-- **Error Responses**:
-  - `403 Forbidden`: Not authorized to access this domain
-  - `404 Not Found`: Domain not found
 
 ### Import Domain
 
@@ -1238,10 +1595,6 @@ Exercises represent practice problems related to definitions.
     "message": "Domain imported successfully"
   }
   ```
-- **Error Responses**:
-  - `400 Bad Request`: Invalid import data
-  - `403 Forbidden`: Not authorized to update this domain
-  - `404 Not Found`: Domain not found
 
 ## Error Responses
 
@@ -1254,22 +1607,50 @@ All API endpoints follow a consistent error response format:
 ```
 
 Common HTTP status codes:
-- `400 Bad Request`: Invalid request data
-- `401 Unauthorized`: Missing or invalid authentication
-- `403 Forbidden`: Authenticated but not authorized for the requested resource
-- `404 Not Found`: Requested resource does not exist
-- `409 Conflict`: Resource already exists (e.g., email or username)
-- `500 Internal Server Error`: Server-side error
+- `200`: Success
+- `201`: Created
+- `400`: Bad Request - Invalid request data
+- `401`: Unauthorized - Missing or invalid authentication
+- `403`: Forbidden - Authenticated but not authorized for the requested resource
+- `404`: Not Found - Requested resource does not exist
+- `409`: Conflict - Resource already exists (e.g., email or username)
+- `500`: Internal Server Error - Server-side error
 
 ## API Usage Best Practices
 
 1. **Authentication**: Store the JWT token securely and include it in all authenticated requests.
 2. **Error Handling**: Always handle error responses appropriately in the UI.
-3. **Optimistic Updates**: Consider implementing optimistic updates for a better user experience.
-4. **Caching**: Cache frequently accessed data like domain lists and user information.
-5. **Pagination**: For endpoints that might return large lists, use the provided pagination parameters.
-6. **Data Validation**: Validate form inputs client-side before sending to the API.
+3. **Learning Systems**: Choose between legacy progress system and advanced SRS based on your needs:
+   - Use SRS endpoints (`/api/srs/*`) for advanced learning features
+   - Use legacy endpoints (`/api/progress/*`, `/api/sessions/*`) for simple progress tracking
+4. **Prerequisites**: Use the new node_prerequisites system for better prerequisite management
+5. **Credit Propagation**: When a user reviews a node, the SRS system automatically propagates credits to related nodes
+6. **Status Management**: Nodes progress through statuses: fresh → tackling → grasped → learned
+7. **Optimistic Updates**: Consider implementing optimistic updates for a better user experience
+8. **Caching**: Cache frequently accessed data like domain lists and user information
+9. **Data Validation**: Validate form inputs client-side before sending to the API
 
-## WebSocket Support
+## SRS System Concepts
 
-The API does not currently include WebSocket endpoints, but future versions may include real-time features for collaborative learning experiences.
+### Credit Propagation
+When a user successfully reviews a node, positive credits flow to prerequisite nodes. Failed reviews send negative credits to dependent nodes. Credits accumulate and can:
+- Postpone reviews when reaching +100% credit
+- Anticipate reviews when reaching -100% credit
+
+### Node Statuses
+- **Fresh**: Never studied, default state
+- **Tackling**: Currently learning, user is working on understanding
+- **Grasped**: Understood and entered into spaced repetition cycle
+- **Learned**: Mastered (optional status for completed learning)
+
+### Quality Ratings (0-5)
+- 0: Complete failure
+- 1: Incorrect with serious difficulty
+- 2: Incorrect but familiar
+- 3: Correct with serious difficulty
+- 4: Correct after hesitation
+- 5: Perfect recall
+
+### Review Types
+- **Explicit**: Direct user review with quality rating
+- **Implicit**: Automatic reviews through credit propagation

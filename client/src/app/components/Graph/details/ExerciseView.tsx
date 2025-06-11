@@ -1,3 +1,4 @@
+// File: ./src/app/components/Graph/details/ExerciseView.tsx
 "use client";
 
 import React from 'react';
@@ -16,9 +17,13 @@ interface ExerciseViewProps {
   onUpdateAnswer: (answer: string) => void;
   answerFeedback: AnswerFeedback | null;
   onVerifyAnswer: () => void;
+  onRateExercise: (qualityInput: 'again' | 'hard' | 'good' | 'easy') => void; // For submitting review
+  exerciseAttemptCompleted: boolean; // To show rating buttons
   onNavigateToNode: (nodeId: string) => void;
   personalNotes: string;
   onUpdateNotes: (notes: string) => void;
+  // FIX: Add available definitions to look up prerequisite names
+  availableDefinitions?: { code: string; name: string }[];
 }
 
 const ExerciseView: React.FC<ExerciseViewProps> = ({
@@ -31,10 +36,30 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   onUpdateAnswer,
   answerFeedback,
   onVerifyAnswer,
+  onRateExercise,
+  exerciseAttemptCompleted,
   onNavigateToNode,
   personalNotes,
-  onUpdateNotes
+  onUpdateNotes,
+  availableDefinitions = [], // FIX: Default to empty array
 }) => {
+  const qualityRatingButtons = [
+    { label: "Again", value: 'again', color: 'bg-red-50 hover:bg-red-100 border-red-200 text-red-700' },
+    { label: "Hard", value: 'hard', color: 'bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700' },
+    { label: "Good", value: 'good', color: 'bg-green-50 hover:bg-green-100 border-green-200 text-green-700' },
+    { label: "Easy", value: 'easy', color: 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700' },
+  ] as const;
+
+  // FIX: Helper function to get display text for prerequisites
+  const getPrerequisiteDisplayText = (prereqCode: string): string => {
+    const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
+    if (prereqDef) {
+      return `${prereqCode}: ${prereqDef.name}`;
+    }
+    // Fallback to just the code if name not found
+    return prereqCode;
+  };
+
   return (
     <>
       <div>
@@ -52,12 +77,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         <div>
           <div className="flex justify-between items-center mb-1">
             <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Hints</h4>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggleHints}
-              className="h-6 text-xs px-1"
-            >
+            <Button variant="ghost" size="sm" onClick={onToggleHints} className="h-6 text-xs px-1">
               {showHints ? 'Hide' : 'Show'}
             </Button>
           </div>
@@ -72,37 +92,15 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       )}
 
       <div>
-        <div className="flex justify-between items-center mb-1">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Solution</h4>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggleSolution}
-            className="h-6 text-xs px-1"
-          >
-            {showSolution ? 'Hide' : 'Show'}
-          </Button>
-        </div>
-        {showSolution && (
-          <Card className="bg-green-50 border border-green-200 shadow-sm">
-            <CardContent className="p-3 text-sm">
-              <MathJaxContent>
-                {exercise.description || <span className="text-gray-400 italic">N/A</span>}
-              </MathJaxContent>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      <div>
         <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Your Answer</h4>
         <textarea
           className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
           placeholder="Enter your answer..."
           value={userAnswer}
           onChange={(e) => onUpdateAnswer(e.target.value)}
+          disabled={exerciseAttemptCompleted && !showSolution} // Disable if attempt done but solution not yet shown for rating
         />
-        {exercise.verifiable && (
+        {exercise.verifiable && !exerciseAttemptCompleted && (
           <div className="mt-1.5 flex justify-end">
             <Button size="sm" onClick={onVerifyAnswer} className="h-7 text-xs">
               Verify Answer
@@ -119,18 +117,57 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       </div>
 
       <div>
-        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Related Concepts</h4>
-        {exercise.prerequisites?.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {exercise.prerequisites.map(id => (
+        <div className="flex justify-between items-center mb-1">
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Solution</h4>
+          <Button variant="ghost" size="sm" onClick={onToggleSolution} className="h-6 text-xs px-1">
+            {showSolution ? 'Hide' : 'Show'}
+          </Button>
+        </div>
+        {showSolution && (
+          <Card className="bg-green-50 border border-green-200 shadow-sm">
+            <CardContent className="p-3 text-sm">
+              <MathJaxContent>
+                {exercise.description || <span className="text-gray-400 italic">N/A</span>}
+              </MathJaxContent>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+      
+      {(exerciseAttemptCompleted || showSolution) && (
+        <div className="mt-3">
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Rate Your Understanding</h4>
+          <div className="grid grid-cols-2 gap-1.5">
+            {qualityRatingButtons.map(btn => (
               <Button
-                key={id}
+                key={btn.value}
                 variant="outline"
                 size="sm"
-                onClick={() => onNavigateToNode(id)}
-                className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
+                className={`h-7 px-2 text-xs ${btn.color}`}
+                onClick={() => onRateExercise(btn.value)}
               >
-                {id}
+                {btn.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1 mt-3">Related Concepts</h4>
+        {exercise.prerequisites?.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {exercise.prerequisites.map(prereqCode => (
+              <Button
+                key={prereqCode}
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigateToNode(prereqCode)}
+                className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
+                title={`Navigate to ${prereqCode}`} // FIX: Add tooltip with code
+              >
+                {/* FIX: Display CODE:NAME format */}
+                {getPrerequisiteDisplayText(prereqCode)}
               </Button>
             ))}
           </div>
@@ -139,15 +176,13 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         )}
       </div>
 
-      {/* Personal Notes */}
-      <div>
+      <div className="mt-3">
         <div className="flex justify-between items-center mb-1">
           <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Personal Notes (Saved Locally)</h4>
-          <div className="text-xs text-gray-500 italic">Auto-saving</div>
         </div>
         <textarea
           className="w-full border border-gray-300 rounded p-2 h-20 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-          placeholder="Add your personal notes here. These are stored in your browser only."
+          placeholder="Add your personal notes here..."
           value={personalNotes}
           onChange={(e) => onUpdateNotes(e.target.value)}
         />

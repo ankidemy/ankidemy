@@ -1,14 +1,24 @@
+// File: ./src/app/components/Graph/details/NodeEditForm.tsx
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { Definition, Exercise, GraphNode } from '../utils/types';
 
+interface AvailableDefinitionOption {
+  code: string;
+  name: string;
+  numericId: number;
+}
+
 interface NodeEditFormProps {
   selectedNode: GraphNode;
-  selectedNodeDetails: Definition | Exercise | null;
-  availableDefinitions: GraphNode[];
+  selectedNodeDetails: (Definition | Exercise | null) & { 
+    prerequisites?: string[];
+    prerequisiteWeights?: Record<string, number>;
+  };
+  availableDefinitionsForEdit: AvailableDefinitionOption[];
   hasMultipleDescriptions: boolean;
   currentDescription: string;
   totalDescriptions: number;
@@ -20,7 +30,7 @@ interface NodeEditFormProps {
 const NodeEditForm: React.FC<NodeEditFormProps> = ({
   selectedNode,
   selectedNodeDetails,
-  availableDefinitions,
+  availableDefinitionsForEdit,
   hasMultipleDescriptions,
   currentDescription,
   totalDescriptions,
@@ -28,23 +38,67 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
   onCancel,
   onSubmit
 }) => {
+  const [prerequisiteWeights, setPrerequisiteWeights] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    if (selectedNodeDetails?.prerequisites) {
+      const weights: Record<number, number> = {};
+      selectedNodeDetails.prerequisites.forEach(prereqCode => {
+        const foundDef = availableDefinitionsForEdit.find(def => def.code === prereqCode);
+        if (foundDef) {
+          weights[foundDef.numericId] = selectedNodeDetails.prerequisiteWeights?.[prereqCode] || 1.0;
+        }
+      });
+      setPrerequisiteWeights(weights);
+    } else {
+      setPrerequisiteWeights({});
+    }
+  }, [selectedNodeDetails, availableDefinitionsForEdit]);
+
+  const handlePrereqSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedOptions = Array.from(e.target.selectedOptions);
+    const newWeights: Record<number, number> = {};
+    
+    selectedOptions.forEach(option => {
+      const numericId = parseInt(option.value, 10);
+      if (!isNaN(numericId)) {
+        newWeights[numericId] = prerequisiteWeights[numericId] || 1.0;
+      }
+    });
+    
+    setPrerequisiteWeights(newWeights);
+  };
+
+  const handleWeightChange = (prereqId: number, weight: string) => {
+    const numWeight = parseFloat(weight);
+    const clampedWeight = isNaN(numWeight) ? 1.0 : Math.max(0.01, Math.min(1.0, numWeight));
+    setPrerequisiteWeights(prev => ({
+      ...prev,
+      [prereqId]: clampedWeight
+    }));
+  };
+
+  const getSelectedPrereqIds = (): number[] => {
+    return Object.keys(prerequisiteWeights).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+  };
+
   if (!selectedNodeDetails) return null;
 
   const isDefinition = selectedNode.type === 'definition';
-  
+  const selectedPrereqIds = getSelectedPrereqIds();
+
   return (
     <div className="space-y-4 text-sm">
-      {/* Common Fields */}
       <div>
-        <label className="block text-xs font-medium mb-1 text-gray-600">ID</label>
+        <label className="block text-xs font-medium mb-1 text-gray-600">Code (ID)</label>
         <Input value={selectedNode.id} disabled className="h-8 text-sm bg-gray-100"/>
       </div>
+      
       <div>
         <label htmlFor="name" className="block text-xs font-medium mb-1 text-gray-600">Name</label>
         <Input id="name" defaultValue={selectedNode.name} className="h-8 text-sm"/>
       </div>
 
-      {/* Type-Specific Fields */}
       {isDefinition ? (
         <>
           <div>
@@ -62,6 +116,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Enter definition..."
             />
           </div>
+          
           <div>
             <label htmlFor="notes" className="block text-xs font-medium mb-1 text-gray-600">Notes</label>
             <textarea
@@ -72,6 +127,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Additional notes..."
             />
           </div>
+          
           <div>
             <label htmlFor="references" className="block text-xs font-medium mb-1 text-gray-600">References (one per line)</label>
             <textarea
@@ -95,6 +151,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Exercise statement..."
             />
           </div>
+          
           <div>
             <label htmlFor="description" className="block text-xs font-medium mb-1 text-gray-600">Solution</label>
             <textarea
@@ -105,6 +162,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Solution details..."
             />
           </div>
+          
           <div>
             <label htmlFor="hints" className="block text-xs font-medium mb-1 text-gray-600">Hints</label>
             <textarea
@@ -115,6 +173,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Hints..."
             />
           </div>
+          
           <div className="flex space-x-4 items-end">
             <div>
               <label htmlFor="difficulty" className="block text-xs font-medium mb-1 text-gray-600">Difficulty (1-7)</label>
@@ -137,6 +196,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               <label htmlFor="verifiable" className="text-xs font-medium text-gray-600">Verifiable?</label>
             </div>
           </div>
+          
           <div>
             <label htmlFor="result" className="block text-xs font-medium mb-1 text-gray-600">Expected Result (if verifiable)</label>
             <Input
@@ -149,30 +209,85 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
         </>
       )}
 
-      {/* Prerequisites Select (Common) */}
       <div>
         <label htmlFor="prerequisites" className="block text-xs font-medium mb-1 text-gray-600">Prerequisites (Definitions)</label>
         <select
           id="prerequisites"
           multiple
           className="w-full border border-gray-300 rounded p-2 h-24 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-          defaultValue={selectedNodeDetails?.prerequisites || []}
+          value={selectedPrereqIds.map(String)}
+          onChange={handlePrereqSelectionChange}
         >
-          {availableDefinitions
-            .filter(n => n.id !== selectedNode.id)
-            .sort((a,b) => a.id.localeCompare(b.id))
-            .map(node => (
-              <option key={node.id} value={node.id}>{node.id}: {node.name}</option>
+          {availableDefinitionsForEdit
+            .filter(def => def.code !== selectedNode.id)
+            .sort((a,b) => a.code.localeCompare(b.code))
+            .map(def => (
+              <option key={def.numericId} value={String(def.numericId)}>
+                {def.code}: {def.name}
+              </option>
             ))
           }
         </select>
         <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+
+        {selectedPrereqIds.length > 0 && (
+          <div className="mt-3 p-3 border rounded-md bg-gray-50">
+            <h4 className="text-xs font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
+            <div className="space-y-2 max-h-32 overflow-y-auto">
+              {selectedPrereqIds
+                .map(prereqId => availableDefinitionsForEdit.find(p => p.numericId === prereqId))
+                .filter(Boolean)
+                .sort((a, b) => (a?.code || '').localeCompare(b?.code || ''))
+                .map(prereq => {
+                  if (!prereq) return null;
+                  
+                  return (
+                    <div key={prereq.numericId} className="flex items-center justify-between text-xs">
+                      <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
+                        {prereq.code}
+                      </span>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        max="1.00"
+                        step="0.01"
+                        value={prerequisiteWeights[prereq.numericId] || 1.0}
+                        onChange={(e) => handleWeightChange(prereq.numericId, e.target.value)}
+                        className="w-16 px-1 py-0.5 border border-gray-300 rounded text-xs h-6"
+                        title="Weight for credit propagation (1.0 = full, 0.01 = minimal)"
+                      />
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              1.0 = Full prerequisite (solid line), &lt; 1.0 = Partial prerequisite (dotted line)
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Save/Cancel Buttons */}
       <div className="flex justify-end space-x-2 pt-2 border-t mt-4">
         <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" onClick={onSubmit}>
+        <Button 
+          size="sm" 
+          onClick={() => {
+            const form = document.querySelector('form') as HTMLFormElement;
+            if (form) {
+              const existingWeightsInput = form.querySelector('input[name="prerequisiteWeights"]');
+              if (existingWeightsInput) {
+                existingWeightsInput.remove();
+              }
+
+              const weightsInput = document.createElement('input');
+              weightsInput.type = 'hidden';
+              weightsInput.name = 'prerequisiteWeights';
+              weightsInput.value = JSON.stringify(prerequisiteWeights);
+              form.appendChild(weightsInput);
+            }
+            onSubmit();
+          }}
+        >
           Save Changes
         </Button>
       </div>

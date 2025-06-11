@@ -21,6 +21,8 @@ interface DefinitionViewProps {
   personalNotes: string;
   onUpdateNotes: (notes: string) => void;
   onReview: (result: 'again' | 'hard' | 'good' | 'easy') => void;
+  // FIX: Add available definitions to look up prerequisite names
+  availableDefinitions?: { code: string; name: string }[];
 }
 
 const DefinitionView: React.FC<DefinitionViewProps> = ({
@@ -37,9 +39,26 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   onNavigateToNode,
   personalNotes,
   onUpdateNotes,
-  onReview
+  onReview,
+  availableDefinitions = [], // FIX: Default to empty array
 }) => {
   const hasMultipleDescriptions = totalDescriptions > 1;
+
+  // FIX: Helper function to get display text for prerequisites
+  const getPrerequisiteDisplayText = (prereqCode: string): string => {
+    console.log(`Looking up prerequisite: ${prereqCode}`);
+    console.log('Available definitions:', availableDefinitions);
+    
+    const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
+    if (prereqDef) {
+      const displayText = `${prereqCode}: ${prereqDef.name}`;
+      console.log(`Found prerequisite: ${displayText}`);
+      return displayText;
+    }
+    // Fallback to just the code if name not found
+    console.log(`Prerequisite not found, using fallback: ${prereqCode}`);
+    return prereqCode;
+  };
 
   return (
     <>
@@ -104,15 +123,17 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
         <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Prerequisites</h4>
         {definition.prerequisites?.length > 0 ? (
           <div className="flex flex-wrap gap-1">
-            {definition.prerequisites.map(id => (
+            {definition.prerequisites.map(prereqCode => (
               <Button
-                key={id}
+                key={prereqCode}
                 variant="outline"
                 size="sm"
-                onClick={() => onNavigateToNode(id)}
+                onClick={() => onNavigateToNode(prereqCode)}
                 className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
+                title={`Navigate to ${prereqCode}`} // FIX: Add tooltip with code
               >
-                {id}
+                {/* FIX: Display CODE:NAME format */}
+                {getPrerequisiteDisplayText(prereqCode)}
               </Button>
             ))}
           </div>
@@ -125,15 +146,16 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
         <div>
           <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Related Exercises</h4>
           <div className="flex flex-wrap gap-1">
-            {relatedExercises.map(id => (
+            {relatedExercises.map(exerciseCode => (
               <Button
-                key={id}
+                key={exerciseCode}
                 variant="outline"
                 size="sm"
-                onClick={() => onNavigateToNode(id)}
+                onClick={() => onNavigateToNode(exerciseCode)}
                 className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
+                title={`Navigate to ${exerciseCode}`} // FIX: Add tooltip
               >
-                {id}
+                {exerciseCode}
               </Button>
             ))}
           </div>

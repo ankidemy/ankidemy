@@ -1,3 +1,5 @@
+// dao/graph_dao.go - Complete updated version with all type definitions
+
 package dao
 
 import (
@@ -47,29 +49,173 @@ type ExerciseNode struct {
 	Hints         string   `json:"hints,omitempty"`
 	Verifiable    bool     `json:"verifiable,omitempty"`
 	Result        string   `json:"result,omitempty"`
-	Difficulty    int      `json:"difficulty,omitempty"` // Changed from string to int
+	Difficulty    int      `json:"difficulty,omitempty"`
 	Prerequisites []string `json:"prerequisites,omitempty"`
 	XPosition     float64  `json:"xPosition,omitempty"`
 	YPosition     float64  `json:"yPosition,omitempty"`
 }
 
-// ExportDomain exports a domain to the graph format
-func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
+// VisualNode represents a node in the visual graph
+type VisualNode struct {
+	ID            string   `json:"id"`
+	Type          string   `json:"type"` // "definition" or "exercise"
+	Name          string   `json:"name"`
+	Code          string   `json:"code"`
+	X             float64  `json:"x,omitempty"`
+	Y             float64  `json:"y,omitempty"`
+	Prerequisites []string `json:"prerequisites,omitempty"`
+}
+
+// VisualGraph represents the graph structure for visualization
+type VisualGraph struct {
+	Nodes []VisualNode `json:"nodes"`
+	Links []struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+	} `json:"links"`
+}
+
+// GetVisualGraph returns the domain as a visual graph structure
+func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 	// Load domain with all definitions and exercises
-	var domain models.Domain
-	result := d.db.
-		Preload("Definitions").
-		Preload("Definitions.References").
-		Preload("Definitions.Prerequisites").
-		Preload("Exercises").
-		Preload("Exercises.Prerequisites").
-		First(&domain, domainID)
+	var definitions []models.Definition
+	var exercises []models.Exercise
 	
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	// Get definitions
+	if err := d.db.Where("domain_id = ?", domainID).Find(&definitions).Error; err != nil {
+		return nil, err
+	}
+	
+	// Get exercises
+	if err := d.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
+		return nil, err
+	}
+	
+	// Check domain exists
+	if len(definitions) == 0 && len(exercises) == 0 {
+		var count int64
+		d.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
+		if count == 0 {
 			return nil, errors.New("domain not found")
 		}
-		return nil, result.Error
+	}
+	
+	graph := &VisualGraph{
+		Nodes: make([]VisualNode, 0),
+		Links: make([]struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+		}, 0),
+	}
+	
+	// Add definitions to nodes with their prerequisites
+	for _, def := range definitions {
+		nodeID := fmt.Sprintf("def_%d", def.ID)
+		
+		// Get prerequisite codes for this definition
+		prereqCodes, err := d.getPrerequisiteCodes(def.ID, "definition")
+		if err != nil {
+			return nil, err
+		}
+		
+		// Add node
+		graph.Nodes = append(graph.Nodes, VisualNode{
+			ID:            nodeID,
+			Type:          "definition",
+			Name:          def.Name,
+			Code:          def.Code,
+			X:             def.XPosition,
+			Y:             def.YPosition,
+			Prerequisites: prereqCodes,
+		})
+	}
+	
+	// Add exercises to nodes with their prerequisites
+	for _, ex := range exercises {
+		nodeID := fmt.Sprintf("ex_%d", ex.ID)
+		
+		// Get prerequisite codes for this exercise
+		prereqCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
+		if err != nil {
+			return nil, err
+		}
+		
+		// Add node
+		graph.Nodes = append(graph.Nodes, VisualNode{
+			ID:            nodeID,
+			Type:          "exercise",
+			Name:          ex.Name,
+			Code:          ex.Code,
+			X:             ex.XPosition,
+			Y:             ex.YPosition,
+			Prerequisites: prereqCodes,
+		})
+	}
+	
+	// Build links from node_prerequisites table
+	var prerequisites []models.NodePrerequisite
+	query := `
+		SELECT np.* FROM node_prerequisites np
+		WHERE (
+			(np.node_type = 'definition' AND np.node_id IN (SELECT id FROM definitions WHERE domain_id = ?))
+			OR 
+			(np.node_type = 'exercise' AND np.node_id IN (SELECT id FROM exercises WHERE domain_id = ?))
+		)
+	`
+	
+	if err := d.db.Raw(query, domainID, domainID).Scan(&prerequisites).Error; err != nil {
+		return nil, err
+	}
+	
+	// Create links from prerequisites
+	for _, prereq := range prerequisites {
+		var sourceID, targetID string
+		
+		if prereq.PrerequisiteType == "definition" {
+			sourceID = fmt.Sprintf("def_%d", prereq.PrerequisiteID)
+		} else {
+			sourceID = fmt.Sprintf("ex_%d", prereq.PrerequisiteID)
+		}
+		
+		if prereq.NodeType == "definition" {
+			targetID = fmt.Sprintf("def_%d", prereq.NodeID)
+		} else {
+			targetID = fmt.Sprintf("ex_%d", prereq.NodeID)
+		}
+		
+		graph.Links = append(graph.Links, struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+		}{
+			Source: sourceID,
+			Target: targetID,
+		})
+	}
+	
+	return graph, nil
+}
+
+// ExportDomain exports a domain to the graph format
+func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
+	// Get definitions with prerequisites
+	var definitions []models.Definition
+	if err := d.db.Preload("References").Where("domain_id = ?", domainID).Find(&definitions).Error; err != nil {
+		return nil, err
+	}
+	
+	// Get exercises
+	var exercises []models.Exercise
+	if err := d.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
+		return nil, err
+	}
+	
+	// Check domain exists
+	if len(definitions) == 0 && len(exercises) == 0 {
+		var count int64
+		d.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
+		if count == 0 {
+			return nil, errors.New("domain not found")
+		}
 	}
 	
 	// Prepare graph data
@@ -78,18 +224,18 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		Exercises:   make(map[string]ExerciseNode),
 	}
 	
-	// Add definitions - use ID as key in the map since code is no longer unique
-	for _, def := range domain.Definitions {
+	// Add definitions
+	for _, def := range definitions {
 		// Extract references
 		references := make([]string, 0, len(def.References))
 		for _, ref := range def.References {
 			references = append(references, ref.Reference)
 		}
 		
-		// Extract prerequisites
-		prerequisites := make([]string, 0, len(def.Prerequisites))
-		for _, prereq := range def.Prerequisites {
-			prerequisites = append(prerequisites, prereq.Code)
+		// Get prerequisite codes
+		prerequisiteCodes, err := d.getPrerequisiteCodes(def.ID, "definition")
+		if err != nil {
+			return nil, err
 		}
 		
 		// Add to graph data using ID string as key
@@ -99,18 +245,18 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			Description:   def.Description,
 			Notes:         def.Notes,
 			References:    references,
-			Prerequisites: prerequisites,
+			Prerequisites: prerequisiteCodes,
 			XPosition:     def.XPosition,
 			YPosition:     def.YPosition,
 		}
 	}
 	
-	// Add exercises - use ID as key in the map since code is no longer unique
-	for _, ex := range domain.Exercises {
-		// Extract prerequisites
-		prerequisites := make([]string, 0, len(ex.Prerequisites))
-		for _, prereq := range ex.Prerequisites {
-			prerequisites = append(prerequisites, prereq.Code)
+	// Add exercises
+	for _, ex := range exercises {
+		// Get prerequisite codes
+		prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
+		if err != nil {
+			return nil, err
 		}
 		
 		// Add to graph data using ID string as key
@@ -123,7 +269,7 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			Verifiable:    ex.Verifiable,
 			Result:        ex.Result,
 			Difficulty:    ex.Difficulty,
-			Prerequisites: prerequisites,
+			Prerequisites: prerequisiteCodes,
 			XPosition:     ex.XPosition,
 			YPosition:     ex.YPosition,
 		}
@@ -137,7 +283,25 @@ func idToString(id uint) string {
 	return strconv.FormatUint(uint64(id), 10)
 }
 
-// ImportDomain imports a domain from the graph format
+// Helper function to get prerequisite codes for a node
+func (d *GraphDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string, error) {
+	query := `
+		SELECT d.code 
+		FROM node_prerequisites np
+		JOIN definitions d ON np.prerequisite_id = d.id 
+		WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
+		ORDER BY d.code
+	`
+	
+	var codes []string
+	if err := d.db.Raw(query, nodeID, nodeType).Scan(&codes).Error; err != nil {
+		return nil, err
+	}
+	
+	return codes, nil
+}
+
+// ImportDomain imports a domain from the graph format using clean DAOs
 func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Verify domain exists
@@ -147,15 +311,28 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		}
 		
 		// Clear existing data for this domain
-		// First delete exercises
+		// Delete prerequisites first
+		if err := tx.Exec(`
+			DELETE FROM node_prerequisites 
+			WHERE (node_type = 'definition' AND node_id IN (SELECT id FROM definitions WHERE domain_id = ?))
+			   OR (node_type = 'exercise' AND node_id IN (SELECT id FROM exercises WHERE domain_id = ?))
+		`, domainID, domainID).Error; err != nil {
+			return err
+		}
+		
+		// Delete exercises
 		if err := tx.Where("domain_id = ?", domainID).Delete(&models.Exercise{}).Error; err != nil {
 			return err
 		}
 		
-		// Then delete definitions
+		// Delete definitions (this will cascade delete references)
 		if err := tx.Where("domain_id = ?", domainID).Delete(&models.Definition{}).Error; err != nil {
 			return err
 		}
+		
+		// Create DAOs for the transaction
+		definitionDAO := NewDefinitionDAO(tx)
+		exerciseDAO := NewExerciseDAO(tx)
 		
 		// Create definitions first
 		definitions := make(map[string]*models.Definition)
@@ -171,44 +348,35 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				YPosition:   defNode.YPosition,
 			}
 			
-			if err := tx.Create(def).Error; err != nil {
+			if err := definitionDAO.Create(def, defNode.References, nil); err != nil {
 				return err
 			}
 			
-			// Store for later use - use nodeID from import as the key
 			definitions[nodeID] = def
-			
-			// Add references
-			for _, refText := range defNode.References {
-				ref := models.Reference{
-					DefinitionID: def.ID,
-					Reference:    refText,
-				}
-				if err := tx.Create(&ref).Error; err != nil {
-					return err
-				}
-			}
 		}
 		
 		// Create a code-to-definition map for looking up prerequisites
-		codeToDefinition := make(map[string][]*models.Definition)
+		codeToDefinition := make(map[string]*models.Definition)
 		for _, def := range definitions {
-			codeToDefinition[def.Code] = append(codeToDefinition[def.Code], def)
+			codeToDefinition[def.Code] = def
 		}
 		
 		// Add definition prerequisites
 		for nodeID, defNode := range data.Definitions {
-			def := definitions[nodeID]
-			for _, prereqCode := range defNode.Prerequisites {
-				prereqList, exists := codeToDefinition[prereqCode]
-				if !exists || len(prereqList) == 0 {
-					continue // Skip if prerequisite not found
+			if len(defNode.Prerequisites) > 0 {
+				def := definitions[nodeID]
+				var prerequisiteIDs []uint
+				
+				for _, prereqCode := range defNode.Prerequisites {
+					if prereqDef, exists := codeToDefinition[prereqCode]; exists {
+						prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
+					}
 				}
 				
-				// Use first matching code as prerequisite
-				prereq := prereqList[0]
-				if err := tx.Model(def).Association("Prerequisites").Append(prereq); err != nil {
-					return err
+				if len(prerequisiteIDs) > 0 {
+					if err := definitionDAO.Update(def, defNode.References, prerequisiteIDs); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -230,161 +398,21 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				YPosition:   exNode.YPosition,
 			}
 			
-			if err := tx.Create(ex).Error; err != nil {
-				return err
+			// Add prerequisites using code matching
+			var prerequisiteIDs []uint
+			for _, prereqCode := range exNode.Prerequisites {
+				if prereqDef, exists := codeToDefinition[prereqCode]; exists {
+					prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
+				}
 			}
 			
-			// Add prerequisites using code matching
-			for _, prereqCode := range exNode.Prerequisites {
-				prereqList, exists := codeToDefinition[prereqCode]
-				if !exists || len(prereqList) == 0 {
-					continue // Skip if prerequisite not found
-				}
-				
-				// Use first matching code as prerequisite
-				prereq := prereqList[0]
-				if err := tx.Model(ex).Association("Prerequisites").Append(prereq); err != nil {
-					return err
-				}
+			if err := exerciseDAO.Create(ex, prerequisiteIDs); err != nil {
+				return err
 			}
 		}
 		
 		return nil
 	})
-}
-
-// GetVisualGraph returns a structure representing the graph for visualization
-type VisualNode struct {
-	ID            string   `json:"id"`
-	Type          string   `json:"type"` // "definition" or "exercise"
-	Name          string   `json:"name"`
-	Code          string   `json:"code"`
-	X             float64  `json:"x,omitempty"`
-	Y             float64  `json:"y,omitempty"`
-	Prerequisites []string `json:"prerequisites,omitempty"`
-}
-
-type VisualGraph struct {
-	Nodes []VisualNode `json:"nodes"`
-	Links []struct {
-		Source string `json:"source"`
-		Target string `json:"target"`
-	} `json:"links"`
-}
-
-// GetVisualGraph returns the domain as a visual graph structure
-func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
-	// Load domain with all definitions and exercises
-	var domain models.Domain
-	result := d.db.
-		Preload("Definitions").
-		Preload("Definitions.Prerequisites").
-		Preload("Exercises").
-		Preload("Exercises.Prerequisites").
-		First(&domain, domainID)
-	
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, errors.New("domain not found")
-		}
-		return nil, result.Error
-	}
-	
-	graph := &VisualGraph{
-		Nodes: make([]VisualNode, 0),
-		Links: make([]struct {
-			Source string `json:"source"`
-			Target string `json:"target"`
-		}, 0),
-	}
-	
-	// Create maps to track unique IDs for nodes (since code is no longer unique)
-	definitionIDs := make(map[string]string)
-	
-	// Add definitions to nodes
-	for _, def := range domain.Definitions {
-		// Create a unique ID for this node
-		nodeID := fmt.Sprintf("def_%d", def.ID)
-		definitionIDs[def.Code+"_"+strconv.FormatUint(uint64(def.ID), 10)] = nodeID
-		
-		// Get prerequisite codes
-		prereqCodes := make([]string, 0, len(def.Prerequisites))
-		for _, prereq := range def.Prerequisites {
-			prereqCodes = append(prereqCodes, prereq.Code)
-		}
-		
-		// Add node
-		graph.Nodes = append(graph.Nodes, VisualNode{
-			ID:            nodeID,
-			Type:          "definition",
-			Name:          def.Name,
-			Code:          def.Code,
-			X:             def.XPosition,
-			Y:             def.YPosition,
-			Prerequisites: prereqCodes,
-		})
-	}
-	
-	// Add exercises to nodes
-	for _, ex := range domain.Exercises {
-		// Create a unique ID for this node
-		nodeID := fmt.Sprintf("ex_%d", ex.ID)
-		
-		// Get prerequisite codes
-		prereqCodes := make([]string, 0, len(ex.Prerequisites))
-		for _, prereq := range ex.Prerequisites {
-			prereqCodes = append(prereqCodes, prereq.Code)
-		}
-		
-		// Add node
-		graph.Nodes = append(graph.Nodes, VisualNode{
-			ID:            nodeID,
-			Type:          "exercise",
-			Name:          ex.Name,
-			Code:          ex.Code,
-			X:             ex.XPosition,
-			Y:             ex.YPosition,
-			Prerequisites: prereqCodes,
-		})
-	}
-	
-	// Add definition links - we need to be careful with non-unique codes
-	for _, def := range domain.Definitions {
-		targetID := fmt.Sprintf("def_%d", def.ID)
-		
-		for _, prereq := range def.Prerequisites {
-			// Since code is no longer unique, we need to use the actual prereq ID
-			sourceID := fmt.Sprintf("def_%d", prereq.ID)
-			
-			graph.Links = append(graph.Links, struct {
-				Source string `json:"source"`
-				Target string `json:"target"`
-			}{
-				Source: sourceID,
-				Target: targetID,
-			})
-		}
-	}
-	
-	// Add exercise links
-	for _, ex := range domain.Exercises {
-		targetID := fmt.Sprintf("ex_%d", ex.ID)
-		
-		for _, prereq := range ex.Prerequisites {
-			// Since code is no longer unique, we need to use the actual prereq ID
-			sourceID := fmt.Sprintf("def_%d", prereq.ID)
-			
-			graph.Links = append(graph.Links, struct {
-				Source string `json:"source"`
-				Target string `json:"target"`
-			}{
-				Source: sourceID,
-				Target: targetID,
-			})
-		}
-	}
-	
-	return graph, nil
 }
 
 // UpdateGraphPositions updates the positions of nodes in the graph

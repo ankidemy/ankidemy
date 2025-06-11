@@ -117,6 +117,7 @@ func main() {
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO)
+  srsHandler := handlers.NewSRSHandler(db)
 
 	// Initialize router
 	router := gin.Default()
@@ -240,6 +241,33 @@ func main() {
 				sessions.GET("/:id", progressHandler.GetSessionDetails)
 			}
 
+    // SRS ROUTES
+    srs := authorized.Group("/srs")
+    {
+        // Review endpoints
+        srs.POST("/reviews", srsHandler.SubmitReview)
+        srs.GET("/domains/:domainId/due", srsHandler.GetDueReviews)
+        srs.GET("/reviews/history", srsHandler.GetReviewHistory)
+        
+        // Progress endpoints
+        srs.GET("/domains/:domainId/progress", srsHandler.GetDomainProgress)
+        srs.GET("/domains/:domainId/stats", srsHandler.GetDomainStats)
+        srs.PUT("/nodes/status", srsHandler.UpdateNodeStatus)
+        
+        // Session endpoints
+        srs.POST("/sessions", srsHandler.StartSession)
+        srs.PUT("/sessions/:sessionId/end", srsHandler.EndSession)
+        srs.GET("/sessions", srsHandler.GetUserSessions)
+        
+        // Prerequisites endpoints
+        srs.POST("/prerequisites", srsHandler.CreatePrerequisite)
+        srs.GET("/domains/:domainId/prerequisites", srsHandler.GetPrerequisites)
+        srs.DELETE("/prerequisites/:prerequisiteId", srsHandler.DeletePrerequisite)
+        
+        // Test/Debug endpoints
+        srs.POST("/test/credit-propagation", srsHandler.TestCreditPropagation)
+    }
+
 			// Admin routes
 			admin := authorized.Group("/admin")
 			admin.Use(middleware.AdminRequired())
@@ -264,6 +292,8 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
+
+// main.go - Updated runTestImport function to populate node_prerequisites directly
 
 // runTestImport imports the test JSON data into the database
 func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
@@ -325,7 +355,7 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 
 	fmt.Printf("Created domain: %s (ID: %d)\n", domain.Name, domain.ID)
 
-	// Create definitions
+	// Create definitions first (without prerequisites)
 	definitions := make(map[string]*models.Definition)
 	for code, def := range graphData.Definitions {
 		// Process multiple descriptions - join with a delimiter for storing
@@ -342,7 +372,7 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 			YPosition:   def.YPosition,
 		}
 		
-		// Create the definition (with references but no prerequisites yet)
+		// Create the definition with references but no prerequisites yet
 		if err := definitionDAO.Create(definition, def.References, nil); err != nil {
 			log.Fatalf("Failed to create definition %s: %v", code, err)
 		}
@@ -351,7 +381,7 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 		fmt.Printf("Created definition: %s (ID: %d)\n", definition.Name, definition.ID)
 	}
 
-	// Now add prerequisites for definitions
+	// Now add prerequisites for definitions using the DAO method
 	for code, def := range graphData.Definitions {
 		if len(def.Prerequisites) > 0 {
 			definition := definitions[code]
@@ -366,12 +396,13 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 			}
 			
 			if len(prerequisiteIDs) > 0 {
-				// Get references
+				// Get references for the update
 				var references []string
-				for _, ref := range definition.References {
-					references = append(references, ref.Reference)
+				for _, ref := range def.References {
+					references = append(references, ref)
 				}
 				
+				// Update definition with prerequisites using DAO method
 				if err := definitionDAO.Update(definition, references, prerequisiteIDs); err != nil {
 					log.Fatalf("Failed to update definition %s with prerequisites: %v", code, err)
 				}
@@ -380,7 +411,6 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 	}
 
 	// Create exercises
-	exercises := make(map[string]*models.Exercise)
 	for code, ex := range graphData.Exercises {
 		difficultyStr := ex.Difficulty
 		if difficultyStr == "" {
@@ -404,12 +434,12 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 			OwnerID:     adminUser.ID,
 			Verifiable:  ex.Verifiable,
 			Result:      ex.Result,
-			Difficulty:  difficultyInt, // Now using the integer value
+			Difficulty:  difficultyInt,
 			XPosition:   ex.XPosition,
 			YPosition:   ex.YPosition,
 		}
 		
-		// Create the exercise with prerequisites
+		// Collect prerequisite IDs
 		var prerequisiteIDs []uint
 		for _, prereqCode := range ex.Prerequisites {
 			if prereqDef, exists := definitions[prereqCode]; exists {
@@ -419,13 +449,18 @@ func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
 			}
 		}
 		
+		// Create the exercise with prerequisites using DAO method
 		if err := exerciseDAO.Create(exercise, prerequisiteIDs); err != nil {
 			log.Fatalf("Failed to create exercise %s: %v", code, err)
 		}
 		
-		exercises[code] = exercise
 		fmt.Printf("Created exercise: %s (ID: %d)\n", exercise.Name, exercise.ID)
 	}
+
+	// Verify prerequisites were created correctly
+	var prereqCount int64
+	db.Model(&models.NodePrerequisite{}).Count(&prereqCount)
+	fmt.Printf("Created %d prerequisite relationships in node_prerequisites table\n", prereqCount)
 
 	fmt.Println("Import completed successfully!")
 	os.Exit(0) // Exit after importing

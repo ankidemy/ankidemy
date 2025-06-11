@@ -1,7 +1,9 @@
+// File: ./src/app/layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ToastContainer } from "@/app/components/core/ToastNotification";
+import { ToastContainer, ToastProvider } from "@/app/components/core/ToastNotification"; // Updated import for ToastProvider
+import { SRSProvider } from '@/contexts/SRSContext'; // Import SRSProvider
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,8 +30,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
-        <ToastContainer />
+     <ToastProvider>
+       <SRSProvider>{children}</SRSProvider>
+       <ToastContainer />
+     </ToastProvider>
       </body>
     </html>
   );

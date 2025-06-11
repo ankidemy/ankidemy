@@ -1,4 +1,3 @@
-// src/app/components/Graph/SubjectMatterGraph.tsx
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -42,7 +41,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
         name: subject.name,
         nodeCount: subject.nodeCount || 0,
         exerciseCount: subject.exerciseCount || 0,
-        val: 20 + (subject.nodeCount || 0) / 5 // Size based on definition count
+        val: Math.max(8, Math.min(25, 8 + (subject.nodeCount || 0) / 3)) // Better size calculation
       }));
       
       // Create minimal links between nodes to form an interesting structure
@@ -109,7 +108,8 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
       const isHovered = hoveredNode && hoveredNode.id === node.id;
       
       // Draw node background with gradient
-      const size = isHovered ? 18 : 15;
+      const baseSize = Math.max(6, Math.min(12, 6 + (nodeCount / 5)));
+      const size = isHovered ? baseSize * 1.3 : baseSize;
       const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
       gradient.addColorStop(0, 'rgba(249, 115, 22, 0.8)'); // Orange core
       gradient.addColorStop(1, 'rgba(249, 115, 22, 0.4)'); // Faded edge
@@ -230,24 +230,29 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
           nodeLabel="name"
           nodeVal="val"
           nodeCanvasObject={nodeCanvasObject}
-          nodeRelSize={6}
-          linkWidth={2}
+          nodeRelSize={3} // Reduced from 6
+          linkWidth={1}
           linkColor={getLinkColor}
           onNodeClick={(node) => {
+            console.log('Node clicked:', node);
             if (node && node.id) {
-              onSelectSubjectMatter(node.id)
+              onSelectSubjectMatter(node.id.toString());
             }
           }}
           onNodeHover={setHoveredNode}
           cooldownTicks={100}
           cooldownTime={2000}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.3}
-          // Make nodes repel each other more for better spacing
+          d3AlphaDecay={0.03}
+          d3VelocityDecay={0.4}
           d3Force={(d3Force) => {
-            d3Force('charge').strength(-200);
-            d3Force('link').distance(100);
+            d3Force('charge').strength(-300); // Increased repulsion
+            d3Force('link').distance(80); // Reduced link distance
+            d3Force('center', d3Force.forceCenter().strength(1)); // Add centering force
           }}
+          enableNodeDrag={true}
+          enableZoomPanInteraction={true}
+          minZoom={0.1}
+          maxZoom={8}
         />
       ) : (
         <div className="h-full flex items-center justify-center">

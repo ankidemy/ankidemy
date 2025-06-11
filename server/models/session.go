@@ -4,24 +4,6 @@ import (
 	"time"
 )
 
-// StudySession represents a learning session
-type StudySession struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	UserID    uint      `gorm:"column:user_id;not null" json:"userId"`
-	DomainID  uint      `gorm:"column:domain_id;not null" json:"domainId"`
-	StartTime time.Time `gorm:"column:start_time;autoCreateTime" json:"startTime"`
-	EndTime   time.Time `gorm:"column:end_time" json:"endTime"`
-	
-	// Relationships
-	User   *User   `gorm:"foreignKey:UserID" json:"-"`
-	Domain *Domain `gorm:"foreignKey:DomainID" json:"-"`
-}
-
-// TableName overrides the table name
-func (StudySession) TableName() string {
-	return "study_sessions"
-}
-
 // SessionDefinition represents a definition reviewed during a study session
 type SessionDefinition struct {
 	SessionID    uint   `gorm:"column:session_id;primaryKey" json:"sessionId"`

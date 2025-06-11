@@ -155,7 +155,7 @@ func (h *ProgressHandler) ReviewDefinition(c *gin.Context) {
 	}
 
 	// Bind the review request
-	var req models.ReviewRequest
+  var req models.DefinitionReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -300,10 +300,36 @@ func (h *ProgressHandler) GetDefinitionsForReview(c *gin.Context) {
 		return
 	}
 
-	// Convert to response format
+	// Convert to response format using the basic conversion
+	// Since this is for the legacy progress system, we'll create simple responses
 	responses := make([]models.DefinitionResponse, 0, len(definitions))
 	for _, def := range definitions {
-		responses = append(responses, h.definitionDAO.ConvertToResponse(&def))
+		// Create a simple response without prerequisites for legacy compatibility
+		response := models.DefinitionResponse{
+			ID:          def.ID,
+			Code:        def.Code,
+			Name:        def.Name,
+			Description: def.Description,
+			Notes:       def.Notes,
+			DomainID:    def.DomainID,
+			OwnerID:     def.OwnerID,
+			XPosition:   def.XPosition,
+			YPosition:   def.YPosition,
+			CreatedAt:   def.CreatedAt,
+			UpdatedAt:   def.UpdatedAt,
+		}
+		
+		// Add references if loaded
+		references := make([]string, 0, len(def.References))
+		for _, ref := range def.References {
+			references = append(references, ref.Reference)
+		}
+		response.References = references
+		
+		// For legacy compatibility, we'll leave prerequisites empty
+		response.Prerequisites = []string{}
+		
+		responses = append(responses, response)
 	}
 
 	c.JSON(http.StatusOK, responses)
@@ -439,10 +465,13 @@ func (h *ProgressHandler) GetSessionDetails(c *gin.Context) {
 		}
 	}
 
-	// Calculate session duration
+	// Calculate session duration and handle EndTime for response
 	var duration int
-	if !session.EndTime.IsZero() {
-		duration = int(session.EndTime.Sub(session.StartTime).Seconds())
+  var responseEndTime time.Time // Use a zero value if session.EndTime is nil
+
+	if session.EndTime != nil { // Check if the pointer is not nil
+		responseEndTime = *session.EndTime // Dereference the pointer
+		duration = int(responseEndTime.Sub(session.StartTime).Seconds())
 	}
 
 	// Get domain name
@@ -465,7 +494,7 @@ func (h *ProgressHandler) GetSessionDetails(c *gin.Context) {
 		Session: models.StudySessionResponse{
 			ID:                     session.ID,
 			StartTime:              session.StartTime,
-			EndTime:                session.EndTime,
+			EndTime:                responseEndTime,
 			Duration:               duration,
 			DomainID:               session.DomainID,
 			DomainName:             domain.Name,

@@ -9,17 +9,19 @@ import (
 	"myapp/server/models"
 )
 
+// handlers/exercise_handler.go - Fixed type issues
+
 // ExerciseHandler handles exercise-related HTTP requests
 type ExerciseHandler struct {
-	exerciseDAO  *dao.ExerciseDAO
-	domainDAO    *dao.DomainDAO
+	exerciseDAO *dao.ExerciseDAO
+	domainDAO   *dao.DomainDAO
 }
 
 // NewExerciseHandler creates a new ExerciseHandler
 func NewExerciseHandler(exerciseDAO *dao.ExerciseDAO, domainDAO *dao.DomainDAO) *ExerciseHandler {
 	return &ExerciseHandler{
-		exerciseDAO:  exerciseDAO,
-		domainDAO:    domainDAO,
+		exerciseDAO: exerciseDAO,
+		domainDAO:   domainDAO,
 	}
 }
 
@@ -124,7 +126,14 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, h.exerciseDAO.ConvertToResponse(exercise))
+	// Get the created exercise with prerequisites
+	createdEx, err := h.exerciseDAO.FindByIDWithPrerequisites(exercise.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve created exercise"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, h.exerciseDAO.ConvertToResponse(createdEx))
 }
 
 // GetExercise returns an exercise by ID
@@ -135,7 +144,7 @@ func (h *ExerciseHandler) GetExercise(c *gin.Context) {
 		return
 	}
 
-	exercise, err := h.exerciseDAO.FindByID(uint(id))
+	exercise, err := h.exerciseDAO.FindByIDWithPrerequisites(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Exercise not found"})
 		return
@@ -231,7 +240,14 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, h.exerciseDAO.ConvertToResponse(exercise))
+	// Get the updated exercise with prerequisites
+	updatedEx, err := h.exerciseDAO.FindByIDWithPrerequisites(exercise.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated exercise"})
+		return
+	}
+
+	c.JSON(http.StatusOK, h.exerciseDAO.ConvertToResponse(updatedEx))
 }
 
 // DeleteExercise deletes an exercise
@@ -279,15 +295,15 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 	// Get domain ID from query parameter
 	domainID, _ := strconv.ParseUint(c.Query("domainId"), 10, 32)
 
-	var exercises []*models.Exercise
+	var exercises []*models.ExerciseWithPrerequisites
 	var err error
 
 	// If domain ID is provided, get specific exercise by code and domain
 	if domainID > 0 {
-		var exercise *models.Exercise
+		var exercise *models.ExerciseWithPrerequisites
 		exercise, err = h.exerciseDAO.FindByCodeAndDomain(code, uint(domainID))
 		if err == nil {
-			exercises = []*models.Exercise{exercise}
+			exercises = []*models.ExerciseWithPrerequisites{exercise}
 		}
 	} else {
 		// Otherwise get all exercises with the given code
@@ -299,8 +315,8 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 		return
 	}
 
-	// Filter by access permissions
-	var accessibleExercises []*models.Exercise
+	// Filter by access permissions and convert to response format
+	var responses []models.ExerciseResponse
 	for _, exercise := range exercises {
 		// Check domain access
 		domain, err := h.domainDAO.FindByID(exercise.DomainID)
@@ -310,31 +326,25 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 
 		// Add to response if domain is public or user has access
 		if domain.Privacy == "public" {
-			accessibleExercises = append(accessibleExercises, exercise)
+			responses = append(responses, h.exerciseDAO.ConvertToResponse(exercise))
 			continue
 		}
 
 		userID, exists := c.Get("userID")
 		if exists && userID.(uint) == domain.OwnerID {
-			accessibleExercises = append(accessibleExercises, exercise)
+			responses = append(responses, h.exerciseDAO.ConvertToResponse(exercise))
 			continue
 		}
 
 		isAdmin, adminExists := c.Get("isAdmin")
 		if adminExists && isAdmin.(bool) {
-			accessibleExercises = append(accessibleExercises, exercise)
+			responses = append(responses, h.exerciseDAO.ConvertToResponse(exercise))
 		}
 	}
 
-	if len(accessibleExercises) == 0 {
+	if len(responses) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to any exercises with this code"})
 		return
-	}
-
-	// Convert to response format
-	responses := make([]models.ExerciseResponse, 0, len(accessibleExercises))
-	for _, ex := range accessibleExercises {
-		responses = append(responses, h.exerciseDAO.ConvertToResponse(ex))
 	}
 
 	c.JSON(http.StatusOK, responses)
@@ -382,16 +392,4 @@ func (h *ExerciseHandler) VerifyAnswer(c *gin.Context) {
 		"correct": correct,
 		"message": correct,
 	})
-}
-
-// RegisterRoutes registers the exercise routes
-func (h *ExerciseHandler) RegisterRoutes(router *gin.RouterGroup) {
-	exercises := router.Group("/exercises")
-	{
-		exercises.GET("/:id", h.GetExercise)
-		exercises.PUT("/:id", h.UpdateExercise)
-		exercises.DELETE("/:id", h.DeleteExercise)
-		exercises.GET("/code/:code", h.GetExerciseByCode)
-		exercises.POST("/:id/verify", h.VerifyAnswer)
-	}
 }

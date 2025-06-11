@@ -54,7 +54,49 @@
 | `/api/exercises/code/:code` | `GET` | Yes | Get exercise by code | - |
 | `/api/exercises/:id/verify` | `POST` | Yes | Verify exercise answer | `answer` |
 
-## Progress Tracking
+## Advanced SRS (Spaced Repetition System)
+
+### Review Management
+
+| Endpoint | Method | Auth Required | Description | Key Request Fields |
+|----------|--------|---------------|-------------|-------------------|
+| `/api/srs/reviews` | `POST` | Yes | Submit review (explicit) | `nodeId`, `nodeType`, `success`, `quality` |
+| `/api/srs/domains/:domainId/due` | `GET` | Yes | Get due reviews | Query: `type` (definition\|exercise\|mixed) |
+| `/api/srs/reviews/history` | `GET` | Yes | Get review history | Query: `nodeId`, `nodeType`, `limit` |
+
+### Progress & Statistics
+
+| Endpoint | Method | Auth Required | Description | Key Request Fields |
+|----------|--------|---------------|-------------|-------------------|
+| `/api/srs/domains/:domainId/progress` | `GET` | Yes | Get domain progress | - |
+| `/api/srs/domains/:domainId/stats` | `GET` | Yes | Get domain statistics | - |
+| `/api/srs/nodes/status` | `PUT` | Yes | Update node status | `nodeId`, `nodeType`, `status` |
+
+### SRS Study Sessions
+
+| Endpoint | Method | Auth Required | Description | Key Request Fields |
+|----------|--------|---------------|-------------|-------------------|
+| `/api/srs/sessions` | `POST` | Yes | Start SRS session | `domainId`, `sessionType` |
+| `/api/srs/sessions/:sessionId/end` | `PUT` | Yes | End SRS session | - |
+| `/api/srs/sessions` | `GET` | Yes | Get user SRS sessions | Query: `limit` |
+
+### Prerequisites Management
+
+| Endpoint | Method | Auth Required | Description | Key Request Fields |
+|----------|--------|---------------|-------------|-------------------|
+| `/api/srs/prerequisites` | `POST` | Yes | Create prerequisite | `nodeId`, `nodeType`, `prerequisiteId`, `weight` |
+| `/api/srs/domains/:domainId/prerequisites` | `GET` | Yes | Get domain prerequisites | - |
+| `/api/srs/prerequisites/:prerequisiteId` | `DELETE` | Yes | Delete prerequisite | - |
+
+### Test/Debug
+
+| Endpoint | Method | Auth Required | Description | Key Request Fields |
+|----------|--------|---------------|-------------|-------------------|
+| `/api/srs/test/credit-propagation` | `POST` | Yes | Test credit propagation | `domainId`, `nodeId`, `nodeType`, `success` |
+
+## Legacy Progress Tracking
+
+### Progress Management
 
 | Endpoint | Method | Auth Required | Description | Key Request Fields |
 |----------|--------|---------------|-------------|-------------------|
@@ -63,9 +105,9 @@
 | `/api/progress/domains/:domainId/exercises` | `GET` | Yes | Get exercise progress | - |
 | `/api/progress/definitions/:id/review` | `POST` | Yes | Submit definition review | `result`, `timeTaken` |
 | `/api/progress/exercises/:id/attempt` | `POST` | Yes | Submit exercise attempt | `answer`, `timeTaken` |
-| `/api/progress/domains/:domainId/review` | `GET` | Yes | Get definitions for review | - |
+| `/api/progress/domains/:domainId/review` | `GET` | Yes | Get definitions for review | Query: `limit` |
 
-## Study Sessions
+### Legacy Study Sessions
 
 | Endpoint | Method | Auth Required | Description | Key Request Fields |
 |----------|--------|---------------|-------------|-------------------|
@@ -90,6 +132,59 @@ For all authenticated requests, include:
 Authorization: Bearer your_jwt_token
 ```
 
+## SRS System Quick Reference
+
+### Node Statuses
+- **fresh**: Never studied (default)
+- **tackling**: Currently learning
+- **grasped**: Understood, in spaced repetition
+- **learned**: Mastered (optional)
+
+### Quality Ratings (0-5)
+- `0`: Complete failure
+- `1`: Incorrect with serious difficulty  
+- `2`: Incorrect but familiar
+- `3`: Correct with serious difficulty
+- `4`: Correct after hesitation
+- `5`: Perfect recall
+
+### Review Types
+- **Explicit**: Direct user review with quality rating
+- **Implicit**: Automatic through credit propagation
+
+### Credit Propagation
+- Successful reviews → positive credits to prerequisites
+- Failed reviews → negative credits to dependents
+- +100% credit → review postponed
+- -100% credit → review anticipated
+
+### Session Types
+- **definition**: Review definitions only
+- **exercise**: Review exercises only  
+- **mixed**: Review both definitions and exercises
+
+## System Architecture
+
+### Two Learning Systems
+1. **Legacy Progress System** (`/api/progress/*`, `/api/sessions/*`)
+   - Simple progress tracking
+   - Basic Anki-style spaced repetition
+   - Session management
+
+2. **Advanced SRS System** (`/api/srs/*`)
+   - Sophisticated learning with credit propagation
+   - Status management with automatic propagation
+   - Optimized review scheduling
+   - Advanced analytics and statistics
+
+### Prerequisites System
+- Managed via `node_prerequisites` table
+- Supports weighted relationships
+- Automatic status propagation:
+  - **grasped** → propagates to prerequisites
+  - **tackling** → propagates to dependents  
+  - **fresh** → propagates to dependents (if they were grasped)
+
 ## Common Response Status Codes
 
 - `200`: Success
@@ -99,3 +194,30 @@ Authorization: Bearer your_jwt_token
 - `403`: Forbidden
 - `404`: Not Found
 - `409`: Conflict
+- `500`: Internal Server Error
+
+## Usage Recommendations
+
+### For Simple Learning Apps
+Use Legacy Progress System:
+- `/api/progress/*` for basic progress tracking
+- `/api/sessions/*` for simple session management
+
+### For Advanced Learning Apps  
+Use SRS System:
+- `/api/srs/reviews` for sophisticated review submission
+- `/api/srs/domains/*/due` for optimized review scheduling
+- `/api/srs/nodes/status` for status management
+- `/api/srs/domains/*/stats` for detailed analytics
+
+### Prerequisites
+- Create during definition/exercise creation with `prerequisiteIds`
+- Manage manually with `/api/srs/prerequisites/*`
+- Status changes automatically propagate through prerequisite chains
+
+### Best Practices
+1. **Start Simple**: Begin with legacy system, upgrade to SRS as needed
+2. **Status Management**: Use SRS status updates for automatic propagation
+3. **Credit System**: Let SRS handle implicit reviews automatically  
+4. **Session Tracking**: Use appropriate session endpoints for your system
+5. **Analytics**: Use SRS stats endpoints for detailed learning analytics

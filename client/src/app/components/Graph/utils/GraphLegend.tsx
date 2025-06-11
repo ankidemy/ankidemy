@@ -16,12 +16,12 @@ const GraphLegend: React.FC<GraphLegendProps> = ({ mode, hasExercises }) => {
         <span className="truncate">Root Def.</span>
       </div>
       <div className="flex items-center mb-1">
-        <div className="w-3 h-3 rounded-full bg-[#007bff] mr-1.5 border border-gray-400 flex-shrink-0"></div>
+        <div className="w-3 h-3 rounded-full bg-[#007bff] mr-1.5 border border-gray-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold" style={{ fontSize: '6px' }}>D</div>
         <span className="truncate">Definition</span>
       </div>
       {(mode === 'practice' || hasExercises) && (
         <div className="flex items-center mb-1">
-          <div className="w-3 h-3 rounded-full bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 mr-1.5 border border-gray-400 flex-shrink-0"></div>
+          <div className="w-3 h-3 rounded-full bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 mr-1.5 border border-gray-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold" style={{ fontSize: '6px' }}>E</div>
           <span className="truncate">Exercise</span>
         </div>
       )}
