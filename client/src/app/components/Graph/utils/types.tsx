@@ -48,14 +48,19 @@ export interface GraphNode {
   vy?: number;
   fx?: number;
   fy?: number;
-  xPosition?: number; // Initial position from backend
-  yPosition?: number; // Initial position from backend
+  // Initial position from backend (HEAD)
+  xPosition?: number; 
+  yPosition?: number; 
 
-  // SRS additions
+  // SRS additions (HEAD)
   status?: NodeStatus;
   isDue?: boolean;
   daysUntilReview?: number | null; // Allow null for consistency
   progress?: NodeProgress | null; // Allow null if no progress
+  
+  // Working graph properties (a02e2d1)
+  domainId?: number;
+  prerequisites?: string[];
 }
 
 export interface GraphLink {

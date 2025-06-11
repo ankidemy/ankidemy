@@ -293,9 +293,7 @@ func (d *ProgressDAO) TrackExerciseAttempt(userID, exerciseID uint, correct bool
 		// Record attempt in current study session
 		// First, find or create active session
 		var session models.StudySession
-		err = tx.Where("user_id = ? AND domain_id = ? AND end_time IS NULL", userID, 
-			// Get domain ID for the exercise
-			tx.Model(&models.Exercise{}).Select("domain_id").Where("id = ?", exerciseID)).
+		err = tx.Where("user_id = ? AND domain_id = (SELECT domain_id FROM exercises WHERE id = ? AND deleted_at IS NULL) AND end_time IS NULL", userID, exerciseID).
 			First(&session).Error
 		
 		if err != nil {

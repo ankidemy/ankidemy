@@ -252,7 +252,7 @@ func (h *ProgressHandler) AttemptExercise(c *gin.Context) {
 
 	c.JSON(http.StatusOK, models.ExerciseAttemptResponse{
 		Correct: correct,
-		Message: "Attempt recorded successfully",
+		Message: "Incorrect. Try again or check the solution.",
 	})
 }
 

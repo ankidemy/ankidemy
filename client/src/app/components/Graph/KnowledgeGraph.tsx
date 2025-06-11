@@ -370,7 +370,8 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
   // ==============================================================================
   // 5. REPLACE THE GRAPH BUILDING USEEFFECT
   // ==============================================================================
-  useEffect(() => {
+
+const useEffect(() => {
     // FIX: Create stable data key to prevent unnecessary re-processing
     const dataKey = `${Object.keys(currentStructuralGraphData.definitions || {}).length}-${Object.keys(currentStructuralGraphData.exercises || {}).length}-${mode}-${srs.state.lastUpdated}`;
     
@@ -385,46 +386,33 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
 
-    // Process definitions
+    // Process definitions (combining both approaches)
     Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
       if (!def || !def.code || !def.name) return;
       
       const numericId = codeToNumericIdMap.get(def.code);
-      if (numericId) {
-        const progress = srs.getNodeProgress(numericId, 'definition');
-        
-        nodes.push({
-          id: def.code,
-          name: def.name,
-          type: 'definition',
-          isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
-          xPosition: def.xPosition,
-          yPosition: def.yPosition,
-          fx: def.xPosition,
-          fy: def.yPosition,
-          status: progress?.status || 'fresh',
-          isDue: progress ? isNodeDue(progress.nextReview) : false,
-          daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
-          progress: progress || null,
-        });
-      } else {
-        nodes.push({
-          id: def.code,
-          name: def.name,
-          type: 'definition',
-          isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
-          xPosition: def.xPosition,
-          yPosition: def.yPosition,
-          fx: def.xPosition,
-          fy: def.yPosition,
-          status: 'fresh',
-          isDue: false,
-          daysUntilReview: null,
-          progress: null,
-        });
-      }
+      const progress = numericId ? srs.getNodeProgress(numericId, 'definition') : null;
       
-      // Create links with weights
+      nodes.push({
+        id: def.code, // Use code as ID (from a02e2d1)
+        name: def.name,
+        type: 'definition',
+        isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
+        xPosition: def.xPosition,
+        yPosition: def.yPosition,
+        fx: def.xPosition,
+        fy: def.yPosition,
+        // SRS properties from HEAD
+        status: progress?.status || 'fresh',
+        isDue: progress ? isNodeDue(progress.nextReview) : false,
+        daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
+        progress: progress || null,
+        // Additional properties from a02e2d1
+        domainId: def.domainId,
+        prerequisites: def.prerequisites
+      });
+      
+      // Create links with weights (from HEAD)
       (def.prerequisites || []).forEach(prereqCode => {
         const weight = def.prerequisiteWeights?.[prereqCode] ?? 1.0;
         links.push({ 
@@ -436,47 +424,34 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
       });
     });
 
-    // Process exercises (only in practice mode)
+    // Process exercises (only in practice mode) - combining both approaches
     if (mode === 'practice' && currentStructuralGraphData.exercises) {
       Object.values(currentStructuralGraphData.exercises).forEach(ex => {
         if (!ex || !ex.code || !ex.name) return;
         
         const numericId = codeToNumericIdMap.get(ex.code);
-        if (numericId) {
-          const progress = srs.getNodeProgress(numericId, 'exercise');
-          
-          nodes.push({
-            id: ex.code,
-            name: ex.name,
-            type: 'exercise',
-            difficulty: ex.difficulty,
-            xPosition: ex.xPosition,
-            yPosition: ex.yPosition,
-            fx: ex.xPosition,
-            fy: ex.yPosition,
-            status: progress?.status || 'fresh',
-            isDue: progress ? isNodeDue(progress.nextReview) : false,
-            daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
-            progress: progress || null,
-          });
-        } else {
-          nodes.push({
-            id: ex.code,
-            name: ex.name,
-            type: 'exercise',
-            difficulty: ex.difficulty,
-            xPosition: ex.xPosition,
-            yPosition: ex.yPosition,
-            fx: ex.xPosition,
-            fy: ex.yPosition,
-            status: 'fresh',
-            isDue: false,
-            daysUntilReview: null,
-            progress: null,
-          });
-        }
+        const progress = numericId ? srs.getNodeProgress(numericId, 'exercise') : null;
         
-        // Create links with weights for exercises
+        nodes.push({
+          id: ex.code, // Use code as ID (from a02e2d1)
+          name: ex.name,
+          type: 'exercise',
+          difficulty: ex.difficulty,
+          xPosition: ex.xPosition,
+          yPosition: ex.yPosition,
+          fx: ex.xPosition,
+          fy: ex.yPosition,
+          // SRS properties from HEAD
+          status: progress?.status || 'fresh',
+          isDue: progress ? isNodeDue(progress.nextReview) : false,
+          daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
+          progress: progress || null,
+          // Additional properties from a02e2d1
+          domainId: ex.domainId,
+          prerequisites: ex.prerequisites
+        });
+        
+        // Create links with weights for exercises (from HEAD with a02e2d1 validation)
         (ex.prerequisites || []).forEach(prereqCode => {
           const prereqNode = nodes.find(n => n.id === prereqCode && n.type === 'definition');
           if (prereqNode) {
@@ -487,6 +462,8 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
               type: 'prerequisite',
               weight: weight
             });
+          } else {
+            console.warn(`Exercise Link: Prerequisite code ${prereqCode} not found for target ${ex.code}`);
           }
         });
       });
@@ -498,6 +475,140 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     setGraphLinks(links);
     setIsProcessingData(false);
   }, [currentStructuralGraphData, mode, srs.state.lastUpdated, codeToNumericIdMap]);
+
+// Handle node click - resolved version
+const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
+  if (!nodeOnClick || !nodeOnClick.id) return;
+
+  if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
+    setNodeHistory(prev => [...prev, selectedNode.id]);
+  }
+
+  setSelectedNode(nodeOnClick);
+  setIsEditMode(false);
+  setAnswerFeedback(null);
+  setUserAnswer('');
+  setExerciseAttemptCompleted(false);
+
+  try {
+    let details: Definition | Exercise | null = null;
+    const code = nodeOnClick.id;
+
+    // Check cache first (from HEAD)
+    let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
+    
+    // Determine what to fetch based on mode and node type (combining both approaches)
+    if (mode === 'practice' && nodeOnClick.type === 'definition') {
+      // In practice mode, when clicking a definition node, check for related exercises first
+      if (currentStructuralGraphData.exercises) {
+        console.log("Checking for related exercises to definition:", code);
+        console.log("Available exercises:", Object.values(currentStructuralGraphData.exercises));
+        
+        // Fix from a02e2d1: Look for exercises that have this definition as prerequisite
+        const relatedExCodes = Object.values(currentStructuralGraphData.exercises)
+          .filter(ex => ex.prerequisites?.includes(code))
+          .map(ex => ex.code);
+        
+        console.log("Found related exercises:", relatedExCodes);
+        
+        if (relatedExCodes.length > 0) {
+          console.log("encontre");  
+          // If there are related exercises, fetch the first one
+          const exerciseCode = relatedExCodes[0];
+          try {
+            apiDetails = nodeDataCache.get(exerciseCode) || null;
+            if (!apiDetails) {
+              const exerciseResponse = await getExerciseByCode(exerciseCode);
+              apiDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
+              if (apiDetails) {
+                setNodeDataCache(prev => new Map(prev).set(exerciseCode, apiDetails!));
+                setCodeToNumericIdMap(prev => new Map(prev).set(exerciseCode, apiDetails!.id));
+              }
+            }
+            
+            if (apiDetails) {
+              console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
+              // Store related exercises
+              setRelatedExercises(relatedExCodes);
+            }
+          } catch (exerciseError) {
+            console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
+            // Fall back to showing the definition
+            apiDetails = null;
+          }
+        }
+      }
+    }
+    
+    // If no specific exercise was found or we're not in practice mode, fetch the original node
+    if (!apiDetails) {
+      if (nodeOnClick.type === 'definition') {
+        const res = await getDefinitionByCode(nodeOnClick.id);
+        apiDetails = Array.isArray(res) ? res[0] : res;
+      } else {
+        const res = await getExerciseByCode(nodeOnClick.id);
+        apiDetails = Array.isArray(res) ? res[0] : res;
+      }
+      
+      if (apiDetails) {
+        setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
+        setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
+      }
+    }
+
+    // Convert API details to local format (from HEAD)
+    if (apiDetails) {
+      const localDetails: Definition | Exercise = {
+        ...apiDetails,
+        code: apiDetails.code, 
+        name: apiDetails.name,
+        type: nodeOnClick.type,
+        description: apiDetails.description,
+        ...(nodeOnClick.type === 'exercise' && { 
+          difficulty: (apiDetails as ApiExercise).difficulty || '3',
+          statement: (apiDetails as ApiExercise).statement,
+          hints: (apiDetails as ApiExercise).hints,
+          verifiable: (apiDetails as ApiExercise).verifiable,
+          result: (apiDetails as ApiExercise).result,
+        }),
+        prerequisites: apiDetails.prerequisites || [],
+      };
+      setSelectedNodeDetails(localDetails);
+
+      setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
+      setShowSolution(false);
+      setShowHints(false);
+      setSelectedDefinitionIndex(0);
+
+      // Handle related exercises (adapted from both versions)
+      if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises && !relatedExercises.length) {
+        const defCode = nodeOnClick.id;
+        const relEx = Object.values(currentStructuralGraphData.exercises)
+          .filter(ex => ex.prerequisites?.includes(defCode))
+          .map(ex => ex.code);
+        setRelatedExercises(relEx);
+      } else if (nodeOnClick.type === 'exercise') {
+        setRelatedExercises([]);
+      }
+    } else {
+      setSelectedNodeDetails(null);
+      setRelatedExercises([]);
+      showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
+    }
+  } catch (error) {
+    console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
+    showToast(error instanceof Error ? error.message : "Failed to fetch node details.", "error");
+    setSelectedNodeDetails(null);
+  }
+
+  if (!isRefresh) {
+    setShowRightPanel(true);
+    if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
+      graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
+      graphRef.current.zoom(2.5, 800);
+    }
+  }
+}, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, relatedExercises.length]);
 
   useEffect(() => {
     if (!isProcessingData && graphRef.current && graphNodes.length > 0) {
@@ -810,11 +921,16 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
       if (mode === 'practice' && clickedNodeData.type === 'definition') {
         // In practice mode, when clicking a definition node, check for related exercises first
         if (graphData.exercises) {
-          const relatedExCodes = Object.values(graphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(code))
-            .map(ex => ex.code);
-          
+	console.log("Checking for related exercises to definition:", code);
+	console.log("Available exercises:", Object.values(graphDataState.exercises));
+    
+	const relatedExCodes = Object.values(graphDataState.exercises)
+      	.filter(ex => ex.code === code)
+	.map(ex => ex.code);
+    
+	console.log("Found related exercises:", relatedExCodes);
           if (relatedExCodes.length > 0) {
+	    console.log("encontre");  
             // If there are related exercises, fetch the first one
             const exerciseCode = relatedExCodes[0];
             try {
@@ -835,7 +951,6 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
             }
           }
         }
-        
         // If no related exercise was found or fetched, fall back to showing the definition
         if (!details) {
           const response = await getDefinitionByCode(code);

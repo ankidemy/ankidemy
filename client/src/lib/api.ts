@@ -147,6 +147,7 @@ export interface GraphData {
     prerequisiteWeights?: Record<string, number>; // ADDED: weights
     xPosition?: number;
     yPosition?: number;
+    domainId?: number;
   }>;
   exercises: Record<string, {
     code: string;
@@ -162,6 +163,7 @@ export interface GraphData {
     prerequisiteWeights?: Record<string, number>; // ADDED: weights
     xPosition?: number;
     yPosition?: number;
+    domainId?: number;
   }>;
 }
 
