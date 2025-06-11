@@ -13,6 +13,8 @@ import {
   Exercise as ApiExercise,
   getDomainDefinitions,
   getDomainExercises,
+  getDefinitionIdByCode,
+  getExerciseIdByCode,
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
 import { getStatusColor, isNodeDue, calculateDaysUntilReview, formatNextReview } from '../../../lib/srs-api';
@@ -28,7 +30,7 @@ import {
   FilteredNodeType,
   KnowledgeGraphProps, 
   AnswerFeedback,
-} from './utils/types'; // DefinitionRequest and ExerciseRequest from lib/api are used by NodeCreationModal
+} from './utils/types';
 import GraphContainer from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
 import TopControls from './panels/TopControls';
@@ -110,7 +112,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // FIX: Add refs to prevent infinite loops
   const lastProcessedDataKey = useRef<string>('');
   const refreshTimeoutRef = useRef<NodeJS.Timeout>();
-
 
   useEffect(() => {
     if (subjectMatterId && !isNaN(parseInt(subjectMatterId))) {
@@ -204,131 +205,134 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId, loadComprehensiveDomainData]);
 
-const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
-  if (!nodeOnClick || !nodeOnClick.id) return;
+  const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
+    if (!nodeOnClick || !nodeOnClick.id) return;
 
-  if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
-    setNodeHistory(prev => [...prev, selectedNode.id]);
-  }
+    setSelectedNode(nodeOnClick);
+    setShowRightPanel(true);
 
-  setSelectedNode(nodeOnClick);
-  setIsEditMode(false);
-  setAnswerFeedback(null);
-  setUserAnswer('');
-  setExerciseAttemptCompleted(false);
+    if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
+      setNodeHistory(prev => [...prev, selectedNode.id]);
+    }
 
-  try {
-    let details: Definition | Exercise | null = null;
-    const code = nodeOnClick.id;
+    setSelectedNode(nodeOnClick);
+    setIsEditMode(false);
+    setAnswerFeedback(null);
+    setUserAnswer('');
+    setExerciseAttemptCompleted(false);
 
-    // Check cache first (from HEAD)
-    let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
-    
-    // Determine what to fetch based on mode and node type (from incoming)
-    if (mode === 'practice' && nodeOnClick.type === 'definition') {
-      // In practice mode, when clicking a definition node, check for related exercises first
-      if (currentStructuralGraphData.exercises) { // Use currentStructuralGraphData from HEAD
-        const relatedExCodes = Object.values(currentStructuralGraphData.exercises)
-          .filter(ex => ex.prerequisites?.includes(code))
-          .map(ex => ex.code);
-        
-        if (relatedExCodes.length > 0) {
-          // If there are related exercises, fetch the first one
-          const exerciseCode = relatedExCodes[0];
-          try {
-            apiDetails = nodeDataCache.get(exerciseCode) || null;
-            if (!apiDetails) {
-              const exerciseResponse = await getExerciseByCode(exerciseCode);
-              apiDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
-              if (apiDetails) {
-                setNodeDataCache(prev => new Map(prev).set(exerciseCode, apiDetails!));
-                setCodeToNumericIdMap(prev => new Map(prev).set(exerciseCode, apiDetails!.id));
+    try {
+      let details: Definition | Exercise | null = null;
+      const code = nodeOnClick.id;
+
+      // Check cache first
+      let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
+      
+      // Determine what to fetch based on mode and node type
+      if (mode === 'practice' && nodeOnClick.type === 'definition') {
+        // In practice mode, when clicking a definition node, check for related exercises first
+        if (currentStructuralGraphData.exercises) {
+          const relatedExCodes = Object.values(currentStructuralGraphData.exercises)
+            .filter(ex => ex.prerequisites?.includes(code))
+            .map(ex => ex.code);
+          
+          if (relatedExCodes.length > 0) {
+            // If there are related exercises, fetch the first one
+            const exerciseCode = relatedExCodes[0];
+            try {
+              apiDetails = nodeDataCache.get(exerciseCode) || null;
+              if (!apiDetails) {
+                const exerciseResponse = await getExerciseByCode(exerciseCode);
+                apiDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
+                if (apiDetails) {
+                  setNodeDataCache(prev => new Map(prev).set(exerciseCode, apiDetails!));
+                  setCodeToNumericIdMap(prev => new Map(prev).set(exerciseCode, apiDetails!.id));
+                }
               }
+              
+              if (apiDetails) {
+                console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
+                // Store related exercises
+                setRelatedExercises(relatedExCodes);
+              }
+            } catch (exerciseError) {
+              console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
+              // Fall back to showing the definition
+              apiDetails = null;
             }
-            
-            if (apiDetails) {
-              console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
-              // Store related exercises
-              setRelatedExercises(relatedExCodes);
-            }
-          } catch (exerciseError) {
-            console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
-            // Fall back to showing the definition
-            apiDetails = null;
           }
         }
       }
-    }
-    
-    // If no specific exercise was found or we're not in practice mode, fetch the original node
-    if (!apiDetails) {
-      if (nodeOnClick.type === 'definition') {
-        const res = await getDefinitionByCode(nodeOnClick.id);
-        apiDetails = Array.isArray(res) ? res[0] : res;
-      } else {
-        const res = await getExerciseByCode(nodeOnClick.id);
-        apiDetails = Array.isArray(res) ? res[0] : res;
-      }
       
+      // If no specific exercise was found or we're not in practice mode, fetch the original node
+      if (!apiDetails) {
+        if (nodeOnClick.type === 'definition') {
+          const res = await getDefinitionByCode(nodeOnClick.id);
+          apiDetails = Array.isArray(res) ? res[0] : res;
+        } else {
+          const res = await getExerciseByCode(nodeOnClick.id);
+          apiDetails = Array.isArray(res) ? res[0] : res;
+        }
+        
+        if (apiDetails) {
+          setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
+          setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
+        }
+      }
+
+      // Convert API details to local format
       if (apiDetails) {
-        setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
-        setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
-      }
-    }
+        const localDetails: Definition | Exercise = {
+          ...apiDetails,
+          code: apiDetails.code, 
+          name: apiDetails.name,
+          type: nodeOnClick.type,
+          description: apiDetails.description,
+          ...(nodeOnClick.type === 'exercise' && { 
+            difficulty: (apiDetails as ApiExercise).difficulty || '3',
+            statement: (apiDetails as ApiExercise).statement,
+            hints: (apiDetails as ApiExercise).hints,
+            verifiable: (apiDetails as ApiExercise).verifiable,
+            result: (apiDetails as ApiExercise).result,
+          }),
+          prerequisites: apiDetails.prerequisites || [],
+        };
+        setSelectedNodeDetails(localDetails);
 
-    // Convert API details to local format (from HEAD)
-    if (apiDetails) {
-      const localDetails: Definition | Exercise = {
-        ...apiDetails,
-        code: apiDetails.code, 
-        name: apiDetails.name,
-        type: nodeOnClick.type,
-        description: apiDetails.description,
-        ...(nodeOnClick.type === 'exercise' && { 
-          difficulty: (apiDetails as ApiExercise).difficulty || '3',
-          statement: (apiDetails as ApiExercise).statement,
-          hints: (apiDetails as ApiExercise).hints,
-          verifiable: (apiDetails as ApiExercise).verifiable,
-          result: (apiDetails as ApiExercise).result,
-        }),
-        prerequisites: apiDetails.prerequisites || [],
-      };
-      setSelectedNodeDetails(localDetails);
+        setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
+        setShowSolution(false);
+        setShowHints(false);
+        setSelectedDefinitionIndex(0);
 
-      setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
-      setShowSolution(false);
-      setShowHints(false);
-      setSelectedDefinitionIndex(0);
-
-      // Handle related exercises (adapted from both versions)
-      if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises && !relatedExercises.length) {
-        const defCode = nodeOnClick.id;
-        const relEx = Object.values(currentStructuralGraphData.exercises)
-          .filter(ex => ex.prerequisites?.includes(defCode))
-          .map(ex => ex.code);
-        setRelatedExercises(relEx);
-      } else if (nodeOnClick.type === 'exercise') {
+        // Handle related exercises
+        if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises && !relatedExercises.length) {
+          const defCode = nodeOnClick.id;
+          const relEx = Object.values(currentStructuralGraphData.exercises)
+            .filter(ex => ex.prerequisites?.includes(defCode))
+            .map(ex => ex.code);
+          setRelatedExercises(relEx);
+        } else if (nodeOnClick.type === 'exercise') {
+          setRelatedExercises([]);
+        }
+      } else {
+        setSelectedNodeDetails(null);
         setRelatedExercises([]);
+        showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
       }
-    } else {
+    } catch (error) {
+      console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
+      showToast(error instanceof Error ? error.message : "Failed to fetch node details.", "error");
       setSelectedNodeDetails(null);
-      setRelatedExercises([]);
-      showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
     }
-  } catch (error) {
-    console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
-    showToast(error instanceof Error ? error.message : "Failed to fetch node details.", "error");
-    setSelectedNodeDetails(null);
-  }
 
-  if (!isRefresh) {
-    setShowRightPanel(true);
-    if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
-      graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
-      graphRef.current.zoom(2.5, 800);
+    if (!isRefresh) {
+      setShowRightPanel(true);
+      if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
+        graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
+        graphRef.current.zoom(2.5, 800);
+      }
     }
-  }
-}, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, relatedExercises.length]);
+  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, relatedExercises.length]);
 
   const refreshGraphAndSRSData = useCallback(async () => {
     setIsProcessingData(true);
@@ -367,12 +371,9 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     }
   }, [subjectMatterId, srs, selectedNode, handleNodeClick, loadComprehensiveDomainData, nodeDataCache]);
 
-  // ==============================================================================
-  // 5. REPLACE THE GRAPH BUILDING USEEFFECT
-  // ==============================================================================
-
-const useEffect(() => {
-    // FIX: Create stable data key to prevent unnecessary re-processing
+  // Build graph data effect
+  useEffect(() => {
+    // Create stable data key to prevent unnecessary re-processing
     const dataKey = `${Object.keys(currentStructuralGraphData.definitions || {}).length}-${Object.keys(currentStructuralGraphData.exercises || {}).length}-${mode}-${srs.state.lastUpdated}`;
     
     if (lastProcessedDataKey.current === dataKey) {
@@ -386,7 +387,7 @@ const useEffect(() => {
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
 
-    // Process definitions (combining both approaches)
+    // Process definitions
     Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
       if (!def || !def.code || !def.name) return;
       
@@ -394,7 +395,7 @@ const useEffect(() => {
       const progress = numericId ? srs.getNodeProgress(numericId, 'definition') : null;
       
       nodes.push({
-        id: def.code, // Use code as ID (from a02e2d1)
+        id: def.code,
         name: def.name,
         type: 'definition',
         isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
@@ -402,17 +403,15 @@ const useEffect(() => {
         yPosition: def.yPosition,
         fx: def.xPosition,
         fy: def.yPosition,
-        // SRS properties from HEAD
         status: progress?.status || 'fresh',
         isDue: progress ? isNodeDue(progress.nextReview) : false,
         daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
         progress: progress || null,
-        // Additional properties from a02e2d1
         domainId: def.domainId,
         prerequisites: def.prerequisites
       });
       
-      // Create links with weights (from HEAD)
+      // Create links with weights
       (def.prerequisites || []).forEach(prereqCode => {
         const weight = def.prerequisiteWeights?.[prereqCode] ?? 1.0;
         links.push({ 
@@ -424,7 +423,7 @@ const useEffect(() => {
       });
     });
 
-    // Process exercises (only in practice mode) - combining both approaches
+    // Process exercises (only in practice mode)
     if (mode === 'practice' && currentStructuralGraphData.exercises) {
       Object.values(currentStructuralGraphData.exercises).forEach(ex => {
         if (!ex || !ex.code || !ex.name) return;
@@ -433,7 +432,7 @@ const useEffect(() => {
         const progress = numericId ? srs.getNodeProgress(numericId, 'exercise') : null;
         
         nodes.push({
-          id: ex.code, // Use code as ID (from a02e2d1)
+          id: ex.code,
           name: ex.name,
           type: 'exercise',
           difficulty: ex.difficulty,
@@ -441,17 +440,15 @@ const useEffect(() => {
           yPosition: ex.yPosition,
           fx: ex.xPosition,
           fy: ex.yPosition,
-          // SRS properties from HEAD
           status: progress?.status || 'fresh',
           isDue: progress ? isNodeDue(progress.nextReview) : false,
           daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
           progress: progress || null,
-          // Additional properties from a02e2d1
           domainId: ex.domainId,
           prerequisites: ex.prerequisites
         });
         
-        // Create links with weights for exercises (from HEAD with a02e2d1 validation)
+        // Create links with weights for exercises
         (ex.prerequisites || []).forEach(prereqCode => {
           const prereqNode = nodes.find(n => n.id === prereqCode && n.type === 'definition');
           if (prereqNode) {
@@ -476,140 +473,6 @@ const useEffect(() => {
     setIsProcessingData(false);
   }, [currentStructuralGraphData, mode, srs.state.lastUpdated, codeToNumericIdMap]);
 
-// Handle node click - resolved version
-const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
-  if (!nodeOnClick || !nodeOnClick.id) return;
-
-  if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
-    setNodeHistory(prev => [...prev, selectedNode.id]);
-  }
-
-  setSelectedNode(nodeOnClick);
-  setIsEditMode(false);
-  setAnswerFeedback(null);
-  setUserAnswer('');
-  setExerciseAttemptCompleted(false);
-
-  try {
-    let details: Definition | Exercise | null = null;
-    const code = nodeOnClick.id;
-
-    // Check cache first (from HEAD)
-    let apiDetails: ApiDefinition | ApiExercise | null = nodeDataCache.get(nodeOnClick.id) || null;
-    
-    // Determine what to fetch based on mode and node type (combining both approaches)
-    if (mode === 'practice' && nodeOnClick.type === 'definition') {
-      // In practice mode, when clicking a definition node, check for related exercises first
-      if (currentStructuralGraphData.exercises) {
-        console.log("Checking for related exercises to definition:", code);
-        console.log("Available exercises:", Object.values(currentStructuralGraphData.exercises));
-        
-        // Fix from a02e2d1: Look for exercises that have this definition as prerequisite
-        const relatedExCodes = Object.values(currentStructuralGraphData.exercises)
-          .filter(ex => ex.prerequisites?.includes(code))
-          .map(ex => ex.code);
-        
-        console.log("Found related exercises:", relatedExCodes);
-        
-        if (relatedExCodes.length > 0) {
-          console.log("encontre");  
-          // If there are related exercises, fetch the first one
-          const exerciseCode = relatedExCodes[0];
-          try {
-            apiDetails = nodeDataCache.get(exerciseCode) || null;
-            if (!apiDetails) {
-              const exerciseResponse = await getExerciseByCode(exerciseCode);
-              apiDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
-              if (apiDetails) {
-                setNodeDataCache(prev => new Map(prev).set(exerciseCode, apiDetails!));
-                setCodeToNumericIdMap(prev => new Map(prev).set(exerciseCode, apiDetails!.id));
-              }
-            }
-            
-            if (apiDetails) {
-              console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
-              // Store related exercises
-              setRelatedExercises(relatedExCodes);
-            }
-          } catch (exerciseError) {
-            console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
-            // Fall back to showing the definition
-            apiDetails = null;
-          }
-        }
-      }
-    }
-    
-    // If no specific exercise was found or we're not in practice mode, fetch the original node
-    if (!apiDetails) {
-      if (nodeOnClick.type === 'definition') {
-        const res = await getDefinitionByCode(nodeOnClick.id);
-        apiDetails = Array.isArray(res) ? res[0] : res;
-      } else {
-        const res = await getExerciseByCode(nodeOnClick.id);
-        apiDetails = Array.isArray(res) ? res[0] : res;
-      }
-      
-      if (apiDetails) {
-        setNodeDataCache(prev => new Map(prev).set(nodeOnClick.id, apiDetails!));
-        setCodeToNumericIdMap(prev => new Map(prev).set(nodeOnClick.id, apiDetails!.id));
-      }
-    }
-
-    // Convert API details to local format (from HEAD)
-    if (apiDetails) {
-      const localDetails: Definition | Exercise = {
-        ...apiDetails,
-        code: apiDetails.code, 
-        name: apiDetails.name,
-        type: nodeOnClick.type,
-        description: apiDetails.description,
-        ...(nodeOnClick.type === 'exercise' && { 
-          difficulty: (apiDetails as ApiExercise).difficulty || '3',
-          statement: (apiDetails as ApiExercise).statement,
-          hints: (apiDetails as ApiExercise).hints,
-          verifiable: (apiDetails as ApiExercise).verifiable,
-          result: (apiDetails as ApiExercise).result,
-        }),
-        prerequisites: apiDetails.prerequisites || [],
-      };
-      setSelectedNodeDetails(localDetails);
-
-      setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
-      setShowSolution(false);
-      setShowHints(false);
-      setSelectedDefinitionIndex(0);
-
-      // Handle related exercises (adapted from both versions)
-      if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises && !relatedExercises.length) {
-        const defCode = nodeOnClick.id;
-        const relEx = Object.values(currentStructuralGraphData.exercises)
-          .filter(ex => ex.prerequisites?.includes(defCode))
-          .map(ex => ex.code);
-        setRelatedExercises(relEx);
-      } else if (nodeOnClick.type === 'exercise') {
-        setRelatedExercises([]);
-      }
-    } else {
-      setSelectedNodeDetails(null);
-      setRelatedExercises([]);
-      showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
-    }
-  } catch (error) {
-    console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
-    showToast(error instanceof Error ? error.message : "Failed to fetch node details.", "error");
-    setSelectedNodeDetails(null);
-  }
-
-  if (!isRefresh) {
-    setShowRightPanel(true);
-    if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
-      graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
-      graphRef.current.zoom(2.5, 800);
-    }
-  }
-}, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, relatedExercises.length]);
-
   useEffect(() => {
     if (!isProcessingData && graphRef.current && graphNodes.length > 0) {
       setTimeout(() => {
@@ -618,7 +481,7 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     }
   }, [isProcessingData, graphNodes.length]);
 
-  // FIX: Add cleanup effect
+  // Cleanup effect
   useEffect(() => {
     return () => {
       if (refreshTimeoutRef.current) {
@@ -669,352 +532,6 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     }
     return Array.isArray(detail.description) ? detail.description.length : 1;
   }, [selectedNodeDetails]);
-
-  // Handle definition edit form submission
-  const handleDefinitionEditSubmit = async () => {
-    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'definition') return;
-
-    try {
-      // Get form values
-      const nameInput = document.getElementById('name') as HTMLInputElement;
-      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
-      const notesInput = document.getElementById('notes') as HTMLTextAreaElement;
-      const referencesInput = document.getElementById('references') as HTMLTextAreaElement;
-
-      const name = nameInput?.value || selectedNodeDetails.name;
-
-      // Handle multiple descriptions
-      let description = descriptionInput?.value || '';
-      // If we're editing a specific version of multiple descriptions
-      if (hasMultipleDescriptions()) {
-        let descriptions = [];
-
-        if (typeof selectedNodeDetails.description === 'string' && selectedNodeDetails.description.includes('|||')) {
-          descriptions = selectedNodeDetails.description.split('|||');
-        } else if (Array.isArray(selectedNodeDetails.description)) {
-          descriptions = [...selectedNodeDetails.description];
-        }
-
-        // Update only the current description
-        descriptions[selectedDefinitionIndex] = description;
-        description = descriptions.join('|||');  // Join with delimiter for API
-      }
-
-      const notes = notesInput?.value || '';
-      const references = referencesInput?.value.split('\n').filter(r => r.trim() !== '');
-
-      // Get selected prerequisites
-      const prerequisiteSelectElement = document.getElementById('prerequisites') as HTMLSelectElement;
-      const selectedPrereqCodes = Array.from(prerequisiteSelectElement?.selectedOptions || [])
-        .map(option => option.value);
-
-      console.log("Selected prerequisite codes:", selectedPrereqCodes);
-
-      // Map selected codes to their numeric IDs for the API
-      const prerequisiteIds: number[] = [];
-      for (const code of selectedPrereqCodes) {
-        try {
-          const id = await getDefinitionIdByCode(code);
-          prerequisiteIds.push(id);
-        } catch (error) {
-          console.error(`Failed to get ID for prerequisite code ${code}`, error);
-          alert(`Error: Could not find prerequisite definition '${code}'. It will not be saved.`);
-        }
-      }
-
-      // Prepare update data
-      const updateData = {
-        name,
-        description,
-        notes,
-        references,
-        prerequisiteIds
-      };
-
-      // Get definition ID from node ID
-      const definitionCode = selectedNode.id;
-      const definitionId = await getDefinitionIdByCode(definitionCode);
-
-      // Update the definition
-      const updatedDef = await updateDefinition(definitionId, updateData);
-
-      // Success message
-      console.log("Definition updated successfully:", updatedDef);
-
-      // Refresh the node details immediately
-      if (updatedDef) {
-        updatedDef.type = 'definition';
-        setSelectedNodeDetails(updatedDef);
-      } else {
-        // If the API doesn't return the updated object, fetch it
-        const refreshedDef = await getDefinitionByCode(definitionCode);
-        const details = Array.isArray(refreshedDef) ? refreshedDef[0] : refreshedDef;
-        if (details) {
-          details.type = 'definition';
-          setSelectedNodeDetails(details);
-        }
-      }
-
-      // Refresh graph to update other nodes if needed
-      refreshGraph();
-
-      // Exit edit mode
-      setIsEditMode(false);
-    } catch (error) {
-      console.error('Failed to update definition:', error);
-      alert(`Failed to update definition: ${error.message || 'Unknown error'}`);
-    }
-  };
-
-  // Handle exercise edit form submission
-  const handleExerciseEditSubmit = async () => {
-    if (!selectedNode || !selectedNodeDetails || selectedNode.type !== 'exercise') return;
-
-    try {
-      // Get form values
-      const nameInput = document.getElementById('name') as HTMLInputElement;
-      const statementInput = document.getElementById('statement') as HTMLTextAreaElement;
-      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
-      const hintsInput = document.getElementById('hints') as HTMLTextAreaElement;
-      const difficultyInput = document.getElementById('difficulty') as HTMLInputElement;
-      const verifiableInput = document.getElementById('verifiable') as HTMLInputElement;
-      const resultInput = document.getElementById('result') as HTMLInputElement;
-
-      const name = nameInput?.value || selectedNodeDetails.name;
-      const statement = statementInput?.value || '';
-      const description = descriptionInput?.value || '';
-      const hints = hintsInput?.value || '';
-
-      // Ensure difficulty is a valid number between 1-7
-      const rawDifficulty = difficultyInput?.value || '3';
-      const validatedDifficulty = Math.min(7, Math.max(1, parseInt(rawDifficulty, 10))).toString();
-
-      const verifiable = verifiableInput?.checked || false;
-      const result = verifiable ? (resultInput?.value || '') : undefined;
-
-      // Get selected prerequisites
-      const prerequisiteSelectElement = document.getElementById('prerequisites') as HTMLSelectElement;
-      const selectedPrereqCodes = Array.from(prerequisiteSelectElement?.selectedOptions || [])
-        .map(option => option.value);
-
-      console.log("Selected prerequisite codes:", selectedPrereqCodes);
-
-      // Map selected codes to their numeric IDs for the API
-      const prerequisiteIds: number[] = [];
-      for (const code of selectedPrereqCodes) {
-        try {
-          const id = await getDefinitionIdByCode(code);
-          prerequisiteIds.push(id);
-        } catch (error) {
-          console.error(`Failed to get ID for prerequisite code ${code}`, error);
-          alert(`Error: Could not find prerequisite definition '${code}'. It will not be saved.`);
-        }
-      }
-
-      // Prepare update data
-      const updateData = {
-        name,
-        statement,
-        description,
-        hints,
-        difficulty: validatedDifficulty,
-        verifiable,
-        result,
-        prerequisiteIds
-      };
-
-      // Get exercise ID from node ID
-      const exerciseCode = selectedNode.id;
-      const exerciseId = await getExerciseIdByCode(exerciseCode);
-
-      // Update the exercise
-      const updatedEx = await updateExercise(exerciseId, updateData);
-
-      // Success message
-      console.log("Exercise updated successfully:", updatedEx);
-
-      // Refresh the node details immediately
-      if (updatedEx) {
-        updatedEx.type = 'exercise';
-        setSelectedNodeDetails(updatedEx);
-      } else {
-        // If the API doesn't return the updated object, fetch it
-        const refreshedEx = await getExerciseByCode(exerciseCode);
-        const details = Array.isArray(refreshedEx) ? refreshedEx[0] : refreshedEx;
-        if (details) {
-          details.type = 'exercise';
-          setSelectedNodeDetails(details);
-        }
-      }
-
-      // Refresh graph to update other nodes if needed
-      refreshGraph();
-
-      // Exit edit mode
-      setIsEditMode(false);
-    } catch (error) {
-      console.error('Failed to update exercise:', error);
-      alert(`Failed to update exercise: ${error.message || 'Unknown error'}`);
-    }
-  };
-
-  // Calculate filtered nodes based on search and filters
-  const filteredNodes = useCallback(() => {
-    let filtered = [...graphNodes];
-
-    // Filter by type
-    if (filteredNodeType !== 'all') {
-      filtered = filtered.filter(node => node.type === filteredNodeType);
-    }
-
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(node =>
-        node.id.toLowerCase().includes(query) ||
-        node.name.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered.sort((a, b) => a.id.localeCompare(b.id));
-  }, [graphNodes, filteredNodeType, searchQuery]);
-
-  // Handle node selection
-  const handleNodeClick = useCallback(async (node: GraphNode) => {
-    if (!node || !node.id) {
-      console.warn("Node click received invalid node object:", node);
-      return;
-    }
-
-    // Extract core data from node
-    const clickedNodeData: GraphNode = {
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      isRootDefinition: node.isRootDefinition,
-      difficulty: node.difficulty,
-      xPosition: node.xPosition ?? node.fx,
-      yPosition: node.yPosition ?? node.fy,
-    };
-
-    console.log(`Node clicked: ${clickedNodeData.id} (${clickedNodeData.type})`);
-
-    // Store previous node in history
-    if (selectedNode && selectedNode.id !== clickedNodeData.id) {
-      setNodeHistory([...nodeHistory, selectedNode.id]);
-    }
-
-    // Set new selected node
-    setSelectedNode(clickedNodeData);
-
-    // Reset view state
-    setIsEditMode(false);
-    setAnswerFeedback(null);
-    setUserAnswer('');
-
-    // Fetch node details
-    try {
-      let details: Definition | Exercise | null = null;
-      const code = clickedNodeData.id;
-
-      // Determine what to fetch based on mode and node type
-      if (mode === 'practice' && clickedNodeData.type === 'definition') {
-        // In practice mode, when clicking a definition node, check for related exercises first
-        if (graphData.exercises) {
-	console.log("Checking for related exercises to definition:", code);
-	console.log("Available exercises:", Object.values(graphDataState.exercises));
-    
-	const relatedExCodes = Object.values(graphDataState.exercises)
-      	.filter(ex => ex.code === code)
-	.map(ex => ex.code);
-    
-	console.log("Found related exercises:", relatedExCodes);
-          if (relatedExCodes.length > 0) {
-	    console.log("encontre");  
-            // If there are related exercises, fetch the first one
-            const exerciseCode = relatedExCodes[0];
-            try {
-              const exerciseResponse = await getExerciseByCode(exerciseCode);
-              const exerciseDetails = Array.isArray(exerciseResponse) ? exerciseResponse[0] : exerciseResponse;
-              
-              if (exerciseDetails) {
-                exerciseDetails.type = 'exercise';
-                details = exerciseDetails;
-                console.log(`Showing related exercise ${exerciseCode} instead of definition ${code} in practice mode`);
-                
-                // Store related exercises
-                setRelatedExercises(relatedExCodes);
-              }
-            } catch (exerciseError) {
-              console.warn(`Could not fetch related exercise for ${code}:`, exerciseError);
-              // Fall back to showing the definition
-            }
-          }
-        }
-        // If no related exercise was found or fetched, fall back to showing the definition
-        if (!details) {
-          const response = await getDefinitionByCode(code);
-          details = Array.isArray(response) ? response[0] : response;
-          if (details) {
-            details.type = 'definition';
-          }
-        }
-      } else if (clickedNodeData.type === 'definition') {
-        // In study mode or other cases, show the definition
-        const response = await getDefinitionByCode(code);
-        details = Array.isArray(response) ? response[0] : response;
-        if (details) {
-          details.type = 'definition';
-        }
-      } else if (clickedNodeData.type === 'exercise') {
-        // For exercise nodes, always show the exercise
-        const response = await getExerciseByCode(code);
-        details = Array.isArray(response) ? response[0] : response;
-        if (details) {
-          details.type = 'exercise';
-        }
-      }
-
-      if (details) {
-        console.log(`Fetched details for ${code}:`, details);
-        setSelectedNodeDetails(details);
-
-        // Set view state based on details
-        setShowDefinition(mode !== 'study');
-        setShowSolution(false);
-        setShowHints(false);
-        setSelectedDefinitionIndex(0);
-
-        // Find related exercises for definitions if not already set
-        if (details.type === 'definition' && graphData.exercises && !relatedExercises.length) {
-          const definitionCode = details.code;
-          const relatedExCodes = Object.values(graphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(definitionCode))
-            .map(ex => ex.code);
-          setRelatedExercises(relatedExCodes);
-        } else if (details.type === 'exercise') {
-          setRelatedExercises([]);
-        }
-      } else {
-        console.warn(`Details not found for node ${code}`);
-        setSelectedNodeDetails(null);
-        setRelatedExercises([]);
-      }
-    } catch (error) {
-      console.error(`Error fetching details for node ${clickedNodeData.id}:`, error);
-      setSelectedNodeDetails(null);
-      setRelatedExercises([]);
-    }
-
-    // Show panel
-    setShowRightPanel(true);
-
-    // Center view on node
-    if (graphRef.current && node.x !== undefined && node.y !== undefined) {
-      graphRef.current.centerAt(node.x, node.y, 1000);
-      graphRef.current.zoom(2, 1000);
-    }
-  }, [selectedNode, nodeHistory, graphData.exercises, mode, relatedExercises.length]);
 
   // Handle navigating to a specific node
   const navigateToNode = useCallback((nodeId: string) => {
@@ -1079,11 +596,7 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     }
   }, []);
 
-  // ==============================================================================
-  // 4. REPLACE THESE CALLBACK FUNCTIONS IN KnowledgeGraph
-  // ==============================================================================
-
-  // FIX: Debounced node refresh
+  // Debounced node refresh
   const refreshNodeAfterReview = useCallback(
     debounce(async (nodeToRefresh: GraphNode) => {
       if (nodeToRefresh && nodeToRefresh.id) {
@@ -1094,7 +607,7 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     [handleNodeClick]
   );
 
-  // FIX: Updated review definition handler
+  // Updated review definition handler
   const handleReviewDefinition = useCallback(async (qualityInput: 'again' | 'hard' | 'good' | 'easy') => {
     if (!selectedNode || selectedNode.type !== 'definition' || !selectedNodeDetails) return;
     
@@ -1126,7 +639,6 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
       await srs.submitReview(reviewData);
       showToast(`Definition "${selectedNode.name}" reviewed as ${qualityInput}.`, "success");
       
-      // FIX: Use debounced refresh
       const nodeToRefresh = { ...selectedNode };
       refreshNodeAfterReview(nodeToRefresh);
       
@@ -1149,7 +661,7 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     if(!showSolution) setShowSolution(true);
   }, [selectedNode, selectedNodeDetails, userAnswer, showSolution]);
 
-  // FIX: Updated exercise rating handler  
+  // Updated exercise rating handler  
   const handleRateExerciseUnderstanding = useCallback(async (qualityInput: 'again' | 'hard' | 'good' | 'easy') => {
     if (!selectedNode || selectedNode.type !== 'exercise' || !selectedNodeDetails) return;
     
@@ -1185,7 +697,6 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
       setExerciseAttemptCompleted(false);
       setAnswerFeedback(null);
       
-      // FIX: Use debounced refresh
       const nodeToRefresh = { ...selectedNode };
       refreshNodeAfterReview(nodeToRefresh);
       
@@ -1194,7 +705,7 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     }
   }, [selectedNode, selectedNodeDetails, srs, answerFeedback, codeToNumericIdMap, refreshNodeAfterReview]);
 
-  // FIX: Updated status change handler
+  // Updated status change handler
   const handleStatusChange = useCallback(async (nodeDBId: string, status: NodeStatus) => {
     if (!selectedNode) return;
     
@@ -1209,7 +720,6 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     try {
       await srs.updateNodeStatus(numericNodeId, selectedNode.type, status);
       
-      // FIX: Use debounced refresh
       const nodeToRefresh = { ...selectedNode };
       refreshNodeAfterReview(nodeToRefresh);
       
@@ -1445,7 +955,7 @@ const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: bo
     return availableDefs;
   }, [graphNodes, codeToNumericIdMap]);
 
-  // FIX: Memoize credit flow animations to prevent unnecessary re-renders
+  // Memoize credit flow animations to prevent unnecessary re-renders
   const memoizedCreditFlowAnimations = useMemo(() => {
     return srs.state.creditFlowAnimations;
   }, [srs.state.creditFlowAnimations]);
