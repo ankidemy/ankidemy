@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from 'react'
-import Layout from "@/app/layout";
 import Navbar from "@/app/components/Navbar";
 import DashBoard from "@/app/components/DashBoard";
 import Sidebar from "@/app/components/Sidebar";
@@ -13,10 +12,10 @@ export default function Dashboard() {
   const closeSidebar = () => setSidebarOpen(false)
   
   return (
-    <Layout>
+    <>
       <Navbar onMenuClick={openSidebar} />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <DashBoard />
-    </Layout>
+    </>
   );
 }

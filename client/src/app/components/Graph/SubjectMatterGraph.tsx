@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from "@/app/components/core/button";
-import { Plus } from 'lucide-react';
+import { Plus, Info } from 'lucide-react';
 
 // Import ForceGraph dynamically to avoid SSR issues
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -29,9 +29,42 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
   onCreateSubjectMatter
 }) => {
   const graphRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
   const [hoveredNode, setHoveredNode] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  // Track container dimensions
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setDimensions({
+          width: rect.width || 800, // fallback width
+          height: rect.height || 400  // fallback height
+        });
+      }
+    };
+
+    // Initial measurement
+    updateDimensions();
+
+    // Use ResizeObserver for more accurate dimension tracking
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    // Fallback with window resize
+    window.addEventListener('resize', updateDimensions);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -41,7 +74,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
         name: subject.name,
         nodeCount: subject.nodeCount || 0,
         exerciseCount: subject.exerciseCount || 0,
-        val: Math.max(8, Math.min(25, 8 + (subject.nodeCount || 0) / 3)) // Better size calculation
+        val: Math.max(8, Math.min(25, 8 + (subject.nodeCount || 0) / 3))
       }));
       
       // Create minimal links between nodes to form an interesting structure
@@ -55,7 +88,6 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
             links.push({
               source: nodes[centerIndex].id,
               target: nodes[i].id,
-              // Make link strength weaker for larger graphs to spread out more
               value: 1 / Math.log(nodes.length + 1)
             });
           }
@@ -66,14 +98,13 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
         for (let i = 0; i < extraLinks; i++) {
           const source = Math.floor(Math.random() * nodes.length);
           let target = Math.floor(Math.random() * nodes.length);
-          // Ensure no self-links
           while (target === source) {
             target = Math.floor(Math.random() * nodes.length);
           }
           links.push({
             source: nodes[source].id,
             target: nodes[target].id,
-            value: 0.5 // Weaker links for these random connections
+            value: 0.5
           });
         }
       }
@@ -85,19 +116,41 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
     }
   }, [subjectMatters]);
 
-  // Zoom to fit when first rendered
-  useEffect(() => {
-    if (graphRef.current && graphData.nodes.length > 0) {
+  // Fit graph to view - with proper timing and dimension awareness
+  const fitGraphToView = useCallback(() => {
+    if (graphRef.current && graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0) {
+      // Small delay to ensure everything is rendered
       setTimeout(() => {
-        graphRef.current.zoomToFit(400);
-      }, 500);
+        if (graphRef.current) {
+          try {
+            // Fit to view with proper padding
+            const padding = Math.min(dimensions.width, dimensions.height) * 0.1; // 10% padding
+            graphRef.current.zoomToFit(400, padding);
+            
+            console.log('Graph fitted to view with dimensions:', dimensions);
+          } catch (error) {
+            console.error('Error fitting graph to view:', error);
+          }
+        }
+      }, 200);
     }
-  }, [graphData]);
+  }, [graphData.nodes.length, dimensions]);
+
+  // Handle engine stop
+  const handleEngineStop = useCallback(() => {
+    fitGraphToView();
+  }, [fitGraphToView]);
+
+  // Fit graph when dimensions change
+  useEffect(() => {
+    if (graphData.nodes.length > 0) {
+      fitGraphToView();
+    }
+  }, [dimensions, fitGraphToView, graphData.nodes.length]);
 
   // Custom node renderer with error handling
   const nodeCanvasObject = (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     try {
-      // Validate coordinates to prevent non-finite values
       const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
       const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
       const name = node.name || 'Unknown';
@@ -111,8 +164,8 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
       const baseSize = Math.max(6, Math.min(12, 6 + (nodeCount / 5)));
       const size = isHovered ? baseSize * 1.3 : baseSize;
       const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-      gradient.addColorStop(0, 'rgba(249, 115, 22, 0.8)'); // Orange core
-      gradient.addColorStop(1, 'rgba(249, 115, 22, 0.4)'); // Faded edge
+      gradient.addColorStop(0, 'rgba(249, 115, 22, 0.8)');
+      gradient.addColorStop(1, 'rgba(249, 115, 22, 0.4)');
       
       ctx.beginPath();
       ctx.fillStyle = gradient;
@@ -153,10 +206,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
         ctx.shadowColor = 'transparent';
       }
     } catch (err) {
-      // Fallback rendering if an error occurs
       console.error("Error rendering node:", err);
-      
-      // Use safe values for coordinates
       const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
       const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
       
@@ -173,27 +223,24 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
       const source = typeof link.source === 'object' ? link.source.id : link.source;
       const target = typeof link.target === 'object' ? link.target.id : link.target;
       
-      const sourceNode = graphData.nodes.find(n => n.id === source);
-      const targetNode = graphData.nodes.find(n => n.id === target);
-      
       const isHovered = hoveredNode && 
         (hoveredNode.id === source || hoveredNode.id === target);
       
       return isHovered ? 'rgba(249, 115, 22, 0.6)' : 'rgba(249, 115, 22, 0.2)';
     } catch (err) {
-      return 'rgba(249, 115, 22, 0.2)'; // Default color on error
+      return 'rgba(249, 115, 22, 0.2)';
     }
   };
 
   if (error) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-50">
-        <div className="text-red-500 max-w-md p-6 bg-white rounded shadow-md">
+        <div className="text-red-500 max-w-md p-6 bg-white rounded-xl shadow-md">
           <h3 className="text-xl font-semibold mb-2">Error Loading Visualization</h3>
           <p>{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
           >
             Retry
           </button>
@@ -203,34 +250,79 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
   }
 
   return (
-    <div className="w-full h-full bg-gray-50 relative">
-      <div className="absolute top-4 left-4 z-10 p-4 bg-white rounded shadow-md max-w-md">
-        <h2 className="text-xl font-bold mb-2 text-orange-500">Knowledge Domains</h2>
-        <p className="text-gray-600 mb-4">
-          Click on a knowledge domain to explore its graph. 
-          {subjectMatters.length === 0 && " You haven't created any domains yet."}
-        </p>
-        
-        {onCreateSubjectMatter && (
-          <Button 
-            onClick={onCreateSubjectMatter}
-            className="flex items-center"
+    <div 
+      ref={containerRef}
+      className="w-full h-full bg-gray-50 relative"
+      style={{ minHeight: '300px' }} // Ensure minimum height
+    >
+      {/* Minimized info panel - only show when needed */}
+      {subjectMatters.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="text-center p-8 bg-white rounded-xl shadow-lg max-w-sm">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">No Domains Yet</h3>
+            <p className="text-gray-600 mb-4">Create your first knowledge domain to get started.</p>
+            {onCreateSubjectMatter && (
+              <Button 
+                onClick={onCreateSubjectMatter}
+                className="flex items-center justify-center"
+              >
+                <Plus size={16} className="mr-1" />
+                Create Domain
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Small help button */}
+      {subjectMatters.length > 0 && (
+        <div className="absolute top-4 left-4 z-10">
+          <button
+            onClick={() => setShowInfo(!showInfo)}
+            className="p-2 bg-white rounded-full shadow-md hover:shadow-lg transition-all duration-200"
+            title="Help"
           >
-            <Plus size={16} className="mr-1" />
-            Create Domain
-          </Button>
-        )}
-      </div>
+            <Info size={16} className="text-gray-600" />
+          </button>
+          
+          {showInfo && (
+            <div className="absolute top-12 left-0 p-4 bg-white rounded-lg shadow-lg max-w-xs z-20">
+              <p className="text-sm text-gray-600 mb-2">
+                Click on a domain to explore its knowledge graph.
+              </p>
+              {onCreateSubjectMatter && (
+                <Button 
+                  onClick={onCreateSubjectMatter}
+                  size="sm"
+                  className="flex items-center w-full"
+                >
+                  <Plus size={14} className="mr-1" />
+                  Create Domain
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       
-      {graphData.nodes.length > 0 ? (
+      {/* Debug info - remove in production */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute top-4 right-4 text-xs text-gray-500 bg-white p-2 rounded">
+          {dimensions.width} x {dimensions.height}
+        </div>
+      )}
+      
+      {graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0 ? (
         <ForceGraph2D
           ref={graphRef}
           graphData={graphData}
+          width={dimensions.width}
+          height={dimensions.height}
           nodeId="id"
           nodeLabel="name"
           nodeVal="val"
           nodeCanvasObject={nodeCanvasObject}
-          nodeRelSize={3} // Reduced from 6
+          nodeRelSize={3}
           linkWidth={1}
           linkColor={getLinkColor}
           onNodeClick={(node) => {
@@ -242,27 +334,24 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
           onNodeHover={setHoveredNode}
           cooldownTicks={100}
           cooldownTime={2000}
+          onEngineStop={handleEngineStop}
           d3AlphaDecay={0.03}
           d3VelocityDecay={0.4}
           d3Force={(d3Force) => {
-            d3Force('charge').strength(-300); // Increased repulsion
-            d3Force('link').distance(80); // Reduced link distance
-            d3Force('center', d3Force.forceCenter().strength(1)); // Add centering force
+            d3Force('charge').strength(-300);
+            d3Force('link').distance(80);
+            d3Force('center', d3Force.forceCenter().strength(1));
           }}
           enableNodeDrag={true}
           enableZoomPanInteraction={true}
           minZoom={0.1}
           maxZoom={8}
         />
-      ) : (
+      ) : subjectMatters.length > 0 ? (
         <div className="h-full flex items-center justify-center">
-          <p className="text-xl text-gray-500">
-            {subjectMatters.length === 0 
-              ? "No knowledge domains available. Create one to get started." 
-              : "Loading domains..."}
-          </p>
+          <p className="text-lg text-gray-500">Loading domains...</p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
