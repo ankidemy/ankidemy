@@ -1,3 +1,4 @@
+// FILE: src/app/components/Graph/KnowledgeGraph.tsx
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -15,7 +16,11 @@ import {
   getDomainExercises,
   getDefinitionIdByCode,
   getExerciseIdByCode,
-  getDomain, // Added to get domain name
+  getDomain,
+  enrollInDomain,
+  getEnrolledDomains,
+  getCurrentUser,
+  User,
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
 import { getStatusColor, isNodeDue, calculateDaysUntilReview, formatNextReview } from '../../../lib/srs-api';
@@ -41,6 +46,7 @@ import RightPanel from './panels/RightPanel';
 import NodeCreationModal from './NodeCreationModal';
 import StudyModeModal from './StudyModeModal';
 import { showToast } from '@/app/components/core/ToastNotification';
+import EnrollmentModal from './EnrollmentModal';
 
 // ==============================================================================
 // 1. DEBOUNCE UTILITY
@@ -100,6 +106,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
   const [domainName, setDomainName] = useState<string>(subjectMatterId); // Store domain name
+  const [domainData, setDomainData] = useState<any>(null); // Store domain details
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isEnrolled, setIsEnrolled] = useState<boolean | null>(null); // Start with null to indicate loading
+  const [showEnrollmentModal, setShowEnrollmentModal] = useState(false);
 
   const [codeToNumericIdMap, setCodeToNumericIdMap] = useState<Map<string, number>>(new Map());
   const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise>>(new Map());
@@ -113,24 +123,77 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // FIX: Add refs to prevent infinite loops
   const lastProcessedDataKey = useRef<string>('');
   const refreshTimeoutRef = useRef<NodeJS.Timeout>();
+  const isInitializedRef = useRef<boolean>(false);
 
+  // Check user authentication and enrollment status
   useEffect(() => {
-    if (subjectMatterId && !isNaN(parseInt(subjectMatterId))) {
-      const domainId = parseInt(subjectMatterId);
-      srs.setCurrentDomain(domainId);
-      srs.loadDomainData(domainId).then(() => {
-         console.log("Initial SRS data loaded for domain:", domainId);
-      });
+    const checkUserAndEnrollment = async () => {
+      if (!subjectMatterId || isNaN(parseInt(subjectMatterId))) return;
       
-      // Load domain name
-      getDomain(domainId).then(domain => {
+      const domainId = parseInt(subjectMatterId);
+      
+      try {
+        // Get current user
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+        
+        // Get domain data
+        const domain = await getDomain(domainId);
+        setDomainData(domain);
         setDomainName(domain.name);
-      }).catch(error => {
-        console.warn("Could not load domain name:", error);
-        setDomainName(subjectMatterId); // Fallback to ID
-      });
-    }
-  }, [subjectMatterId, srs.setCurrentDomain, srs.loadDomainData]);
+        
+        // Check if user owns the domain or is enrolled
+        const userOwnsThisDomain = domain.ownerId === user.id;
+        
+        if (userOwnsThisDomain) {
+          setIsEnrolled(true);
+          // Only set current domain in SRS context for owners - SRSContext will handle loading
+          if (!isInitializedRef.current) {
+            srs.setCurrentDomain(domainId);
+            isInitializedRef.current = true;
+          }
+        } else {
+          // Check enrollment for non-owners
+          const enrolledDomains = await getEnrolledDomains();
+          const isUserEnrolled = enrolledDomains.some(d => d.id === domainId);
+          setIsEnrolled(isUserEnrolled);
+          
+          if (isUserEnrolled) {
+            // Only set current domain in SRS context for enrolled users - SRSContext will handle loading
+            if (!isInitializedRef.current) {
+              srs.setCurrentDomain(domainId);
+              isInitializedRef.current = true;
+            }
+          } else if (domain.privacy === 'public') {
+            // For public domains, show enrollment modal after a delay
+            setTimeout(() => {
+              setShowEnrollmentModal(true);
+            }, 1500); // Show modal after user has seen the graph
+          }
+        }
+      } catch (error) {
+        console.error("Error checking enrollment status:", error);
+        // If user is not authenticated, still try to load public domain
+        try {
+          const domain = await getDomain(domainId);
+          setDomainData(domain);
+          setDomainName(domain.name);
+          
+          if (domain.privacy === 'public') {
+            setIsEnrolled(false);
+            // Don't set SRS domain for non-authenticated users
+          } else {
+            showToast("This is a private domain. Please log in to access it.", "error");
+          }
+        } catch (domainError) {
+          console.error("Error loading domain:", domainError);
+          showToast("Failed to load domain information.", "error");
+        }
+      }
+    };
+    
+    checkUserAndEnrollment();
+  }, [subjectMatterId]); // REMOVED srs dependency
 
   useEffect(() => {
     setCurrentStructuralGraphData(initialGraphData);
@@ -307,7 +370,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       if (isNaN(domainIdNum)) throw new Error("Invalid domain ID for refresh.");
 
       await loadComprehensiveDomainData(domainIdNum);
-      await srs.refreshDomainData();
+      // Only refresh SRS data if user is enrolled
+      if (isEnrolled) {
+        await srs.refreshDomainData();
+      }
       
       showToast("Graph data refreshed!", "success");
 
@@ -333,7 +399,44 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setIsRefreshing(false); 
     }
-  }, [subjectMatterId, srs, selectedNode, handleNodeClick, loadComprehensiveDomainData, nodeDataCache]);
+  }, [subjectMatterId, selectedNode, handleNodeClick, loadComprehensiveDomainData, nodeDataCache, isEnrolled]);
+
+  // Handle enrollment
+  const handleEnrollment = useCallback(async () => {
+    if (!domainData || !currentUser) {
+      showToast("Please log in to enroll in domains", "error");
+      return;
+    }
+
+    try {
+      await enrollInDomain(domainData.id);
+      setIsEnrolled(true);
+      setShowEnrollmentModal(false);
+      
+      // Set up SRS context after enrollment
+      const domainId = parseInt(subjectMatterId);
+      if (!isInitializedRef.current) {
+        srs.setCurrentDomain(domainId);
+        isInitializedRef.current = true;
+      }
+      
+      showToast(`Successfully enrolled in "${domainData.name}"`, "success");
+    } catch (error) {
+      console.error("Error enrolling in domain:", error);
+      showToast("Failed to enroll in domain", "error");
+    }
+  }, [domainData, currentUser, subjectMatterId, srs]);
+
+  const handleContinueWithoutEnrollment = useCallback(() => {
+    setShowEnrollmentModal(false);
+    showToast("Browsing in limited access mode. Enroll to unlock all features.", "info");
+  }, []);
+
+  const handlePromptEnrollment = useCallback(() => {
+    if (domainData && domainData.privacy === 'public' && !isEnrolled) {
+      setShowEnrollmentModal(true);
+    }
+  }, [domainData, isEnrolled]);
 
   // Build graph data effect
   useEffect(() => {
@@ -636,6 +739,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   }, [mode]);
 
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
+    // Check enrollment first
+    if (!isEnrolled) {
+      handlePromptEnrollment();
+      return;
+    }
+
     let position: {x: number, y: number} | undefined = undefined;
     if (graphRef.current) {
         try {
@@ -668,7 +777,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, []);
+  }, [isEnrolled, handlePromptEnrollment, setNodeCreationType, setNodeCreationPosition, setShowNodeCreationModal]);
 
   const handleNodeCreationSuccess = useCallback(async (nodeCode: string) => {
     setShowNodeCreationModal(false);
@@ -954,21 +1063,26 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           position={nodeCreationPosition}
         />
         <StudyModeModal
-          isOpen={showStudyModeModal}
+          isOpen={showStudyModeModal && isEnrolled}
           onClose={() => setShowStudyModeModal(false)}
           domainId={parseInt(subjectMatterId, 10)}
         />
         <TopControls
-          subjectMatterId={domainName} // Use domain name instead of ID
+          subjectMatterId={domainName}
           mode={mode}
           onModeChange={changeMode}
-          onBack={onBack} // Use callback instead of router
+          onBack={onBack}
           showNodeLabels={showNodeLabels}
           onToggleNodeLabels={() => setShowNodeLabels(!showNodeLabels)}
           onZoomToFit={() => graphRef.current?.zoomToFit(400)}
-          onCreateDefinition={() => createNewNode('definition')}
-          onCreateExercise={() => createNewNode('exercise')}
-          onStartStudy={() => setShowStudyModeModal(true)}
+          onCreateDefinition={() => isEnrolled ? createNewNode('definition') : handlePromptEnrollment()}
+          onCreateExercise={() => isEnrolled ? createNewNode('exercise') : handlePromptEnrollment()}
+          onStartStudy={() => isEnrolled ? setShowStudyModeModal(true) : handlePromptEnrollment()}
+          positionsChanged={positionsChanged}
+          isSavingPositions={isSavingPositions}
+          onSavePositions={savePositions}
+          isEnrolled={isEnrolled}
+          onEnroll={handlePromptEnrollment}
         />
         <div className="flex flex-1 overflow-hidden relative">
           <div className={`absolute top-0 left-0 h-full z-20 bg-white border-r shadow-lg transition-transform duration-300 ease-in-out ${showLeftPanel ? 'translate-x-0 w-64' : '-translate-x-full w-64'}`}>
@@ -1016,6 +1130,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               </div>
             )}
             {!isProcessingData && !isRefreshing && graphNodes.length > 0 && <GraphLegend mode={mode} hasExercises={graphNodes.some(n => n.type === 'exercise')} />}
+            {/* Only show enrollment modal for public domains when enrollment status is determined */}
+            {isEnrolled === false && domainData?.privacy === 'public' && (
+              <EnrollmentModal
+                isOpen={showEnrollmentModal}
+                onClose={() => setShowEnrollmentModal(false)}
+                domain={domainData}
+                onEnrollmentSuccess={handleEnrollment}
+                onContinueWithoutEnrollment={handleContinueWithoutEnrollment}
+              />
+            )}
           </div>
           <div className={`absolute top-0 right-0 h-full z-20 bg-white border-l shadow-lg transition-transform duration-300 ease-in-out ${showRightPanel && selectedNode ? 'translate-x-0 w-80 md:w-96' : 'translate-x-full w-80 md:w-96'}`}>
             {showRightPanel && selectedNode && ( 

@@ -1,5 +1,6 @@
 // File: ./src/app/components/Graph/components/CreditFlowOverlay.tsx
 // src/app/components/Graph/components/CreditFlowOverlay.tsx
+
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
@@ -7,30 +8,33 @@ import { CreditFlowAnimation } from '@/types/srs';
 
 interface CreditFlowOverlayProps {
   animations: CreditFlowAnimation[];
-  nodePositions: Map<string, { x: number; y: number }>; // Map node ID to its current {x, y} position
-  graphRef: React.RefObject<any>; // Ref to the ForceGraph2D instance
+  nodePositions: Map<string, { x: number; y: number }>; 
+  graphRef: React.RefObject<any>; 
 }
 
 const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodePositions, graphRef }) => {
   const [activeParticles, setActiveParticles] = useState<any[]>([]);
   
-  // FIX: Use useRef instead of state for counter to avoid dependency issues
+  // FIX: Use a more robust counter system
   const particleCounterRef = useRef(0);
-  
-  // FIX: Use useRef to track processed animations to prevent duplicates
   const processedAnimationsRef = useRef(new Set<string>());
 
-  // FIX: Stable callback for creating particles
+  // FIX: Generate truly unique particle IDs
+  const generateUniqueParticleId = useCallback(() => {
+    return `particle-${Date.now()}-${particleCounterRef.current++}-${Math.random().toString(36).substr(2, 9)}`;
+  }, []);
+
   const createParticlesFromAnimations = useCallback((newAnimations: CreditFlowAnimation[]) => {
     if (!graphRef.current || newAnimations.length === 0) return;
 
     const newParticles = newAnimations
       .filter(anim => {
-        // Create a unique key for this animation
-        const animKey = `${anim.nodeId}-${anim.timestamp}-${anim.credit}`;
+        // Create a unique key for this animation to prevent duplicates
+        const animKey = `${anim.nodeId}-${anim.timestamp}-${anim.credit}-${anim.type}`;
         
         // Skip if already processed
         if (processedAnimationsRef.current.has(animKey)) {
+          console.debug('Skipping duplicate animation:', animKey);
           return false;
         }
         
@@ -38,7 +42,7 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
         processedAnimationsRef.current.add(animKey);
         return true;
       })
-      .map((anim, index) => {
+      .map((anim) => {
         const nodePos = nodePositions.get(anim.nodeId);
         if (!nodePos) {
           console.warn(`No position found for node ${anim.nodeId}`);
@@ -47,8 +51,8 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
 
         const screenPos = graphRef.current.graph2ScreenCoords(nodePos.x, nodePos.y);
         
-        // Create unique ID using counter + timestamp + index to prevent collisions
-        const uniqueId = `${anim.nodeId}-${anim.timestamp}-${particleCounterRef.current + index}`;
+        // FIX: Use the new unique ID generator
+        const uniqueId = generateUniqueParticleId();
         
         return {
           id: uniqueId,
@@ -62,29 +66,41 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
       .filter((p): p is NonNullable<typeof p> => p !== null);
 
     if (newParticles.length > 0) {
-      setActiveParticles(prev => [...prev, ...newParticles]);
-      
-      // Increment counter for next batch
-      particleCounterRef.current += newParticles.length;
+      console.debug(`Creating ${newParticles.length} new particles`);
+      setActiveParticles(prev => {
+        // FIX: Also check for any existing particles with duplicate IDs (defensive programming)
+        const existingIds = new Set(prev.map(p => p.id));
+        const filteredNewParticles = newParticles.filter(p => !existingIds.has(p.id));
+        
+        if (filteredNewParticles.length !== newParticles.length) {
+          console.warn('Removed duplicate particle IDs:', newParticles.length - filteredNewParticles.length);
+        }
+        
+        return [...prev, ...filteredNewParticles];
+      });
       
       // Clean up old processed animations (keep only recent ones to prevent memory leak)
       const cutoffTime = Date.now() - 10000; // 10 seconds
       const keysToDelete = Array.from(processedAnimationsRef.current).filter(key => {
-        const timestamp = parseInt(key.split('-')[1]);
-        return timestamp < cutoffTime;
+        const parts = key.split('-');
+        if (parts.length >= 2) {
+          const timestamp = parseInt(parts[1]);
+          return !isNaN(timestamp) && timestamp < cutoffTime;
+        }
+        return false;
       });
       keysToDelete.forEach(key => processedAnimationsRef.current.delete(key));
     }
-  }, [nodePositions, graphRef]);
+  }, [nodePositions, graphRef, generateUniqueParticleId]);
 
-  // FIX: Process new animations with stable dependencies
+  // Process new animations with stable dependencies
   useEffect(() => {
     if (animations.length > 0) {
       createParticlesFromAnimations(animations);
     }
   }, [animations, createParticlesFromAnimations]);
 
-  // FIX: Separate useEffect for particle animation with stable interval
+  // Particle animation with stable interval
   useEffect(() => {
     const timer = setInterval(() => {
       setActiveParticles(prev => {
@@ -96,12 +112,13 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
     }, 50); // Update every 50ms
 
     return () => clearInterval(timer);
-  }, []); // Empty dependency array - this interval should run consistently
+  }, []); // Empty dependency array
 
-  // FIX: Cleanup effect for when component unmounts
+  // Cleanup effect for when component unmounts
   useEffect(() => {
     return () => {
       processedAnimationsRef.current.clear();
+      particleCounterRef.current = 0;
     };
   }, []);
 
@@ -117,13 +134,13 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
 
         return (
           <div
-            key={particle.id}
+            key={particle.id} // Now guaranteed to be unique
             className="absolute text-xs font-bold px-1 py-0.5 rounded-full shadow-lg transition-opacity duration-100"
             style={{
-              left: `${particle.x - 10}px`, // Center the particle horizontally
-              top: `${particle.y - 20}px`,  // Start above the node
+              left: `${particle.x - 10}px`,
+              top: `${particle.y - 20}px`,
               color: 'white',
-              backgroundColor: particle.type === 'positive' ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)', // Emerald-500 or Red-500
+              backgroundColor: particle.type === 'positive' ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)',
               opacity: opacity,
               transform: `translateY(${translateY}px) scale(${scale})`,
               pointerEvents: 'none',

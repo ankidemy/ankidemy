@@ -67,15 +67,19 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
     }
   }, [isOpen, type]);
 
+  // fix for the handlePrereqChange function to prevent duplicates:
   const handlePrereqChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedOptions = Array.from(e.target.selectedOptions)
       .map(option => parseInt(option.value, 10)) // Values are now numeric IDs
       .filter(id => !isNaN(id));
-    setSelectedPrereqNumericIds(selectedOptions);
+    
+    // FIX: Remove duplicates using Set
+    const uniqueSelectedOptions = [...new Set(selectedOptions)];
+    setSelectedPrereqNumericIds(uniqueSelectedOptions);
     
     // Initialize weights for newly selected prerequisites
     const newWeights: Record<number, number> = {};
-    selectedOptions.forEach(id => {
+    uniqueSelectedOptions.forEach(id => {
       newWeights[id] = prerequisiteWeights[id] || 1.0; // Default to 1.0
     });
     setPrerequisiteWeights(newWeights);
@@ -274,29 +278,32 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             <div className="mt-3 p-3 border rounded-md bg-gray-50">
               <h4 className="text-sm font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
               <div className="space-y-2 max-h-32 overflow-y-auto">
-                {selectedPrereqNumericIds.map(prereqId => {
-                  const prereq = availablePrerequisites.find(p => p.numericId === prereqId);
-                  if (!prereq) return null;
-                  
-                  return (
-                    <div key={prereqId} className="flex items-center justify-between text-xs">
-                      <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
-                        {prereq.code}
-                      </span>
-                      <input
-                        type="number"
-                        min="0.01"
-                        max="1.00"
-                        step="0.01"
-                        value={prerequisiteWeights[prereqId] || 1.0}
-                        onChange={(e) => handleWeightChange(prereqId, e.target.value)}
-                        disabled={isSubmitting}
-                        className="w-16 px-1 py-0.5 border border-gray-300 rounded text-xs"
-                        title="Weight for credit propagation (1.0 = full, 0.01 = minimal)"
-                      />
-                    </div>
-                  );
-                })}
+                {/* FIX: Remove duplicates and ensure unique keys */}
+                {[...new Set(selectedPrereqNumericIds)] // Remove duplicates
+                  .map(prereqId => {
+                    const prereq = availablePrerequisites.find(p => p.numericId === prereqId);
+                    if (!prereq) return null;
+                    
+                    return (
+                      <div key={`prereq-weight-${prereqId}`} className="flex items-center justify-between text-xs">
+                        <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
+                          {prereq.code}
+                        </span>
+                        <input
+                          type="number"
+                          min="0.01"
+                          max="1.00"
+                          step="0.01"
+                          value={prerequisiteWeights[prereqId] || 1.0}
+                          onChange={(e) => handleWeightChange(prereqId, e.target.value)}
+                          disabled={isSubmitting}
+                          className="w-16 px-1 py-0.5 border border-gray-300 rounded text-xs"
+                          title="Weight for credit propagation (1.0 = full, 0.01 = minimal)"
+                        />
+                      </div>
+                    );
+                  })
+                  .filter(Boolean)} {/* Remove null entries */}
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 1.0 = Full prerequisite (solid line), &lt; 1.0 = Partial prerequisite (dotted line)

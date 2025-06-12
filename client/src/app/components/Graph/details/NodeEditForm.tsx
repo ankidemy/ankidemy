@@ -55,15 +55,24 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
     }
   }, [selectedNodeDetails, availableDefinitionsForEdit]);
 
+
   const handlePrereqSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedOptions = Array.from(e.target.selectedOptions);
     const newWeights: Record<number, number> = {};
     
+    // FIX: Use Set to prevent duplicate processing
+    const uniqueIds = new Set<number>();
+    
     selectedOptions.forEach(option => {
       const numericId = parseInt(option.value, 10);
       if (!isNaN(numericId)) {
-        newWeights[numericId] = prerequisiteWeights[numericId] || 1.0;
+        uniqueIds.add(numericId);
       }
+    });
+    
+    // Build weights object from unique IDs
+    uniqueIds.forEach(numericId => {
+      newWeights[numericId] = prerequisiteWeights[numericId] || 1.0;
     });
     
     setPrerequisiteWeights(newWeights);
@@ -79,7 +88,9 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
   };
 
   const getSelectedPrereqIds = (): number[] => {
-    return Object.keys(prerequisiteWeights).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    const ids = Object.keys(prerequisiteWeights).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    // FIX: Remove duplicates using Set
+    return [...new Set(ids)];
   };
 
   if (!selectedNodeDetails) return null;
@@ -243,19 +254,17 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
         </select>
         <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
 
-        {selectedPrereqIds.length > 0 && (
-          <div className="mt-3 p-3 border rounded-md bg-gray-50">
-            <h4 className="text-xs font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
-            <div className="space-y-2 max-h-32 overflow-y-auto">
-              {selectedPrereqIds
-                .map(prereqId => availableDefinitionsForEdit.find(p => p.numericId === prereqId))
-                .filter(Boolean)
-                .sort((a, b) => (a?.code || '').localeCompare(b?.code || ''))
-                .map(prereq => {
-                  if (!prereq) return null;
-                  
-                  return (
-                    <div key={prereq.numericId} className="flex items-center justify-between text-xs">
+          {selectedPrereqIds.length > 0 && (
+            <div className="mt-3 p-3 border rounded-md bg-gray-50">
+              <h4 className="text-xs font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {/* FIX: Remove duplicates and ensure unique keys */}
+                {[...new Set(selectedPrereqIds)] // Remove duplicates first
+                  .map(prereqId => availableDefinitionsForEdit.find(p => p.numericId === prereqId))
+                  .filter((prereq): prereq is NonNullable<typeof prereq> => prereq !== null) // Type-safe filter
+                  .sort((a, b) => a.code.localeCompare(b.code))
+                  .map(prereq => (
+                    <div key={`edit-prereq-weight-${prereq.numericId}`} className="flex items-center justify-between text-xs">
                       <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
                         {prereq.code}
                       </span>
@@ -270,14 +279,13 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
                         title="Weight for credit propagation (1.0 = full, 0.01 = minimal)"
                       />
                     </div>
-                  );
-                })}
+                  ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                1.0 = Full prerequisite (solid line), &lt; 1.0 = Partial prerequisite (dotted line)
+              </p>
             </div>
-            <p className="text-xs text-gray-500 mt-2">
-              1.0 = Full prerequisite (solid line), &lt; 1.0 = Partial prerequisite (dotted line)
-            </p>
-          </div>
-        )}
+          )}
       </div>
 
       <div className="flex justify-end space-x-2 pt-2 border-t mt-4">

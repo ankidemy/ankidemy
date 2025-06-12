@@ -80,6 +80,8 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
+  autoImportTutorial(db)
+
 	// Run test import if flag is set
 	if *testImportFlag {
 		runTestImport(db, *jsonFilePath, *domainName, *domainDesc)

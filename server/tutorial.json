@@ -1,0 +1,314 @@
+{
+  "definitions": {
+    "TUT_001": {
+      "code": "TUT_001",
+      "name": "What is Knowledge?",
+      "description": [
+        "Knowledge is information that has been learned, understood, and can be applied.",
+        "It differs from mere information by being internalized and connected to existing understanding.",
+        "Knowledge can be explicit (easily articulated) or tacit (difficult to express)."
+      ],
+      "notes": "This is the foundational concept for understanding how learning systems work.",
+      "references": [
+        "Bloom, B. S. (1956). Taxonomy of Educational Objectives",
+        "Anderson, L. W. (2001). A Taxonomy for Learning, Teaching, and Assessing"
+      ],
+      "prerequisites": [],
+      "xPosition": 100,
+      "yPosition": 100
+    },
+    "TUT_002": {
+      "code": "TUT_002", 
+      "name": "The Learning Process",
+      "description": [
+        "Learning is the process of acquiring new understanding, knowledge, behaviors, skills, or values.",
+        "Effective learning involves encoding, storage, and retrieval of information.",
+        "The process is enhanced when new information connects to existing knowledge structures."
+      ],
+      "notes": "Understanding how learning works helps optimize study strategies.",
+      "references": [
+        "Craik, F. I. M., & Lockhart, R. S. (1972). Levels of processing",
+        "Baddeley, A. (2000). Working Memory"
+      ],
+      "prerequisites": ["TUT_001"],
+      "xPosition": 250,
+      "yPosition": 100
+    },
+    "TUT_003": {
+      "code": "TUT_003",
+      "name": "Memory and Forgetting",
+      "description": [
+        "Human memory is not perfect - we naturally forget information over time.",
+        "The forgetting curve shows that without reinforcement, we lose most new information within days.",
+        "Hermann Ebbinghaus first documented this phenomenon in the 1880s."
+      ],
+      "notes": "This explains why repeated review is necessary for long-term retention.",
+      "references": [
+        "Ebbinghaus, H. (1885). Memory: A Contribution to Experimental Psychology",
+        "Bahrick, H. P. (1984). Semantic memory content in permastore"
+      ],
+      "prerequisites": ["TUT_002"],
+      "xPosition": 400,
+      "yPosition": 100
+    },
+    "TUT_004": {
+      "code": "TUT_004",
+      "name": "Spaced Repetition",
+      "description": [
+        "Spaced repetition is a learning technique that involves reviewing information at increasing intervals.",
+        "It combats the forgetting curve by timing reviews just before information would be forgotten.",
+        "This method is far more efficient than cramming or massed practice."
+      ],
+      "notes": "The core algorithm behind this learning system.",
+      "references": [
+        "Pimsleur, P. (1967). A memory schedule",
+        "Wozniak, P. A. (1990). SuperMemo: Algorithm SM-2"
+      ],
+      "prerequisites": ["TUT_003"],
+      "xPosition": 550,
+      "yPosition": 100
+    },
+    "TUT_005": {
+      "code": "TUT_005",
+      "name": "Active Recall",
+      "description": [
+        "Active recall is the practice of retrieving information from memory without looking at the source.",
+        "It's more effective than passive review methods like re-reading.",
+        "The effort required to recall strengthens memory consolidation."
+      ],
+      "notes": "This is why testing yourself is more effective than just reviewing notes.",
+      "references": [
+        "Roediger, H. L., & Karpicke, J. D. (2006). Test-enhanced learning",
+        "Kornell, N., & Bjork, R. A. (2007). The promise and perils of self-regulated study"
+      ],
+      "prerequisites": ["TUT_002"],
+      "xPosition": 250,
+      "yPosition": 250
+    },
+    "TUT_006": {
+      "code": "TUT_006",
+      "name": "Prerequisites and Dependencies",
+      "description": [
+        "Learning is hierarchical - some concepts must be understood before others.",
+        "Prerequisites are foundational knowledge required to understand new material.",
+        "Proper sequencing of learning prevents confusion and builds solid understanding."
+      ],
+      "notes": "This system tracks these relationships to optimize learning paths.",
+      "references": [
+        "Gagné, R. M. (1985). The Conditions of Learning",
+        "Ausubel, D. P. (1968). Educational Psychology: A Cognitive View"
+      ],
+      "prerequisites": ["TUT_001"],
+      "xPosition": 100,
+      "yPosition": 250
+    },
+    "TUT_007": {
+      "code": "TUT_007",
+      "name": "Knowledge Graphs",
+      "description": [
+        "A knowledge graph represents knowledge as a network of interconnected concepts.",
+        "Nodes represent concepts, while edges represent relationships between them.",
+        "This structure mirrors how knowledge is organized in human memory."
+      ],
+      "notes": "The visual representation used in this learning system.",
+      "references": [
+        "Semantic Networks: Quillian, M. R. (1968)",
+        "Collins, A. M., & Loftus, E. F. (1975). Spreading activation theory"
+      ],
+      "prerequisites": ["TUT_006"],
+      "xPosition": 100,
+      "yPosition": 400
+    },
+    "TUT_008": {
+      "code": "TUT_008",
+      "name": "Metacognition",
+      "description": [
+        "Metacognition is 'thinking about thinking' - awareness of one's own learning process.",
+        "It includes planning how to approach tasks, monitoring comprehension, and evaluating progress.",
+        "Strong metacognitive skills dramatically improve learning outcomes."
+      ],
+      "notes": "Essential for self-directed learning and study optimization.",
+      "references": [
+        "Flavell, J. H. (1976). Metacognitive aspects of problem solving",
+        "Zimmerman, B. J. (2002). Becoming a self-regulated learner"
+      ],
+      "prerequisites": ["TUT_002"],
+      "xPosition": 400,
+      "yPosition": 250
+    },
+    "TUT_009": {
+      "code": "TUT_009",
+      "name": "Interleaving",
+      "description": [
+        "Interleaving involves mixing different types of problems or concepts during practice.",
+        "Rather than blocking similar items together, interleaving creates beneficial confusion.",
+        "This technique improves discrimination between concepts and transfer of learning."
+      ],
+      "notes": "Why this system mixes different types of content during review sessions.",
+      "references": [
+        "Rohrer, D. (2012). Interleaving helps students distinguish among similar concepts",
+        "Kornell, N., & Bjork, R. A. (2008). Learning concepts and categories"
+      ],
+      "prerequisites": ["TUT_005"],
+      "xPosition": 400,
+      "yPosition": 400
+    },
+    "TUT_010": {
+      "code": "TUT_010",
+      "name": "Mastery Learning",
+      "description": [
+        "Mastery learning requires achieving a high level of competence before advancing.",
+        "It emphasizes learning for understanding rather than just coverage of material.",
+        "Students progress at their own pace, ensuring solid foundations."
+      ],
+      "notes": "The philosophy behind adaptive learning systems like this one.",
+      "references": [
+        "Bloom, B. S. (1968). Learning for mastery",
+        "Carroll, J. B. (1963). A model of school learning"
+      ],
+      "prerequisites": ["TUT_006", "TUT_008"],
+      "xPosition": 250,
+      "yPosition": 400
+    },
+    "TUT_011": {
+      "code": "TUT_011",
+      "name": "Deliberate Practice",
+      "description": [
+        "Deliberate practice involves focused, goal-oriented practice with immediate feedback.",
+        "It requires stepping outside one's comfort zone and working on specific weaknesses.",
+        "Quality and focus matter more than quantity of practice time."
+      ],
+      "notes": "How to make the most of practice sessions in any learning system.",
+      "references": [
+        "Ericsson, K. A. (1993). The role of deliberate practice",
+        "Ericsson, K. A. (2006). The influence of experience and deliberate practice"
+      ],
+      "prerequisites": ["TUT_005", "TUT_008"],
+      "xPosition": 550,
+      "yPosition": 250
+    },
+    "TUT_012": {
+      "code": "TUT_012",
+      "name": "Distributed Practice",
+      "description": [
+        "Distributed practice involves spreading learning sessions over time rather than massing them.",
+        "Also known as the spacing effect, it's one of the most robust findings in learning research.",
+        "Even with the same total study time, distributed practice leads to better retention."
+      ],
+      "notes": "The scientific foundation for spaced repetition systems.",
+      "references": [
+        "Cepeda, N. J. (2006). Distributed practice in verbal recall tasks",
+        "Dempster, F. N. (1988). The spacing effect"
+      ],
+      "prerequisites": ["TUT_004"],
+      "xPosition": 700,
+      "yPosition": 100
+    }
+  },
+  "exercises": {
+    "TUT_EX001": {
+      "code": "TUT_EX001",
+      "name": "Identifying Knowledge Types",
+      "statement": "Classify the following as explicit or tacit knowledge: (1) Riding a bicycle, (2) The capital of France, (3) How to recognize a good melody",
+      "description": "This exercise helps distinguish between knowledge that can be easily communicated versus knowledge that is difficult to articulate.",
+      "hints": "Consider whether each item can be easily written down in a manual or requires personal experience to truly understand.",
+      "difficulty": 2,
+      "verifiable": true,
+      "result": "(1) Tacit, (2) Explicit, (3) Tacit",
+      "prerequisites": ["TUT_001"],
+      "xPosition": 100,
+      "yPosition": 550
+    },
+    "TUT_EX002": {
+      "code": "TUT_EX002", 
+      "name": "Applying the Forgetting Curve",
+      "statement": "If you learn 100 facts today and review none of them, approximately how many will you remember after one week according to Ebbinghaus's forgetting curve?",
+      "description": "The forgetting curve shows that without reinforcement, we typically retain only about 20% of newly learned information after a week.",
+      "hints": "Ebbinghaus found that we lose most information very quickly, with the rate of forgetting slowing over time.",
+      "difficulty": 3,
+      "verifiable": true,
+      "result": "Approximately 20 facts (20%)",
+      "prerequisites": ["TUT_003"],
+      "xPosition": 400,
+      "yPosition": 550
+    },
+    "TUT_EX003": {
+      "code": "TUT_EX003",
+      "name": "Designing a Spaced Review Schedule",
+      "statement": "You just learned a new concept. Design an optimal review schedule for the next month using spaced repetition principles.",
+      "description": "An effective schedule might be: 1 day, 3 days, 1 week, 2 weeks, 1 month. The intervals increase as the memory becomes stronger.",
+      "hints": "Start with short intervals and gradually increase them. The goal is to review just before you would forget.",
+      "difficulty": 4,
+      "verifiable": false,
+      "result": "Sample schedule: Day 1, Day 4, Day 11, Day 25",
+      "prerequisites": ["TUT_004", "TUT_003"],
+      "xPosition": 550,
+      "yPosition": 550
+    },
+    "TUT_EX004": {
+      "code": "TUT_EX004",
+      "name": "Active vs. Passive Study",
+      "statement": "Compare the effectiveness of (A) re-reading notes vs. (B) taking a practice test, for long-term retention.",
+      "description": "Practice testing (active recall) is significantly more effective than re-reading for long-term retention, even though re-reading feels easier and more fluent.",
+      "hints": "Consider which method requires more mental effort and which gives you accurate feedback about your knowledge.",
+      "difficulty": 2,
+      "verifiable": true,
+      "result": "Practice testing (B) is much more effective for long-term retention",
+      "prerequisites": ["TUT_005"],
+      "xPosition": 250,
+      "yPosition": 550
+    },
+    "TUT_EX005": {
+      "code": "TUT_EX005",
+      "name": "Prerequisite Mapping",
+      "statement": "Create a prerequisite map for learning calculus. What concepts must be mastered first?",
+      "description": "A typical prerequisite chain might include: Arithmetic → Algebra → Functions → Limits → Derivatives → Integrals. Each level builds on the previous ones.",
+      "hints": "Think about the foundational mathematical concepts needed at each step. What would happen if someone tried to skip a level?",
+      "difficulty": 4,
+      "verifiable": false,
+      "result": "Arithmetic → Algebra → Functions → Trigonometry → Limits → Calculus",
+      "prerequisites": ["TUT_006"],
+      "xPosition": 100,
+      "yPosition": 700
+    },
+    "TUT_EX006": {
+      "code": "TUT_EX006",
+      "name": "Metacognitive Reflection",
+      "statement": "After studying for 2 hours, how would you assess whether your study session was effective?",
+      "description": "Effective assessment includes: testing yourself without notes, identifying what you still don't understand, and planning next steps based on gaps in knowledge.",
+      "hints": "Focus on objective measures of understanding rather than subjective feelings of familiarity or ease.",
+      "difficulty": 3,
+      "verifiable": false,
+      "result": "Self-testing, identifying knowledge gaps, planning remediation",
+      "prerequisites": ["TUT_008"],
+      "xPosition": 400,
+      "yPosition": 700
+    },
+    "TUT_EX007": {
+      "code": "TUT_EX007",
+      "name": "Applying Interleaving",
+      "statement": "You're learning three types of math problems (A, B, C). Design a practice sequence using interleaving principles.",
+      "description": "An interleaved sequence might be: A-B-C-A-C-B-A-B-C, mixing problem types rather than doing all A's, then all B's, then all C's (blocked practice).",
+      "hints": "Avoid grouping similar problems together. Mix them up to create beneficial confusion and improve discrimination.",
+      "difficulty": 3,
+      "verifiable": false,
+      "result": "Mixed sequence like A-C-B-A-B-C-A-C-B instead of AAA-BBB-CCC",
+      "prerequisites": ["TUT_009"],
+      "xPosition": 400,
+      "yPosition": 850
+    },
+    "TUT_EX008": {
+      "code": "TUT_EX008",
+      "name": "Designing Deliberate Practice",
+      "statement": "You want to improve your public speaking. Design a deliberate practice routine focusing on your weakness: managing anxiety.",
+      "description": "Deliberate practice for managing speaking anxiety might include: progressive exposure (small to large audiences), video recording for self-review, specific breathing techniques, and seeking detailed feedback from experienced speakers.",
+      "hints": "Identify the specific sub-skill, practice it intensively, get immediate feedback, and gradually increase difficulty.",
+      "difficulty": 5,
+      "verifiable": false,
+      "result": "Progressive exposure + feedback + specific techniques + increasing challenge",
+      "prerequisites": ["TUT_011"],
+      "xPosition": 550,
+      "yPosition": 700
+    }
+  }
+}

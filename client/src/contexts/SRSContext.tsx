@@ -3,7 +3,7 @@
 
 'use client';
 
-import React, { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
 import {
   NodeProgress,
   NodePrerequisite,
@@ -288,6 +288,10 @@ const SRSContext = createContext<SRSContextType | undefined>(undefined);
 
 export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(srsReducer, initialState);
+  
+  // Use refs to prevent infinite loops
+  const isLoadingDataRef = useRef<boolean>(false);
+  const lastLoadedDomainRef = useRef<number | null>(null);
 
   const setCurrentDomain = useCallback((domainId: number | null) => {
     if (state.currentDomainId !== domainId) {
@@ -295,22 +299,21 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Clear any existing animations when changing domains BEFORE setting the new domain state
       dispatch({ type: 'CLEAR_CREDIT_ANIMATIONS' });
       dispatch({ type: 'SET_DOMAIN', payload: domainId });
-      // No need to load data here, the component displaying the domain content should trigger loadDomainData based on currentDomainId state
     }
   }, [state.currentDomainId]);
 
-  // Effect to load domain data whenever currentDomainId changes and is not null
+  // Use refs to access current state values inside stable callbacks
+  const currentDomainIdRef = useRef<number | null>(null);
+  const currentSessionRef = useRef<StudySession | null>(null);
+
+  // Update refs whenever state changes
   useEffect(() => {
-      if (state.currentDomainId !== null) {
-          // Use a separate function to handle the async logic inside useEffect
-          const fetchDomainData = async () => {
-             // Delay load slightly to allow SET_DOMAIN state update to potentially propagate
-             await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
-             await loadDomainData(state.currentDomainId as number); // Cast is safe due to if check
-          };
-          fetchDomainData();
-      }
-  }, [state.currentDomainId]); // Depend only on the current domain ID
+    currentDomainIdRef.current = state.currentDomainId;
+  }, [state.currentDomainId]);
+
+  useEffect(() => {
+    currentSessionRef.current = state.currentSession;
+  }, [state.currentSession]);
 
   const loadDomainData = useCallback(async (domainId: number) => {
     if (!domainId) {
@@ -319,16 +322,14 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
     }
 
-    // Prevent reloading if data is recent and domain hasn't changed since last load call
-    // Note: This check is less critical now with the useEffect dependency on currentDomainId
-    // but can still help prevent redundant calls if loadDomainData is called elsewhere.
-    // However, given the potential for server-side updates, it's often better to just reload.
-    // Let's remove the lastUpdated check here to ensure freshness when explicitly called.
-    // if (state.currentDomainId === domainId && (Date.now() - state.lastUpdated < 5000 && state.domainProgress.size > 0)) {
-    //     console.log(`Domain data for ${domainId} is recent, skipping load.`);
-    //     return;
-    // }
+    // Prevent concurrent loading of the same domain
+    if (isLoadingDataRef.current && lastLoadedDomainRef.current === domainId) {
+        console.log("Already loading data for domain:", domainId);
+        return;
+    }
 
+    isLoadingDataRef.current = true;
+    lastLoadedDomainRef.current = domainId;
 
     console.log("Loading domain data for domain:", domainId);
     dispatch({ type: 'SET_LOADING', payload: true });
@@ -358,18 +359,15 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.log("Loaded stats data:", stats.value);
       } else {
         console.warn('Could not load domain stats:', stats.reason);
-        // Use default stats or previous stats if available, or null
-        // For simplicity, let's reset to a default structure on error if current is null
-        if (!state.domainStats || state.domainStats.domainId !== domainId) {
-            dispatch({
-                type: 'SET_DOMAIN_STATS',
-                payload: {
-                    domainId: domainId,
-                    totalNodes: 0, freshNodes: 0, tacklingNodes: 0, graspedNodes: 0, learnedNodes: 0,
-                    dueReviews: 0, completedToday: 0, successRate: 0
-                }
-            });
-        }
+        // Create default stats for this domain
+        dispatch({
+            type: 'SET_DOMAIN_STATS',
+            payload: {
+                domainId: domainId,
+                totalNodes: 0, freshNodes: 0, tacklingNodes: 0, graspedNodes: 0, learnedNodes: 0,
+                dueReviews: 0, completedToday: 0, successRate: 0
+            }
+        });
       }
 
       if (prerequisites.status === 'fulfilled') {
@@ -399,27 +397,41 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast(message, 'error');
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
+      isLoadingDataRef.current = false;
     }
-  }, [dispatch]); // loadDomainData itself doesn't depend on state, but dispatch is stable
+  }, []); // STABLE - no dependencies
+
+  // Effect to load domain data whenever currentDomainId changes and is not null
+  useEffect(() => {
+      if (state.currentDomainId !== null && !isLoadingDataRef.current) {
+          // Use a separate function to handle the async logic inside useEffect
+          const fetchDomainData = async () => {
+             // Small delay to allow SET_DOMAIN state update to potentially propagate
+             await new Promise(resolve => setTimeout(resolve, 50));
+             await loadDomainData(state.currentDomainId as number); // Cast is safe due to if check
+          };
+          fetchDomainData();
+      }
+  }, [state.currentDomainId]); // Only depend on currentDomainId
 
   const refreshDomainData = useCallback(async () => {
-    if (state.currentDomainId !== null) {
-      console.log("Refreshing domain data for domain:", state.currentDomainId);
+    const domainId = currentDomainIdRef.current;
+    if (domainId !== null) {
+      console.log("Refreshing domain data for domain:", domainId);
       showToast('Refreshing domain data...', 'info', 1000); // Show briefly
-      await loadDomainData(state.currentDomainId);
+      await loadDomainData(domainId);
     } else {
         console.warn("Refresh requested but no domain is set.");
-        // Optionally, reset state if refresh is called with no domain
-        // dispatch({ type: 'RESET_DOMAIN_STATE' });
     }
-  }, [state.currentDomainId, loadDomainData]); // Depends on currentDomainId to know what to refresh and loadDomainData function
+  }, []); // STABLE - no dependencies
 
   const updateNodeStatus = useCallback(async (
     nodeId: number,
     nodeType: 'definition' | 'exercise',
     status: NodeStatus
   ) => {
-    if (state.currentDomainId === null) {
+    const domainId = currentDomainIdRef.current;
+    if (domainId === null) {
         showToast("Cannot update node status: No domain selected.", "warning");
         return;
     }
@@ -433,7 +445,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Force complete refresh of ALL domain data since propagation affects multiple nodes
       console.log("Refreshing all domain data after status update...");
-      await loadDomainData(state.currentDomainId); // Pass the current domain ID explicitly
+      await loadDomainData(domainId); // Pass the current domain ID explicitly
       showToast('Status propagation completed', 'success', 2000);
 
     } catch (error) {
@@ -441,7 +453,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dispatch({ type: 'SET_ERROR', payload: message });
       showToast(message, 'error');
     }
-  }, [state.currentDomainId, loadDomainData, dispatch]); // Depend on state.currentDomainId, loadDomainData, and dispatch
+  }, []); // STABLE - no dependencies
 
   const getNodeProgress = useCallback((
     nodeId: number,
@@ -454,7 +466,10 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [state.domainProgress]); // Depends only on the progress map state
 
   const submitReview = useCallback(async (review: ReviewRequest) => {
-    if (state.currentDomainId === null) {
+    const domainId = currentDomainIdRef.current;
+    const currentSession = currentSessionRef.current;
+    
+    if (domainId === null) {
         showToast("Cannot submit review: No domain selected.", "warning");
         return;
     }
@@ -521,9 +536,9 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Doing this separately is faster than a full domain data reload
       try {
         const [stats, dueReviewsResult] = await Promise.allSettled([
-            srsApi.getDomainStats(state.currentDomainId),
+            srsApi.getDomainStats(domainId),
             // Fetch reviews based on the session type if in a session, otherwise mixed
-            srsApi.getDueReviews(state.currentDomainId, review.sessionId ? state.currentSession?.sessionType : 'mixed')
+            srsApi.getDueReviews(domainId, review.sessionId ? currentSession?.sessionType : 'mixed')
         ]);
 
         if (stats.status === 'fulfilled') {
@@ -553,16 +568,17 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.currentDomainId, state.currentSession?.sessionType, dispatch]); // Depend on currentDomainId, sessionType, and dispatch
+  }, []); // STABLE - no dependencies
 
   const loadDueReviews = useCallback(async (sessionType: SessionType = 'mixed'): Promise<DueReview[]> => {
-    if (state.currentDomainId === null) {
+    const domainId = currentDomainIdRef.current;
+    if (domainId === null) {
         showToast("No domain selected to load due reviews.", "warning");
         return [];
     }
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      const dueReviewsResult = await srsApi.getDueReviews(state.currentDomainId, sessionType);
+      const dueReviewsResult = await srsApi.getDueReviews(domainId, sessionType);
       // Ensure the payload is an array before dispatching
       const dueNodes = Array.isArray(dueReviewsResult?.dueNodes) ? dueReviewsResult.dueNodes : [];
       if (!Array.isArray(dueReviewsResult?.dueNodes)) {
@@ -579,7 +595,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.currentDomainId, dispatch]); // Depend on currentDomainId and dispatch
+  }, []); // STABLE - no dependencies
 
   // Use the already optimally ordered dueReviews from state
   const getNextReviewItem = useCallback((sessionType: SessionType): DueReview | null => {
@@ -602,16 +618,17 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const setCurrentReviewItemInContext = useCallback((item: DueReview | null) => {
     dispatch({ type: 'SET_CURRENT_REVIEW_ITEM', payload: item });
-  }, [dispatch]); // Depend on dispatch
+  }, []); // No dependencies
 
   const startStudySession = useCallback(async (sessionType: SessionType): Promise<StudySession | null> => {
-    if (state.currentDomainId === null) {
+    const domainId = currentDomainIdRef.current;
+    if (domainId === null) {
       showToast('Please select a domain first.', 'error');
       return null;
     }
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      const session = await srsApi.startStudySession(state.currentDomainId, sessionType);
+      const session = await srsApi.startStudySession(domainId, sessionType);
       dispatch({ type: 'START_SESSION_SUCCESS', payload: session });
       // Load the due reviews for the session type immediately after starting
       await loadDueReviews(sessionType);
@@ -626,17 +643,20 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.currentDomainId, loadDueReviews, dispatch]); // Depend on currentDomainId, loadDueReviews, and dispatch
+  }, []); // STABLE - no dependencies
 
   const endStudySession = useCallback(async () => {
-    if (!state.currentSession) {
+    const currentSession = currentSessionRef.current;
+    const domainId = currentDomainIdRef.current;
+    
+    if (!currentSession) {
         console.warn("endStudySession called but no session is active.");
         // If somehow state is inconsistent, ensure session state is reset anyway
         dispatch({ type: 'END_SESSION_SUCCESS' });
-        if (state.currentDomainId !== null) {
+        if (domainId !== null) {
              // Still attempt to refresh stats if domain is set
              try {
-                const stats = await srsApi.getDomainStats(state.currentDomainId);
+                const stats = await srsApi.getDomainStats(domainId);
                 dispatch({ type: 'SET_DOMAIN_STATS', payload: stats });
              } catch (refreshError) {
                 console.warn('Could not refresh stats after ending session (no active session API call):', refreshError);
@@ -646,16 +666,16 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      await srsApi.endStudySession(state.currentSession.id);
+      await srsApi.endStudySession(currentSession.id);
       dispatch({ type: 'END_SESSION_SUCCESS' });
       showToast('Study session ended.', 'success');
       // Refresh domain stats after session ends
-      if(state.currentDomainId !== null) {
+      if(domainId !== null) {
         try {
-          const stats = await srsApi.getDomainStats(state.currentDomainId);
+          const stats = await srsApi.getDomainStats(domainId);
           dispatch({ type: 'SET_DOMAIN_STATS', payload: stats });
           // Also refresh due reviews just in case
-          await loadDueReviews(state.currentSession.sessionType); // Refresh based on session type
+          await loadDueReviews(currentSession.sessionType); // Refresh based on session type
         } catch (refreshError) {
           console.warn('Could not refresh stats/reviews after ending session:', refreshError);
         }
@@ -670,17 +690,17 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [state.currentSession, state.currentDomainId, loadDueReviews, dispatch]); // Depend on currentSession, currentDomainId, loadDueReviews, and dispatch
+  }, []); // STABLE - no dependencies
 
   const setShowStudyModeInContext = useCallback((show: boolean) => {
     dispatch({ type: 'SET_SHOW_STUDY_MODE', payload: show });
-  }, [dispatch]); // Depend on dispatch
+  }, []); // No dependencies
 
   const clearError = useCallback(() => {
     dispatch({ type: 'SET_ERROR', payload: null });
     // Also clear any lingering animations when clearing errors for a clean state
     dispatch({ type: 'CLEAR_CREDIT_ANIMATIONS' });
-  }, [dispatch]); // Depend on dispatch
+  }, []); // No dependencies
 
   const contextValue: SRSContextType = {
     state,

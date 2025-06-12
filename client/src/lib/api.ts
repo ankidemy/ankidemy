@@ -1,4 +1,4 @@
-// client/src/lib/api.ts
+// FILE: src/lib/api.ts
 // Complete API client for Ankidemy with support for all backend features
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -335,8 +335,20 @@ export const updateCurrentUser = async (userData: {
 
 // Domain API
 export const getPublicDomains = async (): Promise<Domain[]> => {
-  const response = await fetch(`${API_URL}/api/domains/public`);
-  return handleResponse(response);
+  try {
+    const response = await fetch(`${API_URL}/api/domains/public`);
+    
+    if (!response.ok) {
+      console.warn(`Failed to fetch public domains: ${response.status}`);
+      return [];
+    }
+    
+    const result = await handleResponse(response);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.warn('Error fetching public domains:', error);
+    return []; // Return empty array on error
+  }
 };
 
 export const getAllDomains = async (): Promise<Domain[]> => {
@@ -348,19 +360,42 @@ export const getAllDomains = async (): Promise<Domain[]> => {
 };
 
 export const getMyDomains = async (): Promise<Domain[]> => {
-  const response = await fetch(`${API_URL}/api/domains/my`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
+  try {
+    const response = await fetch(`${API_URL}/api/domains/my`, {
+      headers: getAuthHeaders(),
+    });
+    
+    if (!response.ok) {
+      console.warn(`Failed to fetch my domains: ${response.status}`);
+      return [];
+    }
+    
+    const result = await handleResponse(response);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.warn('Error fetching my domains:', error);
+    return []; // Return empty array on error
+  }
 };
 
 export const getEnrolledDomains = async (): Promise<Domain[]> => {
-  const response = await fetch(`${API_URL}/api/domains/enrolled`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
+  try {
+    const response = await fetch(`${API_URL}/api/domains/enrolled`, {
+      headers: getAuthHeaders(),
+    });
+    
+    if (!response.ok) {
+      // Return empty array for errors instead of throwing
+      console.warn(`Failed to fetch enrolled domains: ${response.status}`);
+      return [];
+    }
+    
+    const result = await handleResponse(response);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.warn('Error fetching enrolled domains:', error);
+    return []; // Return empty array on error
+  }
 };
 
 export const getDomain = async (id: number): Promise<Domain> => {

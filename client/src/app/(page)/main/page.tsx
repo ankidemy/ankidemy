@@ -5,17 +5,21 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
 import Sidebar from "@/app/components/Sidebar";
+import { showToast } from '@/app/components/core/ToastNotification';
 
 import {
   Domain,
   getPublicDomains,
   getMyDomains,
-  getEnrolledDomains
+  getEnrolledDomains,
+  enrollInDomain,
+  getCurrentUser,
+  User
 } from '@/lib/api';
 
 export default function MainPage() {
@@ -23,18 +27,34 @@ export default function MainPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'my' | 'enrolled'>('all');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Domain data
   const [publicDomains, setPublicDomains] = useState<Domain[]>([]);
   const [myDomains, setMyDomains] = useState<Domain[]>([]);
   const [enrolledDomains, setEnrolledDomains] = useState<Domain[]>([]);
+  const [enrolledDomainIds, setEnrolledDomainIds] = useState<Set<number>>(new Set());
   const [displayDomains, setDisplayDomains] = useState<Domain[]>([]);
   
-  // Selected domain
-  const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
-
-  // Sidebar state
+  // UI state
+  const [enrolling, setEnrolling] = useState<Set<number>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const router = useRouter();
+
+  // Load user data
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const userData = await getCurrentUser();
+        setCurrentUser(userData);
+      } catch (error) {
+        console.error("Error loading user:", error);
+        // Continue without user data - might be on public page
+      }
+    };
+    fetchUser();
+  }, []);
 
   // Load initial domain data
   useEffect(() => {
@@ -43,26 +63,34 @@ export default function MainPage() {
       setError(null);
       
       try {
-        // Get public domains
+        // Get public domains (always available)
         const publicDomainsResponse = await getPublicDomains();
         setPublicDomains(publicDomainsResponse || []);
         
-        // Get user's domains
-        try {
-          const myDomainsResponse = await getMyDomains();
-          setMyDomains(myDomainsResponse || []);
-        } catch (error) {
-          console.error("Failed to load your domains:", error);
-          // Don't set global error to allow partial functionality
+        // Get user's domains if authenticated
+        let myDomainsResponse: Domain[] = [];
+        let enrolledDomainsResponse: Domain[] = [];
+        
+        if (currentUser) {
+          try {
+            const [myResult, enrolledResult] = await Promise.allSettled([
+              getMyDomains(),
+              getEnrolledDomains()
+            ]);
+            
+            myDomainsResponse = myResult.status === 'fulfilled' ? myResult.value : [];
+            enrolledDomainsResponse = enrolledResult.status === 'fulfilled' ? enrolledResult.value : [];
+          } catch (error) {
+            console.error("Failed to load user domains:", error);
+          }
         }
         
-        // Get enrolled domains
-        try {
-          const enrolledDomainsResponse = await getEnrolledDomains();
-          setEnrolledDomains(enrolledDomainsResponse || []);
-        } catch (error) {
-          console.error("Failed to load enrolled domains:", error);
-        }
+        setMyDomains(myDomainsResponse);
+        setEnrolledDomains(enrolledDomainsResponse);
+        
+        // Create set of enrolled domain IDs for quick lookup
+        const enrolledIds = new Set(enrolledDomainsResponse.map(d => d.id));
+        setEnrolledDomainIds(enrolledIds);
         
       } catch (error) {
         console.error("Failed to load domains:", error);
@@ -73,7 +101,7 @@ export default function MainPage() {
     };
     
     fetchDomains();
-  }, []);
+  }, [currentUser]);
 
   // Update display domains when data changes or tab changes
   useEffect(() => {
@@ -97,12 +125,97 @@ export default function MainPage() {
     setActiveTab(tab);
   };
 
-  // Handle domain selection
-  const handleSelectDomain = (domain: Domain) => {
-    setSelectedDomain(domain);
+  // Handle enrollment
+  const handleEnrollment = async (domain: Domain) => {
+    if (!currentUser) {
+      showToast('Please log in to enroll in domains', 'error');
+      router.push('/login');
+      return;
+    }
+
+    setEnrolling(prev => new Set(prev).add(domain.id));
+    
+    try {
+      await enrollInDomain(domain.id);
+      
+      // Update local state
+      setEnrolledDomains(prev => [...prev, domain]);
+      setEnrolledDomainIds(prev => new Set(prev).add(domain.id));
+      
+      showToast(`Successfully enrolled in "${domain.name}"`, 'success');
+      
+      // Navigate to the domain
+      router.push(`/main/domains/${domain.id}/study`);
+    } catch (error) {
+      console.error('Error enrolling in domain:', error);
+      showToast(`Failed to enroll in "${domain.name}"`, 'error');
+    } finally {
+      setEnrolling(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(domain.id);
+        return newSet;
+      });
+    }
   };
 
-  const router = useRouter();
+  // Handle domain access
+  const handleDomainAccess = async (domain: Domain) => {
+    // Check if user owns the domain
+    const isOwned = currentUser && domain.ownerId === currentUser.id;
+    const isEnrolled = enrolledDomainIds.has(domain.id);
+    
+    if (isOwned || isEnrolled) {
+      // Direct access for owned or enrolled domains
+      router.push(`/main/domains/${domain.id}/study`);
+    } else if (domain.privacy === 'public') {
+      // Prompt for enrollment in public domain
+      const shouldEnroll = window.confirm(
+        `You are not enrolled in "${domain.name}". Would you like to enroll to access all features including progress tracking?\n\nNote: You can still browse the domain without enrolling, but won't have access to study features.`
+      );
+      
+      if (shouldEnroll) {
+        await handleEnrollment(domain);
+      } else {
+        // Navigate anyway but user will have limited access
+        router.push(`/main/domains/${domain.id}/study`);
+      }
+    } else {
+      // Private domain that user doesn't own
+      showToast('This is a private domain you cannot access', 'error');
+    }
+  };
+
+  // Get domain status info
+  const getDomainStatus = (domain: Domain) => {
+    const isOwned = currentUser && domain.ownerId === currentUser.id;
+    const isEnrolled = enrolledDomainIds.has(domain.id);
+    
+    if (isOwned) {
+      return {
+        icon: <Lock size={14} className="text-purple-600" />,
+        label: 'Owned',
+        className: 'bg-purple-100 text-purple-700'
+      };
+    } else if (isEnrolled) {
+      return {
+        icon: <Users size={14} className="text-green-600" />,
+        label: 'Enrolled',
+        className: 'bg-green-100 text-green-700'
+      };
+    } else if (domain.privacy === 'public') {
+      return {
+        icon: <Globe size={14} className="text-blue-600" />,
+        label: 'Public',
+        className: 'bg-blue-100 text-blue-700'
+      };
+    } else {
+      return {
+        icon: <Lock size={14} className="text-gray-600" />,
+        label: 'Private',
+        className: 'bg-gray-100 text-gray-700'
+      };
+    }
+  };
 
   const openSidebar = () => setSidebarOpen(true);
   const closeSidebar = () => setSidebarOpen(false);
@@ -122,31 +235,33 @@ export default function MainPage() {
               className={`px-4 py-2 font-medium ${activeTab === 'all' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
               onClick={() => handleTabChange('all')}
             >
-              All Domains
+              All Domains ({publicDomains.length + myDomains.length})
             </button>
             <button
               className={`px-4 py-2 font-medium ${activeTab === 'my' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
               onClick={() => handleTabChange('my')}
             >
-              My Domains
+              My Domains ({myDomains.length})
             </button>
             <button
               className={`px-4 py-2 font-medium ${activeTab === 'enrolled' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
               onClick={() => handleTabChange('enrolled')}
             >
-              Enrolled Domains
+              Enrolled Domains ({enrolledDomains.length})
             </button>
           </div>
 
           {/* Create Domain Button */}
-          <div className="mb-6">
-            <Link href="/main/domains/create">
-               <Button className="flex items-center">
-                <Plus size={16} className="mr-1" />
-                Create Domain
-               </Button>
-             </Link>
-          </div>
+          {currentUser && (
+            <div className="mb-6">
+              <Link href="/main/domains/create">
+                 <Button className="flex items-center">
+                  <Plus size={16} className="mr-1" />
+                  Create Domain
+                 </Button>
+               </Link>
+            </div>
+          )}
           
           {/* Error Message */}
           {error && (
@@ -172,7 +287,7 @@ export default function MainPage() {
                 }
               </p>
               
-              {activeTab === 'my' && (
+              {activeTab === 'my' && currentUser && (
                 <Link href="/main/domains/create">
                   <Button className="mt-4">
                     Create Your First Domain
@@ -182,29 +297,60 @@ export default function MainPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {displayDomains.map((domain) => (
-                <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm">
-                  <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
-                  <p className="text-gray-600 mb-4 line-clamp-2 min-h-[2.5rem]">{domain.description || "No description"}</p>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className={`text-sm px-2 py-1 rounded-full ${
-                      domain.privacy === 'public' 
-                        ? 'bg-green-100 text-green-700' 
-                        : 'bg-gray-100 text-gray-700'
-                    }`}>
-                      {domain.privacy === 'public' ? 'Public' : 'Private'}
-                    </span>
-                    <Link 
-                      href={`/main/domains/${domain.id}/study`}
-                      className="text-orange-500 hover:text-orange-700 flex items-center font-medium transition-colors"
-                    >
-                      Explore
-                      <ArrowRight size={16} className="ml-1" />
-                    </Link>
-                  </div>
-                </Card>
-              ))}
+              {displayDomains.map((domain) => {
+                const statusInfo = getDomainStatus(domain);
+                const isEnrolling = enrolling.has(domain.id);
+                const isOwned = currentUser && domain.ownerId === currentUser.id;
+                const isEnrolled = enrolledDomainIds.has(domain.id);
+                
+                return (
+                  <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm">
+                    <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
+                    <p className="text-gray-600 mb-4 line-clamp-2 min-h-[2.5rem]">{domain.description || "No description"}</p>
+                    
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center space-x-2">
+                        <span className={`text-sm px-2 py-1 rounded-full flex items-center ${statusInfo.className}`}>
+                          {statusInfo.icon}
+                          <span className="ml-1">{statusInfo.label}</span>
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        {/* Enrollment button for public domains */}
+                        {domain.privacy === 'public' && !isOwned && !isEnrolled && currentUser && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEnrollment(domain)}
+                            disabled={isEnrolling}
+                            className="text-xs"
+                          >
+                            {isEnrolling ? 'Enrolling...' : 'Enroll'}
+                          </Button>
+                        )}
+                        
+                        {/* Explore button */}
+                        <button
+                          onClick={() => handleDomainAccess(domain)}
+                          className="text-orange-500 hover:text-orange-700 flex items-center font-medium transition-colors"
+                          disabled={isEnrolling}
+                        >
+                          Explore
+                          <ArrowRight size={16} className="ml-1" />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Login prompt for non-authenticated users */}
+                    {!currentUser && domain.privacy === 'public' && (
+                      <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-700">
+                        <Link href="/login" className="underline">Log in</Link> to enroll and track your progress
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
             </div>
           )}
           
@@ -220,10 +366,12 @@ export default function MainPage() {
                   exerciseCount: 0
                 }))}
                 onSelectSubjectMatter={(id) => {
-                  console.log('Selected domain ID:', id);
-                  router.push(`/main/domains/${id}/study`);
+                  const domain = displayDomains.find(d => d.id.toString() === id);
+                  if (domain) {
+                    handleDomainAccess(domain);
+                  }
                 }}
-                onCreateSubjectMatter={() => router.push('/main/domains/create')}
+                onCreateSubjectMatter={currentUser ? () => router.push('/main/domains/create') : undefined}
               />
             </div>
           </div>
