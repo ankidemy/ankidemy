@@ -1,4 +1,3 @@
-// FILE: src/app/components/Graph/KnowledgeGraph.tsx
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -198,6 +197,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   useEffect(() => {
     setCurrentStructuralGraphData(initialGraphData);
     setIsProcessingData(true);
+    
+    // Safety timeout - ensure loading doesn't get stuck
+    const timeout = setTimeout(() => {
+      console.warn("Graph processing timeout reached, forcing completion");
+      setIsProcessingData(false);
+    }, 10000); // 10 second timeout
+    
+    return () => clearTimeout(timeout);
   }, [initialGraphData]);
   
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
@@ -205,8 +212,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       console.log("Loading comprehensive domain data for:", domainId);
       
       const [allDefinitions, allExercises] = await Promise.all([
-        getDomainDefinitions(domainId),
-        getDomainExercises(domainId)
+        getDomainDefinitions(domainId).catch(err => {
+          console.warn("Failed to load definitions:", err);
+          return [];
+        }),
+        getDomainExercises(domainId).catch(err => {
+          console.warn("Failed to load exercises:", err);
+          return [];
+        })
       ]);
       
       console.log("Loaded definitions:", allDefinitions.length);
@@ -266,7 +279,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       
     } catch (error) {
       console.error("Error loading comprehensive domain data:", error);
-    showToast("Failed to load complete domain data.", "error");
+      showToast("Failed to load complete domain data.", "error");
+      
+      // Ensure we don't get stuck in loading state
+      setCurrentStructuralGraphData({ definitions: {}, exercises: {} });
     }
   }, []);
 
@@ -399,7 +415,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setIsRefreshing(false); 
     }
-  }, [subjectMatterId, selectedNode, handleNodeClick, loadComprehensiveDomainData, nodeDataCache, isEnrolled]);
+  }, [subjectMatterId, selectedNode, handleNodeClick, loadComprehensiveDomainData, nodeDataCache, isEnrolled, srs]);
 
   // Handle enrollment
   const handleEnrollment = useCallback(async () => {
@@ -440,105 +456,115 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
   // Build graph data effect
   useEffect(() => {
-    // Create stable data key to prevent unnecessary re-processing
-    const dataKey = `${Object.keys(currentStructuralGraphData.definitions || {}).length}-${Object.keys(currentStructuralGraphData.exercises || {}).length}-${mode}-${srs.state.lastUpdated}`;
-    
-    if (lastProcessedDataKey.current === dataKey) {
-      return; // Skip if data hasn't actually changed
-    }
-    
-    console.log("Processing graph data with key:", dataKey);
-    setIsProcessingData(true);
-    lastProcessedDataKey.current = dataKey;
-    
-    const nodes: GraphNode[] = [];
-    const links: GraphLink[] = [];
-
-    // Process definitions - ALWAYS show definitions regardless of mode
-    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
-      if (!def || !def.code || !def.name) return;
+    try {
+      // Create stable data key to prevent unnecessary re-processing
+      const dataKey = `${Object.keys(currentStructuralGraphData.definitions || {}).length}-${Object.keys(currentStructuralGraphData.exercises || {}).length}-${mode}-${srs.state.lastUpdated}`;
       
-      const numericId = codeToNumericIdMap.get(def.code);
-      const progress = numericId ? srs.getNodeProgress(numericId, 'definition') : null;
+      if (lastProcessedDataKey.current === dataKey) {
+        console.log("Skipping graph processing - data unchanged:", dataKey);
+        return; // Skip if data hasn't actually changed
+      }
       
-      nodes.push({
-        id: def.code,
-        name: def.name,
-        type: 'definition',
-        isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
-        xPosition: def.xPosition,
-        yPosition: def.yPosition,
-        fx: def.xPosition,
-        fy: def.yPosition,
-        status: progress?.status || 'fresh',
-        isDue: progress ? isNodeDue(progress.nextReview) : false,
-        daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
-        progress: progress || null,
-        domainId: def.domainId,
-        prerequisites: def.prerequisites
-      });
+      console.log("Processing graph data with key:", dataKey);
+      setIsProcessingData(true);
+      lastProcessedDataKey.current = dataKey;
       
-      // Create links with weights
-      (def.prerequisites || []).forEach(prereqCode => {
-        const weight = def.prerequisiteWeights?.[prereqCode] ?? 1.0;
-        links.push({ 
-          source: prereqCode, 
-          target: def.code, 
-          type: 'prerequisite',
-          weight: weight
-        });
-      });
-    });
-
-    // Process exercises (only in practice mode)
-    if (mode === 'practice' && currentStructuralGraphData.exercises) {
-      Object.values(currentStructuralGraphData.exercises).forEach(ex => {
-        if (!ex || !ex.code || !ex.name) return;
+      const nodes: GraphNode[] = [];
+      const links: GraphLink[] = [];
+  
+      // Process definitions - ALWAYS show definitions regardless of mode
+      Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
+        if (!def || !def.code || !def.name) return;
         
-        const numericId = codeToNumericIdMap.get(ex.code);
-        const progress = numericId ? srs.getNodeProgress(numericId, 'exercise') : null;
+        const numericId = codeToNumericIdMap.get(def.code);
+        const progress = numericId ? srs.getNodeProgress(numericId, 'definition') : null;
         
         nodes.push({
-          id: ex.code,
-          name: ex.name,
-          type: 'exercise',
-          difficulty: ex.difficulty,
-          xPosition: ex.xPosition,
-          yPosition: ex.yPosition,
-          fx: ex.xPosition,
-          fy: ex.yPosition,
+          id: def.code,
+          name: def.name,
+          type: 'definition',
+          isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
+          xPosition: def.xPosition,
+          yPosition: def.yPosition,
+          fx: def.xPosition,
+          fy: def.yPosition,
           status: progress?.status || 'fresh',
           isDue: progress ? isNodeDue(progress.nextReview) : false,
           daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
           progress: progress || null,
-          domainId: ex.domainId,
-          prerequisites: ex.prerequisites
+          domainId: def.domainId,
+          prerequisites: def.prerequisites
         });
         
-        // Create links with weights for exercises
-        (ex.prerequisites || []).forEach(prereqCode => {
-          const prereqNode = nodes.find(n => n.id === prereqCode && n.type === 'definition');
-          if (prereqNode) {
-            const weight = ex.prerequisiteWeights?.[prereqCode] ?? 1.0;
-            links.push({ 
-              source: prereqCode, 
-              target: ex.code, 
-              type: 'prerequisite',
-              weight: weight
-            });
-          } else {
-            console.warn(`Exercise Link: Prerequisite code ${prereqCode} not found for target ${ex.code}`);
-          }
+        // Create links with weights
+        (def.prerequisites || []).forEach(prereqCode => {
+          const weight = def.prerequisiteWeights?.[prereqCode] ?? 1.0;
+          links.push({ 
+            source: prereqCode, 
+            target: def.code, 
+            type: 'prerequisite',
+            weight: weight
+          });
         });
       });
+  
+      // Process exercises (only in practice mode)
+      if (mode === 'practice' && currentStructuralGraphData.exercises) {
+        Object.values(currentStructuralGraphData.exercises).forEach(ex => {
+          if (!ex || !ex.code || !ex.name) return;
+          
+          const numericId = codeToNumericIdMap.get(ex.code);
+          const progress = numericId ? srs.getNodeProgress(numericId, 'exercise') : null;
+          
+          nodes.push({
+            id: ex.code,
+            name: ex.name,
+            type: 'exercise',
+            difficulty: ex.difficulty,
+            xPosition: ex.xPosition,
+            yPosition: ex.yPosition,
+            fx: ex.xPosition,
+            fy: ex.yPosition,
+            status: progress?.status || 'fresh',
+            isDue: progress ? isNodeDue(progress.nextReview) : false,
+            daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
+            progress: progress || null,
+            domainId: ex.domainId,
+            prerequisites: ex.prerequisites
+          });
+          
+          // Create links with weights for exercises
+          (ex.prerequisites || []).forEach(prereqCode => {
+            const prereqNode = nodes.find(n => n.id === prereqCode && n.type === 'definition');
+            if (prereqNode) {
+              const weight = ex.prerequisiteWeights?.[prereqCode] ?? 1.0;
+              links.push({ 
+                source: prereqCode, 
+                target: ex.code, 
+                type: 'prerequisite',
+                weight: weight
+              });
+            } else {
+              console.warn(`Exercise Link: Prerequisite code ${prereqCode} not found for target ${ex.code}`);
+            }
+          });
+        });
+      }
+      
+      console.log(`Generated ${nodes.length} nodes and ${links.length} links for data key: ${dataKey}`);
+      
+      setGraphNodes(nodes);
+      setGraphLinks(links);
+      
+      // Always set processing to false at the end
+      setIsProcessingData(false);
+      
+    } catch (error) {
+      console.error("Error processing graph data:", error);
+      setIsProcessingData(false); // Ensure we clear loading state on error
+      showToast("Error processing graph data", "error");
     }
-    
-    console.log(`Generated ${links.length} links for data key: ${dataKey}`);
-    
-    setGraphNodes(nodes);
-    setGraphLinks(links);
-    setIsProcessingData(false);
-  }, [currentStructuralGraphData, mode, srs.state.lastUpdated, codeToNumericIdMap]);
+  }, [currentStructuralGraphData, mode, srs.state.lastUpdated, codeToNumericIdMap, srs]);
 
   useEffect(() => {
     if (!isProcessingData && graphRef.current && graphNodes.length > 0) {

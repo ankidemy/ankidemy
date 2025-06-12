@@ -1,4 +1,3 @@
-// src/contexts/SRSContext.tsx
 // Global state management for SRS features
 
 'use client';
@@ -321,30 +320,39 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dispatch({ type: 'RESET_DOMAIN_STATE' }); // Reset state if no domainId
         return;
     }
-
+  
     // Prevent concurrent loading of the same domain
     if (isLoadingDataRef.current && lastLoadedDomainRef.current === domainId) {
         console.log("Already loading data for domain:", domainId);
         return;
     }
-
+  
     isLoadingDataRef.current = true;
     lastLoadedDomainRef.current = domainId;
-
+  
     console.log("Loading domain data for domain:", domainId);
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
-
+  
+    // Add timeout protection
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('SRS data loading timeout')), 15000);
+    });
+  
     try {
-      // Load SRS data gracefully, handling missing endpoints if needed
-      // Using Promise.all to fetch multiple data points concurrently
-      const [progress, stats, prerequisites, dueReviewsResult] = await Promise.allSettled([
+      // Load SRS data with timeout protection
+      const dataPromise = Promise.allSettled([
         srsApi.getDomainProgress(domainId),
         srsApi.getDomainStats(domainId),
         srsApi.getDomainPrerequisites(domainId),
-        srsApi.getDueReviews(domainId, 'mixed') // Load initial mixed reviews
+        srsApi.getDueReviews(domainId, 'mixed')
       ]);
-
+  
+      const [progress, stats, prerequisites, dueReviewsResult] = await Promise.race([
+        dataPromise,
+        timeoutPromise
+      ]) as PromiseSettledResult<any>[];
+  
       // Process results, handling rejections gracefully
       if (progress.status === 'fulfilled') {
         dispatch({ type: 'SET_DOMAIN_PROGRESS', payload: progress.value });
@@ -353,7 +361,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('Could not load domain progress:', progress.reason);
         dispatch({ type: 'SET_DOMAIN_PROGRESS', payload: [] }); // Set empty array on error
       }
-
+  
       if (stats.status === 'fulfilled') {
         dispatch({ type: 'SET_DOMAIN_STATS', payload: stats.value });
         console.log("Loaded stats data:", stats.value);
@@ -369,7 +377,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
         });
       }
-
+  
       if (prerequisites.status === 'fulfilled') {
         dispatch({ type: 'SET_PREREQUISITES', payload: prerequisites.value });
         console.log("Loaded prerequisites data:", prerequisites.value.length, "items");
@@ -377,7 +385,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('Could not load domain prerequisites:', prerequisites.reason);
         dispatch({ type: 'SET_PREREQUISITES', payload: [] }); // Set empty array on error
       }
-
+  
       if (dueReviewsResult.status === 'fulfilled') {
          // Ensure dueNodes is an array or default to empty
          const dueNodes = Array.isArray(dueReviewsResult.value.dueNodes) ? dueReviewsResult.value.dueNodes : [];
@@ -387,14 +395,27 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          console.warn('Could not load due reviews:', dueReviewsResult.reason);
          dispatch({ type: 'SET_DUE_REVIEWS', payload: [] }); // Set empty array on error
       }
-
+  
       showToast('Domain data loaded.', 'success');
     } catch (error) {
-      // This outer catch is for errors during the Promise.allSettled setup, unlikely but possible.
+      // This catch handles both timeout and other critical errors
       console.error('Critical error loading domain data:', error);
       const message = error instanceof Error ? error.message : 'Failed to load domain data';
       dispatch({ type: 'SET_ERROR', payload: message });
       showToast(message, 'error');
+      
+      // Set default empty state to prevent infinite loading
+      dispatch({ type: 'SET_DOMAIN_PROGRESS', payload: [] });
+      dispatch({ type: 'SET_DUE_REVIEWS', payload: [] });
+      dispatch({ type: 'SET_PREREQUISITES', payload: [] });
+      dispatch({
+        type: 'SET_DOMAIN_STATS',
+        payload: {
+          domainId: domainId,
+          totalNodes: 0, freshNodes: 0, tacklingNodes: 0, graspedNodes: 0, learnedNodes: 0,
+          dueReviews: 0, completedToday: 0, successRate: 0
+        }
+      });
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
       isLoadingDataRef.current = false;
@@ -404,15 +425,26 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Effect to load domain data whenever currentDomainId changes and is not null
   useEffect(() => {
       if (state.currentDomainId !== null && !isLoadingDataRef.current) {
+          // Prevent loading the same domain multiple times
+          if (lastLoadedDomainRef.current === state.currentDomainId) {
+              console.log("Domain already loaded, skipping:", state.currentDomainId);
+              return;
+          }
+          
           // Use a separate function to handle the async logic inside useEffect
           const fetchDomainData = async () => {
-             // Small delay to allow SET_DOMAIN state update to potentially propagate
-             await new Promise(resolve => setTimeout(resolve, 50));
-             await loadDomainData(state.currentDomainId as number); // Cast is safe due to if check
+             try {
+               await loadDomainData(state.currentDomainId as number);
+             } catch (error) {
+               console.error("Error in auto-loading domain data:", error);
+               // Ensure loading state is cleared even on error
+               dispatch({ type: 'SET_LOADING', payload: false });
+               isLoadingDataRef.current = false;
+             }
           };
           fetchDomainData();
       }
-  }, [state.currentDomainId]); // Only depend on currentDomainId
+  }, [state.currentDomainId, loadDomainData]); // Only depend on currentDomainId
 
   const refreshDomainData = useCallback(async () => {
     const domainId = currentDomainIdRef.current;
@@ -423,7 +455,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else {
         console.warn("Refresh requested but no domain is set.");
     }
-  }, []); // STABLE - no dependencies
+  }, [loadDomainData]); // STABLE - no dependencies
 
   const updateNodeStatus = useCallback(async (
     nodeId: number,
@@ -453,7 +485,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dispatch({ type: 'SET_ERROR', payload: message });
       showToast(message, 'error');
     }
-  }, []); // STABLE - no dependencies
+  }, [loadDomainData]); // STABLE - no dependencies
 
   const getNodeProgress = useCallback((
     nodeId: number,
@@ -643,7 +675,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, []); // STABLE - no dependencies
+  }, [loadDueReviews]); // STABLE - no dependencies
 
   const endStudySession = useCallback(async () => {
     const currentSession = currentSessionRef.current;
@@ -690,7 +722,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, []); // STABLE - no dependencies
+  }, [loadDueReviews]); // STABLE - no dependencies
 
   const setShowStudyModeInContext = useCallback((show: boolean) => {
     dispatch({ type: 'SET_SHOW_STUDY_MODE', payload: show });
