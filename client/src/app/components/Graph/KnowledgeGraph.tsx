@@ -118,6 +118,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
   // State for exercise review flow
   const [exerciseAttemptCompleted, setExerciseAttemptCompleted] = useState(false);
+  const [graphRevision, setGraphRevision] = useState(0);
 
   // FIX: Add refs to prevent infinite loops
   const lastProcessedDataKey = useRef<string>('');
@@ -465,18 +466,37 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [domainData, isEnrolled]);
 
+  const generateDataKey = useCallback(() => {
+    const defKeys = Object.keys(currentStructuralGraphData.definitions || {}).sort();
+    const exKeys = Object.keys(currentStructuralGraphData.exercises || {}).sort();
+    
+    const defPrereqs = defKeys.map(key => {
+      const def = currentStructuralGraphData.definitions[key];
+      return `${key}:${(def.prerequisites || []).sort().join(',')}`;
+    }).join('|');
+    
+    const exPrereqs = exKeys.map(key => {
+      const ex = currentStructuralGraphData.exercises[key];
+      return `${key}:${(ex.prerequisites || []).sort().join(',')}`;
+    }).join('|');
+    
+    return `${defKeys.length}-${exKeys.length}-${mode}-${srs.state.lastUpdated}-${defPrereqs}-${exPrereqs}`;
+  }, [currentStructuralGraphData, mode, srs.state.lastUpdated]);
+
   // Build graph data effect
   useEffect(() => {
     try {
-      // Create stable data key to prevent unnecessary re-processing
-      const dataKey = `${Object.keys(currentStructuralGraphData.definitions || {}).length}-${Object.keys(currentStructuralGraphData.exercises || {}).length}-${mode}-${srs.state.lastUpdated}`;
+      const dataKey = generateDataKey();
       
       if (lastProcessedDataKey.current === dataKey) {
         console.log("Skipping graph processing - data unchanged:", dataKey);
-        return; // Skip if data hasn't actually changed
+        return;
       }
       
       console.log("Processing graph data with key:", dataKey);
+      console.log("Prerequisites in definitions:", Object.values(currentStructuralGraphData.definitions || {})
+        .map(d => ({ code: d.code, prereqs: d.prerequisites })));
+      
       setIsProcessingData(true);
       lastProcessedDataKey.current = dataKey;
       
@@ -507,9 +527,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           prerequisites: def.prerequisites
         });
         
-        // Create links with weights
+        // Create links with weights - enhanced logging
         (def.prerequisites || []).forEach(prereqCode => {
           const weight = def.prerequisiteWeights?.[prereqCode] ?? 1.0;
+          console.log(`Creating link: ${prereqCode} -> ${def.code} (weight: ${weight})`);
           links.push({ 
             source: prereqCode, 
             target: def.code, 
@@ -575,7 +596,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       setIsProcessingData(false); // Ensure we clear loading state on error
       showToast("Error processing graph data", "error");
     }
-  }, [currentStructuralGraphData, mode, srs.state.lastUpdated, codeToNumericIdMap, srs]);
+  }, [generateDataKey, codeToNumericIdMap, srs, graphRevision]);
 
   useEffect(() => {
     if (!isProcessingData && graphRef.current && graphNodes.length > 0) {
@@ -858,8 +879,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
   const handleSubmitEdit = async () => {
     if (!selectedNode || !selectedNodeDetails) return;
-    
-    // ... (The existing code to get data from the form remains the same)
+
     const formName = (document.getElementById('name') as HTMLInputElement)?.value || selectedNode.name;
     const formPrereqsEl = document.getElementById('prerequisites') as HTMLSelectElement;
     
@@ -878,7 +898,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
 
     try {
-      let updatedNode; // Variable to hold the response from the API
+      let updatedNode;
 
       if (selectedNode.type === 'definition') {
         const defDetails = selectedNodeDetails as Definition;
@@ -895,7 +915,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         const formNotes = (document.getElementById('notes') as HTMLTextAreaElement)?.value;
         const formRefs = (document.getElementById('references') as HTMLTextAreaElement)?.value.split('\n').filter(r => r.trim());
 
-        // CAPTURE the response from the API call
         updatedNode = await updateDefinition(defDetails.id, { 
           name: formName, 
           description: formDesc,
@@ -904,7 +923,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           prerequisiteIds: selectedPrereqNumericIds,
           prerequisiteWeights: prerequisiteWeights,
         });
-        showToast(`Definition "${selectedNode.name}" updated.`, "success");
       } else { 
         const exDetails = selectedNodeDetails as Exercise;
         const formStatement = (document.getElementById('statement') as HTMLTextAreaElement)?.value;
@@ -915,7 +933,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         const formResult = (document.getElementById('result') as HTMLInputElement)?.value;
         const formNotes = (document.getElementById('exerciseNotes') as HTMLTextAreaElement)?.value;
 
-        // CAPTURE the response from the API call
         updatedNode = await updateExercise(exDetails.id, {
           name: formName,
           statement: formStatement,
@@ -928,32 +945,71 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           prerequisiteIds: selectedPrereqNumericIds,
           prerequisiteWeights: prerequisiteWeights,
         });
-        showToast(`Exercise "${selectedNode.name}" updated.`, "success");
       }
-      
-      // ---- NEW REFRESH LOGIC ----
 
-      // 1. Immediately update the right panel's details
-      setSelectedNodeDetails({ ...updatedNode, type: selectedNode.type });
+      const prerequisiteCodes: string[] = [];
+      const prerequisiteWeightsWithCodes: Record<string, number> = {};
 
-      // 2. Update the node in the main graph data structure
+      if (updatedNode.prerequisites && Array.isArray(updatedNode.prerequisites)) {
+        updatedNode.prerequisites.forEach((prereqCode: string) => {
+          prerequisiteCodes.push(prereqCode);
+        });
+      } else if (selectedPrereqNumericIds.length > 0) {
+        selectedPrereqNumericIds.forEach(numId => {
+          const code = Array.from(codeToNumericIdMap.entries())
+            .find(([_, id]) => id === numId)?.[0];
+          if (code) {
+            prerequisiteCodes.push(code);
+            prerequisiteWeightsWithCodes[code] = prerequisiteWeights[numId] || 1.0;
+          }
+        });
+      }
+
+      const updatedNodeForGraph = {
+        ...updatedNode,
+        prerequisites: prerequisiteCodes,
+        prerequisiteWeights: Object.keys(prerequisiteWeightsWithCodes).length > 0 
+          ? prerequisiteWeightsWithCodes 
+          : prerequisiteCodes.reduce((acc, code) => ({ ...acc, [code]: 1.0 }), {}),
+      };
+
+      setSelectedNodeDetails({ ...updatedNodeForGraph, type: selectedNode.type });
+
       setCurrentStructuralGraphData(prevData => {
         const newData = { ...prevData };
         const nodeCode = updatedNode.code;
 
         if (selectedNode.type === 'definition') {
-          newData.definitions[nodeCode] = { ...newData.definitions[nodeCode], ...updatedNode };
+          newData.definitions = {
+            ...newData.definitions,
+            [nodeCode]: { 
+              ...newData.definitions[nodeCode], 
+              ...updatedNodeForGraph 
+            }
+          };
         } else {
-          newData.exercises[nodeCode] = { ...newData.exercises[nodeCode], ...updatedNode };
+          newData.exercises = {
+            ...newData.exercises,
+            [nodeCode]: { 
+              ...newData.exercises[nodeCode], 
+              ...updatedNodeForGraph 
+            }
+          };
         }
         return newData;
       });
 
-      // 3. Update the cache to prevent stale data on re-click
-      setNodeDataCache(prevCache => new Map(prevCache).set(updatedNode.code, updatedNode));
+      setNodeDataCache(prevCache => new Map(prevCache).set(updatedNode.code, updatedNodeForGraph as ApiDefinition | ApiExercise));
       
-      // 4. Switch back to view mode
+      if (updatedNode.id && updatedNode.code) {
+        setCodeToNumericIdMap(prevMap => new Map(prevMap).set(updatedNode.code, updatedNode.id));
+      }
+
+      setGraphRevision(prev => prev + 1);
+
       setIsEditMode(false);
+
+      showToast(`${selectedNode.type === 'definition' ? 'Definition' : 'Exercise'} "${selectedNode.name}" updated.`, "success");
 
     } catch (error) {
       console.error("Error updating node:", error);

@@ -525,7 +525,14 @@ export const updateDefinition = async (id: number, definitionData: {
     body: JSON.stringify(definitionData),
   });
   
-  return handleResponse(response);
+  const result = await handleResponse(response);
+
+  // Ensure prerequisites are included as string codes - fallback if API doesn't return them
+  if (result && !result.prerequisites && definitionData.prerequisiteIds) {
+    result.prerequisites = []; // Handled in calling code by converting IDs to codes
+  }
+
+  return result;
 };
 
 export const deleteDefinition = async (id: number): Promise<void> => {
@@ -650,7 +657,14 @@ export const updateExercise = async (id: number, exerciseData: {
     body: JSON.stringify(dataToSend),
   });
   
-  return handleResponse(response);
+  const result = await handleResponse(response);
+  
+  // Ensure prerequisites are included as string codes - fallback if API doesn't return them
+  if (result && !result.prerequisites && exerciseData.prerequisiteIds) {
+    result.prerequisites = []; // Handled in calling code by converting IDs to codes
+  }
+
+  return result;
 };
 
 export const deleteExercise = async (id: number): Promise<void> => {
