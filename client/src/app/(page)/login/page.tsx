@@ -149,7 +149,7 @@ export default function ImprovedLoginPage() {
     try {
       // Use the updated API client login function with identifier
       await loginUser({
-        email: formData.identifier,
+        identifier: formData.identifier,
         password: formData.password,
       });
       

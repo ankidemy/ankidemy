@@ -222,7 +222,7 @@ const handleResponse = async (response: Response) => {
 };
 
 // UPDATED: Login now supports email OR username via identifier field
-export const loginUser = async (credentials: { email: string; password: string }): Promise<AuthResponse> => {
+export const loginUser = async (credentials: { identifier: string; password: string }): Promise<AuthResponse> => {
   const response = await fetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
