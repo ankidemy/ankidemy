@@ -955,9 +955,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       // 4. Switch back to view mode
       setIsEditMode(false);
 
-      // We no longer need the slow full refresh:
-      // await refreshGraphAndSRSData(); // REMOVED
-
     } catch (error) {
       console.error("Error updating node:", error);
       showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
@@ -992,8 +989,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     return Array.isArray(detail.description) ? detail.description.length : 1;
   }, [selectedNodeDetails]);
 
-  // Handle navigating to a specific node
-  const navigateToNode = useCallback((nodeId: string) => {
+  const navigateToNodeById = useCallback((nodeId: string) => {
     const targetNodeInCurrentGraph = graphNodes.find(n => n.id === nodeId);
   
     if (targetNodeInCurrentGraph) {
@@ -1012,17 +1008,25 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       
       // Wait for mode change and graphNodes to update
       setTimeout(() => {
+        // We must re-read graphNodes from state inside the timeout
         setGraphNodes(currentNodes => {
           const exerciseNode = currentNodes.find(n => n.id === nodeId);
           if (exerciseNode) {
-            handleNodeClick(exerciseNode);
+              handleNodeClick(exerciseNode);
           } else {
-            console.warn(`Exercise node ${nodeId} not found after switching to practice mode.`);
-            showToast(`Could not navigate to exercise ${nodeId}.`, "error");
+            // This can happen if the component re-renders faster than state update.
+            // We can try to build the node from the structural data.
+            const exData = currentStructuralGraphData.exercises[nodeId];
+            if (exData) {
+              handleNodeClick({ id: exData.code, name: exData.name, type: 'exercise' });
+            } else {
+              console.warn(`Exercise node ${nodeId} not found after switching to practice mode.`);
+              showToast(`Could not navigate to exercise ${nodeId}.`, "error");
+            }
           }
           return currentNodes;
         });
-      }, 200);
+      }, 300); // A small delay to allow react to re-render with the new mode
     } else {
       console.warn(`Node with ID ${nodeId} not found.`);
       showToast(`Node ${nodeId} not found in the current view.`, "warning");
@@ -1038,9 +1042,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
     if (prevNodeId) {
       setNodeHistory(newHistory);
-      navigateToNode(prevNodeId);
+      navigateToNodeById(prevNodeId);
     }
-  }, [nodeHistory, navigateToNode]);
+  }, [nodeHistory, navigateToNodeById]);
 
   // Handle node hover
   const handleNodeHover = useCallback((node: GraphNode | null) => {
@@ -1064,13 +1068,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setHighlightLinks(newHighlightLinks);
   }, [graphLinks]);
 
-  const navigateToNodeById = useCallback((nodeId: string) => {
-    const node = graphNodes.find(n => n.id === nodeId);
-    if (node) {
-      handleNodeClick(node);
-    }
-  }, [graphNodes, handleNodeClick]);
-
   const navigateBackHistory = useCallback(() => {
     if (nodeHistory.length === 0) return;
     const prevNodeId = nodeHistory[nodeHistory.length - 1];
@@ -1078,39 +1075,25 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     navigateToNodeById(prevNodeId);
   }, [nodeHistory, navigateToNodeById]);
 
-  const availableNodesForPrerequisites = React.useMemo(() => {
-    const availableNodes = graphNodes
-      .filter(node => node.type === 'definition' || node.type === 'exercise') // Include both definitions and exercises
+  const availableDefinitionsForModals = useMemo(() => {
+    return graphNodes
+      .filter(node => node.type === 'definition') // Prerequisites can only be definitions.
       .map(node => {
           const numericId = codeToNumericIdMap.get(node.id);
           if (!numericId) {
-            console.warn(`No numeric ID found for node code: ${node.id}`);
+            // This warning can be noisy during initial load, but is useful for debugging.
+            // console.warn(`No numeric ID found for definition node code: ${node.id}`);
             return null;
           }
           return {
               code: node.id,
               name: node.name,
-              numericId: numericId,
-              type: node.type // Add type to distinguish between definitions and exercises
+              numericId: numericId
           };
       })
       .filter((node): node is NonNullable<typeof node> => node !== null)
-      .sort((a, b) => {
-        // Sort by type first (definitions before exercises), then by code
-        if (a.type !== b.type) {
-          return a.type === 'definition' ? -1 : 1;
-        }
-        return a.code.localeCompare(b.code);
-      });
-    
-    console.log("Available nodes for prerequisites:", availableNodes);
-    return availableNodes;
+      .sort((a, b) => a.code.localeCompare(b.code));
   }, [graphNodes, codeToNumericIdMap]);
-
-  // Keep a separate list for just definitions (for display purposes in some components)
-  const availableDefinitionsOnly = React.useMemo(() => {
-    return availableNodesForPrerequisites.filter(node => node.type === 'definition');
-  }, [availableNodesForPrerequisites]);
 
   // Memoize credit flow animations to prevent unnecessary re-renders
   const memoizedCreditFlowAnimations = useMemo(() => {
@@ -1126,7 +1109,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           isOpen={showNodeCreationModal}
           onClose={() => setShowNodeCreationModal(false)}
           onSuccess={handleNodeCreationSuccess}
-          availablePrerequisites={availableNodesForPrerequisites}
+          availablePrerequisites={availableDefinitionsForModals}
           position={nodeCreationPosition}
         />
         <StudyModeModal
@@ -1241,10 +1224,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                   onVerifyAnswer={verifyAnswer}
                   onRateExercise={handleRateExerciseUnderstanding}
                   exerciseAttemptCompleted={exerciseAttemptCompleted}
-                  availableDefinitionsForEdit={availableNodesForPrerequisites}
+                  availableDefinitionsForEdit={availableDefinitionsForModals}
                   onSubmitEdit={handleSubmitEdit}
                   onStatusChange={handleStatusChange}
-                  availableDefinitions={availableDefinitionsOnly.map(d => ({code: d.code, name: d.name}))}
+                  availableDefinitions={availableDefinitionsForModals.map(d => ({code: d.code, name: d.name}))}
                 />
             )}
           </div>
