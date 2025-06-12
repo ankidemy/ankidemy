@@ -1,16 +1,16 @@
-// FILE: src/app/components/Graph/panels/TopControls.tsx
+// TopControls.tsx - Enhanced version with better graph control integration
 "use client";
 
 import React from 'react';
 import { Button } from "@/app/components/core/button";
-import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type } from 'lucide-react';
+import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize } from 'lucide-react';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 import { LabelDisplayMode } from '../utils/GraphContainer';
 
 interface TopControlsProps {
-  subjectMatterId: string; // This prop holds the domain NAME
+  subjectMatterId: string;
   mode: AppMode;
   onModeChange: (mode: AppMode) => void;
   onBack: () => void;
@@ -25,6 +25,16 @@ interface TopControlsProps {
   onSavePositions: () => void;
   isEnrolled?: boolean;
   onEnroll?: () => void;
+  
+  // NEW: Enhanced graph control props
+  onResetView?: () => void;
+  onCenterSelected?: () => void;
+  selectedNodeId?: string | null;
+  
+  // NEW: Graph state info
+  graphDimensions?: { width: number; height: number; availableWidth: number; availableHeight: number };
+  leftPanelOpen?: boolean;
+  rightPanelOpen?: boolean;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -42,7 +52,13 @@ const TopControls: React.FC<TopControlsProps> = ({
   isSavingPositions,
   onSavePositions,
   isEnrolled = true,
-  onEnroll
+  onEnroll,
+  onResetView,
+  onCenterSelected,
+  selectedNodeId,
+  graphDimensions,
+  leftPanelOpen,
+  rightPanelOpen
 }) => {
   const srs = useSRS();
 
@@ -71,6 +87,11 @@ const TopControls: React.FC<TopControlsProps> = ({
       labelButtonTitle = "Cycle label display";
   }
 
+  // NEW: Calculate available space info for debugging
+  const spaceInfo = graphDimensions ? 
+    `${graphDimensions.availableWidth}x${graphDimensions.availableHeight}` : 
+    'Loading...';
+
   return (
     <div className="bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
       {/* Left: Back Button + Title + Domain Selector */}
@@ -82,9 +103,14 @@ const TopControls: React.FC<TopControlsProps> = ({
           {subjectMatterId || "Knowledge Graph"}
         </h2>
         
-        {/* Pass the domain NAME to the selector */}
         <DomainSelector currentDomainName={subjectMatterId} />
 
+        {/* NEW: Graph space indicator (only in dev mode) */}
+        {process.env.NODE_ENV === 'development' && graphDimensions && (
+          <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded" title="Available graph space">
+            {spaceInfo}
+          </div>
+        )}
       </div>
 
       {/* Center: Mode Buttons & Study Button */}
@@ -143,27 +169,59 @@ const TopControls: React.FC<TopControlsProps> = ({
         </Button>
       </div>
 
-
       {/* Right: View/Action Buttons */}
       <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onCycleLabelDisplay}
-          title={labelButtonTitle}
-          className="flex items-center"
-        >
-          <LabelIconComponent size={14} className="mr-1" /> {labelButtonText}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onZoomToFit}
-          title="Fit Graph"
-          className="flex items-center"
-        >
-          <ZoomIn size={14} className="mr-1" /> Fit
-        </Button>
+        {/* NEW: Enhanced view controls */}
+        <div className="flex items-center space-x-1 border rounded-md p-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCycleLabelDisplay}
+            title={labelButtonTitle}
+            className="h-7 px-2 text-xs"
+          >
+            <LabelIconComponent size={12} className="mr-1" /> {labelButtonText}
+          </Button>
+          
+          <div className="w-px h-4 bg-gray-300"></div>
+          
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onZoomToFit}
+            title="Fit graph to available space"
+            className="h-7 px-2 text-xs"
+          >
+            <ZoomIn size={12} className="mr-1" /> Fit
+          </Button>
+          
+          {/* NEW: Center on selected node button */}
+          {selectedNodeId && onCenterSelected && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCenterSelected}
+              title={`Center on selected node: ${selectedNodeId}`}
+              className="h-7 px-2 text-xs"
+            >
+              <Maximize size={12} className="mr-1" /> Center
+            </Button>
+          )}
+          
+          {/* NEW: Reset view button */}
+          {onResetView && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onResetView}
+              title="Reset to default view"
+              className="h-7 px-2 text-xs"
+            >
+              Reset
+            </Button>
+          )}
+        </div>
+
         {/* Creation buttons - disabled if not enrolled */}
         <Button
           variant="outline"
@@ -185,6 +243,25 @@ const TopControls: React.FC<TopControlsProps> = ({
             className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
           >
             <Plus size={14} className="mr-1" /> Ex
+          </Button>
+        )}
+
+        {/* NEW: Position save indicator */}
+        {positionsChanged && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSavePositions}
+            disabled={isSavingPositions}
+            className="flex items-center bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
+            title="Save current node positions"
+          >
+            {isSavingPositions ? (
+              <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-yellow-600 mr-1"></div>
+            ) : (
+              '💾'
+            )}
+            Save
           </Button>
         )}
       </div>

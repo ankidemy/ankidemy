@@ -1,3 +1,4 @@
+// KnowledgeGraph.tsx - Fixed version with smart panning behavior
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -26,14 +27,14 @@ import { getStatusColor, isNodeDue, calculateDaysUntilReview, formatNextReview }
 import * as srsApi from '../../../lib/srs-api';
 import { NodeStatus, CreditFlowAnimation, ReviewRequest, Quality } from '../../../types/srs';
 
-import { 
-  GraphNode, 
-  GraphLink, 
-  Definition, 
-  Exercise,   
-  AppMode, 
+import {
+  GraphNode,
+  GraphLink,
+  Definition,
+  Exercise,
+  AppMode,
   FilteredNodeType,
-  KnowledgeGraphProps, 
+  KnowledgeGraphProps,
   AnswerFeedback,
 } from './utils/types';
 import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
@@ -61,6 +62,161 @@ function debounce<T extends (...args: any[]) => any>(
   };
 }
 
+// FIX 3: Canvas Dimension Tracking Issues
+const useCanvasDimensions = (leftPanelOpen: boolean, rightPanelOpen: boolean) => {
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0, availableWidth: 0, availableHeight: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const updateDimensions = useCallback(() => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      
+      // Get actual panel widths from DOM
+      const leftPanelEl = document.querySelector('.left-panel-class');
+      const rightPanelEl = document.querySelector('.right-panel-class');
+      
+      const leftPanelWidth = leftPanelOpen && leftPanelEl ? 
+        leftPanelEl.getBoundingClientRect().width : 0;
+      const rightPanelWidth = rightPanelOpen && rightPanelEl ? 
+        rightPanelEl.getBoundingClientRect().width : 0;
+      
+      // Account for margins and borders (approximately 20px total)
+      const margins = 20;
+      
+      const availableWidth = Math.max(300, rect.width - leftPanelWidth - rightPanelWidth - margins);
+      const availableHeight = Math.max(200, rect.height - margins);
+      
+      setDimensions({
+        width: rect.width,
+        height: rect.height,
+        availableWidth,
+        availableHeight
+      });
+    }
+  }, [leftPanelOpen, rightPanelOpen]);
+
+
+  useEffect(() => {
+    updateDimensions();
+    
+    // Use ResizeObserver for container changes
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+    
+    // Also listen to window resize for dev tools scenarios
+    window.addEventListener('resize', updateDimensions);
+    
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+    };
+      }, [updateDimensions]);
+
+  // Update when panels change
+  useEffect(() => {
+    // Small delay to allow panel transition to complete
+    const timer = setTimeout(updateDimensions, 350);
+    return () => clearTimeout(timer);
+  }, [leftPanelOpen, rightPanelOpen, updateDimensions]);
+
+  return { dimensions, containerRef };
+};
+
+
+// FIX 4 & 5: Smart Graph Control and Fit Improvements
+const useSmartGraphControl = (graphRef: React.RefObject<any>, dimensions: any) => {
+  const lastFitTimeRef = useRef<number>(0);
+  const initialLoadCompleteRef = useRef<boolean>(false);
+  const userHasInteractedRef = useRef<boolean>(false);
+
+  // FIX 5: Smart Fit Improvements
+  const smartFitToScreen = useCallback((force: boolean = false) => {
+    if (!graphRef.current || !dimensions.availableWidth || !dimensions.availableHeight) return;
+    
+    const now = Date.now();
+    // Prevent too frequent fitting (unless forced)
+    if (!force && now - lastFitTimeRef.current < 1000) return;
+    
+    try {
+      // Use 10% padding for better visibility
+      const padding = Math.min(dimensions.availableWidth, dimensions.availableHeight) * 0.1;
+      
+      // Get the graph bounds
+      const graphBounds = graphRef.current.getGraphBbox();
+      if (graphBounds && graphBounds.x[0] !== Infinity) {
+        // Calculate zoom to fit within available space
+        const graphWidth = graphBounds.x[1] - graphBounds.x[0];
+        const graphHeight = graphBounds.y[1] - graphBounds.y[0];
+        
+        const scaleX = graphWidth > 0 ? (dimensions.availableWidth - 2 * padding) / graphWidth : 20;
+        const scaleY = graphHeight > 0 ? (dimensions.availableHeight - 2 * padding) / graphHeight : 20;
+        const scale = Math.min(scaleX, scaleY, 5); // Cap at 5x zoom
+        
+        // Center and zoom
+        const centerX = (graphBounds.x[0] + graphBounds.x[1]) / 2;
+        const centerY = (graphBounds.y[0] + graphBounds.y[1]) / 2;
+        
+        graphRef.current.centerAt(centerX, centerY, 400);
+        graphRef.current.zoom(scale, 400);
+      } else {
+        // Fallback to default fit
+        graphRef.current.zoomToFit(400, padding);
+      }
+      
+      lastFitTimeRef.current = now;
+      console.log('Graph fitted to available space:', dimensions.availableWidth, 'x', dimensions.availableHeight);
+    } catch (error) {
+      console.error('Error fitting graph:', error);
+    }
+  }, [graphRef, dimensions]);
+
+  // FIX 4: Zoom Not Working on Node Selection
+  const centerOnNode = useCallback((node: any, context: 'click' | 'study' | 'navigation' = 'click') => {
+    if (!graphRef.current || typeof node.x !== 'number' || typeof node.y !== 'number') return;
+    
+    userHasInteractedRef.current = true;
+    
+    // Increased zoom levels for better focus
+    const zoomLevels = {
+      click: 3.0,      // Higher zoom for user clicks
+      study: 2.5,      // Medium zoom for study mode
+      navigation: 2.0  // Lower zoom for navigation
+    };
+    
+    const animationTime = context === 'study' ? 600 : 800;
+    
+    try {
+      // Center first, then zoom
+      graphRef.current.centerAt(node.x, node.y, animationTime);
+      // Add a small delay before zooming for smoother animation
+      setTimeout(() => {
+        if (graphRef.current) {
+          graphRef.current.zoom(zoomLevels[context], animationTime);
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error centering on node:', error);
+    }
+  }, [graphRef]);
+
+  // Initial fit (only on first load)
+  const handleInitialFit = useCallback((force: boolean = false) => {
+    if (!initialLoadCompleteRef.current || force) {
+      smartFitToScreen(true);
+      initialLoadCompleteRef.current = true;
+    }
+  }, [smartFitToScreen]);
+
+  return {
+    smartFitToScreen,
+    centerOnNode,
+    handleInitialFit,
+    userHasInteracted: () => userHasInteractedRef.current
+  };
+};
+
 const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   graphData: initialGraphData,
   subjectMatterId,
@@ -76,14 +232,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
-  
+
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [selectedNodeDetails, setSelectedNodeDetails] = useState<Definition | Exercise | null>(null);
-  
+
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [graphLinks, setGraphLinks] = useState<GraphLink[]>([]);
   const [nodeHistory, setNodeHistory] = useState<string[]>([]);
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [showDefinition, setShowDefinition] = useState(false);
   const [showSolution, setShowSolution] = useState(false);
@@ -96,13 +252,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [relatedExercises, setRelatedExercises] = useState<string[]>([]);
   const [filteredNodeType, setFilteredNodeType] = useState<FilteredNodeType>('all');
   const [selectedDefinitionIndex, setSelectedDefinitionIndex] = useState(0);
-  
+
   const [showNodeCreationModal, setShowNodeCreationModal] = useState(false);
   const [nodeCreationType, setNodeCreationType] = useState<'definition' | 'exercise'>('definition');
   const [nodeCreationPosition, setNodeCreationPosition] = useState<{x: number, y: number} | undefined>(undefined);
   const [positionsChanged, setPositionsChanged] = useState(false);
   const [isSavingPositions, setIsSavingPositions] = useState(false);
-  
+
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
   const [domainName, setDomainName] = useState<string>(subjectMatterId); // Store domain name
   const [domainData, setDomainData] = useState<any>(null); // Store domain details
@@ -124,6 +280,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const lastProcessedDataKey = useRef<string>('');
   const refreshTimeoutRef = useRef<NodeJS.Timeout>();
   const isInitializedRef = useRef<boolean>(false);
+
+  // Add canvas dimension tracking
+  const { dimensions, containerRef } = useCanvasDimensions(showLeftPanel, showRightPanel);
+
+  // Add smart graph control
+  const { smartFitToScreen, centerOnNode, handleInitialFit, userHasInteracted } = useSmartGraphControl(graphRef, dimensions);
+  const prevAvailableWidth = useRef(0);
+  const prevAvailableHeight = useRef(0);
 
   // Check user authentication and enrollment status
   useEffect(() => {
@@ -294,6 +458,40 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId, loadComprehensiveDomainData]);
 
+  useEffect(() => {
+    // Only fit on initial load or when specifically needed
+    if (!isProcessingData && graphNodes.length > 0 && dimensions.availableWidth > 0) {
+      // Fit only if this is initial load or user hasn't interacted much
+      if (!userHasInteracted()) {
+        setTimeout(() => {
+          handleInitialFit();
+        }, 300);
+      }
+    }
+  }, [isProcessingData, graphNodes.length, dimensions.availableWidth, handleInitialFit, userHasInteracted]);
+
+  // FIX 6: Fix the dimension change detection threshold
+  useEffect(() => {
+    if (dimensions.availableWidth > 0 && dimensions.availableHeight > 0) {
+        if (prevAvailableWidth.current === 0) { // First run initialization
+            prevAvailableWidth.current = dimensions.availableWidth;
+            prevAvailableHeight.current = dimensions.availableHeight;
+            return;
+        }
+
+        const threshold = 0.05; // 5% threshold
+        const widthChange = Math.abs(dimensions.availableWidth - prevAvailableWidth.current) / prevAvailableWidth.current;
+        const heightChange = Math.abs(dimensions.availableHeight - prevAvailableHeight.current) / prevAvailableHeight.current;
+
+        if (widthChange > threshold || heightChange > threshold) {
+            smartFitToScreen();
+            prevAvailableWidth.current = dimensions.availableWidth;
+            prevAvailableHeight.current = dimensions.availableHeight;
+        }
+    }
+  }, [dimensions, smartFitToScreen]);
+
+  // FIX 2c: When changing modes, replace centering with fitting
   const changeMode = useCallback((newMode: AppMode) => {
     if (newMode === mode) return;
     setMode(newMode);
@@ -303,13 +501,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setHighlightNodes(new Set());
     setHighlightLinks(new Set()); 
     setExerciseAttemptCompleted(false);
-  }, [mode]);
+    
+    // Add smart fit after mode change
+    setTimeout(() => {
+      smartFitToScreen(true);
+    }, 100);
+  }, [mode, smartFitToScreen]);
 
-  const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
+  const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false, context: 'click' | 'study' | 'navigation' = 'click') => {
     if (!nodeOnClick || !nodeOnClick.id) return;
 
-    // following two lines are quite important do not delete
-    // they open the right panel after you click the node
     setSelectedNode(nodeOnClick);
     setShowRightPanel(true);
 
@@ -324,13 +525,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setExerciseAttemptCompleted(false);
 
     try {
+      // ... existing node details fetching logic
       let apiDetails: ApiDefinition | ApiExercise | null = null;
       const code = nodeOnClick.id;
 
-      // Check cache first
       apiDetails = nodeDataCache.get(code) || null;
       
-      // If not in cache, fetch from the API
       if (!apiDetails) {
         if (nodeOnClick.type === 'definition') {
           const res = await getDefinitionByCode(code);
@@ -341,26 +541,22 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         }
         
         if (apiDetails) {
-          // Update cache for next time
           setNodeDataCache(prev => new Map(prev).set(code, apiDetails!));
           setCodeToNumericIdMap(prev => new Map(prev).set(code, apiDetails!.id));
         }
       }
 
-      // Convert API details to local format and set the state for the RightPanel
       if (apiDetails) {
         setSelectedNodeDetails({
           ...apiDetails,
           type: nodeOnClick.type,
         } as Definition | Exercise);
 
-        // Reset UI state for the panel
         setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
         setShowSolution(false);
         setShowHints(false);
         setSelectedDefinitionIndex(0);
 
-        // Find and set related exercises for the definition
         if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises) {
           const relEx = Object.values(currentStructuralGraphData.exercises)
             .filter(ex => ex.prerequisites?.includes(code))
@@ -382,12 +578,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
     if (!isRefresh) {
       setShowRightPanel(true);
-      if (graphRef.current && typeof nodeOnClick.x === 'number' && typeof nodeOnClick.y === 'number') {
-        graphRef.current.centerAt(nodeOnClick.x, nodeOnClick.y, 800);
-        graphRef.current.zoom(2.5, 800);
-      }
+      // Center on node with appropriate context
+      centerOnNode(nodeOnClick, context);
     }
-  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache]);
+  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache, centerOnNode]);
 
   const refreshGraphAndSRSData = useCallback(async () => {
     setIsProcessingData(true);
@@ -398,7 +592,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       if (isNaN(domainIdNum)) throw new Error("Invalid domain ID for refresh.");
 
       await loadComprehensiveDomainData(domainIdNum);
-      // Only refresh SRS data if user is enrolled
       if (isEnrolled) {
         await srs.refreshDomainData();
       }
@@ -415,6 +608,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 x: selectedNode.x,
                 y: selectedNode.y,
             };
+            // Pass true for isRefresh to prevent centering
             await handleNodeClick(graphNodeForRefresh, true);
         } else {
             setSelectedNode(null);
@@ -490,12 +684,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       
       if (lastProcessedDataKey.current === dataKey) {
         console.log("Skipping graph processing - data unchanged:", dataKey);
+        setIsProcessingData(false); // Make sure to turn off processing if we skip
         return;
       }
       
       console.log("Processing graph data with key:", dataKey);
-      console.log("Prerequisites in definitions:", Object.values(currentStructuralGraphData.definitions || {})
-        .map(d => ({ code: d.code, prereqs: d.prerequisites })));
       
       setIsProcessingData(true);
       lastProcessedDataKey.current = dataKey;
@@ -527,10 +720,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           prerequisites: def.prerequisites
         });
         
-        // Create links with weights - enhanced logging
         (def.prerequisites || []).forEach(prereqCode => {
           const weight = def.prerequisiteWeights?.[prereqCode] ?? 1.0;
-          console.log(`Creating link: ${prereqCode} -> ${def.code} (weight: ${weight})`);
           links.push({ 
             source: prereqCode, 
             target: def.code, 
@@ -565,7 +756,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             prerequisites: ex.prerequisites
           });
           
-          // Create links with weights for exercises
           (ex.prerequisites || []).forEach(prereqCode => {
             const prereqNode = nodes.find(n => n.id === prereqCode && n.type === 'definition');
             if (prereqNode) {
@@ -583,12 +773,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         });
       }
       
-      console.log(`Generated ${nodes.length} nodes and ${links.length} links for data key: ${dataKey}`);
-      
       setGraphNodes(nodes);
       setGraphLinks(links);
-      
-      // Always set processing to false at the end
       setIsProcessingData(false);
       
     } catch (error) {
@@ -596,15 +782,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       setIsProcessingData(false); // Ensure we clear loading state on error
       showToast("Error processing graph data", "error");
     }
-  }, [generateDataKey, codeToNumericIdMap, srs, graphRevision]);
-
-  useEffect(() => {
-    if (!isProcessingData && graphRef.current && graphNodes.length > 0) {
-      setTimeout(() => {
-        if (graphRef.current) graphRef.current.zoomToFit(400, 50);
-      }, 300);
-    }
-  }, [isProcessingData, graphNodes.length]);
+  }, [generateDataKey, codeToNumericIdMap, srs, graphRevision, mode]);
 
   // Cleanup effect
   useEffect(() => {
@@ -639,18 +817,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, []);
 
-  // Debounced node refresh
+  // FIX 2b: After reviewing a node
   const refreshNodeAfterReview = useCallback(
     debounce(async (nodeToRefresh: GraphNode) => {
       if (nodeToRefresh && nodeToRefresh.id) {
         console.log("Refreshing node after review:", nodeToRefresh.id);
-        await handleNodeClick(nodeToRefresh, true);
+        // Pass true for isRefresh to prevent centering
+        await handleNodeClick(nodeToRefresh, true, 'navigation');
       }
     }, 300),
     [handleNodeClick]
   );
 
-  // Updated review definition handler
   const handleReviewDefinition = useCallback(async (qualityInput: 'again' | 'hard' | 'good' | 'easy') => {
     if (!selectedNode || selectedNode.type !== 'definition' || !selectedNodeDetails) return;
     
@@ -709,8 +887,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setExerciseAttemptCompleted(true);
     if(!showSolution) setShowSolution(true);
   }, [selectedNode, selectedNodeDetails, userAnswer, showSolution]);
-
-  // Updated exercise rating handler  
+ 
   const handleRateExerciseUnderstanding = useCallback(async (qualityInput: 'again' | 'hard' | 'good' | 'easy') => {
     if (!selectedNode || selectedNode.type !== 'exercise' || !selectedNodeDetails) return;
     
@@ -760,7 +937,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [selectedNode, selectedNodeDetails, srs, answerFeedback, codeToNumericIdMap, refreshNodeAfterReview]);
 
-  // Updated status change handler
   const handleStatusChange = useCallback(async (nodeDBId: string, status: NodeStatus) => {
     if (!selectedNode) return;
     
@@ -856,9 +1032,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setTimeout(() => {
       const newlyCreatedNode = graphNodes.find(n => n.id === nodeCode);
       if (newlyCreatedNode) {
-          handleNodeClick(newlyCreatedNode);
-      } else {
-        console.warn(`Node ${nodeCode} not immediately found in graphNodes state after creation. Details might appear on next interaction or full refresh selection.`);
+          handleNodeClick(newlyCreatedNode, false, 'navigation');
       }
     }, 700);
   }, [nodeCreationType, refreshGraphAndSRSData, handleNodeClick, graphNodes]);
@@ -877,6 +1051,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     return tempFilteredNodes.sort((a,b) => a.id.localeCompare(b.id));
   }, [graphNodes, filteredNodeType, searchQuery]);
 
+  // FIX 2a: After editing a node (handleSubmitEdit function)
   const handleSubmitEdit = async () => {
     if (!selectedNode || !selectedNodeDetails) return;
 
@@ -902,7 +1077,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
       if (selectedNode.type === 'definition') {
         const defDetails = selectedNodeDetails as Definition;
-        let formDesc = (document.getElementById('description') as HTMLTextAreaElement)?.value || '';
+        let formDesc = (document.getElementById('description')as HTMLTextAreaElement)?.value || '';
         
         if (hasMultipleDescriptions()) {
           const descriptions = (typeof defDetails.description === 'string' && defDetails.description.includes('|||'))
@@ -1008,8 +1183,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       setGraphRevision(prev => prev + 1);
 
       setIsEditMode(false);
-
       showToast(`${selectedNode.type === 'definition' ? 'Definition' : 'Exercise'} "${selectedNode.name}" updated.`, "success");
+      // Remove any graph centering/fitting calls here
 
     } catch (error) {
       console.error("Error updating node:", error);
@@ -1045,36 +1220,30 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     return Array.isArray(detail.description) ? detail.description.length : 1;
   }, [selectedNodeDetails]);
 
-  const navigateToNodeById = useCallback((nodeId: string) => {
+  const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
     const targetNodeInCurrentGraph = graphNodes.find(n => n.id === nodeId);
   
     if (targetNodeInCurrentGraph) {
-      // Node exists in current graph
       let nodeForClick = targetNodeInCurrentGraph;
       if (graphRef.current && graphRef.current.graphData) {
         const d3Nodes = graphRef.current.graphData().nodes;
         const d3Node = d3Nodes.find((n: any) => n.id === nodeId);
         if (d3Node) nodeForClick = d3Node;
       }
-      handleNodeClick(nodeForClick);
+      handleNodeClick(nodeForClick, false, context);
     } else if (mode === 'study' && currentStructuralGraphData.exercises?.[nodeId]) {
-      // Target is an exercise, and we are in study mode. Switch to practice mode.
       showToast("Switching to Practice Mode to view exercise...", "info", 1500);
       changeMode('practice');
       
-      // Wait for mode change and graphNodes to update
       setTimeout(() => {
-        // We must re-read graphNodes from state inside the timeout
         setGraphNodes(currentNodes => {
           const exerciseNode = currentNodes.find(n => n.id === nodeId);
           if (exerciseNode) {
-              handleNodeClick(exerciseNode);
+              handleNodeClick(exerciseNode, false, context);
           } else {
-            // This can happen if the component re-renders faster than state update.
-            // We can try to build the node from the structural data.
             const exData = currentStructuralGraphData.exercises[nodeId];
             if (exData) {
-              handleNodeClick({ id: exData.code, name: exData.name, type: 'exercise' });
+              handleNodeClick({ id: exData.code, name: exData.name, type: 'exercise' }, false, context);
             } else {
               console.warn(`Exercise node ${nodeId} not found after switching to practice mode.`);
               showToast(`Could not navigate to exercise ${nodeId}.`, "error");
@@ -1082,7 +1251,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           }
           return currentNodes;
         });
-      }, 300); // A small delay to allow react to re-render with the new mode
+      }, 300);
     } else {
       console.warn(`Node with ID ${nodeId} not found.`);
       showToast(`Node ${nodeId} not found in the current view.`, "warning");
@@ -1156,6 +1325,18 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     return srs.state.creditFlowAnimations;
   }, [srs.state.creditFlowAnimations]);
 
+  const handleStartStudyMode = useCallback(() => {
+    if (!isEnrolled) {
+      handlePromptEnrollment();
+      return;
+    }
+    setShowStudyModeModal(true);
+  }, [isEnrolled, handlePromptEnrollment]);
+
+  const handleManualFit = useCallback(() => {
+    smartFitToScreen(true); // Force fit
+  }, [smartFitToScreen]);
+
   return (
     <MathJaxProvider>
       <div className="h-full flex flex-col overflow-hidden bg-gray-100">
@@ -1172,6 +1353,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           isOpen={showStudyModeModal && isEnrolled}
           onClose={() => setShowStudyModeModal(false)}
           domainId={parseInt(subjectMatterId, 10)}
+          onNavigateToNode={(nodeCode, context) => navigateToNodeById(nodeCode, context)}
         />
         <TopControls
           subjectMatterId={domainName}
@@ -1180,18 +1362,19 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           onBack={onBack}
           labelDisplayMode={labelDisplayMode}
           onCycleLabelDisplay={cycleLabelDisplay}
-          onZoomToFit={() => graphRef.current?.zoomToFit(400)}
+          onZoomToFit={handleManualFit}
           onCreateDefinition={() => isEnrolled ? createNewNode('definition') : handlePromptEnrollment()}
           onCreateExercise={() => isEnrolled ? createNewNode('exercise') : handlePromptEnrollment()}
-          onStartStudy={() => isEnrolled ? setShowStudyModeModal(true) : handlePromptEnrollment()}
+          onStartStudy={handleStartStudyMode}
           positionsChanged={positionsChanged}
           isSavingPositions={isSavingPositions}
           onSavePositions={savePositions}
           isEnrolled={isEnrolled}
           onEnroll={handlePromptEnrollment}
         />
-        <div className="flex flex-1 overflow-hidden relative">
-          <div className={`absolute top-0 left-0 h-full z-20 bg-white border-r shadow-lg transition-transform duration-300 ease-in-out ${showLeftPanel ? 'translate-x-0 w-64' : '-translate-x-full w-64'}`}>
+        <div className="flex flex-1 overflow-hidden relative" ref={containerRef}>
+          {/* FIX 6: Add class names to panels for dimension tracking */}
+          <div className={`left-panel-class absolute top-0 left-0 h-full z-20 bg-white border-r shadow-lg transition-transform duration-300 ease-in-out ${showLeftPanel ? 'translate-x-0 w-64' : '-translate-x-full w-64'}`}>
             {showLeftPanel && (
               <LeftPanel
                 isVisible={showLeftPanel}
@@ -1247,7 +1430,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               />
             )}
           </div>
-          <div className={`absolute top-0 right-0 h-full z-20 bg-white border-l shadow-lg transition-transform duration-300 ease-in-out ${showRightPanel && selectedNode ? 'translate-x-0 w-80 md:w-96' : 'translate-x-full w-80 md:w-96'}`}>
+          {/* FIX 6: Add class names to panels for dimension tracking */}
+          <div className={`right-panel-class absolute top-0 right-0 h-full z-20 bg-white border-l shadow-lg transition-transform duration-300 ease-in-out ${showRightPanel && selectedNode ? 'translate-x-0 w-80 md:w-96' : 'translate-x-full w-80 md:w-96'}`}>
             {showRightPanel && selectedNode && ( 
                 <RightPanel
                   isVisible={showRightPanel}

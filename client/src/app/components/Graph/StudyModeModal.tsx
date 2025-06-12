@@ -1,5 +1,4 @@
-// File: ./src/app/components/Graph/StudyModeModal.tsx
-// src/app/components/Graph/StudyModeModal.tsx
+// StudyModeModal.tsx - Enhanced version with smart graph navigation
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -9,36 +8,42 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/
 import { MathJaxContent, MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
 import { useSRS } from '@/contexts/SRSContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType, StudySession } from '@/types/srs';
-import { ArrowLeft, ArrowRight, CheckCircle, Eye, Loader2, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, Eye, Loader2, XCircle, Target, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
-// FIX: Import from api.ts instead of srs-api.ts for getDefinition and getExercise
 import { getDefinition, getExercise } from '@/lib/api';
 
 interface StudyModeModalProps {
   isOpen: boolean;
   onClose: () => void;
   domainId: number;
+  onNavigateToNode?: (nodeCode: string, context: 'study') => void;
 }
 
-const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domainId }) => {
+const StudyModeModal: React.FC<StudyModeModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  domainId, 
+  onNavigateToNode 
+}) => {
   const srs = useSRS();
   const [sessionType, setSessionType] = useState<SessionType>('mixed');
   const [currentReviewItem, setCurrentReviewItem] = useState<DueReview | null>(null);
   const [reviewQueue, setReviewQueue] = useState<DueReview[]>([]);
   const [isLoadingItem, setIsLoadingItem] = useState(false);
   const [showAnswer, setShowAnswer] = useState(false);
-  const [itemDetails, setItemDetails] = useState<any>(null); // To store full def/ex details
+  const [itemDetails, setItemDetails] = useState<any>(null);
   const [sessionStats, setSessionStats] = useState({ total: 0, completed: 0, correct: 0 });
   const [startTime, setStartTime] = useState<number | null>(null);
+  
+  const [autoNavigateToNodes, setAutoNavigateToNodes] = useState(true);
 
-  // Initialize/Reset when modal opens or domainId changes
   useEffect(() => {
     if (isOpen && domainId) {
-      srs.setCurrentDomain(domainId); // Ensure context is aware of current domain
+      srs.setCurrentDomain(domainId);
       resetSession();
     } else if (!isOpen) {
       if (srs.state.currentSession) {
-        srs.endStudySession(); // End session if modal is closed prematurely
+        srs.endStudySession();
       }
       resetSession();
     }
@@ -51,20 +56,18 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
     setItemDetails(null);
     setSessionStats({ total: 0, completed: 0, correct: 0 });
     setStartTime(null);
-    if (srs.state.currentSession) srs.endStudySession(); // Ensure any active session is ended
+    if (srs.state.currentSession) srs.endStudySession();
   };
 
   const handleStartSession = async () => {
     if (!domainId) {
-      // FIX: Use setTimeout to avoid updating component during render
       setTimeout(() => showToast("Domain ID is missing.", "error"), 0);
       return;
     }
-    await srs.startStudySession(sessionType); // This now uses context's domainId
+    await srs.startStudySession(sessionType);
     setStartTime(Date.now());
   };
 
-  // Load due reviews and set the first item when session starts
   useEffect(() => {
     if (srs.state.currentSession && srs.state.dueReviews.length > 0 && !currentReviewItem) {
       const filteredReviews = srs.state.dueReviews.filter(review => {
@@ -76,7 +79,6 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
       if (filteredReviews.length > 0) {
         loadReviewItem(filteredReviews[0]);
       } else {
-        // FIX: Use setTimeout to avoid updating component during render
         setTimeout(() => {
           showToast("No items due for this session type.", "info");
           srs.endStudySession();
@@ -85,12 +87,12 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
     }
   }, [srs.state.currentSession, srs.state.dueReviews, sessionType, currentReviewItem]);
 
+  // FIX 1: React setState During Render Error
   const loadReviewItem = useCallback(async (review: DueReview | undefined) => {
     if (!review) {
       setCurrentReviewItem(null);
       setItemDetails(null);
       if (srs.state.currentSession) {
-        // FIX: Use setTimeout to avoid updating component during render
         setTimeout(() => {
           showToast("Study session complete!", "success");
           srs.endStudySession();
@@ -105,22 +107,26 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
 
     try {
       let details;
-      // FIX: Use correct imports from api.ts
       if (review.nodeType === 'definition') {
         details = await getDefinition(review.nodeId);
       } else {
         details = await getExercise(review.nodeId);
       }
       setItemDetails(details);
+      
+      // FIX: Move navigation logic to after state updates to avoid setState during render
+      if (autoNavigateToNodes && onNavigateToNode && review.nodeCode) {
+        setTimeout(() => {
+          onNavigateToNode(review.nodeCode, 'study');
+        }, 0);
+      }
     } catch (error) {
       console.error("Error fetching item details:", error);
-      // FIX: Use setTimeout to avoid updating component during render
       setTimeout(() => showToast("Failed to load review item.", "error"), 0);
-      // Potentially skip this item or end session
     } finally {
       setIsLoadingItem(false);
     }
-  }, [srs]);
+  }, [autoNavigateToNodes, onNavigateToNode]);
 
   const handleNextItem = () => {
     setReviewQueue(prev => {
@@ -133,28 +139,34 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
   const handleSubmitReview = async (quality: ReviewQuality) => {
     if (!currentReviewItem || !srs.state.currentSession || startTime === null) return;
 
-    const timeTaken = Math.round((Date.now() - startTime) / 1000); // Time in seconds for this item
+    const timeTaken = Math.round((Date.now() - startTime) / 1000);
 
     const reviewData: ReviewRequest = {
       nodeId: currentReviewItem.nodeId,
       nodeType: currentReviewItem.nodeType,
-      success: quality >= 3, // SM-2 considers quality 3+ as success
+      success: quality >= 3,
       quality: quality,
       timeTaken: timeTaken,
       sessionId: srs.state.currentSession.id,
     };
 
-    await srs.submitReview(reviewData); // Context handles API call and state updates
+    await srs.submitReview(reviewData);
 
     setSessionStats(prev => ({
       ...prev,
       completed: prev.completed + 1,
-      correct: prev.correct + (quality >=3 ? 1 : 0),
+      correct: prev.correct + (quality >= 3 ? 1 : 0),
     }));
     
-    // Reset start time for next item
     setStartTime(Date.now());
     handleNextItem();
+  };
+
+  const handleNavigateToCurrentItem = () => {
+    if (currentReviewItem && onNavigateToNode) {
+      onNavigateToNode(currentReviewItem.nodeCode, 'study');
+      showToast("Navigated to node in graph", "info", 1500);
+    }
   };
 
   if (!isOpen) return null;
@@ -163,32 +175,61 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
     if (isLoadingItem) return <Loader2 className="animate-spin h-8 w-8 mx-auto text-orange-500" />;
     if (!currentReviewItem || !itemDetails) return <p>No item to display.</p>;
 
-    if (currentReviewItem.nodeType === 'definition') {
-      return (
-        <div>
-          <h3 className="text-lg font-semibold mb-2">Define: {itemDetails.name} ({itemDetails.code})</h3>
-          {showAnswer && (
-            <MathJaxContent className="p-3 bg-gray-50 rounded-md border text-sm">
-              {itemDetails.description?.split('|||')[0] || "N/A"}
-            </MathJaxContent>
-          )}
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center p-2 bg-gray-50 rounded-md">
+          <div className="flex items-center space-x-2 text-sm text-gray-600">
+            <span className="font-medium">{currentReviewItem.nodeCode}</span>
+            <span>•</span>
+            <span className="capitalize">{currentReviewItem.nodeType}</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <label className="flex items-center text-xs text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoNavigateToNodes}
+                onChange={(e) => setAutoNavigateToNodes(e.target.checked)}
+                className="mr-1 scale-75"
+              />
+              Auto-navigate
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNavigateToCurrentItem}
+              className="h-6 px-2 text-xs"
+              title="Show this item in the graph"
+            >
+              <MapPin size={12} className="mr-1" />
+              Show in Graph
+            </Button>
+          </div>
         </div>
-      );
-    } else { // Exercise
-      return (
-        <div>
-          <h3 className="text-lg font-semibold mb-2">Exercise: {itemDetails.name} ({itemDetails.code})</h3>
-          <MathJaxContent className="p-3 bg-gray-50 rounded-md border text-sm mb-2">
-            {itemDetails.statement || "N/A"}
-          </MathJaxContent>
-          {showAnswer && (
-            <MathJaxContent className="p-3 bg-green-50 rounded-md border border-green-200 text-sm">
-              <strong>Solution:</strong> {itemDetails.description || "N/A"}
+
+        {currentReviewItem.nodeType === 'definition' ? (
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Define: {itemDetails.name}</h3>
+            {showAnswer && (
+              <MathJaxContent className="p-3 bg-gray-50 rounded-md border text-sm">
+                {itemDetails.description?.split('|||')[0] || "N/A"}
+              </MathJaxContent>
+            )}
+          </div>
+        ) : (
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Exercise: {itemDetails.name}</h3>
+            <MathJaxContent className="p-3 bg-gray-50 rounded-md border text-sm mb-2">
+              {itemDetails.statement || "N/A"}
             </MathJaxContent>
-          )}
-        </div>
-      );
-    }
+            {showAnswer && (
+              <MathJaxContent className="p-3 bg-green-50 rounded-md border border-green-200 text-sm">
+                <strong>Solution:</strong> {itemDetails.description || "N/A"}
+              </MathJaxContent>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const qualityButtons: { label: string; quality: ReviewQuality, color: string }[] = [
@@ -196,7 +237,7 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
     { label: "Hard", quality: 1, color: "bg-orange-500 hover:bg-orange-600" }, 
     { label: "Good", quality: 4, color: "bg-blue-500 hover:bg-blue-600" },      
     { label: "Easy", quality: 5, color: "bg-green-500 hover:bg-green-600" },    
-  ];                                                                           
+  ];
 
   return (
     <MathJaxProvider>
@@ -245,7 +286,7 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({ isOpen, onClose, domain
                         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                         <p className="text-xl font-semibold">Session Complete!</p>
                         <p>You reviewed {sessionStats.completed} items.</p>
-                        <p>Correct: {sessionStats.correct} ({sessionStats.total > 0 ? Math.round((sessionStats.correct/sessionStats.completed)*100) : 0}%)</p>
+                        <p>Correct: {sessionStats.correct} ({sessionStats.completed > 0 ? Math.round((sessionStats.correct/sessionStats.completed)*100) : 0}%)</p>
                       </div>
                     ) : (
                        <p>Loading next item or no items due...</p>

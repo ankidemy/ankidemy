@@ -391,7 +391,6 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       <ForceGraph2D
         ref={graphRef}
         graphData={{ nodes: graphNodes, links: graphLinks }}
-        key={`graph-${graphNodes.length}-${graphLinks.length}-${creditFlowAnimations.length}`}
         nodeId="id"
         linkSource="source"
         linkTarget="target"
