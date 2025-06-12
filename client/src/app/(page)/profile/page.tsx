@@ -207,56 +207,41 @@ export default function ProfilePage() {
         {/* Edit profile form */}
         <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Edit Profile</CardTitle>
-            <CardDescription>Update your personal information</CardDescription>
+            <CardTitle>Profile Information</CardTitle>
+            <CardDescription>Your account details</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleProfileUpdate} className="space-y-4">
+            <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Username</label>
-                  <Input
-                    name="username"
-                    value={formData.username}
-                    onChange={handleInputChange}
-                    required
-                  />
+                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                    {currentUser?.username || 'N/A'}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
-                  <Input
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    required
-                  />
+                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                    {currentUser?.email || 'N/A'}
+                  </div>
                 </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">First Name</label>
-                  <Input
-                    name="firstName"
-                    value={formData.firstName}
-                    onChange={handleInputChange}
-                  />
+                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                    {currentUser?.firstName || 'N/A'}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Last Name</label>
-                  <Input
-                    name="lastName"
-                    value={formData.lastName}
-                    onChange={handleInputChange}
-                  />
+                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                    {currentUser?.lastName || 'N/A'}
+                  </div>
                 </div>
               </div>
-              
-              <Button type="submit" className="mt-2">
-                Update Profile
-              </Button>
-            </form>
+            </div>
           </CardContent>
         </Card>
         
