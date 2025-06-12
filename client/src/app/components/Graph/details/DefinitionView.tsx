@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/app/components/core/card";
 import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 import { Definition } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { NodeStatus } from '@/types/srs';
 
 interface DefinitionViewProps {
   definition: Definition;
@@ -22,6 +23,7 @@ interface DefinitionViewProps {
   onReview: (result: 'again' | 'hard' | 'good' | 'easy') => void;
   // FIX: Add available definitions to look up prerequisite names
   availableDefinitions?: { code: string; name: string }[];
+  srsStatus?: NodeStatus;
 }
 
 const DefinitionView: React.FC<DefinitionViewProps> = ({
@@ -38,9 +40,11 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   onNavigateToNode,
   onReview,
   availableDefinitions = [], // FIX: Default to empty array
+  srsStatus,
 }) => {
   const hasMultipleDescriptions = totalDescriptions > 1;
   const [showNotes, setShowNotes] = useState(false);
+  const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
 
   // FIX: Helper function to get display text for prerequisites
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
@@ -183,7 +187,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
           <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">References</h4>
           <ul className="text-sm text-gray-700 list-disc pl-5 space-y-0.5">
             {definition.references.map((ref, i) => (
-              <li key={i} className="text-xs">{ref}</li>
+              <li key={`${ref}-${i}`} className="text-xs">{ref}</li>
             ))}
           </ul>
         </div>
@@ -202,8 +206,10 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 r === 'hard' ? 'bg-orange-50 hover:bg-orange-100 border-orange-200' :
                 r === 'good' ? 'bg-green-50 hover:bg-green-100 border-green-200' :
                 'bg-blue-50 hover:bg-blue-100 border-blue-200'
-              }`}
+              } ${!canReview ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={() => onReview(r)}
+              disabled={!canReview}
+              title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : `Rate as ${r}`}
             >
               {r[0].toUpperCase() + r.slice(1)}
             </Button>

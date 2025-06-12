@@ -36,7 +36,7 @@ import {
   KnowledgeGraphProps, 
   AnswerFeedback,
 } from './utils/types';
-import GraphContainer from './utils/GraphContainer';
+import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
 import TopControls from './panels/TopControls';
 import LeftPanel from './panels/LeftPanel';
@@ -75,7 +75,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(false);
-  const [showNodeLabels, setShowNodeLabels] = useState(true);
+  const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
   
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [selectedNodeDetails, setSelectedNodeDetails] = useState<Definition | Exercise | null>(null);
@@ -292,6 +292,17 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       loadComprehensiveDomainData(domainId);
     }
   }, [subjectMatterId, loadComprehensiveDomainData]);
+
+  const changeMode = useCallback((newMode: AppMode) => {
+    if (newMode === mode) return;
+    setMode(newMode);
+    setSelectedNode(null);
+    setSelectedNodeDetails(null);
+    setShowRightPanel(false);
+    setHighlightNodes(new Set());
+    setHighlightLinks(new Set()); 
+    setExerciseAttemptCompleted(false);
+  }, [mode]);
 
   const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false) => {
     if (!nodeOnClick || !nodeOnClick.id) return;
@@ -628,6 +639,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     
+    const progress = srs.getNodeProgress(numericId, 'definition');
+    if (progress?.status !== 'grasped' && progress?.status !== 'learned') {
+      showToast("This definition needs to be marked as 'Grasped' or 'Learned' before it can be reviewed.", "info");
+      return;
+    }
+
     let quality: Quality;
     switch (qualityInput) {
         case 'again': quality = 0; break;
@@ -682,6 +699,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     
+    const progress = srs.getNodeProgress(numericId, 'exercise');
+    if (progress?.status !== 'grasped' && progress?.status !== 'learned') {
+      showToast("This exercise needs to be marked as 'Grasped' or 'Learned' before it can be rated.", "info");
+      return;
+    }
+
     let quality: Quality;
     switch (qualityInput) {
         case 'again': quality = 0; break;
@@ -753,16 +776,16 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     });
   }, []);
 
-  const changeMode = useCallback((newMode: AppMode) => {
-    if (newMode === mode) return;
-    setMode(newMode);
-    setSelectedNode(null);
-    setSelectedNodeDetails(null);
-    setShowRightPanel(false);
-    setHighlightNodes(new Set());
-    setHighlightLinks(new Set()); 
-    setExerciseAttemptCompleted(false);
-  }, [mode]);
+  const cycleLabelDisplay = useCallback(() => {
+    setLabelDisplayMode(prev => {
+      switch (prev) {
+        case 'names': return 'codes';
+        case 'codes': return 'off';
+        case 'off': return 'names';
+        default: return 'names';
+      }
+    });
+  }, []);
 
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
     // Check enrollment first
@@ -971,22 +994,40 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
   // Handle navigating to a specific node
   const navigateToNode = useCallback((nodeId: string) => {
-    const node = graphNodes.find(n => n.id === nodeId);
-    if (node) {
-      // Try to find node in D3 simulation for more accurate coords
-      let nodeForClick = node;
+    const targetNodeInCurrentGraph = graphNodes.find(n => n.id === nodeId);
+  
+    if (targetNodeInCurrentGraph) {
+      // Node exists in current graph
+      let nodeForClick = targetNodeInCurrentGraph;
       if (graphRef.current && graphRef.current.graphData) {
         const d3Nodes = graphRef.current.graphData().nodes;
         const d3Node = d3Nodes.find((n: any) => n.id === nodeId);
-        if (d3Node) {
-          nodeForClick = d3Node;
-        }
+        if (d3Node) nodeForClick = d3Node;
       }
       handleNodeClick(nodeForClick);
+    } else if (mode === 'study' && currentStructuralGraphData.exercises?.[nodeId]) {
+      // Target is an exercise, and we are in study mode. Switch to practice mode.
+      showToast("Switching to Practice Mode to view exercise...", "info", 1500);
+      changeMode('practice');
+      
+      // Wait for mode change and graphNodes to update
+      setTimeout(() => {
+        setGraphNodes(currentNodes => {
+          const exerciseNode = currentNodes.find(n => n.id === nodeId);
+          if (exerciseNode) {
+            handleNodeClick(exerciseNode);
+          } else {
+            console.warn(`Exercise node ${nodeId} not found after switching to practice mode.`);
+            showToast(`Could not navigate to exercise ${nodeId}.`, "error");
+          }
+          return currentNodes;
+        });
+      }, 200);
     } else {
-      console.warn(`Node with ID ${nodeId} not found in graphNodes.`);
+      console.warn(`Node with ID ${nodeId} not found.`);
+      showToast(`Node ${nodeId} not found in the current view.`, "warning");
     }
-  }, [graphNodes, handleNodeClick]);
+  }, [graphNodes, handleNodeClick, mode, currentStructuralGraphData, changeMode]);
 
   // Handle going back to previous node
   const navigateBack = useCallback(() => {
@@ -1098,8 +1139,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           mode={mode}
           onModeChange={changeMode}
           onBack={onBack}
-          showNodeLabels={showNodeLabels}
-          onToggleNodeLabels={() => setShowNodeLabels(!showNodeLabels)}
+          labelDisplayMode={labelDisplayMode}
+          onCycleLabelDisplay={cycleLabelDisplay}
           onZoomToFit={() => graphRef.current?.zoomToFit(400)}
           onCreateDefinition={() => isEnrolled ? createNewNode('definition') : handlePromptEnrollment()}
           onCreateExercise={() => isEnrolled ? createNewNode('exercise') : handlePromptEnrollment()}
@@ -1140,7 +1181,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 highlightLinks={highlightLinks}
                 filteredNodeType={filteredNodeType}
                 selectedNodeId={selectedNode?.id || null}
-                showNodeLabels={showNodeLabels}
+                labelDisplayMode={labelDisplayMode}
                 onNodeClick={handleNodeClick}
                 onNodeHover={handleNodeHover}
                 onNodeDragEnd={handleNodeDragEnd}

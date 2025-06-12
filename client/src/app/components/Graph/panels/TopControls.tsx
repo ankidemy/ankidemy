@@ -3,18 +3,19 @@
 
 import React from 'react';
 import { Button } from "@/app/components/core/button";
-import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type } from 'lucide-react';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
+import { LabelDisplayMode } from '../utils/GraphContainer';
 
 interface TopControlsProps {
   subjectMatterId: string; // This prop holds the domain NAME
   mode: AppMode;
   onModeChange: (mode: AppMode) => void;
   onBack: () => void;
-  showNodeLabels: boolean;
-  onToggleNodeLabels: () => void;
+  labelDisplayMode: LabelDisplayMode;
+  onCycleLabelDisplay: () => void;
   onZoomToFit: () => void;
   onCreateDefinition: () => void;
   onCreateExercise: () => void;
@@ -31,8 +32,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   mode,
   onModeChange,
   onBack,
-  showNodeLabels,
-  onToggleNodeLabels,
+  labelDisplayMode,
+  onCycleLabelDisplay,
   onZoomToFit,
   onCreateDefinition,
   onCreateExercise,
@@ -44,6 +45,31 @@ const TopControls: React.FC<TopControlsProps> = ({
   onEnroll
 }) => {
   const srs = useSRS();
+
+  let labelButtonText: string;
+  let LabelIconComponent: React.ElementType = Type;
+  let labelButtonTitle: string;
+
+  switch (labelDisplayMode) {
+    case 'names':
+      labelButtonText = "Names";
+      LabelIconComponent = Eye;
+      labelButtonTitle = "Showing Names. Click to show Codes.";
+      break;
+    case 'codes':
+      labelButtonText = "Codes";
+      LabelIconComponent = Eye;
+      labelButtonTitle = "Showing Codes. Click to hide labels.";
+      break;
+    case 'off':
+      labelButtonText = "Off";
+      LabelIconComponent = EyeOff;
+      labelButtonTitle = "Labels Hidden. Click to show Names.";
+      break;
+    default:
+      labelButtonText = "Labels";
+      labelButtonTitle = "Cycle label display";
+  }
 
   return (
     <div className="bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
@@ -123,11 +149,11 @@ const TopControls: React.FC<TopControlsProps> = ({
         <Button
           variant="outline"
           size="sm"
-          onClick={onToggleNodeLabels}
-          title={showNodeLabels ? 'Hide Labels' : 'Show Labels'}
+          onClick={onCycleLabelDisplay}
+          title={labelButtonTitle}
           className="flex items-center"
         >
-          {showNodeLabels ? <EyeOff size={14} className="mr-1" /> : <Eye size={14} className="mr-1" />} Labels
+          <LabelIconComponent size={14} className="mr-1" /> {labelButtonText}
         </Button>
         <Button
           variant="outline"

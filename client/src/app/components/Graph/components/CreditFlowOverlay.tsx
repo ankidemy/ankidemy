@@ -19,7 +19,6 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
   const particleCounterRef = useRef(0);
   const processedAnimationsRef = useRef(new Set<string>());
 
-  // FIX: Generate truly unique particle IDs
   const generateUniqueParticleId = useCallback(() => {
     return `particle-${Date.now()}-${particleCounterRef.current++}-${Math.random().toString(36).substr(2, 9)}`;
   }, []);
@@ -29,33 +28,23 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
 
     const newParticles = newAnimations
       .filter(anim => {
-        // Create a unique key for this animation to prevent duplicates
         const animKey = `${anim.nodeId}-${anim.timestamp}-${anim.credit}-${anim.type}`;
-        
-        // Skip if already processed
         if (processedAnimationsRef.current.has(animKey)) {
           console.debug('Skipping duplicate animation:', animKey);
           return false;
         }
-        
-        // Mark as processed
         processedAnimationsRef.current.add(animKey);
         return true;
       })
-      .map((anim) => {
+      .map(anim => {
         const nodePos = nodePositions.get(anim.nodeId);
         if (!nodePos) {
-          console.warn(`No position found for node ${anim.nodeId}`);
+          console.warn(`No position for node ${anim.nodeId}`);
           return null;
         }
-
         const screenPos = graphRef.current.graph2ScreenCoords(nodePos.x, nodePos.y);
-        
-        // FIX: Use the new unique ID generator
-        const uniqueId = generateUniqueParticleId();
-        
         return {
-          id: uniqueId,
+          id: generateUniqueParticleId(),
           x: screenPos.x,
           y: screenPos.y,
           credit: anim.credit,
@@ -66,55 +55,30 @@ const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodeP
       .filter((p): p is NonNullable<typeof p> => p !== null);
 
     if (newParticles.length > 0) {
-      console.debug(`Creating ${newParticles.length} new particles`);
       setActiveParticles(prev => {
-        // FIX: Also check for any existing particles with duplicate IDs (defensive programming)
         const existingIds = new Set(prev.map(p => p.id));
-        const filteredNewParticles = newParticles.filter(p => !existingIds.has(p.id));
-        
-        if (filteredNewParticles.length !== newParticles.length) {
-          console.warn('Removed duplicate particle IDs:', newParticles.length - filteredNewParticles.length);
-        }
-        
-        return [...prev, ...filteredNewParticles];
+        const filtered = newParticles.filter(p => !existingIds.has(p.id));
+        return [...prev, ...filtered];
       });
-      
-      // Clean up old processed animations (keep only recent ones to prevent memory leak)
-      const cutoffTime = Date.now() - 10000; // 10 seconds
-      const keysToDelete = Array.from(processedAnimationsRef.current).filter(key => {
+
+      // Cleanup old animation keys
+      const cutoffTime = Date.now() - 10000;
+      Array.from(processedAnimationsRef.current).forEach(key => {
         const parts = key.split('-');
-        if (parts.length >= 2) {
-          const timestamp = parseInt(parts[1]);
-          return !isNaN(timestamp) && timestamp < cutoffTime;
+        const timestamp = parseInt(parts[1]);
+        if (!isNaN(timestamp) && timestamp < cutoffTime) {
+          processedAnimationsRef.current.delete(key);
         }
-        return false;
       });
-      keysToDelete.forEach(key => processedAnimationsRef.current.delete(key));
     }
   }, [nodePositions, graphRef, generateUniqueParticleId]);
 
-  // Process new animations with stable dependencies
   useEffect(() => {
     if (animations.length > 0) {
       createParticlesFromAnimations(animations);
     }
   }, [animations, createParticlesFromAnimations]);
 
-  // Particle animation with stable interval
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setActiveParticles(prev => {
-        const now = Date.now();
-        return prev
-          .filter(p => now - p.startTime < 1500) // Particle lifetime: 1.5 seconds
-          .map(p => ({ ...p, y: p.y - 2 })); // Move particles upwards
-      });
-    }, 50); // Update every 50ms
-
-    return () => clearInterval(timer);
-  }, []); // Empty dependency array
-
-  // Cleanup effect for when component unmounts
   useEffect(() => {
     return () => {
       processedAnimationsRef.current.clear();

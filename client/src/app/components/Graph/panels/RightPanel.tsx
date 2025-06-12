@@ -242,6 +242,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     onNavigateToNode={onNavigateToNode}
                     onReview={onReviewDefinition}
                     availableDefinitions={availableDefinitions}
+                    srsStatus={nodeProgress?.status}
                   />
                 ) : (
                   <ExerciseView
@@ -258,6 +259,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     exerciseAttemptCompleted={exerciseAttemptCompleted}
                     onNavigateToNode={onNavigateToNode}
                     availableDefinitions={availableDefinitions}
+                    srsStatus={nodeProgress?.status}
                   />
                 )}
               </TabsContent>

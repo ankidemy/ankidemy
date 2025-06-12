@@ -266,7 +266,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             >
               {availablePrerequisites.length === 0 && <option disabled>No definitions available</option>}
               {availablePrerequisites.map((prereq) => (
-                <option key={prereq.numericId} value={String(prereq.numericId)}> {/* Value is numericId */}
+                <option key={prereq.code} value={String(prereq.numericId)}>
                   {prereq.code}: {prereq.name}
                 </option>
               ))}
@@ -279,13 +279,13 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
               <h4 className="text-sm font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {/* FIX: Remove duplicates and ensure unique keys */}
-                {[...new Set(selectedPrereqNumericIds)] // Remove duplicates
+                {[...new Set(selectedPrereqNumericIds)]
                   .map(prereqId => {
                     const prereq = availablePrerequisites.find(p => p.numericId === prereqId);
                     if (!prereq) return null;
                     
                     return (
-                      <div key={`prereq-weight-${prereqId}`} className="flex items-center justify-between text-xs">
+                      <div key={`prereq-weight-${prereq.code}`} className="flex items-center justify-between text-xs">
                         <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
                           {prereq.code}
                         </span>

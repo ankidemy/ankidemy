@@ -26,6 +26,8 @@ const ToastContext = createContext<{
   removeToast: () => {},
 });
 
+const MAX_TOASTS = 4;
+
 // Export toast provider
 export const ToastProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -34,7 +36,10 @@ export const ToastProvider: React.FC<{children: React.ReactNode}> = ({ children 
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newToast = { id, message, type, duration };
     
-    setToasts((prevToasts) => [...prevToasts, newToast]);
+    setToasts((prevToasts) => {
+      const updatedToasts = [...prevToasts, newToast];
+      return updatedToasts.slice(-MAX_TOASTS);
+    });
   };
   
   const removeToast = (id: string) => {
@@ -84,9 +89,13 @@ export const ToastContainer: React.FC = () => {
     // Function to add toast from queue
     const processQueue = () => {
       if (typeof window !== 'undefined' && window.__toastQueue && window.__toastQueue.length > 0) {
-        const { message, type, duration = 5000 } = window.__toastQueue.shift();
+        const { message, type, duration = 5000 } = window.__toastQueue.shift()!;
         const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        setToasts(prev => [...prev, { id, message, type, duration }]);
+        
+        setToasts(prev => {
+          const updatedToasts = [...prev, { id, message, type, duration }];
+          return updatedToasts.slice(-MAX_TOASTS);
+        });
       }
     };
     

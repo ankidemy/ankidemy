@@ -12,6 +12,8 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false
 });
 
+export type LabelDisplayMode = 'off' | 'codes' | 'names';
+
 interface GraphContainerProps {
   graphNodes: GraphNode[];
   graphLinks: GraphLink[];
@@ -19,7 +21,7 @@ interface GraphContainerProps {
   highlightLinks: Set<string>;
   filteredNodeType: FilteredNodeType;
   selectedNodeId: string | null;
-  showNodeLabels: boolean;
+  labelDisplayMode: LabelDisplayMode;
   onNodeClick: (node: GraphNode) => void;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeDragEnd: (node: GraphNode) => void;
@@ -34,7 +36,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
   highlightLinks,
   filteredNodeType,
   selectedNodeId,
-  showNodeLabels,
+  labelDisplayMode,
   onNodeClick,
   onNodeHover,
   onNodeDragEnd,
@@ -161,25 +163,39 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.shadowOffsetY = 0;
     }
 
-    const labelThreshold = 0.6; 
-    if ((showNodeLabels && globalScale > labelThreshold) || isSelected || isHighlighted) {
-      const label = `${id}: ${name}`;
-      ctx.font = `${fontSize}px Sans-Serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+    const labelThreshold = 0.6;
+    const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted;
+
+    if (shouldShowLabel) {
+      let labelText = '';
+      if (labelDisplayMode === 'codes') {
+        labelText = id;
+      } else if (labelDisplayMode === 'names') {
+        labelText = name;
+      }
       
-      const textMetrics = ctx.measureText(label);
-      const textWidth = textMetrics.width;
-      const textHeight = fontSize;
+      if (labelDisplayMode === 'off' && (isSelected || isHighlighted)) {
+        labelText = `${id}: ${name}`;
+      }
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.fillRect(x - textWidth / 2 - 2/globalScale, y + labelOffset - 1/globalScale, textWidth + 4/globalScale, textHeight + 2/globalScale);
+      if (labelText) {
+        ctx.font = `${fontSize}px Sans-Serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const textMetrics = ctx.measureText(labelText);
+        const textWidth = textMetrics.width;
+        const textHeight = fontSize;
 
-      ctx.fillStyle = '#333';
-      const truncatedLabel = label.length > 25 ? label.substring(0, 22) + '...' : label;
-      ctx.fillText(truncatedLabel, x, y + labelOffset + textHeight / 2);
+        ctx.fillStyle = 'rgba(243, 244, 246, 0.85)';
+        ctx.fillRect(x - textWidth / 2 - 2/globalScale, y + labelOffset - 1/globalScale, textWidth + 4/globalScale, textHeight + 2/globalScale);
+
+        ctx.fillStyle = '#333';
+        const truncatedLabel = labelText.length > 25 ? labelText.substring(0, 22) + '...' : labelText;
+        ctx.fillText(truncatedLabel, x, y + labelOffset + textHeight / 2);
+      }
     }
-  }, [selectedNodeId, highlightNodes, showNodeLabels]);
+  }, [selectedNodeId, highlightNodes, labelDisplayMode]);
 
   const getLinkColor = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);

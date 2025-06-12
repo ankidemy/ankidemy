@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/app/components/core/card";
 import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 import { Exercise, AnswerFeedback } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { NodeStatus } from '@/types/srs';
 
 interface ExerciseViewProps {
   exercise: Exercise;
@@ -23,6 +24,7 @@ interface ExerciseViewProps {
   onNavigateToNode: (nodeId: string) => void;
   // FIX: Add available definitions to look up prerequisite names
   availableDefinitions?: { code: string; name: string }[];
+  srsStatus?: NodeStatus;
 }
 
 const ExerciseView: React.FC<ExerciseViewProps> = ({
@@ -39,8 +41,10 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   exerciseAttemptCompleted,
   onNavigateToNode,
   availableDefinitions = [], // FIX: Default to empty array
+  srsStatus,
 }) => {
   const [showNotes, setShowNotes] = useState(false);
+  const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
 
   const qualityRatingButtons = [
     { label: "Again", value: 'again', color: 'bg-red-50 hover:bg-red-100 border-red-200 text-red-700' },
@@ -174,8 +178,10 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
                 key={btn.value}
                 variant="outline"
                 size="sm"
-                className={`h-7 px-2 text-xs ${btn.color}`}
+                className={`h-7 px-2 text-xs ${btn.color} ${!canReview ? 'opacity-50 cursor-not-allowed' : ''}`}
                 onClick={() => onRateExercise(btn.value)}
+                disabled={!canReview}
+                title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : `Rate as ${btn.label}`}
               >
                 {btn.label}
               </Button>
