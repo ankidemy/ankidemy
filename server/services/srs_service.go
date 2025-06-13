@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+  "math"
+  "log"
+  "strings"
 	"myapp/server/dao"
 	"myapp/server/models"
 	"gorm.io/gorm"
@@ -123,109 +126,142 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 	}, nil
 }
 
-// applyCredits applies credit updates to affected nodes
+// Enhanced applyCredits with better error handling
 func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.CreditUpdate, quality int, currentTime time.Time) ([]models.UserNodeProgress, error) {
-	var updatedNodes []models.UserNodeProgress
-	srsDao := dao.NewSRSDao(tx)
+    var updatedNodes []models.UserNodeProgress
+    srsDao := dao.NewSRSDao(tx)
+    var warnings []string
 
-	for _, credit := range credits {
-		// Get or create progress
-		progress, err := srsDao.GetUserProgress(userID, credit.NodeID, credit.NodeType)
-		if err != nil {
-			return nil, err
-		}
+    for _, credit := range credits {
+        // Get or create progress
+        progress, err := srsDao.GetUserProgress(userID, credit.NodeID, credit.NodeType)
+        if err != nil {
+            return nil, err
+        }
 
-		if progress == nil {
-			// For implicit reviews, only apply to nodes that already have progress
-			if credit.Type == "implicit" {
-				continue
-			}
+        if progress == nil {
+            // For implicit reviews, only apply to nodes that already have progress
+            if credit.Type == "implicit" {
+                continue
+            }
 
-			// Create new progress for explicit review
-			progress = &models.UserNodeProgress{
-				UserID:            userID,
-				NodeID:            credit.NodeID,
-				NodeType:          credit.NodeType,
-				Status:            "grasped",
-				EasinessFactor:    2.5,
-				IntervalDays:      0,
-				Repetitions:       0,
-				AccumulatedCredit: 0,
-				CreditPostponed:   false,
-				TotalReviews:      0,
-				SuccessfulReviews: 0,
-			}
-		}
+            // Create new progress for explicit review
+            progress = &models.UserNodeProgress{
+                UserID:            userID,
+                NodeID:            credit.NodeID,
+                NodeType:          credit.NodeType,
+                Status:            "grasped",
+                EasinessFactor:    2.5,
+                IntervalDays:      0,
+                Repetitions:       0,
+                AccumulatedCredit: 0,
+                CreditPostponed:   false,
+                TotalReviews:      0,
+                SuccessfulReviews: 0,
+            }
+        }
 
-		// Only apply credits to 'grasped' nodes
-		if progress.Status != "grasped" {
-			continue
-		}
+        // Only apply credits to 'grasped' nodes
+        if progress.Status != "grasped" {
+            continue
+        }
 
-		// Check if review is due - if so, reset credits
-		if progress.NextReview != nil && progress.NextReview.Before(currentTime) {
-			progress.AccumulatedCredit = 0
-			progress.CreditPostponed = false
-		}
+        // Check if review is due - if so, reset credits
+        if progress.NextReview != nil && progress.NextReview.Before(currentTime) {
+            progress.AccumulatedCredit = 0
+            progress.CreditPostponed = false
+        }
 
-		if credit.Type == "explicit" {
-			// Full review - update SRS parameters
-			srResult := s.srAlgorithm.CalculateNextInterval(progress, quality, currentTime)
+        if credit.Type == "explicit" {
+            // Full review - update SRS parameters
+            srResult := s.srAlgorithm.CalculateNextInterval(progress, quality, currentTime)
 
-			progress.EasinessFactor = srResult.EasinessFactor
-			progress.IntervalDays = srResult.IntervalDays
-			progress.Repetitions = srResult.Repetitions
-			progress.LastReview = &currentTime
-			progress.NextReview = &srResult.NextReview
-			progress.TotalReviews++
-			if quality >= 3 {
-				progress.SuccessfulReviews++
-			}
-			progress.AccumulatedCredit = 0
-			progress.CreditPostponed = false
+            progress.EasinessFactor = srResult.EasinessFactor
+            progress.IntervalDays = srResult.IntervalDays
+            progress.Repetitions = srResult.Repetitions
+            progress.LastReview = &currentTime
+            progress.NextReview = &srResult.NextReview
+            progress.TotalReviews++
+            if quality >= 3 {
+                progress.SuccessfulReviews++
+            }
+            progress.AccumulatedCredit = 0
+            progress.CreditPostponed = false
 
-		} else {
-			// Implicit review - handle credit accumulation
-			newCredit := progress.AccumulatedCredit + credit.Credit
-			creditPostponed := progress.CreditPostponed
+        } else {
+            // Implicit review - handle credit accumulation with enhanced bounds checking
+            originalCredit := progress.AccumulatedCredit
+            newCredit := progress.AccumulatedCredit + credit.Credit
+            creditPostponed := progress.CreditPostponed
 
-			// Handle positive credits (successful implicit reviews)
-			if credit.Credit > 0 && !creditPostponed {
-				if newCredit >= 1.0 {
-					// Reached +100% credit - postpone the review
-					newCredit = 1.0
-					creditPostponed = true
+            // Apply strict bounds checking to prevent database constraint violations
+            boundedCredit := math.Max(-1.0, math.Min(1.0, newCredit))
+            
+            // Check if we hit the bounds and log a warning
+            if newCredit != boundedCredit {
+                warningMsg := fmt.Sprintf("Credit limit reached for node %d (type: %s). Original: %.3f, Attempted: %.3f, Applied: %.3f", 
+                    credit.NodeID, credit.NodeType, originalCredit, newCredit, boundedCredit)
+                warnings = append(warnings, warningMsg)
+                // Log for debugging
+                log.Printf("Credit limit warning: %s", warningMsg)
+            }
 
-					// Calculate next review based on current SR parameters
-					srResult := s.srAlgorithm.CalculateNextInterval(progress, 4, currentTime) // Default "good" quality
-					progress.NextReview = &srResult.NextReview
-					progress.Repetitions = srResult.Repetitions
-					progress.IntervalDays = srResult.IntervalDays
-				}
-			}
+            newCredit = boundedCredit
 
-			// Handle negative credits (failed implicit reviews)
-			if credit.Credit < 0 {
-				if newCredit <= -1.0 {
-					// Reached -100% credit - anticipate the review to today
-					newCredit = -1.0
-					progress.NextReview = &currentTime
-				}
-			}
+            // Handle positive credits (successful implicit reviews)
+            if credit.Credit > 0 && !creditPostponed {
+                if newCredit >= 1.0 {
+                    // Reached +100% credit - postpone the review
+                    newCredit = 1.0
+                    creditPostponed = true
 
-			progress.AccumulatedCredit = newCredit
-			progress.CreditPostponed = creditPostponed
-		}
+                    // Calculate next review based on current SR parameters
+                    srResult := s.srAlgorithm.CalculateNextInterval(progress, 4, currentTime) // Default "good" quality
+                    progress.NextReview = &srResult.NextReview
+                    progress.Repetitions = srResult.Repetitions
+                    progress.IntervalDays = srResult.IntervalDays
+                }
+            }
 
-		// Save progress
-		if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-			return nil, err
-		}
+            // Handle negative credits (failed implicit reviews)
+            if credit.Credit < 0 {
+                if newCredit <= -1.0 {
+                    // Reached -100% credit - anticipate the review to today
+                    newCredit = -1.0
+                    progress.NextReview = &currentTime
+                }
+            }
 
-		updatedNodes = append(updatedNodes, *progress)
-	}
+            // Final assignment with bounds checking
+            progress.AccumulatedCredit = math.Max(-1.0, math.Min(1.0, newCredit))
+            progress.CreditPostponed = creditPostponed
+        }
 
-	return updatedNodes, nil
+        // Save progress with error handling
+        if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
+            // Check if it's a constraint violation
+            if strings.Contains(err.Error(), "user_node_progress_accumulated_credit_check") {
+                // This should not happen with our bounds checking, but handle gracefully
+                log.Printf("Constraint violation despite bounds checking for node %d: %v", credit.NodeID, err)
+                // Force the credit to be within bounds and try again
+                progress.AccumulatedCredit = math.Max(-1.0, math.Min(1.0, progress.AccumulatedCredit))
+                if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
+                    return nil, fmt.Errorf("failed to save progress for node %d after bounds correction: %w", credit.NodeID, err)
+                }
+            } else {
+                return nil, fmt.Errorf("failed to save progress for node %d: %w", credit.NodeID, err)
+            }
+        }
+
+        updatedNodes = append(updatedNodes, *progress)
+    }
+
+    // If there were warnings, log them but don't fail the operation
+    if len(warnings) > 0 {
+        log.Printf("Credit application completed with %d warnings", len(warnings))
+    }
+
+    return updatedNodes, nil
 }
 
 // UpdateNodeStatus updates a node's status and handles propagation
