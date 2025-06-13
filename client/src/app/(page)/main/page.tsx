@@ -120,6 +120,8 @@ export default function MainPage() {
     }
   }, [activeTab, publicDomains, myDomains, enrolledDomains]);
 
+  const uniqueAllDomainsCount = new Set([...publicDomains.map(d => d.id), ...myDomains.map(d => d.id)]).size;
+
   // Handle tab change
   const handleTabChange = (tab: 'all' | 'my' | 'enrolled') => {
     setActiveTab(tab);
@@ -235,7 +237,7 @@ export default function MainPage() {
               className={`px-4 py-2 font-medium ${activeTab === 'all' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
               onClick={() => handleTabChange('all')}
             >
-              All Domains ({publicDomains.length + myDomains.length})
+              All Domains ({uniqueAllDomainsCount})
             </button>
             <button
               className={`px-4 py-2 font-medium ${activeTab === 'my' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}

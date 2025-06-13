@@ -305,7 +305,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     
     // FIXED: Improved arrow size and positioning
     // Arrow should be larger and closer to the target node
-    const arrowLength = Math.max(12 / globalScale, Math.min(25 / globalScale, distance * 0.15)); // Larger arrow
+    const arrowLength = 8 / Math.sqrt(globalScale); // Make arrow size less sensitive to zoom
     const arrowAngle = Math.PI / 6;
     
     // Position arrow much closer to target node (95% instead of 85%)
