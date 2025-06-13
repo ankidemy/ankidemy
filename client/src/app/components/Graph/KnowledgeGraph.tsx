@@ -796,10 +796,51 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const savePositions = async () => {
     if (!onPositionUpdate || Object.keys(nodePositions.current).length === 0 || !positionsChanged) return;
     setIsSavingPositions(true);
+    
     try {
-      await onPositionUpdate(nodePositions.current);
+      // Convert node codes to the expected backend format
+      const convertedPositions: Record<string, { x: number; y: number }> = {};
+      
+      for (const [nodeCode, position] of Object.entries(nodePositions.current)) {
+        // Get the numeric ID for this node code
+        const numericId = codeToNumericIdMap.get(nodeCode);
+        
+        if (numericId) {
+          // Determine if it's a definition or exercise by checking the current graph data
+          let nodeType = '';
+          
+          // Check if it's a definition
+          if (currentStructuralGraphData.definitions?.[nodeCode]) {
+            nodeType = 'def';
+          }
+          // Check if it's an exercise  
+          else if (currentStructuralGraphData.exercises?.[nodeCode]) {
+            nodeType = 'ex';
+          }
+          
+          if (nodeType) {
+            // Create the backend-expected format: "def_123" or "ex_456"
+            const backendNodeId = `${nodeType}_${numericId}`;
+            convertedPositions[backendNodeId] = position;
+          } else {
+            console.warn(`Could not determine node type for code: ${nodeCode}`);
+          }
+        } else {
+          console.warn(`Could not find numeric ID for node code: ${nodeCode}`);
+        }
+      }
+      
+      if (Object.keys(convertedPositions).length === 0) {
+        console.warn('No valid positions to save after conversion');
+        showToast("No valid positions to save", "warning");
+        return;
+      }
+      
+      console.log('Sending position updates:', convertedPositions);
+      await onPositionUpdate(convertedPositions);
       setPositionsChanged(false);
       showToast("Node positions saved.", "success");
+      
     } catch (err) {
       console.error("Failed to save positions:", err);
       showToast(err instanceof Error ? err.message : "Failed to save positions.", "error");
