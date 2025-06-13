@@ -1,314 +1,304 @@
 {
   "definitions": {
-    "TUT_001": {
-      "code": "TUT_001",
-      "name": "What is Knowledge?",
+    "MATH_001": {
+      "code": "MATH_001",
+      "name": "Set",
       "description": [
-        "Knowledge is information that has been learned, understood, and can be applied.",
-        "It differs from mere information by being internalized and connected to existing understanding.",
-        "Knowledge can be explicit (easily articulated) or tacit (difficult to express)."
+        "A set is a well-defined collection of distinct objects, known as elements.",
+        "Sets are usually denoted by capital letters with elements inside curly braces, e.g., \\( A = \\{a, b, c\\} \\).",
+        "The order of elements does not matter, and duplicate elements are ignored."
       ],
-      "notes": "This is the foundational concept for understanding how learning systems work.",
+      "notes": "Think of a set as a bag of unique items. It's the fundamental building block for nearly all of mathematics! 🧱",
       "references": [
-        "Bloom, B. S. (1956). Taxonomy of Educational Objectives",
-        "Anderson, L. W. (2001). A Taxonomy for Learning, Teaching, and Assessing"
+        "Halmos, P. R. (1960). Naive Set Theory",
+        "Zermelo-Fraenkel Set Theory (ZFC)"
       ],
       "prerequisites": [],
       "xPosition": 100,
       "yPosition": 100
     },
-    "TUT_002": {
-      "code": "TUT_002", 
-      "name": "The Learning Process",
+    "MATH_002": {
+      "code": "MATH_002",
+      "name": "Subset",
       "description": [
-        "Learning is the process of acquiring new understanding, knowledge, behaviors, skills, or values.",
-        "Effective learning involves encoding, storage, and retrieval of information.",
-        "The process is enhanced when new information connects to existing knowledge structures."
+        "A set \\(A\\) is a subset of a set \\(B\\) if every element of \\(A\\) is also an element of \\(B\\).",
+        "This relationship is denoted as \\(A \\subseteq B\\).",
+        "Every set is a subset of itself."
       ],
-      "notes": "Understanding how learning works helps optimize study strategies.",
-      "references": [
-        "Craik, F. I. M., & Lockhart, R. S. (1972). Levels of processing",
-        "Baddeley, A. (2000). Working Memory"
-      ],
-      "prerequisites": ["TUT_001"],
-      "xPosition": 250,
+      "notes": "If set B contains all the items of set A (and possibly more), then A is a subset of B. Easy peasy!",
+      "references": [],
+      "prerequisites": ["MATH_001"],
+      "xPosition": 350,
       "yPosition": 100
     },
-    "TUT_003": {
-      "code": "TUT_003",
-      "name": "Memory and Forgetting",
+    "MATH_003": {
+      "code": "MATH_003",
+      "name": "Empty Set",
       "description": [
-        "Human memory is not perfect - we naturally forget information over time.",
-        "The forgetting curve shows that without reinforcement, we lose most new information within days.",
-        "Hermann Ebbinghaus first documented this phenomenon in the 1880s."
+        "The empty set is the unique set that contains no elements.",
+        "It is denoted by \\(\\emptyset\\) or \\(\\{\\}\\).",
+        "The empty set is a subset of every set."
       ],
-      "notes": "This explains why repeated review is necessary for long-term retention.",
-      "references": [
-        "Ebbinghaus, H. (1885). Memory: A Contribution to Experimental Psychology",
-        "Bahrick, H. P. (1984). Semantic memory content in permastore"
-      ],
-      "prerequisites": ["TUT_002"],
-      "xPosition": 400,
-      "yPosition": 100
-    },
-    "TUT_004": {
-      "code": "TUT_004",
-      "name": "Spaced Repetition",
-      "description": [
-        "Spaced repetition is a learning technique that involves reviewing information at increasing intervals.",
-        "It combats the forgetting curve by timing reviews just before information would be forgotten.",
-        "This method is far more efficient than cramming or massed practice."
-      ],
-      "notes": "The core algorithm behind this learning system.",
-      "references": [
-        "Pimsleur, P. (1967). A memory schedule",
-        "Wozniak, P. A. (1990). SuperMemo: Algorithm SM-2"
-      ],
-      "prerequisites": ["TUT_003"],
-      "xPosition": 550,
-      "yPosition": 100
-    },
-    "TUT_005": {
-      "code": "TUT_005",
-      "name": "Active Recall",
-      "description": [
-        "Active recall is the practice of retrieving information from memory without looking at the source.",
-        "It's more effective than passive review methods like re-reading.",
-        "The effort required to recall strengthens memory consolidation."
-      ],
-      "notes": "This is why testing yourself is more effective than just reviewing notes.",
-      "references": [
-        "Roediger, H. L., & Karpicke, J. D. (2006). Test-enhanced learning",
-        "Kornell, N., & Bjork, R. A. (2007). The promise and perils of self-regulated study"
-      ],
-      "prerequisites": ["TUT_002"],
-      "xPosition": 250,
+      "notes": "It might seem strange, but the concept of 'nothing' is incredibly important for defining everything else.",
+      "references": [],
+      "prerequisites": ["MATH_002"],
+      "xPosition": 350,
       "yPosition": 250
     },
-    "TUT_006": {
-      "code": "TUT_006",
-      "name": "Prerequisites and Dependencies",
+    "MATH_004": {
+      "code": "MATH_004",
+      "name": "Cartesian Product",
       "description": [
-        "Learning is hierarchical - some concepts must be understood before others.",
-        "Prerequisites are foundational knowledge required to understand new material.",
-        "Proper sequencing of learning prevents confusion and builds solid understanding."
+        "The Cartesian product of two sets \\(A\\) and \\(B\\) is the set of all ordered pairs \\((a, b)\\) where \\(a \\in A\\) and \\(b \\in B\\).",
+        "It is denoted by \\(A \\times B\\).",
+        "This concept extends to more than two sets, forming n-tuples."
       ],
-      "notes": "This system tracks these relationships to optimize learning paths.",
+      "notes": "If you have a set of shirts and a set of pants, the Cartesian product is all possible outfits! 👕👖",
+      "references": [],
+      "prerequisites": ["MATH_001"],
+      "xPosition": 350,
+      "yPosition": 400
+    },
+    "MATH_005": {
+      "code": "MATH_005",
+      "name": "Power Set",
+      "description": [
+        "The power set of a set \\(S\\) is the set of all possible subsets of \\(S\\), including the empty set and \\(S\\) itself.",
+        "It is denoted by \\(P(S)\\) or \\(2^S\\).",
+        "If \\(S\\) has \\(n\\) elements, its power set \\(P(S)\\) has \\(2^n\\) elements."
+      ],
+      "notes": "The power set reveals the complete substructure of a set. It's a 'set of sets'!",
+      "references": [],
+      "prerequisites": ["MATH_002"],
+      "xPosition": 350,
+      "yPosition": 550
+    },
+    "MATH_006": {
+      "code": "MATH_006",
+      "name": "Mapping (Function)",
+      "description": [
+        "A mapping (or function) \\(f\\) from a set \\(A\\) to a set \\(B\\) is a rule that assigns to each element \\(x \\in A\\) exactly one element \\(y \\in B\\).",
+        "\\(A\\) is called the domain, and \\(B\\) is the codomain.",
+        "This is denoted as \\(f: A \\to B\\)."
+      ],
+      "notes": "Mappings are the action heroes of math, describing relationships and transformations between sets. ⚙️",
+      "references": [],
+      "prerequisites": ["MATH_001"],
+      "xPosition": 600,
+      "yPosition": 100
+    },
+    "MATH_007": {
+      "code": "MATH_007",
+      "name": "Injective Mapping",
+      "description": [
+        "An injective (or one-to-one) mapping ensures that no two elements in the domain map to the same element in the codomain.",
+        "If \\(f(x_1) = f(x_2)\\), then \\(x_1 = x_2\\).",
+        "Think of it as a 'no sharing outputs' rule."
+      ],
+      "notes": "Injective functions preserve distinctness. They don't merge or lose information.",
+      "references": [],
+      "prerequisites": ["MATH_006"],
+      "xPosition": 850,
+      "yPosition": 100
+    },
+    "MATH_008": {
+      "code": "MATH_008",
+      "name": "Surjective Mapping",
+      "description": [
+        "A surjective (or onto) mapping ensures that every element in the codomain \\(B\\) has at least one corresponding element in the domain \\(A\\).",
+        "The range of the function is equal to its codomain.",
+        "Think of it as 'covering all the targets'."
+      ],
+      "notes": "Surjective functions hit every possible output value. Nothing in the codomain is left out.",
+      "references": [],
+      "prerequisites": ["MATH_006"],
+      "xPosition": 850,
+      "yPosition": 250
+    },
+    "MATH_009": {
+      "code": "MATH_009",
+      "name": "Bijective Mapping",
+      "description": [
+        "A bijective mapping is both injective and surjective.",
+        "It creates a perfect one-to-one correspondence between the elements of the domain and the codomain.",
+        "Bijective functions have a unique inverse function."
+      ],
+      "notes": "Bijections are the gold standard of mappings, showing that two sets are structurally identical in size. 🤝",
+      "references": [],
+      "prerequisites": ["MATH_007", "MATH_008"],
+      "xPosition": 850,
+      "yPosition": 400
+    },
+    "MATH_010": {
+      "code": "MATH_010",
+      "name": "Category",
+      "description": [
+        "A category is a collection of 'objects' and 'morphisms' (arrows) between them.",
+        "It includes an associative composition of morphisms and an identity morphism for each object.",
+        "Category theory is a high-level abstraction that studies mathematical structures and their relationships."
+      ],
+      "notes": "This is math about math! It unifies concepts from different fields by focusing on structure and transformations. 🌌",
       "references": [
-        "Gagné, R. M. (1985). The Conditions of Learning",
-        "Ausubel, D. P. (1968). Educational Psychology: A Cognitive View"
+        "Mac Lane, S. (1998). Categories for the Working Mathematician"
       ],
-      "prerequisites": ["TUT_001"],
+      "prerequisites": ["MATH_006"],
+      "xPosition": 1100,
+      "yPosition": 100
+    },
+    "MATH_011": {
+      "code": "MATH_011",
+      "name": "Isomorphism",
+      "description": [
+        "In category theory, an isomorphism is a morphism \\(f: A \\to B\\) that has a two-sided inverse \\(g: B \\to A\\).",
+        "This means \\(f \\circ g = 1_B\\) and \\(g \\circ f = 1_A\\).",
+        "Isomorphic objects are structurally identical from the perspective of the category."
+      ],
+      "notes": "This is the categorical generalization of a bijection. It's the ultimate 'sameness' detector.",
+      "references": [],
+      "prerequisites": ["MATH_010", "MATH_009"],
+      "xPosition": 1100,
+      "yPosition": 250
+    },
+    "MATH_012": {
+      "code": "MATH_012",
+      "name": "Monomorphism",
+      "description": [
+        "A monomorphism (or mono) is the categorical generalization of an injective mapping.",
+        "It is a 'left-cancelable' morphism: if \\(f \\circ g_1 = f \\circ g_2\\), then \\(g_1 = g_2\\).",
+        "In the category of sets, monomorphisms are exactly the injective functions."
+      ],
+      "notes": "While it feels like injectivity, this definition works in contexts where 'elements' don't exist!",
+      "references": [],
+      "prerequisites": ["MATH_010", "MATH_007"],
+      "xPosition": 1350,
+      "yPosition": 100
+    },
+    "MATH_013": {
+      "code": "MATH_013",
+      "name": "Epimorphism",
+      "description": [
+        "An epimorphism (or epi) is the categorical generalization of a surjective mapping.",
+        "It is a 'right-cancelable' morphism: if \\(g_1 \\circ f = g_2 \\circ f\\), then \\(g_1 = g_2\\).",
+        "In the category of sets, epimorphisms are exactly the surjective functions."
+      ],
+      "notes": "Beware! In some categories (like Rings), an epimorphism is not always surjective. Abstraction is tricky!",
+      "references": [],
+      "prerequisites": ["MATH_010", "MATH_008"],
+      "xPosition": 1350,
+      "yPosition": 250
+    },
+    "MATH_014": {
+      "code": "MATH_014",
+      "name": "Functor",
+      "description": [
+        "A functor is a mapping between categories.",
+        "It maps objects to objects and morphisms to morphisms in a way that preserves composition and identity.",
+        "Functors are the 'morphisms' of categories, allowing us to compare them."
+      ],
+      "notes": "If categories are worlds of mathematical structures, functors are the portals between them. ✨",
+      "references": [],
+      "prerequisites": ["MATH_010"],
+      "xPosition": 1350,
+      "yPosition": 400
+    },
+    "MATH_015": {
+      "code": "MATH_015",
+      "name": "Number Theory",
+      "description": [
+        "Number theory is a branch of pure mathematics devoted primarily to the study of the integers and integer-valued functions.",
+        "It explores properties like divisibility, prime numbers, and solutions to equations in integers."
+      ],
+      "notes": "The 'Queen of Mathematics'! It's full of simple-to-state problems that are incredibly hard to solve.",
+      "references": [
+        "Hardy, G. H., & Wright, E. M. (1938). An Introduction to the Theory of Numbers"
+      ],
+      "prerequisites": ["MATH_001"],
       "xPosition": 100,
-      "yPosition": 250
+      "yPosition": 400
     },
-    "TUT_007": {
-      "code": "TUT_007",
-      "name": "Knowledge Graphs",
+    "MATH_016": {
+      "code": "MATH_016",
+      "name": "Rational & Irrational Numbers",
       "description": [
-        "A knowledge graph represents knowledge as a network of interconnected concepts.",
-        "Nodes represent concepts, while edges represent relationships between them.",
-        "This structure mirrors how knowledge is organized in human memory."
+        "A rational number can be expressed as a fraction \\(p/q\\) of two integers, where \\(q \\neq 0\\).",
+        "An irrational number cannot be expressed as such a fraction. Its decimal representation never terminates and never repeats.",
+        "Examples of irrationals include \\(\\sqrt{2}\\), \\(\\pi\\), and \\(e\\)."
       ],
-      "notes": "The visual representation used in this learning system.",
-      "references": [
-        "Semantic Networks: Quillian, M. R. (1968)",
-        "Collins, A. M., & Loftus, E. F. (1975). Spreading activation theory"
-      ],
-      "prerequisites": ["TUT_006"],
+      "notes": "The discovery of irrational numbers was a major shock to the ancient Greeks, who believed all numbers were rational!",
+      "references": [],
+      "prerequisites": ["MATH_015"],
       "xPosition": 100,
-      "yPosition": 400
+      "yPosition": 550
     },
-    "TUT_008": {
-      "code": "TUT_008",
-      "name": "Metacognition",
+    "MATH_017": {
+      "code": "MATH_017",
+      "name": "Proof by Contradiction",
       "description": [
-        "Metacognition is 'thinking about thinking' - awareness of one's own learning process.",
-        "It includes planning how to approach tasks, monitoring comprehension, and evaluating progress.",
-        "Strong metacognitive skills dramatically improve learning outcomes."
+        "A method of indirect proof where one assumes the opposite of what they want to prove.",
+        "You then follow a series of logical steps until you arrive at a logically impossible conclusion (a contradiction).",
+        "This proves that the initial assumption must have been false."
       ],
-      "notes": "Essential for self-directed learning and study optimization.",
-      "references": [
-        "Flavell, J. H. (1976). Metacognitive aspects of problem solving",
-        "Zimmerman, B. J. (2002). Becoming a self-regulated learner"
-      ],
-      "prerequisites": ["TUT_002"],
-      "xPosition": 400,
-      "yPosition": 250
+      "notes": "A powerful and sometimes sneaky way to prove something is true by showing its opposite is absurd. 🕵️‍♂️",
+      "references": [],
+      "prerequisites": [],
+      "xPosition": 100,
+      "yPosition": 700
     },
-    "TUT_009": {
-      "code": "TUT_009",
-      "name": "Interleaving",
+    "MATH_018": {
+      "code": "MATH_018",
+      "name": "Pythagorean Theorem",
       "description": [
-        "Interleaving involves mixing different types of problems or concepts during practice.",
-        "Rather than blocking similar items together, interleaving creates beneficial confusion.",
-        "This technique improves discrimination between concepts and transfer of learning."
+        "In a right-angled triangle, the square of the length of the hypotenuse (the side opposite the right angle) is equal to the sum of the squares of the other two sides.",
+        "The formula is \\(a^2 + b^2 = c^2\\)."
       ],
-      "notes": "Why this system mixes different types of content during review sessions.",
+      "notes": "One of the most famous and useful theorems in all of geometry!",
       "references": [
-        "Rohrer, D. (2012). Interleaving helps students distinguish among similar concepts",
-        "Kornell, N., & Bjork, R. A. (2008). Learning concepts and categories"
+        "Euclid's Elements, Book I, Proposition 47"
       ],
-      "prerequisites": ["TUT_005"],
-      "xPosition": 400,
-      "yPosition": 400
-    },
-    "TUT_010": {
-      "code": "TUT_010",
-      "name": "Mastery Learning",
-      "description": [
-        "Mastery learning requires achieving a high level of competence before advancing.",
-        "It emphasizes learning for understanding rather than just coverage of material.",
-        "Students progress at their own pace, ensuring solid foundations."
-      ],
-      "notes": "The philosophy behind adaptive learning systems like this one.",
-      "references": [
-        "Bloom, B. S. (1968). Learning for mastery",
-        "Carroll, J. B. (1963). A model of school learning"
-      ],
-      "prerequisites": ["TUT_006", "TUT_008"],
-      "xPosition": 250,
-      "yPosition": 400
-    },
-    "TUT_011": {
-      "code": "TUT_011",
-      "name": "Deliberate Practice",
-      "description": [
-        "Deliberate practice involves focused, goal-oriented practice with immediate feedback.",
-        "It requires stepping outside one's comfort zone and working on specific weaknesses.",
-        "Quality and focus matter more than quantity of practice time."
-      ],
-      "notes": "How to make the most of practice sessions in any learning system.",
-      "references": [
-        "Ericsson, K. A. (1993). The role of deliberate practice",
-        "Ericsson, K. A. (2006). The influence of experience and deliberate practice"
-      ],
-      "prerequisites": ["TUT_005", "TUT_008"],
-      "xPosition": 550,
-      "yPosition": 250
-    },
-    "TUT_012": {
-      "code": "TUT_012",
-      "name": "Distributed Practice",
-      "description": [
-        "Distributed practice involves spreading learning sessions over time rather than massing them.",
-        "Also known as the spacing effect, it's one of the most robust findings in learning research.",
-        "Even with the same total study time, distributed practice leads to better retention."
-      ],
-      "notes": "The scientific foundation for spaced repetition systems.",
-      "references": [
-        "Cepeda, N. J. (2006). Distributed practice in verbal recall tasks",
-        "Dempster, F. N. (1988). The spacing effect"
-      ],
-      "prerequisites": ["TUT_004"],
-      "xPosition": 700,
-      "yPosition": 100
+      "prerequisites": ["MATH_001"],
+      "xPosition": 100,
+      "yPosition": 850
     }
   },
   "exercises": {
-    "TUT_EX001": {
-      "code": "TUT_EX001",
-      "name": "Identifying Knowledge Types",
-      "statement": "Classify the following as explicit or tacit knowledge: (1) Riding a bicycle, (2) The capital of France, (3) How to recognize a good melody",
-      "description": "This exercise helps distinguish between knowledge that can be easily communicated versus knowledge that is difficult to articulate.",
-      "hints": "Consider whether each item can be easily written down in a manual or requires personal experience to truly understand.",
-      "difficulty": 2,
-      "verifiable": true,
-      "result": "(1) Tacit, (2) Explicit, (3) Tacit",
-      "prerequisites": ["TUT_001"],
-      "xPosition": 100,
-      "yPosition": 550
-    },
-    "TUT_EX002": {
-      "code": "TUT_EX002", 
-      "name": "Applying the Forgetting Curve",
-      "statement": "If you learn 100 facts today and review none of them, approximately how many will you remember after one week according to Ebbinghaus's forgetting curve?",
-      "description": "The forgetting curve shows that without reinforcement, we typically retain only about 20% of newly learned information after a week.",
-      "hints": "Ebbinghaus found that we lose most information very quickly, with the rate of forgetting slowing over time.",
+    "MATH_EX_001": {
+      "code": "MATH_EX_001",
+      "name": "Irrationality of sqrt(2) + sqrt(3)",
+      "statement": "Prove that \\(\\sqrt{2} + \\sqrt{3}\\) is irrational.",
+      "description": "This exercise tests your ability to combine algebraic manipulation with a proof by contradiction.",
+      "hints": "Assume the expression equals a rational number 'r'. Square both sides and try to isolate a single square root term.",
       "difficulty": 3,
       "verifiable": true,
-      "result": "Approximately 20 facts (20%)",
-      "prerequisites": ["TUT_003"],
-      "xPosition": 400,
-      "yPosition": 550
-    },
-    "TUT_EX003": {
-      "code": "TUT_EX003",
-      "name": "Designing a Spaced Review Schedule",
-      "statement": "You just learned a new concept. Design an optimal review schedule for the next month using spaced repetition principles.",
-      "description": "An effective schedule might be: 1 day, 3 days, 1 week, 2 weeks, 1 month. The intervals increase as the memory becomes stronger.",
-      "hints": "Start with short intervals and gradually increase them. The goal is to review just before you would forget.",
-      "difficulty": 4,
-      "verifiable": false,
-      "result": "Sample schedule: Day 1, Day 4, Day 11, Day 25",
-      "prerequisites": ["TUT_004", "TUT_003"],
-      "xPosition": 550,
-      "yPosition": 550
-    },
-    "TUT_EX004": {
-      "code": "TUT_EX004",
-      "name": "Active vs. Passive Study",
-      "statement": "Compare the effectiveness of (A) re-reading notes vs. (B) taking a practice test, for long-term retention.",
-      "description": "Practice testing (active recall) is significantly more effective than re-reading for long-term retention, even though re-reading feels easier and more fluent.",
-      "hints": "Consider which method requires more mental effort and which gives you accurate feedback about your knowledge.",
-      "difficulty": 2,
-      "verifiable": true,
-      "result": "Practice testing (B) is much more effective for long-term retention",
-      "prerequisites": ["TUT_005"],
-      "xPosition": 250,
-      "yPosition": 550
-    },
-    "TUT_EX005": {
-      "code": "TUT_EX005",
-      "name": "Prerequisite Mapping",
-      "statement": "Create a prerequisite map for learning calculus. What concepts must be mastered first?",
-      "description": "A typical prerequisite chain might include: Arithmetic → Algebra → Functions → Limits → Derivatives → Integrals. Each level builds on the previous ones.",
-      "hints": "Think about the foundational mathematical concepts needed at each step. What would happen if someone tried to skip a level?",
-      "difficulty": 4,
-      "verifiable": false,
-      "result": "Arithmetic → Algebra → Functions → Trigonometry → Limits → Calculus",
-      "prerequisites": ["TUT_006"],
-      "xPosition": 100,
+      "result": "Assume \\(\\sqrt{2} + \\sqrt{3} = r\\) (rational). Squaring gives \\(5 + 2\\sqrt{6} = r^2\\), which means \\(\\sqrt{6} = (r^2 - 5)/2\\). Since r is rational, the right side is rational, implying \\(\\sqrt{6}\\) is rational. This is a known contradiction. Thus, the original assumption is false.",
+      "prerequisites": ["MATH_016", "MATH_017"],
+      "xPosition": 350,
       "yPosition": 700
     },
-    "TUT_EX006": {
-      "code": "TUT_EX006",
-      "name": "Metacognitive Reflection",
-      "statement": "After studying for 2 hours, how would you assess whether your study session was effective?",
-      "description": "Effective assessment includes: testing yourself without notes, identifying what you still don't understand, and planning next steps based on gaps in knowledge.",
-      "hints": "Focus on objective measures of understanding rather than subjective feelings of familiarity or ease.",
-      "difficulty": 3,
-      "verifiable": false,
-      "result": "Self-testing, identifying knowledge gaps, planning remediation",
-      "prerequisites": ["TUT_008"],
-      "xPosition": 400,
-      "yPosition": 700
-    },
-    "TUT_EX007": {
-      "code": "TUT_EX007",
-      "name": "Applying Interleaving",
-      "statement": "You're learning three types of math problems (A, B, C). Design a practice sequence using interleaving principles.",
-      "description": "An interleaved sequence might be: A-B-C-A-C-B-A-B-C, mixing problem types rather than doing all A's, then all B's, then all C's (blocked practice).",
-      "hints": "Avoid grouping similar problems together. Mix them up to create beneficial confusion and improve discrimination.",
-      "difficulty": 3,
-      "verifiable": false,
-      "result": "Mixed sequence like A-C-B-A-B-C-A-C-B instead of AAA-BBB-CCC",
-      "prerequisites": ["TUT_009"],
-      "xPosition": 400,
+    "MATH_EX_002": {
+      "code": "MATH_EX_002",
+      "name": "Irrationality of log_2(3)",
+      "statement": "Prove that \\(\\log_2 3\\) is irrational.",
+      "description": "This classic proof uses the definition of logarithms and the fundamental theorem of arithmetic.",
+      "hints": "Assume \\(\\log_2 3 = p/q\\). Rewrite this in exponential form and look for a contradiction related to prime factors.",
+      "difficulty": 4,
+      "verifiable": true,
+      "result": "Assume \\(\\log_2 3 = p/q\\). This means \\(2^{p/q} = 3\\), so \\(2^p = 3^q\\). By the unique prime factorization theorem, an integer power of 2 cannot equal an integer power of 3 (unless both exponents are 0, which is not the case). This is a contradiction.",
+      "prerequisites": ["MATH_016", "MATH_017"],
+      "xPosition": 350,
       "yPosition": 850
     },
-    "TUT_EX008": {
-      "code": "TUT_EX008",
-      "name": "Designing Deliberate Practice",
-      "statement": "You want to improve your public speaking. Design a deliberate practice routine focusing on your weakness: managing anxiety.",
-      "description": "Deliberate practice for managing speaking anxiety might include: progressive exposure (small to large audiences), video recording for self-review, specific breathing techniques, and seeking detailed feedback from experienced speakers.",
-      "hints": "Identify the specific sub-skill, practice it intensively, get immediate feedback, and gradually increase difficulty.",
-      "difficulty": 5,
-      "verifiable": false,
-      "result": "Progressive exposure + feedback + specific techniques + increasing challenge",
-      "prerequisites": ["TUT_011"],
-      "xPosition": 550,
-      "yPosition": 700
+    "MATH_EX_003": {
+      "code": "MATH_EX_003",
+      "name": "Proof of Pythagorean Theorem",
+      "statement": "Prove the Pythagorean theorem: \\(a^2 + b^2 = c^2\\).",
+      "description": "This exercise requires a geometric proof to demonstrate the famous relationship in a right-angled triangle.",
+      "hints": "Consider a large square with side length (a+b). Arrange four copies of the triangle inside it. What shape is left in the middle?",
+      "difficulty": 2,
+      "verifiable": true,
+      "result": "Arrange four right triangles (sides a, b, c) inside a square of side (a+b). The total area is \\((a+b)^2\\). The area is also the sum of the four triangles \\(4 \\times \\frac{1}{2}ab\\) plus the area of the inner square, \\(c^2\\). Equating them: \\(a^2 + 2ab + b^2 = 2ab + c^2\\), which simplifies to \\(a^2 + b^2 = c^2\\).",
+      "prerequisites": ["MATH_018"],
+      "xPosition": 350,
+      "yPosition": 1000
     }
   }
 }
