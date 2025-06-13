@@ -33,7 +33,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
   const [hoveredNode, setHoveredNode] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
+  const [dimensions, setDimensions] = useState({ width: 1100, height: 400 });
   const [subjectMatters, setSubjectMatters] = useState<SubjectMatter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasBeenFitted, setHasBeenFitted] = useState(false);
@@ -362,17 +362,17 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
           linkDirectionalParticles={1}
           linkDirectionalParticleSpeed={0.003}
           linkDirectionalParticleWidth={0.5}
-          linkColor={() => 'rgba(156, 163, 175, 0.2)'}
-          linkWidth={0.5}
-          linkDistance={100}
-          nodeRepulsion={-200}
+          linkColor={() => 'rgba(156, 163, 175, 0.5)'}
+          linkWidth={3}
+          linkDistance={200000}
+          nodeRepulsion={2000}
           d3AlphaDecay={0.05}
-          d3VelocityDecay={0.2}
-          cooldownTicks={50}
+          d3VelocityDecay={0.05}
+          cooldownTicks={200}
           enableZoomPanInteraction={true}
           minZoom={0.5}
           maxZoom={8}
-          warmupTicks={0}
+          warmupTicks={10}
           enablePointerInteraction={true}
           autoPauseRedraw={false}
         />

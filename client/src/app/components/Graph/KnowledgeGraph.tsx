@@ -1025,10 +1025,22 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     });
   }, []);
 
+  const checkDomainOwnership = useCallback(() => {
+    if (!currentUser || !domainData) {
+      return false;
+    }
+    return domainData.ownerId === currentUser.ID;
+  }, [currentUser, domainData]);
+
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
     // Check enrollment first
     if (!isEnrolled) {
       handlePromptEnrollment();
+      return;
+    }
+
+    if (!checkDomainOwnership()) {
+      showToast("You can only create nodes in domains you own.", "warning");
       return;
     }
 
@@ -1064,7 +1076,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, [isEnrolled, handlePromptEnrollment, setNodeCreationType, setNodeCreationPosition, setShowNodeCreationModal]);
+  }, [isEnrolled, handlePromptEnrollment, checkDomainOwnership, setNodeCreationType, setNodeCreationPosition, setShowNodeCreationModal]);
 
   const handleNodeCreationSuccess = useCallback(async (nodeCode: string) => {
     setShowNodeCreationModal(false);
@@ -1095,6 +1107,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // FIX 2a: After editing a node (handleSubmitEdit function)
   const handleSubmitEdit = async () => {
     if (!selectedNode || !selectedNodeDetails) return;
+
+    // Add ownership check
+    if (!checkDomainOwnership()) {
+      showToast("You don't have permission to edit nodes in this domain.", "error");
+      setIsEditMode(false);
+      return;
+    }
 
     const formName = (document.getElementById('name') as HTMLInputElement)?.value || selectedNode.name;
     const formPrereqsEl = document.getElementById('prerequisites') as HTMLSelectElement;
@@ -1341,6 +1360,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     navigateToNodeById(prevNodeId);
   }, [nodeHistory, navigateToNodeById]);
 
+
   const availableDefinitionsForModals = useMemo(() => {
     return graphNodes
       .filter(node => node.type === 'definition') // Prerequisites can only be definitions.
@@ -1480,7 +1500,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                   selectedNode={selectedNode}
                   selectedNodeDetails={selectedNodeDetails}
                   isEditMode={isEditMode}
-                  onToggleEditMode={() => setIsEditMode(!isEditMode)}
+                  onToggleEditMode={() => {
+                    if (!checkDomainOwnership()) {
+                      showToast("You can only edit nodes in domains you own.", "warning");
+                      return;
+                    }
+                    setIsEditMode(!isEditMode);
+                  }}
                   mode={mode}
                   nodeHistory={nodeHistory}
                   onNavigateBack={navigateBackHistory}
