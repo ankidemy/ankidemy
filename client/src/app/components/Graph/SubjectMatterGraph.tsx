@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from "@/app/components/core/button";
 import { Plus, Info } from 'lucide-react';
+import { getEnrolledDomains } from '@/lib/api';
 
 // Import ForceGraph dynamically to avoid SSR issues
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -18,13 +19,11 @@ interface SubjectMatter {
 }
 
 interface SubjectMatterGraphProps {
-  subjectMatters: SubjectMatter[];
   onSelectSubjectMatter: (id: string) => void;
   onCreateSubjectMatter?: () => void;
 }
 
 const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ 
-  subjectMatters, 
   onSelectSubjectMatter,
   onCreateSubjectMatter
 }) => {
@@ -34,7 +33,37 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
   const [hoveredNode, setHoveredNode] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
+  const [subjectMatters, setSubjectMatters] = useState<SubjectMatter[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasBeenFitted, setHasBeenFitted] = useState(false);
+
+  // Fetch enrolled domains from API
+  useEffect(() => {
+    const fetchDomains = async () => {
+      try {
+        setIsLoading(true);
+        const domains = await getEnrolledDomains();
+        
+        // Convert domains to subject matters with proper API data
+        const subjectMattersData = domains.map(domain => ({
+          id: domain.id.toString(),
+          name: domain.name,
+          nodeCount: domain.nodeCount || 0,
+          exerciseCount: domain.exerciseCount || 0,
+        }));
+        
+        setSubjectMatters(subjectMattersData);
+      } catch (err) {
+        console.error("Error fetching domains:", err);
+        setError("Error loading domains. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDomains();
+  }, []);
 
   // Track container dimensions
   useEffect(() => {
@@ -116,131 +145,131 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
     }
   }, [subjectMatters]);
 
-  // Fit graph to view - with proper timing and dimension awareness
+  // Fit graph to view - only on first render
   const fitGraphToView = useCallback(() => {
-    if (graphRef.current && graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0) {
+    if (graphRef.current && graphData.nodes.length > 0 && dimensions.width >= 0 && dimensions.height > 0 && !hasBeenFitted) {
       // Small delay to ensure everything is rendered
       setTimeout(() => {
-        if (graphRef.current) {
+        if (graphRef.current && !hasBeenFitted) {
           try {
-            // Fit to view with proper padding
-            const padding = Math.min(dimensions.width, dimensions.height) * 0.1; // 10% padding
-            graphRef.current.zoomToFit(400, padding);
+            // Set a reasonable zoom level instead of fitting
+            graphRef.current.zoom(2, 500);
+            graphRef.current.centerAt(0, 0, 500);
+            setHasBeenFitted(true);
             
-            console.log('Graph fitted to view with dimensions:', dimensions);
+            console.log('Graph positioned with zoom 2');
           } catch (error) {
-            console.error('Error fitting graph to view:', error);
+            console.error('Error positioning graph:', error);
           }
         }
-      }, 200);
+      }, 100);
     }
-  }, [graphData.nodes.length, dimensions]);
+  }, [graphData.nodes.length, dimensions, hasBeenFitted]);
 
   // Handle engine stop
   const handleEngineStop = useCallback(() => {
     fitGraphToView();
   }, [fitGraphToView]);
 
-  // Fit graph when dimensions change
+  // Fit graph when dimensions change (only if not been fitted yet)
   useEffect(() => {
     if (graphData.nodes.length > 0) {
       fitGraphToView();
     }
   }, [dimensions, fitGraphToView, graphData.nodes.length]);
 
-  // Custom node renderer with error handling
-  const nodeCanvasObject = (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-    try {
-      const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
-      const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
-      const name = node.name || 'Unknown';
-      const nodeCount = node.nodeCount || 0;
-      const exerciseCount = node.exerciseCount || 0;
-      
-      const fontSize = 14/globalScale;
-      const isHovered = hoveredNode && hoveredNode.id === node.id;
-      
-      // Draw node background with gradient
-      const baseSize = Math.max(6, Math.min(12, 6 + (nodeCount / 5)));
-      const size = isHovered ? baseSize * 1.3 : baseSize;
-      const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-      gradient.addColorStop(0, 'rgba(249, 115, 22, 0.8)');
-      gradient.addColorStop(1, 'rgba(249, 115, 22, 0.4)');
-      
-      ctx.beginPath();
-      ctx.fillStyle = gradient;
-      ctx.arc(x, y, size, 0, 2 * Math.PI, false);
-      ctx.fill();
-
-      // Draw node border
-      ctx.strokeStyle = isHovered ? 'rgba(249, 115, 22, 1)' : 'rgba(249, 115, 22, 0.6)';
-      ctx.lineWidth = isHovered ? 2/globalScale : 1.5/globalScale;
-      ctx.stroke();
-      
-      // Draw node label with shadow for better visibility
-      ctx.font = `${isHovered ? fontSize + 1 : fontSize}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      // Add shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-      ctx.fillText(name, x + 1, y + 1);
-      
-      // Draw actual text
-      ctx.fillStyle = 'white';
-      ctx.fillText(name, x, y);
-
-      // Draw stats below the node if hovered
-      if (isHovered) {
-        ctx.font = `${fontSize * 0.8}px sans-serif`;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.shadowColor = 'black';
-        ctx.shadowBlur = 3;
-        ctx.shadowOffsetX = 1;
-        ctx.shadowOffsetY = 1;
-        ctx.fillText(
-          `${nodeCount} definitions, ${exerciseCount} exercises`, 
-          x, 
-          y + 25
-        );
-        ctx.shadowColor = 'transparent';
-      }
-    } catch (err) {
-      console.error("Error rendering node:", err);
-      const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
-      const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
-      
-      ctx.beginPath();
-      ctx.fillStyle = 'rgba(249, 115, 22, 0.6)';
-      ctx.arc(x, y, 10, 0, 2 * Math.PI);
-      ctx.fill();
+  // Force initial render when graph data is ready
+  useEffect(() => {
+    if (graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0 && graphRef.current) {
+      // Force animation to start and ensure nodes are positioned
+      setTimeout(() => {
+        if (graphRef.current) {
+          // Resume animation to ensure the simulation runs
+          graphRef.current.resumeAnimation();
+          // Set initial zoom and position
+          graphRef.current.zoom(2, 100);
+          graphRef.current.centerAt(0, 0, 100);
+        }
+      }, 100);
     }
-  };
-  
-  // Link styling with safety checks
-  const getLinkColor = (link: any) => {
-    try {
-      const source = typeof link.source === 'object' ? link.source.id : link.source;
-      const target = typeof link.target === 'object' ? link.target.id : link.target;
+  }, [graphData.nodes.length, dimensions]);
+
+  // Custom node renderer with simplified, faster rendering
+  const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
+    const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
+    const name = node.name || 'Unknown';
+    const nodeCount = node.nodeCount || 0;
+    const exerciseCount = node.exerciseCount || 0;
+    
+    // Simplified text scaling
+    const fontSize = Math.max(8, Math.min(16, 12 / Math.sqrt(globalScale)));
+    const isHovered = hoveredNode && hoveredNode.id === node.id;
+    
+    // Simplified node sizing
+    const baseSize = Math.max(8, Math.min(15, 8 + (nodeCount + exerciseCount) / 4));
+    const size = isHovered ? baseSize * 1.1 : baseSize;
+    
+    // Draw node circle
+    ctx.fillStyle = isHovered ? '#10B981' : '#6B7280';
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Thinner border
+    ctx.strokeStyle = isHovered ? '#FFFFFF' : '#D1D5DB';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    
+    // Text rendering (on top of nodes)
+    ctx.font = `${fontSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Main text (no stroke border since text is already dark)
+    ctx.fillStyle = '#1F2937';
+    ctx.fillText(name, x, y - size - 10);
+    
+    // Stats rendering
+    if (globalScale > 0.5) { // Only show stats when zoomed in enough
+      const statsText = `${nodeCount}d, ${exerciseCount}e`;
+      const statsSize = Math.max(6, fontSize * 0.75);
+      ctx.font = `${statsSize}px Arial`;
       
-      const isHovered = hoveredNode && 
-        (hoveredNode.id === source || hoveredNode.id === target);
-      
-      return isHovered ? 'rgba(249, 115, 22, 0.6)' : 'rgba(249, 115, 22, 0.2)';
-    } catch (err) {
-      return 'rgba(249, 115, 22, 0.2)';
+      // Stats text (no stroke border)
+      ctx.fillStyle = '#6B7280';
+      ctx.fillText(statsText, x, y + size + 12);
     }
-  };
+  }, [hoveredNode]);
+
+  // Handle node click
+  const handleNodeClick = useCallback((node: any) => {
+    if (node && node.id) {
+      onSelectSubjectMatter(node.id);
+    }
+  }, [onSelectSubjectMatter]);
+
+  // Handle node hover
+  const handleNodeHover = useCallback((node: any) => {
+    setHoveredNode(node);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="h-full w-full flex items-center justify-center">
+        <div className="text-xl text-gray-600">Loading subject matters...</div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-50">
-        <div className="text-red-500 max-w-md p-6 bg-white rounded-xl shadow-md">
-          <h3 className="text-xl font-semibold mb-2">Error Loading Visualization</h3>
-          <p>{error}</p>
+      <div className="h-full w-full flex items-center justify-center">
+        <div className="text-red-500 text-xl p-8 bg-white rounded shadow-md">
+          {error}
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded"
           >
             Retry
           </button>
@@ -250,108 +279,104 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
   }
 
   return (
-    <div 
-      ref={containerRef}
-      className="w-full h-full bg-gray-50 relative"
-      style={{ minHeight: '300px' }} // Ensure minimum height
-    >
-      {/* Minimized info panel - only show when needed */}
-      {subjectMatters.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="text-center p-8 bg-white rounded-xl shadow-lg max-w-sm">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">No Domains Yet</h3>
-            <p className="text-gray-600 mb-4">Create your first knowledge domain to get started.</p>
+    <div className="h-full w-full relative" ref={containerRef}>
+      {/* Info Panel */}
+      {showInfo && (
+        <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg p-4 shadow-lg z-10 max-w-sm">
+          <h3 className="font-semibold text-gray-800 mb-2">Subject Matter Graph</h3>
+          <p className="text-sm text-gray-600 mb-2">
+            This visualization shows your enrolled domains as connected nodes. Each node represents a subject matter domain.
+          </p>
+          <ul className="text-xs text-gray-500 space-y-1">
+            <li>• Node size reflects the number of definitions</li>
+            <li>• Click a node to explore its knowledge graph</li>
+            <li>• Hover to see definition and exercise counts</li>
+          </ul>
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="absolute top-4 left-4 flex gap-2 z-10">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowInfo(!showInfo)}
+        >
+          <Info className="w-4 h-4" />
+        </Button>
+        {onCreateSubjectMatter && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCreateSubjectMatter}
+          >
+            <Plus className="w-4 h-4" />
+            Create Domain
+          </Button>
+        )}
+      </div>
+
+      {/* Empty State */}
+      {graphData.nodes.length === 0 && !isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-4xl text-gray-300 mb-4">📚</div>
+            <h3 className="text-lg font-medium text-gray-600 mb-2">No Domains Yet</h3>
+            <p className="text-gray-500 mb-4">
+              You haven't enrolled in any domains yet. Create your first domain or explore public ones to get started!
+            </p>
             {onCreateSubjectMatter && (
-              <Button 
-                onClick={onCreateSubjectMatter}
-                className="flex items-center justify-center"
-              >
-                <Plus size={16} className="mr-1" />
-                Create Domain
+              <Button onClick={onCreateSubjectMatter}>
+                <Plus className="w-4 h-4 mr-2" />
+                Create Your First Domain
               </Button>
             )}
           </div>
         </div>
       )}
 
-      {/* Small help button */}
-      {subjectMatters.length > 0 && (
-        <div className="absolute top-4 left-4 z-10">
-          <button
-            onClick={() => setShowInfo(!showInfo)}
-            className="p-2 bg-white rounded-full shadow-md hover:shadow-lg transition-all duration-200"
-            title="Help"
-          >
-            <Info size={16} className="text-gray-600" />
-          </button>
-          
-          {showInfo && (
-            <div className="absolute top-12 left-0 p-4 bg-white rounded-lg shadow-lg max-w-xs z-20">
-              <p className="text-sm text-gray-600 mb-2">
-                Click on a domain to explore its knowledge graph.
-              </p>
-              {onCreateSubjectMatter && (
-                <Button 
-                  onClick={onCreateSubjectMatter}
-                  size="sm"
-                  className="flex items-center w-full"
-                >
-                  <Plus size={14} className="mr-1" />
-                  Create Domain
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Debug info - remove in production */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="absolute top-4 right-4 text-xs text-gray-500 bg-white p-2 rounded">
-          {dimensions.width} x {dimensions.height}
-        </div>
-      )}
-      
-      {graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0 ? (
+      {/* Force Graph */}
+      {graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0 && (
         <ForceGraph2D
           ref={graphRef}
           graphData={graphData}
           width={dimensions.width}
           height={dimensions.height}
-          nodeId="id"
-          nodeLabel="name"
-          nodeVal="val"
+          backgroundColor="transparent"
           nodeCanvasObject={nodeCanvasObject}
-          nodeRelSize={3}
-          linkWidth={1}
-          linkColor={getLinkColor}
-          onNodeClick={(node) => {
-            console.log('Node clicked:', node);
-            if (node && node.id) {
-              onSelectSubjectMatter(node.id.toString());
-            }
+          nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
+            const x = node.x || 0;
+            const y = node.y || 0;
+            const nodeCount = node.nodeCount || 0;
+            const exerciseCount = node.exerciseCount || 0;
+            const size = Math.max(8, Math.min(15, 8 + (nodeCount + exerciseCount) / 4)) * 1.3;
+            
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, 2 * Math.PI);
+            ctx.fill();
           }}
-          onNodeHover={setHoveredNode}
-          cooldownTicks={100}
-          cooldownTime={2000}
+          onNodeClick={handleNodeClick}
+          onNodeHover={handleNodeHover}
           onEngineStop={handleEngineStop}
-          d3AlphaDecay={0.03}
-          d3VelocityDecay={0.4}
-          d3Force={(d3Force) => {
-            d3Force('charge').strength(-300);
-            d3Force('link').distance(80);
-            d3Force('center', d3Force.forceCenter().strength(1));
-          }}
-          enableNodeDrag={true}
+          linkDirectionalParticles={1}
+          linkDirectionalParticleSpeed={0.003}
+          linkDirectionalParticleWidth={0.5}
+          linkColor={() => 'rgba(156, 163, 175, 0.2)'}
+          linkWidth={0.5}
+          linkDistance={100}
+          nodeRepulsion={-200}
+          d3AlphaDecay={0.05}
+          d3VelocityDecay={0.2}
+          cooldownTicks={50}
           enableZoomPanInteraction={true}
-          minZoom={0.1}
+          minZoom={0.5}
           maxZoom={8}
+          warmupTicks={0}
+          enablePointerInteraction={true}
+          autoPauseRedraw={false}
         />
-      ) : subjectMatters.length > 0 ? (
-        <div className="h-full flex items-center justify-center">
-          <p className="text-lg text-gray-500">Loading domains...</p>
-        </div>
-      ) : null}
+      )}
     </div>
   );
 };
