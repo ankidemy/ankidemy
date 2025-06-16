@@ -166,11 +166,9 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 docker-compose -f docker-compose.yml -f docker-compose.test.yml up  # Tests
 ```
 
-### API Documentation
+### Documentation
 
-El proyecto incluye documentación completa de la API:
-- `API.md`: Documentación detallada de endpoints
-- `API-Cheatsheet.md`: Referencia rápida de llamadas a la API
+Accede a la [Wiki del repositorio](https://github.com/ankidemy/ankidemy/wiki) para más información.
 
 ## 🤝 Contribuir
 
