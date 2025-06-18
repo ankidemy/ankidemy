@@ -1,7 +1,7 @@
-// File: ./src/app/components/Graph/utils/GraphContainer.tsx
+// GraphContainer.tsx - Optimized for Stable Architecture
 "use client";
 
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
@@ -44,7 +44,10 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
   creditFlowAnimations = [],
 }) => {
   const nodePositions = useRef(new Map<string, {x: number, y: number}>());
+  const lastNodeCountRef = useRef(0);
+  const simulationStableRef = useRef(false);
 
+  // Track node positions for credit flow overlay
   useEffect(() => {
     const newPositions = new Map<string, {x: number, y: number}>();
     graphNodes.forEach(node => {
@@ -55,8 +58,23 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     nodePositions.current = newPositions;
   }, [graphNodes]);
 
+  // Detect structural changes vs metadata changes
+  const structuralChange = useMemo(() => {
+    const currentNodeCount = graphNodes.length;
+    const changed = currentNodeCount !== lastNodeCountRef.current;
+    lastNodeCountRef.current = currentNodeCount;
+    
+    if (changed) {
+      console.log(`Structural change detected: ${currentNodeCount} nodes`);
+      simulationStableRef.current = false;
+    }
+    
+    return changed;
+  }, [graphNodes.length]);
+
+  // Optimized node renderer with stable metadata updates
   const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-    const { id, name, type, x = 0, y = 0, status, isDue } = node;
+    const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
     const labelOffset = nodeSize + 4 / globalScale;
@@ -64,23 +82,27 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const isSelected = selectedNodeId === id;
     const isHighlighted = highlightNodes.has(id);
 
-    let baseColor;
-    if (type === 'definition') {
-      baseColor = node.isRootDefinition ? '#28a745' : '#007bff';
-    } else {
-      const difficultyColors = ['#66bb6a', '#9ccc65', '#d4e157', '#ffee58', '#ffa726', '#ff7043', '#ef5350'];
-      let difficultyLevel = 2;
-      if (node.difficulty) {
-        const parsedDifficulty = parseInt(node.difficulty, 10);
-        if (!isNaN(parsedDifficulty)) {
-          difficultyLevel = Math.max(0, Math.min(6, parsedDifficulty - 1));
+    // Use color from metadata if available, otherwise calculate
+    let finalColor = color;
+    if (!finalColor) {
+      let baseColor;
+      if (type === 'definition') {
+        baseColor = node.isRootDefinition ? '#28a745' : '#007bff';
+      } else {
+        const difficultyColors = ['#66bb6a', '#9ccc65', '#d4e157', '#ffee58', '#ffa726', '#ff7043', '#ef5350'];
+        let difficultyLevel = 2;
+        if (node.difficulty) {
+          const parsedDifficulty = parseInt(node.difficulty, 10);
+          if (!isNaN(parsedDifficulty)) {
+            difficultyLevel = Math.max(0, Math.min(6, parsedDifficulty - 1));
+          }
         }
+        baseColor = difficultyColors[difficultyLevel];
       }
-      baseColor = difficultyColors[difficultyLevel];
+      finalColor = status ? getSRSStatusColor(status) : baseColor;
     }
-    
-    const srsColor = status ? getSRSStatusColor(status) : baseColor;
 
+    // Selection highlight
     if (isSelected) {
       ctx.beginPath();
       ctx.arc(x, y, nodeSize + 5 / globalScale, 0, 2 * Math.PI, false);
@@ -93,15 +115,17 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.fill();
     }
 
+    // Main node circle
     ctx.beginPath();
     ctx.arc(x, y, nodeSize, 0, 2 * Math.PI, false);
-    ctx.fillStyle = srsColor;
+    ctx.fillStyle = finalColor;
     ctx.fill();
     
     ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
     ctx.lineWidth = 1 / globalScale;
     ctx.stroke();
 
+    // Due indicator with pulsing animation
     if (isDue) {
       const pulseRadius = nodeSize + 2.5 / globalScale;
       const pulseAlpha = 0.6 + 0.4 * Math.abs(Math.sin(Date.now() / 250));
@@ -111,6 +135,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.lineWidth = 2.5 / globalScale;
       ctx.stroke();
 
+      // Clock icon
       const iconSize = nodeSize * 0.6;
       const iconX = x + nodeSize * 0.5;
       const iconY = y - nodeSize * 0.5;
@@ -133,36 +158,27 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.stroke();
     }
 
-    // Add node type icon/symbol
+    // Node type icon
     if (globalScale > 1 && globalScale < 20) {
       const visualNodeSize = nodeSize * globalScale;
-      const fontSize = Math.max(
-        3,
-        Math.min(
-          visualNodeSize * 0.9,
-          nodeSize * 0.9
-        )
-      );
+      const iconFontSize = Math.max(3, Math.min(visualNodeSize * 0.9, nodeSize * 0.9));
       
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.font = `bold ${fontSize}px Arial`;
+      ctx.font = `bold ${iconFontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
       ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-      ctx.shadowBlur = Math.max(1, fontSize * 0.08);
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
+      ctx.shadowBlur = Math.max(1, iconFontSize * 0.08);
       
       const text = type === 'definition' ? 'D' : 'E';
       ctx.fillText(text, x, y);
       
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
     }
 
+    // Node labels
     const labelThreshold = 0.6;
     const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted;
 
@@ -187,9 +203,16 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         const textWidth = textMetrics.width;
         const textHeight = fontSize;
 
-        ctx.fillStyle = 'rgba(243, 244, 246, 0.85)';
-        ctx.fillRect(x - textWidth / 2 - 2/globalScale, y + labelOffset - 1/globalScale, textWidth + 4/globalScale, textHeight + 2/globalScale);
+        // Label background
+        ctx.fillStyle = 'rgba(243, 244, 246, 0.9)';
+        ctx.fillRect(
+          x - textWidth / 2 - 2/globalScale, 
+          y + labelOffset - 1/globalScale, 
+          textWidth + 4/globalScale, 
+          textHeight + 2/globalScale
+        );
 
+        // Label text
         ctx.fillStyle = '#333';
         const truncatedLabel = labelText.length > 25 ? labelText.substring(0, 22) + '...' : labelText;
         ctx.fillText(truncatedLabel, x, y + labelOffset + textHeight / 2);
@@ -197,6 +220,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     }
   }, [selectedNodeId, highlightNodes, labelDisplayMode]);
 
+  // Optimized link color calculation
   const getLinkColor = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
@@ -225,6 +249,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     }
   }, [graphNodes, highlightLinks]);
 
+  // Optimized link width calculation
   const getLinkWidth = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
@@ -241,15 +266,15 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     return highlightLinks.has(linkId) ? Math.max(3, scaledWidth * 2) : scaledWidth;
   }, [graphNodes, highlightLinks]);
 
-  const getLinkCurvature = useCallback((link: GraphLink) => {
-    return 0.1;
-  }, []);
+  // Stable link curvature
+  const getLinkCurvature = useCallback(() => 0.1, []);
 
-  // Custom link renderer with FIXED ARROW SIZE AND POSITIONING
+  // Optimized link renderer
   const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { source, target, weight = 1.0 } = link;
     
-    if (!source || !target || typeof source.x !== 'number' || typeof source.y !== 'number' || 
+    if (!source || !target || 
+        typeof source.x !== 'number' || typeof source.y !== 'number' || 
         typeof target.x !== 'number' || typeof target.y !== 'number') {
       return;
     }
@@ -257,25 +282,23 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const sourceId = typeof source === 'object' ? source.id : String(source);
     const targetId = typeof target === 'object' ? target.id : String(target);
     const linkId = `${sourceId}-${targetId}`;
-    
     const isHighlighted = highlightLinks.has(linkId);
     const isPartial = weight < 1.0;
     
     const color = getLinkColor(link);
     const width = getLinkWidth(link) / globalScale;
     
-    // Calculate curve path
+    // Calculate curve parameters
     const dx = target.x - source.x;
     const dy = target.y - source.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
     if (distance === 0) return;
     
-    // Get target node size for arrow positioning
     const targetNode = graphNodes.find(n => n.id === targetId);
     const targetNodeSize = (targetNode?.type === 'definition' ? 7 : 6) / Math.sqrt(globalScale);
     
-    // Calculate curve control point
+    // Curve control point
     const curvature = 0.1;
     const midX = (source.x + target.x) / 2;
     const midY = (source.y + target.y) / 2;
@@ -284,6 +307,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const controlX = midX + perpX;
     const controlY = midY + perpY;
     
+    // Draw link
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     
@@ -295,26 +319,19 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.setLineDash([]);
     }
     
-    // Draw curved path
     ctx.beginPath();
     ctx.moveTo(source.x, source.y);
     ctx.quadraticCurveTo(controlX, controlY, target.x, target.y);
     ctx.stroke();
-    
     ctx.setLineDash([]);
     
-    // FIXED: Improved arrow size and positioning
-    // Arrow should be larger and closer to the target node
-    const arrowLength = 8 / Math.sqrt(globalScale); // Make arrow size less sensitive to zoom
+    // Draw arrow
+    const arrowLength = 8 / Math.sqrt(globalScale);
     const arrowAngle = Math.PI / 6;
+    const nodeRadius = targetNodeSize + 2 / globalScale;
     
-    // Position arrow much closer to target node (95% instead of 85%)
-    // Calculate point on curve that's exactly targetNodeSize distance from target center
-    const nodeRadius = targetNodeSize + 2 / globalScale; // Small buffer
-    const distanceFromTarget = nodeRadius;
-    
-    // Find the parameter t where the curve is distanceFromTarget away from target
-    let t = 0.95; // Start close to target
+    // Find arrow position
+    let t = 0.95;
     let iterations = 0;
     const maxIterations = 10;
     
@@ -323,23 +340,18 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       const curveY = (1-t)*(1-t)*source.y + 2*(1-t)*t*controlY + t*t*target.y;
       const distToCurve = Math.sqrt((target.x - curveX)**2 + (target.y - curveY)**2);
       
-      if (Math.abs(distToCurve - distanceFromTarget) < 1) break;
+      if (Math.abs(distToCurve - nodeRadius) < 1) break;
       
-      if (distToCurve > distanceFromTarget) {
-        t += 0.01;
-      } else {
-        t -= 0.01;
-      }
-      
-      t = Math.max(0.5, Math.min(0.98, t)); // Keep t in reasonable range
+      t += distToCurve > nodeRadius ? 0.01 : -0.01;
+      t = Math.max(0.5, Math.min(0.98, t));
       iterations++;
     }
     
     const arrowX = (1-t)*(1-t)*source.x + 2*(1-t)*t*controlX + t*t*target.x;
     const arrowY = (1-t)*(1-t)*source.y + 2*(1-t)*t*controlY + t*t*target.y;
     
-    // Calculate arrow direction using tangent at the arrow position
-    const t2 = Math.min(0.99, t + 0.02); // Look slightly ahead for direction
+    // Arrow direction
+    const t2 = Math.min(0.99, t + 0.02);
     const dirX = ((1-t2)*(1-t2)*source.x + 2*(1-t2)*t2*controlX + t2*t2*target.x) - arrowX;
     const dirY = ((1-t2)*(1-t2)*source.y + 2*(1-t2)*t2*controlY + t2*t2*target.y) - arrowY;
     const dirLength = Math.sqrt(dirX*dirX + dirY*dirY);
@@ -348,13 +360,11 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       const unitDirX = dirX / dirLength;
       const unitDirY = dirY / dirLength;
       
-      // Calculate arrowhead points
       const arrowX1 = arrowX - arrowLength * (unitDirX * Math.cos(arrowAngle) - unitDirY * Math.sin(arrowAngle));
       const arrowY1 = arrowY - arrowLength * (unitDirX * Math.sin(arrowAngle) + unitDirY * Math.cos(arrowAngle));
       const arrowX2 = arrowX - arrowLength * (unitDirX * Math.cos(-arrowAngle) - unitDirY * Math.sin(-arrowAngle));
       const arrowY2 = arrowY - arrowLength * (unitDirX * Math.sin(-arrowAngle) + unitDirY * Math.cos(-arrowAngle));
       
-      // Draw thicker arrow lines
       ctx.lineWidth = Math.max(1.5 / globalScale, width * 1.5);
       ctx.beginPath();
       ctx.moveTo(arrowX, arrowY);
@@ -364,7 +374,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.stroke();
     }
     
-    // Draw weight label for partial prerequisites
+    // Weight label for partial prerequisites
     if (isPartial && globalScale > 0.6 && distance > 40) {
       const fontSize = Math.max(8, 9 / globalScale);
       ctx.font = `${fontSize}px Sans-Serif`;
@@ -386,11 +396,22 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     }
   }, [getLinkColor, getLinkWidth, highlightLinks, graphNodes]);
 
+  // Simulation stability tracking
+  const handleEngineStop = useCallback(() => {
+    simulationStableRef.current = true;
+    console.log('Graph simulation stabilized');
+  }, []);
+
+  // Memoized graph data to prevent unnecessary re-renders
+  const memoizedGraphData = useMemo(() => {
+    return { nodes: graphNodes, links: graphLinks };
+  }, [graphNodes, graphLinks]);
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
         ref={graphRef}
-        graphData={{ nodes: graphNodes, links: graphLinks }}
+        graphData={memoizedGraphData}
         nodeId="id"
         linkSource="source"
         linkTarget="target"
@@ -402,6 +423,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         linkWidth={getLinkWidth}
         linkCurvature={getLinkCurvature}
         
+        // Optimized directional particles
         linkDirectionalParticles={link => {
           const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
           const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
@@ -416,21 +438,41 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         }}
         linkDirectionalParticleSpeed={0.01}
         
+        // Event handlers
         onNodeClick={onNodeClick}
         onNodeHover={onNodeHover}
         onNodeDragEnd={onNodeDragEnd}
-        d3AlphaDecay={0.0228}
-        d3VelocityDecay={0.4}
-        warmupTicks={graphNodes.length < 100 ? 50 : 10}
-        cooldownTicks={0}
-        nodeRelSize={1} 
+        onEngineStop={handleEngineStop}
+        
+        // OPTIMIZED SIMULATION PARAMETERS FOR STABILITY
+        d3AlphaDecay={0.02}        // Slower decay for natural stabilization
+        d3VelocityDecay={0.7}      // Higher decay for stability
+        
+        // CRITICAL: Conditional simulation control
+        warmupTicks={structuralChange ? 150 : 0}     // Only warmup on structural changes
+        cooldownTicks={structuralChange ? 300 : 0}   // Only cooldown on structural changes
+        
+        // Node sizing and visibility
+        nodeRelSize={1}
         nodeVisibility={(node: GraphNode) => 
           filteredNodeType === 'all' || 
           node.type === filteredNodeType || 
           selectedNodeId === node.id || 
           highlightNodes.has(node.id)
         }
+        
+        // Interaction controls
+        enableNodeDrag={true}
+        enableZoomPanInteraction={true}
+        enablePointerInteraction={true}
+        
+        // Performance optimizations
+        autoPauseRedraw={false}
+        minZoom={0.1}
+        maxZoom={8}
       />
+      
+      {/* Credit Flow Overlay */}
       <CreditFlowOverlay 
         animations={creditFlowAnimations} 
         nodePositions={nodePositions.current}
