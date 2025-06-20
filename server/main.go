@@ -1,61 +1,24 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 
 	"myapp/server/dao"
 	"myapp/server/handlers"
 	"myapp/server/middleware"
 	"myapp/server/models"
+	"myapp/server/services"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	"gorm.io/gorm"
 )
 
-// GraphData represents the JSON structure for imports
-type GraphData struct {
-	Definitions map[string]DefinitionNode `json:"definitions"`
-	Exercises   map[string]ExerciseNode   `json:"exercises"`
-}
-
-// DefinitionNode represents a definition in the JSON
-type DefinitionNode struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	Description   []string `json:"description"`
-	Notes         string   `json:"notes,omitempty"`
-	References    []string `json:"references,omitempty"`
-	Prerequisites []string `json:"prerequisites,omitempty"`
-	XPosition     float64  `json:"xPosition,omitempty"`
-	YPosition     float64  `json:"yPosition,omitempty"`
-}
-
-// ExerciseNode represents an exercise in the JSON
-type ExerciseNode struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	Statement     string   `json:"statement"`
-	Description   string   `json:"description,omitempty"`
-	Hints         string   `json:"hints,omitempty"`
-	Difficulty    string      `json:"difficulty,omitempty"`
-	Verifiable    bool     `json:"verifiable,omitempty"`
-	Result        string   `json:"result,omitempty"`
-	Prerequisites []string `json:"prerequisites,omitempty"`
-	XPosition     float64  `json:"xPosition,omitempty"`
-	YPosition     float64  `json:"yPosition,omitempty"`
-}
-
 func main() {
-	// Define command-line flags
+	// Define command-line flags (kept for backward compatibility but will use ImportService)
 	testImportFlag := flag.Bool("test-import", false, "Run test import")
 	jsonFilePath := flag.String("file", "./sample.json", "Path to the JSON file")
 	domainName := flag.String("domain", "Test Domain", "Name of the domain to create")
@@ -80,11 +43,17 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-  autoImportTutorial(db)
+	// Initialize ImportService
+	importService := services.NewImportService(db)
 
-	// Run test import if flag is set
+	// Auto-import tutorial using ImportService
+	if err := importService.ImportTutorialIfNotExists(); err != nil {
+		log.Printf("Warning: Failed to import tutorial: %v", err)
+	}
+
+	// Run test import if flag is set (using ImportService)
 	if *testImportFlag {
-		runTestImport(db, *jsonFilePath, *domainName, *domainDesc)
+		runTestImportWithService(importService, *jsonFilePath, *domainName, *domainDesc)
 		return // Exit after import
 	}
 
@@ -111,15 +80,15 @@ func main() {
 		log.Println("Admin user created or already exists")
 	}
 
-	// Initialize handlers
+	// Initialize handlers with ImportService
 	userHandler := handlers.NewUserHandler(userDAO)
 	authHandler := handlers.NewAuthHandler(userDAO)
-	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO)
+	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO, importService) // Added ImportService
 	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO)
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO)
-  srsHandler := handlers.NewSRSHandler(db)
+	srsHandler := handlers.NewSRSHandler(db)
 
 	// Initialize router
 	router := gin.Default()
@@ -172,17 +141,18 @@ func main() {
 			authorized.GET("/users/me", userHandler.GetCurrentUser)
 			authorized.PUT("/users/me", userHandler.UpdateCurrentUser)
 
-			// Domain routes
+			// Domain routes (now with import support)
 			domains := authorized.Group("/domains")
 			{
 				domains.GET("", domainHandler.GetDomains)
-				domains.POST("", domainHandler.CreateDomain)
+				domains.POST("", domainHandler.CreateDomain) // Now supports import data
 				domains.GET("/my", domainHandler.GetMyDomains)
 				domains.GET("/enrolled", domainHandler.GetEnrolledDomains)
 				domains.GET("/:id", domainHandler.GetDomain)
 				domains.PUT("/:id", domainHandler.UpdateDomain)
 				domains.DELETE("/:id", domainHandler.DeleteDomain)
 				domains.POST("/:id/enroll", domainHandler.EnrollInDomain)
+				domains.POST("/:id/import", domainHandler.ImportToDomain) // NEW: Import to existing domain
 				
 				// Domain comments
 				domains.GET("/:id/comments", domainHandler.GetComments)
@@ -197,11 +167,11 @@ func main() {
 				domains.GET("/:id/exercises", exerciseHandler.GetDomainExercises)
 				domains.POST("/:id/exercises", exerciseHandler.CreateExercise)
 
-				// Graph operations
+				// Graph operations (export only, import now handled by domain handler)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)
 				domains.PUT("/:id/graph/positions", graphHandler.UpdatePositions)
 				domains.GET("/:id/export", graphHandler.ExportDomain)
-				domains.POST("/:id/import", graphHandler.ImportDomain)
+				// Note: Import is now handled by domainHandler.ImportToDomain above
 			}
 
 			// Definition routes
@@ -243,32 +213,32 @@ func main() {
 				sessions.GET("/:id", progressHandler.GetSessionDetails)
 			}
 
-    // SRS ROUTES
-    srs := authorized.Group("/srs")
-    {
-        // Review endpoints
-        srs.POST("/reviews", srsHandler.SubmitReview)
-        srs.GET("/domains/:domainId/due", srsHandler.GetDueReviews)
-        srs.GET("/reviews/history", srsHandler.GetReviewHistory)
-        
-        // Progress endpoints
-        srs.GET("/domains/:domainId/progress", srsHandler.GetDomainProgress)
-        srs.GET("/domains/:domainId/stats", srsHandler.GetDomainStats)
-        srs.PUT("/nodes/status", srsHandler.UpdateNodeStatus)
-        
-        // Session endpoints
-        srs.POST("/sessions", srsHandler.StartSession)
-        srs.PUT("/sessions/:sessionId/end", srsHandler.EndSession)
-        srs.GET("/sessions", srsHandler.GetUserSessions)
-        
-        // Prerequisites endpoints
-        srs.POST("/prerequisites", srsHandler.CreatePrerequisite)
-        srs.GET("/domains/:domainId/prerequisites", srsHandler.GetPrerequisites)
-        srs.DELETE("/prerequisites/:prerequisiteId", srsHandler.DeletePrerequisite)
-        
-        // Test/Debug endpoints
-        srs.POST("/test/credit-propagation", srsHandler.TestCreditPropagation)
-    }
+			// SRS ROUTES
+			srs := authorized.Group("/srs")
+			{
+				// Review endpoints
+				srs.POST("/reviews", srsHandler.SubmitReview)
+				srs.GET("/domains/:domainId/due", srsHandler.GetDueReviews)
+				srs.GET("/reviews/history", srsHandler.GetReviewHistory)
+				
+				// Progress endpoints
+				srs.GET("/domains/:domainId/progress", srsHandler.GetDomainProgress)
+				srs.GET("/domains/:domainId/stats", srsHandler.GetDomainStats)
+				srs.PUT("/nodes/status", srsHandler.UpdateNodeStatus)
+				
+				// Session endpoints
+				srs.POST("/sessions", srsHandler.StartSession)
+				srs.PUT("/sessions/:sessionId/end", srsHandler.EndSession)
+				srs.GET("/sessions", srsHandler.GetUserSessions)
+				
+				// Prerequisites endpoints
+				srs.POST("/prerequisites", srsHandler.CreatePrerequisite)
+				srs.GET("/domains/:domainId/prerequisites", srsHandler.GetPrerequisites)
+				srs.DELETE("/prerequisites/:prerequisiteId", srsHandler.DeletePrerequisite)
+				
+				// Test/Debug endpoints
+				srs.POST("/test/credit-propagation", srsHandler.TestCreditPropagation)
+			}
 
 			// Admin routes
 			admin := authorized.Group("/admin")
@@ -295,175 +265,48 @@ func main() {
 	}
 }
 
-// main.go - Updated runTestImport function to populate node_prerequisites directly
+// runTestImportWithService imports test JSON data using ImportService
+func runTestImportWithService(importService *services.ImportService, jsonFilePath, domainName, domainDesc string) {
+	log.Println("Starting test import with ImportService...")
 
-// runTestImport imports the test JSON data into the database
-func runTestImport(db *gorm.DB, jsonFilePath, domainName, domainDesc string) {
-	fmt.Println("Starting test import...")
-
-	// Read and parse the JSON file
-	jsonFile, err := os.Open(jsonFilePath)
+	// Initialize database connection for admin user lookup
+	db, err := dao.InitDB()
 	if err != nil {
-		log.Fatalf("Failed to open JSON file: %v", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer jsonFile.Close()
 
-	byteValue, err := ioutil.ReadAll(jsonFile)
+	// Read import data from file
+	importData, err := importService.ReadImportFileFromPath(jsonFilePath)
 	if err != nil {
-		log.Fatalf("Failed to read JSON file: %v", err)
+		log.Fatalf("Failed to read import file: %v", err)
 	}
 
-	var graphData GraphData
-	if err := json.Unmarshal(byteValue, &graphData); err != nil {
-		log.Fatalf("Failed to parse JSON: %v", err)
-	}
+	log.Printf("Successfully read import data with %d definitions and %d exercises", 
+		len(importData.Definitions), len(importData.Exercises))
 
-	// Create DAOs
+	// Get admin user
 	userDAO := dao.NewUserDAO(db)
-	domainDAO := dao.NewDomainDAO(db)
-	definitionDAO := dao.NewDefinitionDAO(db)
-	exerciseDAO := dao.NewExerciseDAO(db)
-
-	// Get admin user or create one if it doesn't exist
-	adminUser := &models.User{
-		Username:  "admin",
-		Email:     "admin@example.com",
-		Password:  "admin_password",
-		Level:     "admin",
-		FirstName: "Admin",
-		LastName:  "User",
-		IsAdmin:   true,
-	}
-	if err := userDAO.CreateAdminUser(adminUser); err != nil {
-		log.Printf("Warning: Failed to create admin user: %v", err)
-	}
-
-	// Find the admin user
-	adminUser, err = userDAO.FindUserByEmail("admin@example.com")
+	adminUser, err := userDAO.FindUserByEmail("admin@example.com")
 	if err != nil {
 		log.Fatalf("Failed to find admin user: %v", err)
 	}
 
-	// Create a new domain
-	domain := &models.Domain{
-		Name:        domainName,
-		Privacy:     "public",
-		OwnerID:     adminUser.ID,
-		Description: domainDesc,
-	}
-	if err := domainDAO.Create(domain); err != nil {
-		log.Fatalf("Failed to create domain: %v", err)
-	}
-
-	fmt.Printf("Created domain: %s (ID: %d)\n", domain.Name, domain.ID)
-
-	// Create definitions first (without prerequisites)
-	definitions := make(map[string]*models.Definition)
-	for code, def := range graphData.Definitions {
-		// Process multiple descriptions - join with a delimiter for storing
-		descriptionStr := strings.Join(def.Description, "|||")
-
-		definition := &models.Definition{
-			Code:        code,
-			Name:        def.Name,
-			Description: descriptionStr,
-			Notes:       def.Notes,
-			DomainID:    domain.ID,
-			OwnerID:     adminUser.ID,
-			XPosition:   def.XPosition,
-			YPosition:   def.YPosition,
-		}
-		
-		// Create the definition with references but no prerequisites yet
-		if err := definitionDAO.Create(definition, def.References, nil); err != nil {
-			log.Fatalf("Failed to create definition %s: %v", code, err)
-		}
-		
-		definitions[code] = definition
-		fmt.Printf("Created definition: %s (ID: %d)\n", definition.Name, definition.ID)
+	// Create domain with import data
+	domain, err := importService.CreateDomainWithImport(
+		adminUser.ID,
+		domainName,
+		"public",
+		domainDesc,
+		importData,
+	)
+	if err != nil {
+		log.Fatalf("Failed to create domain with import: %v", err)
 	}
 
-	// Now add prerequisites for definitions using the DAO method
-	for code, def := range graphData.Definitions {
-		if len(def.Prerequisites) > 0 {
-			definition := definitions[code]
-			var prerequisiteIDs []uint
-			
-			for _, prereqCode := range def.Prerequisites {
-				if prereqDef, exists := definitions[prereqCode]; exists {
-					prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
-				} else {
-					log.Printf("Warning: Prerequisite %s not found for definition %s", prereqCode, code)
-				}
-			}
-			
-			if len(prerequisiteIDs) > 0 {
-				// Get references for the update
-				var references []string
-				for _, ref := range def.References {
-					references = append(references, ref)
-				}
-				
-				// Update definition with prerequisites using DAO method
-				if err := definitionDAO.Update(definition, references, prerequisiteIDs); err != nil {
-					log.Fatalf("Failed to update definition %s with prerequisites: %v", code, err)
-				}
-			}
-		}
-	}
-
-	// Create exercises
-	for code, ex := range graphData.Exercises {
-		difficultyStr := ex.Difficulty
-		if difficultyStr == "" {
-			difficultyStr = "3" // Default medium difficulty
-		}
-
-		// Convert string difficulty to int
-		difficultyInt, err := strconv.Atoi(difficultyStr)
-		if err != nil {
-			// Handle error or set a default value
-			difficultyInt = 3 // Default to medium difficulty (integer)
-		}
-
-		exercise := &models.Exercise{
-			Code:        code,
-			Name:        ex.Name,
-			Statement:   ex.Statement,
-			Description: ex.Description,
-			Hints:       ex.Hints,
-			DomainID:    domain.ID,
-			OwnerID:     adminUser.ID,
-			Verifiable:  ex.Verifiable,
-			Result:      ex.Result,
-			Difficulty:  difficultyInt,
-			XPosition:   ex.XPosition,
-			YPosition:   ex.YPosition,
-		}
-		
-		// Collect prerequisite IDs
-		var prerequisiteIDs []uint
-		for _, prereqCode := range ex.Prerequisites {
-			if prereqDef, exists := definitions[prereqCode]; exists {
-				prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
-			} else {
-				log.Printf("Warning: Prerequisite %s not found for exercise %s", prereqCode, code)
-			}
-		}
-		
-		// Create the exercise with prerequisites using DAO method
-		if err := exerciseDAO.Create(exercise, prerequisiteIDs); err != nil {
-			log.Fatalf("Failed to create exercise %s: %v", code, err)
-		}
-		
-		fmt.Printf("Created exercise: %s (ID: %d)\n", exercise.Name, exercise.ID)
-	}
-
-	// Verify prerequisites were created correctly
-	var prereqCount int64
-	db.Model(&models.NodePrerequisite{}).Count(&prereqCount)
-	fmt.Printf("Created %d prerequisite relationships in node_prerequisites table\n", prereqCount)
-
-	fmt.Println("Import completed successfully!")
-	os.Exit(0) // Exit after importing
+	log.Printf("Successfully created domain: %s (ID: %d)", domain.Name, domain.ID)
+	log.Println("Test import completed successfully!")
+	os.Exit(0)
 }
+
+// Note: The old GraphData types and runTestImport function from the original main.go
+// are now deprecated and replaced by the ImportService functionality.

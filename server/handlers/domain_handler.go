@@ -7,20 +7,31 @@ import (
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
 	"myapp/server/models"
+	"myapp/server/services"
 )
 
 // DomainHandler handles domain-related HTTP requests
 type DomainHandler struct {
-	domainDAO   *dao.DomainDAO
-	progressDAO *dao.ProgressDAO
+	domainDAO     *dao.DomainDAO
+	progressDAO   *dao.ProgressDAO
+	importService *services.ImportService
 }
 
 // NewDomainHandler creates a new DomainHandler
-func NewDomainHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO) *DomainHandler {
+func NewDomainHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO, importService *services.ImportService) *DomainHandler {
 	return &DomainHandler{
-		domainDAO:   domainDAO,
-		progressDAO: progressDAO,
+		domainDAO:     domainDAO,
+		progressDAO:   progressDAO,
+		importService: importService,
 	}
+}
+
+// CreateDomainRequest represents the request for creating a domain with optional import
+type CreateDomainRequest struct {
+	Name        string                       `json:"name" binding:"required"`
+	Privacy     string                       `json:"privacy" binding:"required"`
+	Description string                       `json:"description"`
+	ImportData  *services.ImportData         `json:"importData,omitempty"`
 }
 
 // GetDomains returns all domains (without stats)
@@ -120,6 +131,7 @@ func (h *DomainHandler) GetDomain(c *gin.Context) {
 }
 
 // CreateDomain creates a new domain and returns it with stats
+// Now supports optional import data in the request
 func (h *DomainHandler) CreateDomain(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {
@@ -127,24 +139,48 @@ func (h *DomainHandler) CreateDomain(c *gin.Context) {
 		return
 	}
 
-	var domain models.Domain
-	if err := c.ShouldBindJSON(&domain); err != nil {
+	var request CreateDomainRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Set owner
-	domain.OwnerID = userID.(uint)
+	var domain *models.Domain
+	var err error
 
-	// Create domain
-	if err := h.domainDAO.Create(&domain); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create domain"})
-		return
-	}
+	// Check if import data is provided
+	if request.ImportData != nil {
+		// Create domain with import data using ImportService
+		domain, err = h.importService.CreateDomainWithImport(
+			userID.(uint),
+			request.Name,
+			request.Privacy,
+			request.Description,
+			request.ImportData,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create domain with import: " + err.Error()})
+			return
+		}
+	} else {
+		// Create regular domain without import
+		domain = &models.Domain{
+			Name:        request.Name,
+			Privacy:     request.Privacy,
+			Description: request.Description,
+			OwnerID:     userID.(uint),
+		}
 
-	// Enroll the owner in the domain
-	if err := h.progressDAO.EnrollUserInDomain(userID.(uint), domain.ID); err != nil {
-		// Just log the error, don't fail the request
+		// Create domain
+		if err := h.domainDAO.Create(domain); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create domain"})
+			return
+		}
+
+		// Enroll the owner in the domain
+		if err := h.progressDAO.EnrollUserInDomain(userID.(uint), domain.ID); err != nil {
+			// Just log the error, don't fail the request
+		}
 	}
 
 	// Return the newly created domain with its initial stats
@@ -155,6 +191,47 @@ func (h *DomainHandler) CreateDomain(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, domainWithStats)
+}
+
+// ImportToDomain imports data to an existing domain
+func (h *DomainHandler) ImportToDomain(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	// Get existing domain
+	domain, err := h.domainDAO.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+
+	// Check if the user is the owner
+	userID, exists := c.Get("userID")
+	if !exists || userID.(uint) != domain.OwnerID {
+		isAdmin, adminExists := c.Get("isAdmin")
+		if !adminExists || !isAdmin.(bool) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to import to this domain"})
+			return
+		}
+	}
+
+	// Bind import data
+	var importData services.ImportData
+	if err := c.ShouldBindJSON(&importData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid import data: " + err.Error()})
+		return
+	}
+
+	// Import data to domain
+	if err := h.importService.ImportToDomain(uint(id), &importData); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import data: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Data imported successfully"})
 }
 
 // UpdateDomain updates a domain and returns it with stats
@@ -431,13 +508,14 @@ func (h *DomainHandler) RegisterRoutes(router *gin.RouterGroup) {
 		domains := authorized.Group("/domains")
 		{
 			domains.GET("", h.GetDomains)
-			domains.POST("", h.CreateDomain)
+			domains.POST("", h.CreateDomain) // Now supports import data
 			domains.GET("/my", h.GetMyDomains)
 			domains.GET("/enrolled", h.GetEnrolledDomains)
 			domains.GET("/:id", h.GetDomain)
 			domains.PUT("/:id", h.UpdateDomain)
 			domains.DELETE("/:id", h.DeleteDomain)
 			domains.POST("/:id/enroll", h.EnrollInDomain)
+			domains.POST("/:id/import", h.ImportToDomain) // NEW: Import to existing domain
 			
 			// Domain comments
 			domains.GET("/:id/comments", h.GetComments)

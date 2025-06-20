@@ -1,5 +1,5 @@
 // FILE: src/lib/api.ts
-// Complete API client for Ankidemy with support for all backend features
+// Complete API client for Ankidemy with standardized import/export handling
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -165,6 +165,44 @@ export interface GraphData {
     yPosition?: number;
     domainId?: number;
   }>;
+}
+
+// UPDATED: Standardized Import/Export Data Types
+export interface DomainExportData {
+  definitions: {
+    [key: string]: {
+      code: string;
+      name: string;
+      description: string[]; // STANDARDIZED: Always array for definitions
+      notes?: string;
+      references?: string[];
+      prerequisites?: string[];
+      xPosition?: number;
+      yPosition?: number;
+    };
+  };
+  exercises: {
+    [key: string]: {
+      code: string;
+      name: string;
+      statement: string;
+      description?: string; // Exercises keep single string
+      hints?: string;
+      difficulty?: number; // Standardized as number
+      verifiable?: boolean;
+      result?: string;
+      prerequisites?: string[];
+      xPosition?: number;
+      yPosition?: number;
+    };
+  };
+}
+
+export interface CreateDomainWithImportRequest {
+  name: string;
+  privacy: 'public' | 'private';
+  description?: string;
+  importData?: DomainExportData;
 }
 
 // Helper functions
@@ -552,7 +590,6 @@ export const getDefinitionByCode = async (code: string): Promise<Definition> => 
   return handleResponse(response);
 };
 
-
 /**
  * Gets the ID of a definition by its code
  * @param code The code of the definition
@@ -840,6 +877,282 @@ export const importDomain = async (domainId: number, graphData: GraphData): Prom
   });
   
   return handleResponse(response);
+};
+
+// NEW: Import/Export API Functions
+
+/**
+ * Exports a domain as JSON data
+ * @param domainId The ID of the domain to export
+ * @returns Promise resolving to the export data
+ */
+export const exportDomainAsJson = async (domainId: number): Promise<DomainExportData> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/export`, {
+    headers: getAuthHeaders(),
+  });
+  
+  return handleResponse(response);
+};
+
+/**
+ * Imports data into an existing domain
+ * @param domainId The ID of the domain to import into
+ * @param data The import data
+ * @returns Promise resolving when import is complete
+ */
+export const importToDomain = async (domainId: number, data: DomainExportData): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/import`, {
+    method: 'POST',
+    headers: { 
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  
+  return handleResponse(response);
+};
+
+/**
+ * Creates a new domain with imported data
+ * @param name Domain name
+ * @param privacy Domain privacy setting
+ * @param description Domain description
+ * @param importData The data to import
+ * @returns Promise resolving to the created domain
+ */
+export const createDomainWithImport = async (
+  name: string, 
+  privacy: 'public' | 'private', 
+  description: string, 
+  importData: DomainExportData
+): Promise<Domain> => {
+  const requestData: CreateDomainWithImportRequest = {
+    name,
+    privacy,
+    description,
+    importData,
+  };
+
+  const response = await fetch(`${API_URL}/api/domains`, {
+    method: 'POST',
+    headers: { 
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestData),
+  });
+  
+  return handleResponse(response);
+};
+
+// NEW: File Handling Utilities
+
+/**
+ * Downloads data as a JSON file
+ * @param data The data to download
+ * @param filename The name of the file (without extension)
+ */
+export const downloadJsonFile = (data: any, filename: string): void => {
+  const jsonString = JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  // Clean up the URL object
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * UPDATED: Enhanced JSON file upload with format standardization
+ * @returns Promise resolving to the parsed and standardized JSON data
+ */
+export const uploadJsonFile = (): Promise<DomainExportData> => {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    
+    input.onchange = (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (!file) {
+        reject(new Error('No file selected'));
+        return;
+      }
+      
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        reject(new Error('Please select a JSON file'));
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const text = e.target?.result as string;
+          const rawData = JSON.parse(text);
+          
+          // Basic validation
+          if (!rawData.definitions || !rawData.exercises) {
+            reject(new Error('Invalid JSON format: missing definitions or exercises'));
+            return;
+          }
+          
+          // STANDARDIZE THE DATA FORMAT
+          const standardizedData: DomainExportData = {
+            definitions: {},
+            exercises: {}
+          };
+          
+          // Process definitions - ensure description is always an array
+          for (const [key, def] of Object.entries(rawData.definitions || {})) {
+            const definition = def as any;
+            let descriptions: string[] = [];
+            
+            if (Array.isArray(definition.description)) {
+              descriptions = definition.description;
+            } else if (typeof definition.description === 'string') {
+              // Check if it contains the ||| delimiter
+              if (definition.description.includes('|||')) {
+                descriptions = definition.description.split('|||');
+              } else {
+                descriptions = [definition.description];
+              }
+            } else {
+              descriptions = ['No description'];
+            }
+            
+            standardizedData.definitions[key] = {
+              code: definition.code || key,
+              name: definition.name || 'Unnamed',
+              description: descriptions, // Always array
+              notes: definition.notes || '',
+              references: Array.isArray(definition.references) ? definition.references : [],
+              prerequisites: Array.isArray(definition.prerequisites) ? definition.prerequisites : [],
+              xPosition: Number(definition.xPosition) || 0,
+              yPosition: Number(definition.yPosition) || 0,
+            };
+          }
+          
+          // Process exercises - ensure difficulty is a number
+          for (const [key, ex] of Object.entries(rawData.exercises || {})) {
+            const exercise = ex as any;
+            let difficulty: number = 3; // Default
+            
+            if (typeof exercise.difficulty === 'number') {
+              difficulty = exercise.difficulty;
+            } else if (typeof exercise.difficulty === 'string') {
+              const parsed = parseInt(exercise.difficulty, 10);
+              if (!isNaN(parsed) && parsed >= 1 && parsed <= 7) {
+                difficulty = parsed;
+              }
+            }
+            
+            standardizedData.exercises[key] = {
+              code: exercise.code || key,
+              name: exercise.name || 'Unnamed',
+              statement: exercise.statement || 'No statement',
+              description: exercise.description || '',
+              hints: exercise.hints || '',
+              difficulty: difficulty, // Always number
+              verifiable: Boolean(exercise.verifiable),
+              result: exercise.result || '',
+              prerequisites: Array.isArray(exercise.prerequisites) ? exercise.prerequisites : [],
+              xPosition: Number(exercise.xPosition) || 0,
+              yPosition: Number(exercise.yPosition) || 0,
+            };
+          }
+          
+          resolve(standardizedData);
+        } catch (error) {
+          reject(new Error('Invalid JSON file: ' + (error instanceof Error ? error.message : 'Unknown error')));
+        }
+      };
+      
+      reader.onerror = () => {
+        reject(new Error('Failed to read file'));
+      };
+      
+      reader.readAsText(file);
+    };
+    
+    input.click();
+  });
+};
+
+/**
+ * UPDATED: Enhanced validation with standardized format support
+ * @param data The data to validate
+ * @returns Object with isValid boolean and errors array
+ */
+export const validateImportData = (data: any): { isValid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+  
+  if (!data || typeof data !== 'object') {
+    errors.push('Data must be an object');
+    return { isValid: false, errors };
+  }
+  
+  if (!data.definitions || typeof data.definitions !== 'object') {
+    errors.push('Missing or invalid definitions object');
+  }
+  
+  if (!data.exercises || typeof data.exercises !== 'object') {
+    errors.push('Missing or invalid exercises object');
+  }
+  
+  // Validate definitions structure
+  if (data.definitions) {
+    for (const [key, def] of Object.entries(data.definitions)) {
+      const definition = def as any;
+      if (!definition.code || !definition.name) {
+        errors.push(`Definition ${key} is missing required fields (code, name)`);
+      }
+      
+      // Check description format - should be array in standardized format
+      if (!definition.description) {
+        errors.push(`Definition ${key} is missing description`);
+      } else if (Array.isArray(definition.description)) {
+        if (definition.description.length === 0) {
+          errors.push(`Definition ${key} has empty description array`);
+        }
+      } else if (typeof definition.description === 'string') {
+        if (!definition.description.trim()) {
+          errors.push(`Definition ${key} has empty description string`);
+        }
+      } else {
+        errors.push(`Definition ${key} has invalid description format`);
+      }
+    }
+  }
+  
+  // Validate exercises structure
+  if (data.exercises) {
+    for (const [key, ex] of Object.entries(data.exercises)) {
+      const exercise = ex as any;
+      if (!exercise.code || !exercise.name || !exercise.statement) {
+        errors.push(`Exercise ${key} is missing required fields (code, name, statement)`);
+      }
+      
+      // Validate difficulty if present
+      if (exercise.difficulty !== undefined) {
+        const difficulty = typeof exercise.difficulty === 'number' ? 
+          exercise.difficulty : 
+          parseInt(exercise.difficulty, 10);
+        
+        if (isNaN(difficulty) || difficulty < 1 || difficulty > 7) {
+          errors.push(`Exercise ${key} has invalid difficulty (must be 1-7)`);
+        }
+      }
+    }
+  }
+  
+  return { isValid: errors.length === 0, errors };
 };
 
 // Health check API

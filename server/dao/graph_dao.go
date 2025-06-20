@@ -1,4 +1,4 @@
-// dao/graph_dao.go - Complete updated version with all type definitions
+// dao/graph_dao.go - Updated version with code-based export keys
 
 package dao
 
@@ -224,7 +224,7 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		Exercises:   make(map[string]ExerciseNode),
 	}
 	
-	// Add definitions
+	// Add definitions using CODE as key (FIXED)
 	for _, def := range definitions {
 		// Extract references
 		references := make([]string, 0, len(def.References))
@@ -238,8 +238,8 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			return nil, err
 		}
 		
-		// Add to graph data using ID string as key
-		graphData.Definitions[idToString(def.ID)] = DefinitionNode{
+		// Use definition CODE as key, not ID
+		graphData.Definitions[def.Code] = DefinitionNode{
 			Code:          def.Code,
 			Name:          def.Name,
 			Description:   def.Description,
@@ -251,7 +251,7 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		}
 	}
 	
-	// Add exercises
+	// Add exercises using CODE as key (FIXED)
 	for _, ex := range exercises {
 		// Get prerequisite codes
 		prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
@@ -259,8 +259,8 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			return nil, err
 		}
 		
-		// Add to graph data using ID string as key
-		graphData.Exercises[idToString(ex.ID)] = ExerciseNode{
+		// Use exercise CODE as key, not ID
+		graphData.Exercises[ex.Code] = ExerciseNode{
 			Code:          ex.Code,
 			Name:          ex.Name,
 			Statement:     ex.Statement,
@@ -276,11 +276,6 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 	}
 	
 	return graphData, nil
-}
-
-// Helper function to convert uint ID to string
-func idToString(id uint) string {
-	return strconv.FormatUint(uint64(id), 10)
 }
 
 // Helper function to get prerequisite codes for a node
@@ -334,9 +329,9 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		definitionDAO := NewDefinitionDAO(tx)
 		exerciseDAO := NewExerciseDAO(tx)
 		
-		// Create definitions first
+		// Create definitions first - now working with code-based keys
 		definitions := make(map[string]*models.Definition)
-		for nodeID, defNode := range data.Definitions {
+		for code, defNode := range data.Definitions {
 			def := &models.Definition{
 				Code:        defNode.Code,
 				Name:        defNode.Name,
@@ -352,23 +347,19 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				return err
 			}
 			
-			definitions[nodeID] = def
-		}
-		
-		// Create a code-to-definition map for looking up prerequisites
-		codeToDefinition := make(map[string]*models.Definition)
-		for _, def := range definitions {
-			codeToDefinition[def.Code] = def
+			// Store by both the key and the code for lookup
+			definitions[code] = def
+			definitions[def.Code] = def
 		}
 		
 		// Add definition prerequisites
-		for nodeID, defNode := range data.Definitions {
+		for code, defNode := range data.Definitions {
 			if len(defNode.Prerequisites) > 0 {
-				def := definitions[nodeID]
+				def := definitions[code]
 				var prerequisiteIDs []uint
 				
 				for _, prereqCode := range defNode.Prerequisites {
-					if prereqDef, exists := codeToDefinition[prereqCode]; exists {
+					if prereqDef, exists := definitions[prereqCode]; exists {
 						prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
 					}
 				}
@@ -381,7 +372,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			}
 		}
 		
-		// Create exercises
+		// Create exercises - now working with code-based keys
 		for _, exNode := range data.Exercises {
 			ex := &models.Exercise{
 				Code:        exNode.Code,
@@ -401,7 +392,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			// Add prerequisites using code matching
 			var prerequisiteIDs []uint
 			for _, prereqCode := range exNode.Prerequisites {
-				if prereqDef, exists := codeToDefinition[prereqCode]; exists {
+				if prereqDef, exists := definitions[prereqCode]; exists {
 					prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
 				}
 			}

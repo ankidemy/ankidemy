@@ -1295,6 +1295,10 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           onSavePositions={savePositions}
           isEnrolled={isEnrolled}
           onEnroll={() => setShowEnrollmentModal(true)}
+          currentDomainId={parseInt(subjectMatterId, 10)}
+          currentDomainName={domainName}
+          isOwner={currentUser && domainData && domainData.ownerId === currentUser.ID}
+          onDataImported={refreshGraphAndSRSData}
         />
 
         {/* Main Content */}

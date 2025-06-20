@@ -5,11 +5,12 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight, Lock, Users, Globe } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe, Upload, X } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
 import Sidebar from "@/app/components/Sidebar";
+import DomainForm from "@/app/components/Domain/DomainForm";
 import { showToast } from '@/app/components/core/ToastNotification';
 
 import {
@@ -39,6 +40,9 @@ export default function MainPage() {
   // UI state
   const [enrolling, setEnrolling] = useState<Set<number>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // NEW: Import dialog state
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   const router = useRouter();
 
@@ -219,6 +223,26 @@ export default function MainPage() {
     }
   };
 
+  // NEW: Handle import success
+  const handleImportSuccess = (domain: Domain) => {
+    setShowImportDialog(false);
+    showToast(`Domain "${domain.name}" created successfully with imported data!`, 'success');
+    
+    // Refresh domain lists
+    if (currentUser) {
+      // Add to my domains
+      setMyDomains(prev => [...prev, domain]);
+      
+      // If it's public, also add to public domains
+      if (domain.privacy === 'public') {
+        setPublicDomains(prev => [...prev, domain]);
+      }
+    }
+    
+    // Navigate to the new domain
+    router.push(`/main/domains/${domain.id}/study`);
+  };
+
   const openSidebar = () => setSidebarOpen(true);
   const closeSidebar = () => setSidebarOpen(false);
 
@@ -253,15 +277,23 @@ export default function MainPage() {
             </button>
           </div>
 
-          {/* Create Domain Button */}
+          {/* NEW: Create Domain and Import Buttons */}
           {currentUser && (
-            <div className="mb-6">
+            <div className="flex gap-3 mb-6">
               <Link href="/main/domains/create">
-                 <Button className="flex items-center">
+                <Button className="flex items-center">
                   <Plus size={16} className="mr-1" />
                   Create Domain
-                 </Button>
-               </Link>
+                </Button>
+              </Link>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowImportDialog(true)}
+                className="flex items-center"
+              >
+                <Upload size={16} className="mr-1" />
+                Import from JSON
+              </Button>
             </div>
           )}
           
@@ -290,11 +322,20 @@ export default function MainPage() {
               </p>
               
               {activeTab === 'my' && currentUser && (
-                <Link href="/main/domains/create">
-                  <Button className="mt-4">
-                    Create Your First Domain
+                <div className="flex justify-center gap-3 mt-4">
+                  <Link href="/main/domains/create">
+                    <Button>
+                      Create Your First Domain
+                    </Button>
+                  </Link>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowImportDialog(true)}
+                  >
+                    <Upload size={16} className="mr-1" />
+                    Import from JSON
                   </Button>
-                </Link>
+                </div>
               )}
             </div>
           ) : (
@@ -379,6 +420,27 @@ export default function MainPage() {
           </div>
         </div>
       </div>
+
+      {/* NEW: Import Dialog */}
+      {showImportDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowImportDialog(false)}
+              className="absolute top-4 right-4 z-10"
+            >
+              <X size={20} />
+            </Button>
+            <DomainForm
+              allowImport={true}
+              onSuccess={handleImportSuccess}
+              onCancel={() => setShowImportDialog(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

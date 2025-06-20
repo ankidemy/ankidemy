@@ -1,13 +1,22 @@
-// TopControls.tsx - Enhanced version with better graph control integration
+// TopControls.tsx - Enhanced version with import/export functionality
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize } from 'lucide-react';
+import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload } from 'lucide-react';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 import { LabelDisplayMode } from '../utils/GraphContainer';
+import { 
+  exportDomainAsJson, 
+  downloadJsonFile, 
+  uploadJsonFile, 
+  importToDomain,
+  validateImportData,
+  DomainExportData 
+} from '@/lib/api';
+import { showToast } from '@/app/components/core/ToastNotification';
 
 interface TopControlsProps {
   subjectMatterId: string;
@@ -35,6 +44,12 @@ interface TopControlsProps {
   graphDimensions?: { width: number; height: number; availableWidth: number; availableHeight: number };
   leftPanelOpen?: boolean;
   rightPanelOpen?: boolean;
+
+  // NEW: Import/Export props
+  currentDomainId?: number;
+  currentDomainName?: string;
+  isOwner?: boolean;
+  onDataImported?: () => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -58,9 +73,17 @@ const TopControls: React.FC<TopControlsProps> = ({
   selectedNodeId,
   graphDimensions,
   leftPanelOpen,
-  rightPanelOpen
+  rightPanelOpen,
+  currentDomainId,
+  currentDomainName,
+  isOwner = false,
+  onDataImported,
 }) => {
   const srs = useSRS();
+  
+  // NEW: Import/Export state
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   let labelButtonText: string;
   let LabelIconComponent: React.ElementType = Type;
@@ -91,6 +114,89 @@ const TopControls: React.FC<TopControlsProps> = ({
   const spaceInfo = graphDimensions ? 
     `${graphDimensions.availableWidth}x${graphDimensions.availableHeight}` : 
     'Loading...';
+
+  // NEW: Handle export functionality
+  const handleExport = async () => {
+    if (!currentDomainId || !currentDomainName) {
+      showToast('No domain selected for export', 'error');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      showToast('Exporting domain...', 'info', 2000);
+      const exportData = await exportDomainAsJson(currentDomainId);
+      
+      // Generate filename with domain name and timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `${currentDomainName.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}`;
+      
+      downloadJsonFile(exportData, filename);
+      showToast(`Domain "${currentDomainName}" exported successfully!`, 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to export domain', 
+        'error'
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // NEW: Handle import functionality
+  const handleImport = async () => {
+    if (!currentDomainId || !isOwner) {
+      showToast('Only domain owners can import data', 'error');
+      return;
+    }
+
+    if (!isEnrolled) {
+      showToast('You must be enrolled in the domain to import data', 'error');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      showToast('Select JSON file to import...', 'info', 2000);
+      const importData: DomainExportData = await uploadJsonFile();
+      
+      // Validate import data
+      const validation = validateImportData(importData);
+      if (!validation.isValid) {
+        throw new Error(`Invalid import data: ${validation.errors.join(', ')}`);
+      }
+
+      // Confirm import action
+      const definitionCount = Object.keys(importData.definitions || {}).length;
+      const exerciseCount = Object.keys(importData.exercises || {}).length;
+      
+      const confirmMessage = `Import ${definitionCount} definitions and ${exerciseCount} exercises to "${currentDomainName}"?\n\nThis will add to existing content (not replace).`;
+      
+      if (!window.confirm(confirmMessage)) {
+        setIsImporting(false);
+        return;
+      }
+
+      showToast('Importing data...', 'info', 3000);
+      await importToDomain(currentDomainId, importData);
+      
+      showToast(`Successfully imported ${definitionCount} definitions and ${exerciseCount} exercises!`, 'success');
+      
+      // Trigger refresh callback
+      if (onDataImported) {
+        onDataImported();
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to import data', 
+        'error'
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   return (
     <div className="bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
@@ -171,6 +277,45 @@ const TopControls: React.FC<TopControlsProps> = ({
 
       {/* Right: View/Action Buttons */}
       <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
+        {/* NEW: Import/Export buttons */}
+        {currentDomainId && (
+          <div className="flex items-center space-x-1 border rounded-md p-1 mr-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExport}
+              disabled={isExporting}
+              title="Export domain to JSON file"
+              className="h-7 px-2 text-xs"
+            >
+              {isExporting ? (
+                <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-gray-600 mr-1"></div>
+              ) : (
+                <Download size={12} className="mr-1" />
+              )}
+              Export
+            </Button>
+            
+            {isOwner && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleImport}
+                disabled={isImporting || !isEnrolled}
+                title={!isEnrolled ? "Enroll in domain to import data" : "Import JSON file to domain"}
+                className="h-7 px-2 text-xs disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                {isImporting ? (
+                  <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-gray-600 mr-1"></div>
+                ) : (
+                  <Upload size={12} className="mr-1" />
+                )}
+                Import
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* NEW: Enhanced view controls */}
         <div className="flex items-center space-x-1 border rounded-md p-1">
           <Button
