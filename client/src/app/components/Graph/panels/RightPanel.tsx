@@ -14,6 +14,7 @@ import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem, Quality } from '
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory } from '@/lib/srs-api';
+import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 
 interface AvailableDefinitionOptionForEdit {
   code: string;
@@ -190,7 +191,9 @@ const RightPanel: React.FC<RightPanelProps> = ({
               </Button>
             )}
             <h3 className="font-semibold text-base truncate flex-grow" title={`${selectedNode.id}: ${selectedNode.name}`}>
-              {selectedNode.id}: {selectedNode.name}
+              <MathJaxContent inline={true} className="text-base font-semibold">
+                {selectedNode.id}: {selectedNode.name}
+              </MathJaxContent>
             </h3>
           </div>
           <div className="flex flex-shrink-0">

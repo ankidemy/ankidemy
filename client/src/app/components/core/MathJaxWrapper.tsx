@@ -136,6 +136,7 @@ export const formatLaTeX = (text: string): string => {
   
   return text
     // Convert newlines to HTML breaks for proper display
+    .replace(/\n\s*\n/g, '<br/><br/>')
     .replace(/\n/g, '<br/>')
     .replace(/\\n/g, '<br/>')
     // Fix common LaTeX errors

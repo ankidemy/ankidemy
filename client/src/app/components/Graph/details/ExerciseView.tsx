@@ -69,7 +69,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Problem Statement</h4>
         <Card className="bg-gray-50 border shadow-sm">
           <CardContent className="p-3 text-sm">
-            <MathJaxContent>
+            <MathJaxContent className="whitespace-pre-wrap">
               {exercise.statement || <span className="text-gray-400 italic">N/A</span>}
             </MathJaxContent>
           </CardContent>

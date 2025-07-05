@@ -1,12 +1,13 @@
-// GraphContainer.tsx - Optimized for Stable Architecture
+// GraphContainer.tsx - Refactored with a Stable, State-Decoupled LaTeX Renderer
 "use client";
 
-import React, { useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
 import { CreditFlowAnimation } from '@/types/srs';
 import CreditFlowOverlay from '../components/CreditFlowOverlay';
+import { LabelRenderer, RenderedLabel } from './HybridLatexRenderer';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false
@@ -47,6 +48,11 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
   const lastNodeCountRef = useRef(0);
   const simulationStableRef = useRef(false);
 
+  // Use a ref to hold the renderer instance. This decouples its lifecycle from React's state.
+  const labelRendererRef = useRef(new LabelRenderer());
+  // State to simply trigger re-renders when an async label is ready.
+  const [_, setRenderTrigger] = useState(0);
+
   // Track node positions for credit flow overlay
   useEffect(() => {
     const newPositions = new Map<string, {x: number, y: number}>();
@@ -72,13 +78,11 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     return changed;
   }, [graphNodes.length]);
 
-  // Optimized node renderer with stable metadata updates
+  // Optimized node renderer with stable, high-quality LaTeX label support
   const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
-    const labelOffset = nodeSize + 4 / globalScale;
-    const fontSize = Math.max(5, 12 / globalScale);
     const isSelected = selectedNodeId === id;
     const isHighlighted = highlightNodes.has(id);
 
@@ -134,40 +138,16 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.strokeStyle = `rgba(255, 80, 80, ${pulseAlpha})`;
       ctx.lineWidth = 2.5 / globalScale;
       ctx.stroke();
-
-      // Clock icon
-      const iconSize = nodeSize * 0.6;
-      const iconX = x + nodeSize * 0.5;
-      const iconY = y - nodeSize * 0.5;
-
-      ctx.beginPath();
-      ctx.arc(iconX, iconY, iconSize / 2, 0, 2 * Math.PI);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(50, 50, 50, 0.9)';
-      ctx.lineWidth = 0.5 / globalScale;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(iconX, iconY);
-      ctx.lineTo(iconX, iconY - iconSize * 0.35);
-      ctx.moveTo(iconX, iconY);
-      ctx.lineTo(iconX + iconSize * 0.25, iconY + iconSize * 0.1);
-      ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-      ctx.lineWidth = 0.7 / globalScale;
-      ctx.stroke();
     }
 
     // Node type icon
     if (globalScale > 1 && globalScale < 20) {
-      const visualNodeSize = nodeSize * globalScale;
-      const iconFontSize = Math.max(3, Math.min(visualNodeSize * 0.9, nodeSize * 0.9));
+      const iconFontSize = Math.max(3, Math.min(nodeSize * 0.9, 12 / Math.sqrt(globalScale)));
       
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.font = `bold ${iconFontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      
       ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
       ctx.shadowBlur = Math.max(1, iconFontSize * 0.08);
       
@@ -178,7 +158,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.shadowBlur = 0;
     }
 
-    // Node labels
+    // HIGH-QUALITY LABEL RENDERING
     const labelThreshold = 0.6;
     const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted;
 
@@ -195,30 +175,58 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       }
 
       if (labelText) {
-        ctx.font = `${fontSize}px Sans-Serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        const textMetrics = ctx.measureText(labelText);
-        const textWidth = textMetrics.width;
-        const textHeight = fontSize;
+        const cachedLabel = labelRendererRef.current.getCache(labelText);
 
-        // Label background
-        ctx.fillStyle = 'rgba(243, 244, 246, 0.9)';
-        ctx.fillRect(
-          x - textWidth / 2 - 2/globalScale, 
-          y + labelOffset - 1/globalScale, 
-          textWidth + 4/globalScale, 
-          textHeight + 2/globalScale
-        );
-
-        // Label text
-        ctx.fillStyle = '#333';
-        const truncatedLabel = labelText.length > 25 ? labelText.substring(0, 22) + '...' : labelText;
-        ctx.fillText(truncatedLabel, x, y + labelOffset + textHeight / 2);
+        if (cachedLabel) {
+          // Draw the cached high-quality image
+          const { image, width, height } = cachedLabel;
+          const scale = 1 / Math.sqrt(globalScale); // Adjust scale for zoom
+          const labelWidth = width * scale;
+          const labelHeight = height * scale;
+          const labelOffset = nodeSize + 4 / globalScale; // Position below the node
+          
+          ctx.drawImage(
+            image,
+            x - labelWidth / 2,
+            y + labelOffset,
+            labelWidth,
+            labelHeight
+          );
+        } else {
+          // Request rendering, which happens async.
+          // The callback will trigger a re-render once the image is ready.
+          labelRendererRef.current.render(labelText, () => {
+            // This callback is key. It updates a dummy state variable
+            // to force the ForceGraph component to re-paint.
+            setRenderTrigger(c => c + 1);
+          });
+          
+          // Draw a placeholder while the real label is being rendered.
+          const placeholderSize = 10 / globalScale;
+          ctx.font = `${placeholderSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+          ctx.fillText('...', x, y + nodeSize + (10 / globalScale));
+        }
       }
     }
   }, [selectedNodeId, highlightNodes, labelDisplayMode]);
+
+  // Effect to manage the renderer's lifecycle.
+  useEffect(() => {
+    const renderer = labelRendererRef.current;
+
+    // On structural change, clear the renderer's cache.
+    if (structuralChange) {
+      console.log("Structural change detected, clearing label cache.");
+      renderer.clearCache();
+    }
+
+    return () => {
+      // Final cleanup when the component unmounts.
+      renderer.clearCache();
+    };
+  }, [structuralChange]);
 
   // Optimized link color calculation
   const getLinkColor = useCallback((link: GraphLink) => {
@@ -269,7 +277,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
   // Stable link curvature
   const getLinkCurvature = useCallback(() => 0.1, []);
 
-  // Optimized link renderer
+  // Optimized link renderer (keeping existing implementation)
   const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { source, target, weight = 1.0 } = link;
     

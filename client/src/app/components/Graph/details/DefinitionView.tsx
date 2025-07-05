@@ -104,7 +104,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                   </Button>
                 </div>
               )}
-              <MathJaxContent key={selectedDefinitionIndex}>
+              <MathJaxContent key={selectedDefinitionIndex} className="whitespace-pre-wrap">
                 {currentDescription || <span className="text-gray-400 italic">N/A</span>}
               </MathJaxContent>
             </CardContent>

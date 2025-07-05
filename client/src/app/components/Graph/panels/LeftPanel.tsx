@@ -5,6 +5,7 @@ import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { Search, X } from 'lucide-react';
 import { GraphNode, FilteredNodeType } from '../utils/types';
+import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
 
 interface LeftPanelProps {
   isVisible: boolean;
@@ -106,7 +107,11 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                 onClick={() => onNodeClick(node)}
                 title={`${node.id}: ${node.name}`}
               >
-                <div className="font-medium truncate">{node.id}: {node.name}</div>
+                <div className="font-medium truncate">
+                  <MathJaxContent inline={true} className="text-sm">
+                    {node.id}: {node.name}
+                  </MathJaxContent>
+                </div>
                 {node.type === 'exercise' && (
                   <div className="text-xs text-gray-500">
                     Diff: {node.difficulty ? "★".repeat(parseInt(node.difficulty, 10)) : "?"}
