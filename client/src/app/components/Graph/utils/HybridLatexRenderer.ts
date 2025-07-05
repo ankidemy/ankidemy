@@ -78,12 +78,12 @@ export class LabelRenderer {
     const ctx = canvas.getContext('2d')!;
     
     const fontSize = 14;
-    const padding = 6;
+    const padding = 2;
     
     ctx.font = `${fontSize}px Arial, sans-serif`;
     const metrics = ctx.measureText(text);
     const width = Math.ceil(metrics.width + padding * 2);
-    const height = Math.ceil(fontSize * 1.4 + padding * 2);
+    const height = Math.ceil(fontSize * 1.05 + padding * 2);
     
     canvas.width = width;
     canvas.height = height;
@@ -120,8 +120,8 @@ export class LabelRenderer {
     options: RenderOptions = {}
   ): Promise<RenderedLabel> {
     const {
-      fontSize = 14,
-      padding = 5,
+      fontSize = 12,
+      padding = 2,
       color = '#333333',
       backgroundColor = 'rgba(255, 255, 255, 0.95)',
       fontFamily = 'Arial, sans-serif',
@@ -137,15 +137,17 @@ export class LabelRenderer {
       position: absolute;
       left: -9999px;
       top: -9999px;
-      display: inline-block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       padding: ${padding}px;
       font-family: ${fontFamily};
       font-size: ${fontSize}px;
       color: ${color};
       background-color: ${backgroundColor};
-      border-radius: 4px;
+      border-radius: 2px;
       border: 1px solid rgba(0,0,0,0.1);
-      line-height: 1.4;
+      line-height: 1.05;
       max-width: ${maxWidth}px;
       word-wrap: break-word;
       visibility: visible;
@@ -161,15 +163,15 @@ export class LabelRenderer {
 
       // 3. Measure the final dimensions of the rendered div.
       const rect = container.getBoundingClientRect();
-      const width = Math.max(20, Math.ceil(rect.width));
-      const height = Math.max(16, Math.ceil(rect.height));
+      const width = Math.max(20, Math.ceil(rect.width))+10;
+      const height = Math.max(16, Math.ceil(rect.height))+10;
 
       // 4. Create an SVG with <foreignObject> to capture the styled HTML.
       // This is the magic step that leverages the browser's high-quality rendering engine.
       const svgString = `
         <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
           <foreignObject x="0" y="0" width="100%" height="100%">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="padding: ${padding}px; font-family: ${fontFamily}; font-size: ${fontSize}px; color: ${color}; background-color: ${backgroundColor}; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); line-height: 1.4; max-width: ${maxWidth}px; word-wrap: break-word; display: inline-block; box-sizing: border-box;">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="padding: ${padding}px; font-family: ${fontFamily}; font-size: ${fontSize}px; color: ${color}; background-color: ${backgroundColor}; border-radius: 2px; border: 1px solid rgba(0,0,0,0.1); line-height: 1.05; max-width: ${maxWidth}px; word-wrap: break-word; display: inline-block; box-sizing: border-box;">
               ${container.innerHTML}
             </div>
           </foreignObject>
