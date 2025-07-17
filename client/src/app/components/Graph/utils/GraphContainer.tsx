@@ -1,4 +1,6 @@
-// GraphContainer.tsx - Refactored with a Stable, State-Decoupled LaTeX Renderer
+// client/src/app/components/Graph/utils/GraphContainer.tsx
+// Enhanced with improved highlighting and credit flow animations
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -47,13 +49,10 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
   const nodePositions = useRef(new Map<string, {x: number, y: number}>());
   const lastNodeCountRef = useRef(0);
   const simulationStableRef = useRef(false);
-
-  // Use a ref to hold the renderer instance. This decouples its lifecycle from React's state.
   const labelRendererRef = useRef(new LabelRenderer());
-  // State to simply trigger re-renders when an async label is ready.
   const [_, setRenderTrigger] = useState(0);
 
-  // Track node positions for credit flow overlay
+  // Enhanced position tracking for credit flow overlay
   useEffect(() => {
     const newPositions = new Map<string, {x: number, y: number}>();
     graphNodes.forEach(node => {
@@ -64,7 +63,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     nodePositions.current = newPositions;
   }, [graphNodes]);
 
-  // Detect structural changes vs metadata changes
+  // Enhanced structural change detection
   const structuralChange = useMemo(() => {
     const currentNodeCount = graphNodes.length;
     const changed = currentNodeCount !== lastNodeCountRef.current;
@@ -78,7 +77,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     return changed;
   }, [graphNodes.length]);
 
-  // Optimized node renderer with stable, high-quality LaTeX label support
+  // Enhanced node renderer with better highlighting and visual effects
   const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
@@ -86,7 +85,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const isSelected = selectedNodeId === id;
     const isHighlighted = highlightNodes.has(id);
 
-    // Use color from metadata if available, otherwise calculate
+    // Enhanced color calculation with better highlighting
     let finalColor = color;
     if (!finalColor) {
       let baseColor;
@@ -106,50 +105,79 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       finalColor = status ? getSRSStatusColor(status) : baseColor;
     }
 
-    // Selection highlight
+    // Enhanced selection highlight with multiple highlight types
     if (isSelected) {
+      // Orange selection highlight (highest priority)
       ctx.beginPath();
-      ctx.arc(x, y, nodeSize + 5 / globalScale, 0, 2 * Math.PI, false);
-      ctx.fillStyle = 'rgba(255, 165, 0, 0.6)';
+      ctx.arc(x, y, nodeSize + 8 / globalScale, 0, 2 * Math.PI, false);
+      ctx.fillStyle = 'rgba(255, 165, 0, 0.4)';
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 165, 0, 0.8)';
+      ctx.lineWidth = 3 / globalScale;
+      ctx.stroke();
     } else if (isHighlighted) {
+      // Blue highlight for various highlight types
+      const highlightIntensity = highlightNodes.size > 10 ? 0.3 : 0.5; // Reduce intensity for many highlights
       ctx.beginPath();
-      ctx.arc(x, y, nodeSize + 4 / globalScale, 0, 2 * Math.PI, false);
-      ctx.fillStyle = 'rgba(0, 123, 255, 0.4)';
+      ctx.arc(x, y, nodeSize + 6 / globalScale, 0, 2 * Math.PI, false);
+      ctx.fillStyle = `rgba(0, 123, 255, ${highlightIntensity})`;
       ctx.fill();
+      ctx.strokeStyle = `rgba(0, 123, 255, ${highlightIntensity + 0.3})`;
+      ctx.lineWidth = 2 / globalScale;
+      ctx.stroke();
     }
 
-    // Main node circle
+    // Enhanced main node circle with better border
     ctx.beginPath();
     ctx.arc(x, y, nodeSize, 0, 2 * Math.PI, false);
     ctx.fillStyle = finalColor;
     ctx.fill();
     
-    ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
-    ctx.lineWidth = 1 / globalScale;
+    // Enhanced border based on state
+    if (isSelected) {
+      ctx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
+      ctx.lineWidth = 2 / globalScale;
+    } else if (isHighlighted) {
+      ctx.strokeStyle = 'rgba(0, 123, 255, 0.8)';
+      ctx.lineWidth = 1.5 / globalScale;
+    } else {
+      ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
+      ctx.lineWidth = 1 / globalScale;
+    }
     ctx.stroke();
 
-    // Due indicator with pulsing animation
+    // Enhanced due indicator with better animation
     if (isDue) {
+      const time = Date.now();
       const pulseRadius = nodeSize + 2.5 / globalScale;
-      const pulseAlpha = 0.6 + 0.4 * Math.abs(Math.sin(Date.now() / 250));
+      const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time / 400)); // Slower, more visible pulse
+      
       ctx.beginPath();
       ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI, false);
       ctx.strokeStyle = `rgba(255, 80, 80, ${pulseAlpha})`;
-      ctx.lineWidth = 2.5 / globalScale;
+      ctx.lineWidth = 3 / globalScale;
+      ctx.stroke();
+      
+      // Add a secondary pulse ring
+      const secondaryPulse = nodeSize + 4 / globalScale;
+      const secondaryAlpha = 0.2 + 0.4 * Math.abs(Math.sin(time / 600));
+      ctx.beginPath();
+      ctx.arc(x, y, secondaryPulse, 0, 2 * Math.PI, false);
+      ctx.strokeStyle = `rgba(255, 120, 120, ${secondaryAlpha})`;
+      ctx.lineWidth = 1.5 / globalScale;
       ctx.stroke();
     }
 
-    // Node type icon
+    // Enhanced node type icon with better visibility
     if (globalScale > 1 && globalScale < 20) {
-      const iconFontSize = Math.max(3, Math.min(nodeSize * 0.9, 12 / Math.sqrt(globalScale)));
+      const iconFontSize = Math.max(4, Math.min(nodeSize * 0.8, 14 / Math.sqrt(globalScale)));
       
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillStyle = isHighlighted ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.95)';
       ctx.font = `bold ${iconFontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-      ctx.shadowBlur = Math.max(1, iconFontSize * 0.08);
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+      ctx.shadowBlur = Math.max(1, iconFontSize * 0.1);
       
       const text = type === 'definition' ? 'D' : 'E';
       ctx.fillText(text, x, y);
@@ -158,7 +186,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.shadowBlur = 0;
     }
 
-    // HIGH-QUALITY LABEL RENDERING
+    // Enhanced label rendering with better highlighting awareness
     const labelThreshold = 0.6;
     const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted;
 
@@ -178,12 +206,13 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         const cachedLabel = labelRendererRef.current.getCache(labelText);
 
         if (cachedLabel) {
-          // Draw the cached high-quality image
           const { image, width, height } = cachedLabel;
-          const scale = 1 / Math.sqrt(globalScale); // Adjust scale for zoom
+          const scale = 1 / Math.sqrt(globalScale);
           const labelWidth = width * scale;
           const labelHeight = height * scale;
-          const labelOffset = nodeSize + 4 / globalScale; // Position below the node
+          const labelOffset = nodeSize + 6 / globalScale;
+          
+          // Simple label rendering without glow effects
           
           ctx.drawImage(
             image,
@@ -193,48 +222,54 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
             labelHeight
           );
         } else {
-          // Request rendering, which happens async.
-          // The callback will trigger a re-render once the image is ready.
           labelRendererRef.current.render(labelText, () => {
-            // This callback is key. It updates a dummy state variable
-            // to force the ForceGraph component to re-paint.
             setRenderTrigger(c => c + 1);
           });
           
-          // Draw a placeholder while the real label is being rendered.
-          const placeholderSize = 10 / globalScale;
+          // Simple placeholder without highlighting effects
+          const placeholderSize = 12 / globalScale;
           ctx.font = `${placeholderSize}px sans-serif`;
           ctx.textAlign = 'center';
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-          ctx.fillText('...', x, y + nodeSize + (10 / globalScale));
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+          ctx.fillText('...', x, y + nodeSize + (12 / globalScale));
         }
       }
     }
   }, [selectedNodeId, highlightNodes, labelDisplayMode]);
 
-  // Effect to manage the renderer's lifecycle.
+  // Enhanced cache management
   useEffect(() => {
     const renderer = labelRendererRef.current;
 
-    // On structural change, clear the renderer's cache.
     if (structuralChange) {
       console.log("Structural change detected, clearing label cache.");
       renderer.clearCache();
     }
 
     return () => {
-      // Final cleanup when the component unmounts.
       renderer.clearCache();
     };
   }, [structuralChange]);
 
-  // Optimized link color calculation
+  // Enhanced link color calculation with better highlighting
   const getLinkColor = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
     
-    if (highlightLinks.has(linkId)) return 'rgba(245, 158, 11, 0.9)';
+    if (highlightLinks.has(linkId)) {
+      return 'rgba(245, 158, 11, 0.9)'; // Bright highlight
+    }
+    
+    // Enhanced highlighting for connected nodes
+    const sourceHighlighted = highlightNodes.has(sourceId);
+    const targetHighlighted = highlightNodes.has(targetId);
+    
+    if (sourceHighlighted || targetHighlighted) {
+      const weight = link.weight || 1.0;
+      const opacity = 0.6 + 0.3 * weight;
+      return `rgba(0, 123, 255, ${opacity})`;
+    }
     
     const targetNode = graphNodes.find(n => n.id === targetId);
     const weight = link.weight || 1.0;
@@ -255,9 +290,9 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     } else {
       return `rgba(120, 120, 120, ${opacity})`;
     }
-  }, [graphNodes, highlightLinks]);
+  }, [graphNodes, highlightLinks, highlightNodes]);
 
-  // Optimized link width calculation
+  // Enhanced link width calculation
   const getLinkWidth = useCallback((link: GraphLink) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
@@ -271,13 +306,23 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const minWidthRatio = 0.3;
     const scaledWidth = baseWidth * (minWidthRatio + (1 - minWidthRatio) * weight);
     
-    return highlightLinks.has(linkId) ? Math.max(3, scaledWidth * 2) : scaledWidth;
-  }, [graphNodes, highlightLinks]);
+    // Enhanced width for highlighted links
+    if (highlightLinks.has(linkId)) {
+      return Math.max(3, scaledWidth * 2.5);
+    }
+    
+    // Enhanced width for connected highlighted nodes
+    const sourceHighlighted = highlightNodes.has(sourceId);
+    const targetHighlighted = highlightNodes.has(targetId);
+    
+    if (sourceHighlighted || targetHighlighted) {
+      return Math.max(scaledWidth, scaledWidth * 1.5);
+    }
+    
+    return scaledWidth;
+  }, [graphNodes, highlightLinks, highlightNodes]);
 
-  // Stable link curvature
-  const getLinkCurvature = useCallback(() => 0.1, []);
-
-  // Optimized link renderer (keeping existing implementation)
+  // Enhanced link renderer with better visual effects
   const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { source, target, weight = 1.0 } = link;
     
@@ -291,6 +336,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const targetId = typeof target === 'object' ? target.id : String(target);
     const linkId = `${sourceId}-${targetId}`;
     const isHighlighted = highlightLinks.has(linkId);
+    const isConnectedHighlighted = highlightNodes.has(sourceId) || highlightNodes.has(targetId);
     const isPartial = weight < 1.0;
     
     const color = getLinkColor(link);
@@ -306,7 +352,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const targetNode = graphNodes.find(n => n.id === targetId);
     const targetNodeSize = (targetNode?.type === 'definition' ? 7 : 6) / Math.sqrt(globalScale);
     
-    // Curve control point
+    // Enhanced curve control point
     const curvature = 0.1;
     const midX = (source.x + target.x) / 2;
     const midY = (source.y + target.y) / 2;
@@ -315,7 +361,18 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     const controlX = midX + perpX;
     const controlY = midY + perpY;
     
-    // Draw link
+    // Enhanced link rendering with glow effect for highlights
+    if (isHighlighted || isConnectedHighlighted) {
+      // Draw glow effect
+      ctx.strokeStyle = color.replace(/[\d.]+\)$/, '0.3)');
+      ctx.lineWidth = width * 3;
+      ctx.beginPath();
+      ctx.moveTo(source.x, source.y);
+      ctx.quadraticCurveTo(controlX, controlY, target.x, target.y);
+      ctx.stroke();
+    }
+    
+    // Main link
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     
@@ -333,8 +390,8 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
     ctx.stroke();
     ctx.setLineDash([]);
     
-    // Draw arrow
-    const arrowLength = 8 / Math.sqrt(globalScale);
+    // Enhanced arrow with better visibility
+    const arrowLength = isHighlighted ? 12 / Math.sqrt(globalScale) : 8 / Math.sqrt(globalScale);
     const arrowAngle = Math.PI / 6;
     const nodeRadius = targetNodeSize + 2 / globalScale;
     
@@ -382,19 +439,20 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.stroke();
     }
     
-    // Weight label for partial prerequisites
+    // Enhanced weight label for partial prerequisites
     if (isPartial && globalScale > 0.6 && distance > 40) {
-      const fontSize = Math.max(8, 9 / globalScale);
+      const fontSize = Math.max(8, 10 / globalScale);
       ctx.font = `${fontSize}px Sans-Serif`;
       const text = weight.toFixed(2);
       const textMetrics = ctx.measureText(text);
       
+      // Simple weight label without glow effects
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.fillRect(
-        controlX - textMetrics.width / 2 - 2,
-        controlY - fontSize / 2 - 1,
-        textMetrics.width + 4,
-        fontSize + 2
+        controlX - textMetrics.width / 2 - 3,
+        controlY - fontSize / 2 - 2,
+        textMetrics.width + 6,
+        fontSize + 4
       );
       
       ctx.fillStyle = '#333';
@@ -402,18 +460,57 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
       ctx.textBaseline = 'middle';
       ctx.fillText(text, controlX, controlY);
     }
-  }, [getLinkColor, getLinkWidth, highlightLinks, graphNodes]);
+  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes]);
 
-  // Simulation stability tracking
+  // Enhanced simulation stability tracking
   const handleEngineStop = useCallback(() => {
     simulationStableRef.current = true;
     console.log('Graph simulation stabilized');
   }, []);
 
-  // Memoized graph data to prevent unnecessary re-renders
+  // Enhanced graph data memoization
   const memoizedGraphData = useMemo(() => {
     return { nodes: graphNodes, links: graphLinks };
   }, [graphNodes, graphLinks]);
+
+  // Enhanced directional particles with better visibility
+  const getDirectionalParticles = useCallback((link: any) => {
+    const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
+    const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
+    const linkId = `${sourceId}-${targetId}`;
+    
+    if (highlightLinks.has(linkId)) {
+      return 4; // More particles for highlighted links
+    }
+    
+    const sourceHighlighted = highlightNodes.has(sourceId);
+    const targetHighlighted = highlightNodes.has(targetId);
+    
+    if (sourceHighlighted || targetHighlighted) {
+      return 2; // Some particles for connected highlighted nodes
+    }
+    
+    return 0;
+  }, [highlightLinks, highlightNodes]);
+
+  const getDirectionalParticleWidth = useCallback((link: any) => {
+    const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
+    const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
+    const linkId = `${sourceId}-${targetId}`;
+    
+    if (highlightLinks.has(linkId)) {
+      return 4;
+    }
+    
+    const sourceHighlighted = highlightNodes.has(sourceId);
+    const targetHighlighted = highlightNodes.has(targetId);
+    
+    if (sourceHighlighted || targetHighlighted) {
+      return 2;
+    }
+    
+    return 0;
+  }, [highlightLinks, highlightNodes]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -423,28 +520,18 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         nodeId="id"
         linkSource="source"
         linkTarget="target"
-        nodeVal={node => (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.2 : 1)}
+        nodeVal={node => (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.3 : 1)}
         nodeCanvasObject={nodeCanvasObject}
         
         linkCanvasObject={linkCanvasObject}
         linkColor={getLinkColor}
         linkWidth={getLinkWidth}
-        linkCurvature={getLinkCurvature}
+        linkCurvature={0.1}
         
-        // Optimized directional particles
-        linkDirectionalParticles={link => {
-          const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
-          const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
-          const linkId = `${sourceId}-${targetId}`;
-          return highlightLinks.has(linkId) ? 3 : 0;
-        }}
-        linkDirectionalParticleWidth={link => {
-          const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
-          const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
-          const linkId = `${sourceId}-${targetId}`;
-          return highlightLinks.has(linkId) ? 3 : 0;
-        }}
-        linkDirectionalParticleSpeed={0.01}
+        // Enhanced directional particles
+        linkDirectionalParticles={getDirectionalParticles}
+        linkDirectionalParticleWidth={getDirectionalParticleWidth}
+        linkDirectionalParticleSpeed={0.008} // Slightly slower for better visibility
         
         // Event handlers
         onNodeClick={onNodeClick}
@@ -452,16 +539,16 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         onNodeDragEnd={onNodeDragEnd}
         onEngineStop={handleEngineStop}
         
-        // OPTIMIZED SIMULATION PARAMETERS FOR STABILITY
-        d3AlphaDecay={0.02}        // Slower decay for natural stabilization
-        d3VelocityDecay={0.7}      // Higher decay for stability
+        // Enhanced simulation parameters
+        d3AlphaDecay={0.015}       // Slower decay for better stability
+        d3VelocityDecay={0.75}     // Higher decay for quicker settling
         
-        // CRITICAL: Conditional simulation control
-        warmupTicks={structuralChange ? 150 : 0}     // Only warmup on structural changes
-        cooldownTicks={structuralChange ? 300 : 0}   // Only cooldown on structural changes
+        // Conditional simulation control
+        warmupTicks={structuralChange ? 200 : 0}
+        cooldownTicks={structuralChange ? 400 : 0}
         
         // Node sizing and visibility
-        nodeRelSize={1}
+        nodeRelSize={1.2} // Slightly larger for better visibility
         nodeVisibility={(node: GraphNode) => 
           filteredNodeType === 'all' || 
           node.type === filteredNodeType || 
@@ -480,7 +567,7 @@ const GraphContainer: React.FC<GraphContainerProps> = ({
         maxZoom={8}
       />
       
-      {/* Credit Flow Overlay */}
+      {/* Enhanced Credit Flow Overlay */}
       <CreditFlowOverlay 
         animations={creditFlowAnimations} 
         nodePositions={nodePositions.current}

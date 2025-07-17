@@ -1,8 +1,14 @@
-// KnowledgeGraph.tsx - Redesigned with Separated Concerns Architecture
+// client/src/app/components/Graph/KnowledgeGraph.tsx
+// Enhanced with proper multi-node selection and credit flow animations
+
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, FC } from 'react';
 import { MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
+import { UIProvider, useUI } from '@/contexts/UIContext';
+import { DraggableWindow } from '@/app/components/core/DraggableWindow';
+import { DetailWindowContent } from './windows/DetailWindowContent';
+import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { RefreshCw } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
@@ -37,19 +43,12 @@ import {
 import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
 import TopControls from './panels/TopControls';
-import LeftPanel from './panels/LeftPanel';
 import LeftPanelToggle from './panels/LeftPanelToggle';
-import RightPanel from './panels/RightPanel';
+import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
-import StudyModeModal from './StudyModeModal';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 
-// ==============================================================================
-// SEPARATED CONCERNS ARCHITECTURE
-// ==============================================================================
-
-// 1. GRAPH STRUCTURE STATE (rarely changes - only on add/remove nodes)
 interface GraphStructureState {
   nodes: Map<string, GraphNodeCore>;
   links: Map<string, GraphLinkCore>;
@@ -65,7 +64,6 @@ interface GraphNodeCore {
   difficulty?: string;
   prerequisites?: string[];
   domainId?: number;
-  // Stable position references
   xPosition?: number;
   yPosition?: number;
 }
@@ -78,7 +76,6 @@ interface GraphLinkCore {
   weight: number;
 }
 
-// 2. GRAPH METADATA STATE (frequently changes - SRS progress, colors, etc.)
 interface GraphMetadataState {
   nodeMetadata: Map<string, NodeMetadata>;
   linkMetadata: Map<string, LinkMetadata>;
@@ -100,7 +97,6 @@ interface LinkMetadata {
   isHighlighted?: boolean;
 }
 
-// 3. POSITION MANAGEMENT
 class PositionManager {
   private positions = new Map<string, { x: number; y: number; fx?: number; fy?: number }>();
   private isStable = false;
@@ -141,7 +137,6 @@ class PositionManager {
     return new Map(this.positions);
   }
 
-  // Apply positions to nodes without creating new objects
   applyPositions(nodes: GraphNode[]) {
     nodes.forEach(node => {
       const savedPos = this.positions.get(node.id);
@@ -154,7 +149,6 @@ class PositionManager {
     });
   }
 
-  // Extract positions from existing nodes
   extractPositions(nodes: GraphNode[]) {
     nodes.forEach(node => {
       if (typeof node.x === 'number' && typeof node.y === 'number') {
@@ -176,7 +170,6 @@ class PositionManager {
     if (this.stabilityTimeout) {
       clearTimeout(this.stabilityTimeout);
     }
-    // Auto-mark as stable after 5 seconds of no structure changes
     this.stabilityTimeout = setTimeout(() => {
       this.markStable();
     }, 5000);
@@ -204,7 +197,7 @@ class PositionManager {
   }
 }
 
-// 4. GRAPH STRUCTURE MANAGER
+// [Previous hook functions remain the same...]
 const useGraphStructure = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
@@ -214,7 +207,6 @@ const useGraphStructure = (
     const nodes = new Map<string, GraphNodeCore>();
     const links = new Map<string, GraphLinkCore>();
 
-    // Create stable structure hash for change detection
     const defHash = Object.keys(definitions).sort().join(',');
     const exHash = Object.keys(exercises).sort().join(',');
     const prerequisiteHash = [
@@ -224,7 +216,6 @@ const useGraphStructure = (
 
     const version = [defHash, exHash, mode, prerequisiteHash].join('::').length;
 
-    // Build nodes
     Object.values(definitions).forEach(def => {
       if (!def?.code || !def?.name) return;
       
@@ -239,7 +230,6 @@ const useGraphStructure = (
         yPosition: def.yPosition,
       });
 
-      // Build prerequisite links
       (def.prerequisites || []).forEach(prereqCode => {
         const linkId = `${prereqCode}-${def.code}`;
         links.set(linkId, {
@@ -252,7 +242,6 @@ const useGraphStructure = (
       });
     });
 
-    // Build exercise nodes (only in practice mode)
     if (mode === 'practice') {
       Object.values(exercises).forEach(ex => {
         if (!ex?.code || !ex?.name) return;
@@ -268,7 +257,6 @@ const useGraphStructure = (
           yPosition: ex.yPosition,
         });
 
-        // Build prerequisite links
         (ex.prerequisites || []).forEach(prereqCode => {
           if (nodes.has(prereqCode)) {
             const linkId = `${prereqCode}-${ex.code}`;
@@ -293,11 +281,9 @@ const useGraphStructure = (
       lastStructuralChange: Date.now(),
     };
   }, [
-    // Only structural dependencies
     Object.keys(definitions).sort().join(','),
     Object.keys(exercises).sort().join(','),
     mode,
-    // Hash of prerequisite relationships to detect structural changes
     JSON.stringify(Object.fromEntries(
       Object.values(definitions).map(d => [d.code, (d.prerequisites || []).sort()])
     )),
@@ -307,12 +293,13 @@ const useGraphStructure = (
   ]);
 };
 
-// 5. GRAPH METADATA MANAGER
+// Enhanced metadata manager with better highlighting support
 const useGraphMetadata = (
   structureNodes: Map<string, GraphNodeCore>,
   srs: any,
   codeToNumericIdMap: Map<string, number>,
-  selectedNodeId: string | null,
+  activeNodeIds: Set<string>,
+  selectedNodeIds: Set<string>, 
   highlightNodes: Set<string>
 ): GraphMetadataState => {
   return useMemo(() => {
@@ -323,7 +310,6 @@ const useGraphMetadata = (
       const numericId = codeToNumericIdMap.get(nodeId);
       const progress = numericId ? srs.getNodeProgress(numericId, nodeCore.type) : null;
       
-      // Calculate status color
       let baseColor;
       if (nodeCore.type === 'definition') {
         baseColor = nodeCore.isRootDefinition ? '#28a745' : '#007bff';
@@ -353,26 +339,24 @@ const useGraphMetadata = (
     return {
       nodeMetadata,
       linkMetadata,
-      version: Date.now(), // Timestamp-based version for metadata
+      version: Date.now(),
       lastMetadataChange: Date.now(),
     };
   }, [
-    // Metadata dependencies only
     srs.state.domainProgress,
     srs.state.lastUpdated,
-    selectedNodeId,
+    Array.from(activeNodeIds).sort().join(','),
+    Array.from(selectedNodeIds).sort().join(','), 
     Array.from(highlightNodes).sort().join(','),
     codeToNumericIdMap,
   ]);
 };
 
-// 6. STABLE GRAPH MERGER (preserves object identity)
 const useStableGraph = (
   structure: GraphStructureState,
   metadata: GraphMetadataState,
   positionManager: PositionManager
 ) => {
-  // Keep stable references to avoid unnecessary re-renders
   const stableNodesRef = useRef<GraphNode[]>([]);
   const stableLinksRef = useRef<GraphLink[]>([]);
   const lastStructureVersionRef = useRef<number>(-1);
@@ -383,12 +367,10 @@ const useStableGraph = (
     if (structureChanged) {
       console.log('Structure changed, rebuilding nodes/links');
       
-      // Extract positions from existing nodes before rebuilding
       if (stableNodesRef.current.length > 0) {
         positionManager.extractPositions(stableNodesRef.current);
       }
       
-      // Rebuild nodes and links
       const newNodes: GraphNode[] = [];
       const newLinks: GraphLink[] = [];
 
@@ -398,7 +380,6 @@ const useStableGraph = (
         const mergedNode: GraphNode = {
           ...nodeCore,
           ...nodeMeta,
-          // Initial positions from structure
           x: nodeCore.xPosition,
           y: nodeCore.yPosition,
           fx: nodeCore.xPosition,
@@ -417,21 +398,17 @@ const useStableGraph = (
         });
       });
 
-      // Apply saved positions
       positionManager.applyPositions(newNodes);
       
       stableNodesRef.current = newNodes;
       stableLinksRef.current = newLinks;
       lastStructureVersionRef.current = structure.version;
       
-      // Mark positions as unstable after structure change
       positionManager.markUnstable();
     } else {
-      // Structure unchanged, update metadata in-place
       stableNodesRef.current.forEach(node => {
         const nodeMeta = metadata.nodeMetadata.get(node.id);
         if (nodeMeta) {
-          // Update metadata without changing object identity
           Object.assign(node, nodeMeta);
         }
       });
@@ -445,7 +422,6 @@ const useStableGraph = (
   }, [structure.version, metadata.version, positionManager]);
 };
 
-// 7. DEBOUNCE UTILITY
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -457,16 +433,21 @@ function debounce<T extends (...args: any[]) => any>(
   };
 }
 
-// ==============================================================================
-// MAIN COMPONENT
-// ==============================================================================
+const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
+  return (
+    <UIProvider>
+      <KnowledgeGraphInner {...props} />
+    </UIProvider>
+  );
+};
 
-const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
+const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   graphData: initialGraphData,
   subjectMatterId,
   onBack,
   onPositionUpdate
 }) => {
+  const ui = useUI();
   const srs = useSRS();
   const graphRef = useRef<any>(null);
   const positionManagerRef = useRef(new PositionManager());
@@ -477,14 +458,11 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // UI state
-  const [showLeftPanel, setShowLeftPanel] = useState(true);
-  const [showRightPanel, setShowRightPanel] = useState(false);
+  const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
 
-  // Selection state
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [selectedNodeDetails, setSelectedNodeDetails] = useState<Definition | Exercise | null>(null);
-  const [nodeHistory, setNodeHistory] = useState<string[]>([]);
+  // Multi-selection state
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
 
   // Interactive state
   const [highlightNodes, setHighlightNodes] = useState(new Set<string>());
@@ -501,7 +479,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [showNodeCreationModal, setShowNodeCreationModal] = useState(false);
   const [nodeCreationType, setNodeCreationType] = useState<'definition' | 'exercise'>('definition');
   const [nodeCreationPosition, setNodeCreationPosition] = useState<{x: number, y: number} | undefined>(undefined);
-  const [showStudyModeModal, setShowStudyModeModal] = useState(false);
   const [showEnrollmentModal, setShowEnrollmentModal] = useState(false);
 
   // Domain state
@@ -509,17 +486,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [domainData, setDomainData] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isEnrolled, setIsEnrolled] = useState<boolean | null>(null);
-
-  // Right panel specific state
-  const [showDefinition, setShowDefinition] = useState(false);
-  const [showSolution, setShowSolution] = useState(false);
-  const [showHints, setShowHints] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [userAnswer, setUserAnswer] = useState('');
-  const [answerFeedback, setAnswerFeedback] = useState<AnswerFeedback | null>(null);
-  const [relatedExercises, setRelatedExercises] = useState<string[]>([]);
-  const [selectedDefinitionIndex, setSelectedDefinitionIndex] = useState(0);
-  const [exerciseAttemptCompleted, setExerciseAttemptCompleted] = useState(false);
 
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
@@ -535,15 +501,58 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     mode
   );
 
+  // Active node IDs from open detail windows
+  const activeNodeIds = useMemo(() =>
+    new Set(
+      ui.state.windows
+        .filter(w => w.type === 'detail' && !w.isMinimized)
+        .map(w => w.contentProps.nodeData.id)
+    ),
+    [ui.state.windows]
+  );
+
+  // Enhanced metadata with multi-selection support
   const graphMetadata = useGraphMetadata(
     graphStructure.nodes,
     srs,
     codeToNumericIdMap,
-    selectedNode?.id || null,
+    activeNodeIds,
+    selectedNodeIds,
     highlightNodes
   );
 
   const stableGraph = useStableGraph(graphStructure, graphMetadata, positionManagerRef.current);
+
+  const graphHighlightedNodes = useMemo(() => {
+    const combined = new Set<string>();
+    
+    // Add active nodes (with open windows) - highest priority
+    activeNodeIds.forEach(id => combined.add(id));
+    
+    // Add selected nodes from left panel
+    selectedNodeIds.forEach(id => combined.add(id));
+    
+    // Add hover highlighted nodes
+    highlightNodes.forEach(id => combined.add(id));
+    
+    return combined;
+  }, [activeNodeIds, selectedNodeIds, highlightNodes]);
+
+  const handleNodeSelect = useCallback((nodeId: string, isSelected: boolean) => {
+    setSelectedNodeIds(prev => {
+      const newSet = new Set(prev);
+      if (isSelected) {
+        newSet.add(nodeId);
+      } else {
+        newSet.delete(nodeId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedNodeIds(new Set());
+  }, []);
 
   // Handle initial data processing
   useEffect(() => {
@@ -673,11 +682,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // Handle node drag end (position updates) - NO SIMULATION RESTART
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
     if (node?.id && typeof node.x === 'number' && typeof node.y === 'number') {
-      // Update position manager
       positionManagerRef.current.fixPosition(node.id, node.x, node.y);
       setPositionsChanged(true);
-      
-      // Update the node object in-place (no new objects created)
       node.fx = node.x;
       node.fy = node.y;
     }
@@ -687,62 +693,13 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false, context: 'click' | 'study' | 'navigation' = 'click') => {
     if (!nodeOnClick?.id) return;
 
-    if (!isRefresh && selectedNode && selectedNode.id !== nodeOnClick.id) {
-      setNodeHistory(prev => [...prev, selectedNode.id]);
-    }
+    const position = {
+      x: window.innerWidth - 500,
+      y: 100 + (ui.state.windows.filter(w => w.type === 'detail').length * 30)
+    };
 
-    setSelectedNode(nodeOnClick);
-    setIsEditMode(false);
-    setAnswerFeedback(null);
-    setUserAnswer('');
-    setExerciseAttemptCompleted(false);
-
-    try {
-      let apiDetails = nodeDataCache.get(nodeOnClick.id);
-      
-      if (!apiDetails) {
-        if (nodeOnClick.type === 'definition') {
-          const res = await getDefinitionByCode(nodeOnClick.id);
-          apiDetails = Array.isArray(res) ? res[0] : res;
-        } else {
-          const res = await getExerciseByCode(nodeOnClick.id);
-          apiDetails = Array.isArray(res) ? res[0] : res;
-        }
-        
-        if (apiDetails) {
-          setNodeDataCache(prev => new Map(prev).set(apiDetails!.code, apiDetails!));
-          setCodeToNumericIdMap(prev => new Map(prev).set(apiDetails!.code, apiDetails!.id));
-        }
-      }
-
-      if (apiDetails) {
-        setSelectedNodeDetails({ ...apiDetails, type: nodeOnClick.type } as Definition | Exercise);
-        setShowDefinition(mode !== 'study' || nodeOnClick.type !== 'definition');
-        setShowSolution(false);
-        setShowHints(false);
-        setSelectedDefinitionIndex(0);
-
-        if (nodeOnClick.type === 'definition' && currentStructuralGraphData.exercises) {
-          const relEx = Object.values(currentStructuralGraphData.exercises)
-            .filter(ex => ex.prerequisites?.includes(nodeOnClick.id))
-            .map(ex => ex.code);
-          setRelatedExercises(relEx);
-        } else {
-          setRelatedExercises([]);
-        }
-      } else {
-        setSelectedNodeDetails(null);
-        setRelatedExercises([]);
-        showToast(`Could not fetch details for ${nodeOnClick.name}.`, "warning");
-      }
-    } catch (error) {
-      console.error(`Error fetching details for node ${nodeOnClick.id}:`, error);
-      showToast("Failed to fetch node details.", "error");
-      setSelectedNodeDetails(null);
-    }
-
-    setShowRightPanel(true);
-  }, [selectedNode, mode, currentStructuralGraphData.exercises, nodeDataCache]);
+    ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
+  }, [ui]);
 
   // Refresh function - PRESERVES POSITIONS
   const refreshGraphAndSRSData = useCallback(async () => {
@@ -753,7 +710,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       const domainIdNum = parseInt(subjectMatterId, 10);
       if (isNaN(domainIdNum)) throw new Error("Invalid domain ID for refresh.");
 
-      // Extract current positions before refresh
       if (stableGraph.nodes.length > 0) {
         positionManagerRef.current.extractPositions(stableGraph.nodes);
       }
@@ -765,155 +721,29 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       
       showToast("Graph data refreshed!", "success");
 
-      // Refresh selected node if it still exists
-      if (selectedNode) {
-        const refreshedNode = stableGraph.nodes.find(n => n.id === selectedNode.id);
-        if (refreshedNode) {
-          await handleNodeClick(refreshedNode, true);
-        } else {
-          setSelectedNode(null);
-          setSelectedNodeDetails(null);
-          setShowRightPanel(false);
-        }
-      }
     } catch (error) {
       console.error('Failed to refresh graph and SRS data:', error);
       showToast(error instanceof Error ? error.message : "Failed to refresh data.", "error");
     } finally {
       setIsRefreshing(false);
     }
-  }, [subjectMatterId, selectedNode, handleNodeClick, loadComprehensiveDomainData, isEnrolled, srs, stableGraph.nodes]);
-
+  }, [subjectMatterId, loadComprehensiveDomainData, isEnrolled, srs, stableGraph.nodes]);
+  
   // Mode change - PRESERVES POSITIONS
   const changeMode = useCallback((newMode: AppMode) => {
     if (newMode === mode) return;
     
-    // Extract positions before mode change
     if (stableGraph.nodes.length > 0) {
       positionManagerRef.current.extractPositions(stableGraph.nodes);
     }
     
     setMode(newMode);
-    setSelectedNode(null);
-    setSelectedNodeDetails(null);
-    setShowRightPanel(false);
     setHighlightNodes(new Set());
-    setHighlightLinks(new Set()); 
-    setExerciseAttemptCompleted(false);
+    setHighlightLinks(new Set());
+    
+    // Clear selection when changing modes
+    setSelectedNodeIds(new Set());
   }, [mode, stableGraph.nodes]);
-
-  // Review handlers - NO POSITION LOSS
-  const refreshNodeAfterReview = useCallback(
-    debounce(async (nodeToRefresh: GraphNode) => {
-      if (nodeToRefresh?.id) {
-        console.log("Refreshing node after review:", nodeToRefresh.id);
-        const latestNodeData = stableGraph.nodes.find(n => n.id === nodeToRefresh.id);
-        if (latestNodeData) {
-          await handleNodeClick(latestNodeData, true, 'navigation');
-        }
-      }
-    }, 300),
-    [handleNodeClick, stableGraph.nodes]
-  );
-
-  const handleReviewDefinition = useCallback(async (qualityInput: 'again' | 'hard' | 'good' | 'easy') => {
-    if (!selectedNode || selectedNode.type !== 'definition' || !selectedNodeDetails) return;
-    
-    const numericId = codeToNumericIdMap.get(selectedNode.id);
-    if (!numericId) { showToast("Cannot review: Node ID not found.", "error"); return; }
-    
-    const progress = srs.getNodeProgress(numericId, 'definition');
-    if (progress?.status !== 'grasped' && progress?.status !== 'learned') {
-      showToast("This definition must be 'Grasped' or 'Learned' before review.", "info");
-      return;
-    }
-    
-    const qualityMap = { again: 0, hard: 1, good: 4, easy: 5 };
-    const quality: Quality = qualityMap[qualityInput] ?? 3;
-    
-    const reviewData: ReviewRequest = { 
-      nodeId: numericId, 
-      nodeType: 'definition', 
-      success: quality >= 3, 
-      quality, 
-      timeTaken: 0, 
-      sessionId: srs.state.currentSession?.id 
-    };
-    
-    try {
-      await srs.submitReview(reviewData);
-      showToast(`Definition "${selectedNode.name}" reviewed as ${qualityInput}.`, "success");
-      refreshNodeAfterReview({ ...selectedNode });
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to submit review.", "error");
-    }
-  }, [selectedNode, selectedNodeDetails, srs, codeToNumericIdMap, refreshNodeAfterReview]);
-
-  const verifyAnswer = useCallback(async () => {
-    if (!selectedNode || selectedNode.type !== 'exercise' || !selectedNodeDetails) return;
-    const exerciseDetails = selectedNodeDetails as Exercise;
-    let success = false;
-    if (exerciseDetails.verifiable && exerciseDetails.result != null) {
-        success = userAnswer.trim().toLowerCase() === exerciseDetails.result.trim().toLowerCase();
-        setAnswerFeedback({ correct: success, message: success ? "Correct!" : "Incorrect." });
-    } else {
-        setAnswerFeedback({ correct: false, message: "This exercise is not automatically verifiable." });
-    }
-    setExerciseAttemptCompleted(true);
-    if(!showSolution) setShowSolution(true);
-  }, [selectedNode, selectedNodeDetails, userAnswer, showSolution]);
- 
-  const handleRateExerciseUnderstanding = useCallback(async (qualityInput: 'again' | 'hard' | 'good' | 'easy') => {
-    if (!selectedNode || selectedNode.type !== 'exercise' || !selectedNodeDetails) return;
-    
-    const numericId = codeToNumericIdMap.get(selectedNode.id);
-    if (!numericId) { showToast("Cannot rate: Node ID not found.", "error"); return; }
-    
-    const progress = srs.getNodeProgress(numericId, 'exercise');
-    if (progress?.status !== 'grasped' && progress?.status !== 'learned') {
-      showToast("This exercise must be 'Grasped' or 'Learned' before rating.", "info");
-      return;
-    }
-    
-    const qualityMap = { again: 0, hard: 1, good: 4, easy: 5 };
-    const quality: Quality = qualityMap[qualityInput] ?? 3;
-    const isSuccessfulAttempt = answerFeedback?.correct ?? (quality >= 3);
-    
-    const reviewData: ReviewRequest = { 
-      nodeId: numericId, 
-      nodeType: 'exercise', 
-      success: isSuccessfulAttempt, 
-      quality, 
-      timeTaken: 0, 
-      sessionId: srs.state.currentSession?.id 
-    };
-    
-    try {
-      await srs.submitReview(reviewData);
-      showToast(`Exercise "${selectedNode.name}" reviewed as ${qualityInput}.`, "success");
-      setExerciseAttemptCompleted(false);
-      setAnswerFeedback(null);
-      refreshNodeAfterReview({ ...selectedNode });
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to submit review.", "error");
-    }
-  }, [selectedNode, selectedNodeDetails, srs, answerFeedback, codeToNumericIdMap, refreshNodeAfterReview]);
-
-  const handleStatusChange = useCallback(async (nodeDBId: string, status: NodeStatus) => {
-    if (!selectedNode) return;
-    
-    const numericNodeId = codeToNumericIdMap.get(selectedNode.id);
-    if (!numericNodeId) { showToast(`Cannot update status: No numeric ID found`, "error"); return; }
-    
-    showToast(`Updating status to ${status}...`, "info", 1000);
-    
-    try {
-      await srs.updateNodeStatus(numericNodeId, selectedNode.type, status);
-      refreshNodeAfterReview({ ...selectedNode });
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to update status", "error");
-    }
-  }, [selectedNode, srs, codeToNumericIdMap, refreshNodeAfterReview]);
 
   // Filtered nodes for left panel
   const filteredGraphNodes = useMemo(() => {
@@ -929,9 +759,9 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       );
     }
     return tempNodes.sort((a, b) => a.id.localeCompare(b.id));
-  }, [stableGraph.nodes, filteredNodeType, searchQuery]);
+  }, [stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated]);
 
-  // Handle node hover
+  // Enhanced node hover with proper highlighting
   const handleNodeHover = useCallback((node: GraphNode | null) => {
     const newHighlightNodes = new Set<string>();
     const newHighlightLinks = new Set<string>();
@@ -958,18 +788,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
   // Basic handlers
   const toggleLeftPanel = useCallback(() => setShowLeftPanel(prev => !prev), []);
-  const toggleRightPanel = useCallback(() => {
-    setShowRightPanel(prev => {
-      if (prev) {
-        setSelectedNode(null);
-        setSelectedNodeDetails(null);
-        setNodeHistory([]);
-        setIsEditMode(false);
-        setExerciseAttemptCompleted(false);
-      }
-      return !prev;
-    });
-  }, []);
 
   const cycleLabelDisplay = useCallback(() => {
     setLabelDisplayMode(prev => prev === 'names' ? 'codes' : prev === 'codes' ? 'off' : 'names');
@@ -1004,7 +822,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     setShowNodeCreationModal(false);
     showToast(`${nodeCreationType === 'definition' ? 'Definition' : 'Exercise'} "${nodeCode}" created! Refreshing...`, 'success');
     
-    // Preserve positions during refresh
     if (stableGraph.nodes.length > 0) {
       positionManagerRef.current.extractPositions(stableGraph.nodes);
     }
@@ -1056,8 +873,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       }
       return;
     }
-    setShowStudyModeModal(true);
-  }, [isEnrolled, domainData]);
+    ui.openReviewWindow();
+  }, [isEnrolled, domainData, ui]);
 
   // Navigation helpers
   const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
@@ -1080,13 +897,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode]);
 
-  const navigateBackHistory = useCallback(() => {
-    if (nodeHistory.length === 0) return;
-    const prevNodeId = nodeHistory[nodeHistory.length - 1];
-    setNodeHistory(prev => prev.slice(0, -1));
-    navigateToNodeById(prevNodeId);
-  }, [nodeHistory, navigateToNodeById]);
-
   // Available definitions for modals
   const availableDefinitionsForModals = useMemo(() => {
     return stableGraph.nodes
@@ -1099,27 +909,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       .filter(node => node.numericId != null)
       .sort((a, b) => a.code.localeCompare(b.code)) as { code: string; name: string; numericId: number; }[];
   }, [stableGraph.nodes, codeToNumericIdMap]);
-
-  // Right panel helpers
-  const currentDescriptionText = useCallback(() => {
-    const detail = selectedNodeDetails as Definition;
-    if (!detail || !('description' in detail)) return '';
-    if (Array.isArray(detail.description)) return detail.description[selectedDefinitionIndex] || '';
-    return String(detail.description).split('|||')[selectedDefinitionIndex] || '';
-  }, [selectedNodeDetails, selectedDefinitionIndex]);
-
-  const hasMultipleDescriptions = useCallback(() => {
-    const detail = selectedNodeDetails as Definition;
-    if (!detail || !('description' in detail)) return false;
-    return (Array.isArray(detail.description) && detail.description.length > 1) || String(detail.description).includes('|||');
-  }, [selectedNodeDetails]);
-
-  const totalDescriptionsCount = useCallback(() => {
-    const detail = selectedNodeDetails as Definition;
-    if (!detail || !('description' in detail)) return 0;
-    if (Array.isArray(detail.description)) return detail.description.length;
-    return String(detail.description).split('|||').length;
-  }, [selectedNodeDetails]);
 
   // Position saving
   const savePositions = useCallback(async () => {
@@ -1158,95 +947,27 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   }, [onPositionUpdate, positionsChanged, codeToNumericIdMap, currentStructuralGraphData]);
 
-  // Edit submission - PRESERVES POSITIONS
-  const handleSubmitEdit = useCallback(async () => {
-    if (!selectedNode || !selectedNodeDetails) return;
-    
-    // Check domain ownership
-    const userOwnsThisDomain = currentUser && domainData && domainData.ownerId === currentUser.ID;
-    if (!userOwnsThisDomain) {
-      showToast("You don't have permission to edit nodes in this domain.", "error");
-      setIsEditMode(false);
-      return;
+  // Enhanced credit flow animations
+  const enhancedCreditFlowAnimations = useMemo(() => {
+    return srs.state.creditFlowAnimations.map(animation => ({
+      ...animation,
+      duration: 4000, // Extended duration for better visibility
+      timestamp: animation.timestamp || Date.now()
+    }));
+  }, [srs.state.creditFlowAnimations]);
+
+  // Clear animations after extended duration
+  useEffect(() => {
+    if (enhancedCreditFlowAnimations.length > 0) {
+      const timer = setTimeout(() => {
+        srs.clearError(); // This will clear animations through the reducer
+      }, 5000); // 5 seconds to see animations
+      
+      return () => clearTimeout(timer);
     }
-
-    const formName = (document.getElementById('name') as HTMLInputElement)?.value || selectedNode.name;
-    const formPrereqsEl = document.getElementById('prerequisites') as HTMLSelectElement;
-    const selectedPrereqNumericIds = Array.from(formPrereqsEl?.selectedOptions || [])
-      .map(opt => parseInt(opt.value, 10))
-      .filter(id => !isNaN(id));
-
-    let prerequisiteWeights: Record<number, number> = {};
-    const weightsInput = document.querySelector('input[name="prerequisiteWeights"]') as HTMLInputElement;
-    if (weightsInput?.value) { 
-      try { 
-        prerequisiteWeights = JSON.parse(weightsInput.value); 
-      } catch (e) { 
-        console.warn("Failed to parse prerequisite weights:", e); 
-      } 
-    }
-
-    try {
-      // Extract current positions before update
-      if (stableGraph.nodes.length > 0) {
-        positionManagerRef.current.extractPositions(stableGraph.nodes);
-      }
-
-      let updatedNode;
-      if (selectedNode.type === 'definition') {
-        const defDetails = selectedNodeDetails as Definition;
-        let formDesc = (document.getElementById('description') as HTMLTextAreaElement)?.value || '';
-        
-        if (hasMultipleDescriptions()) {
-          const descriptions = (Array.isArray(defDetails.description) ? 
-            [...defDetails.description] : 
-            String(defDetails.description).split('|||'));
-          descriptions[selectedDefinitionIndex] = formDesc;
-          formDesc = descriptions.join('|||');
-        }
-        
-        updatedNode = await updateDefinition(defDetails.id, { 
-          name: formName, 
-          description: formDesc,
-          notes: (document.getElementById('notes') as HTMLTextAreaElement)?.value,
-          references: (document.getElementById('references') as HTMLTextAreaElement)?.value
-            .split('\n').filter(r => r.trim()),
-          prerequisiteIds: selectedPrereqNumericIds, 
-          prerequisiteWeights,
-        });
-      } else { 
-        const exDetails = selectedNodeDetails as Exercise;
-        updatedNode = await updateExercise(exDetails.id, {
-          name: formName,
-          statement: (document.getElementById('statement') as HTMLTextAreaElement)?.value,
-          description: (document.getElementById('description') as HTMLTextAreaElement)?.value,
-          hints: (document.getElementById('hints') as HTMLTextAreaElement)?.value,
-          notes: (document.getElementById('exerciseNotes') as HTMLTextAreaElement)?.value,
-          difficulty: (document.getElementById('difficulty') as HTMLInputElement)?.value,
-          verifiable: (document.getElementById('verifiable') as HTMLInputElement)?.checked,
-          result: (document.getElementById('verifiable') as HTMLInputElement)?.checked ? 
-            (document.getElementById('result') as HTMLInputElement)?.value : undefined,
-          prerequisiteIds: selectedPrereqNumericIds, 
-          prerequisiteWeights,
-        });
-      }
-
-      // Refresh data while preserving positions
-      await refreshGraphAndSRSData();
-      setIsEditMode(false);
-      showToast(`${selectedNode.type === 'definition' ? 'Definition' : 'Exercise'} "${selectedNode.name}" updated.`, "success");
-
-    } catch (error) {
-      console.error("Error updating node:", error);
-      showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
-    }
-  }, [selectedNode, selectedNodeDetails, currentUser, domainData, hasMultipleDescriptions, selectedDefinitionIndex, stableGraph.nodes, refreshGraphAndSRSData]);
-
-  // Memoized credit flow animations
-  const memoizedCreditFlowAnimations = useMemo(() => srs.state.creditFlowAnimations, [srs.state.creditFlowAnimations]);
+  }, [enhancedCreditFlowAnimations.length, srs]);
 
   return (
-    <MathJaxProvider>
       <div className="h-full flex flex-col overflow-hidden bg-gray-100">
         {/* Modals */}
         <NodeCreationModal
@@ -1257,13 +978,6 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           onSuccess={handleNodeCreationSuccess}
           availablePrerequisites={availableDefinitionsForModals}
           position={nodeCreationPosition}
-        />
-
-        <StudyModeModal
-          isOpen={showStudyModeModal && !!isEnrolled}
-          onClose={() => setShowStudyModeModal(false)}
-          domainId={parseInt(subjectMatterId, 10)}
-          onNavigateToNode={navigateToNodeById}
         />
 
         <EnrollmentModal
@@ -1314,9 +1028,12 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 filteredNodeType={filteredNodeType}
                 onFilterChange={setFilteredNodeType}
                 filteredNodes={filteredGraphNodes}
-                selectedNodeId={selectedNode?.id || null}
                 onNodeClick={handleNodeClick}
                 mode={mode}
+                activeNodeIds={activeNodeIds}
+                selectedNodeIds={selectedNodeIds}
+                onNodeSelect={handleNodeSelect}
+                onClearSelection={handleClearSelection}
               />
             )}
           </div>
@@ -1333,15 +1050,15 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 graphRef={graphRef}
                 graphNodes={stableGraph.nodes}
                 graphLinks={stableGraph.links}
-                highlightNodes={highlightNodes}
+                highlightNodes={graphHighlightedNodes}
                 highlightLinks={highlightLinks}
                 filteredNodeType={filteredNodeType}
-                selectedNodeId={selectedNode?.id || null}
+                selectedNodeId={null}
                 labelDisplayMode={labelDisplayMode}
                 onNodeClick={handleNodeClick}
                 onNodeHover={handleNodeHover}
                 onNodeDragEnd={handleNodeDragEnd}
-                creditFlowAnimations={memoizedCreditFlowAnimations}
+                creditFlowAnimations={enhancedCreditFlowAnimations}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -1357,58 +1074,50 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             )}
           </div>
 
-          {/* Right Panel */}
-          <div className={`right-panel-class absolute top-0 right-0 h-full z-20 bg-white border-l shadow-lg transition-transform duration-300 ease-in-out ${showRightPanel && selectedNode ? 'translate-x-0 w-80 md:w-96' : 'translate-x-full w-80 md:w-96'}`}>
-            {showRightPanel && selectedNode && selectedNodeDetails && (
-              <RightPanel
-                isVisible={showRightPanel}
-                onToggle={toggleRightPanel}
-                selectedNode={selectedNode}
-                selectedNodeDetails={selectedNodeDetails}
-                isEditMode={isEditMode}
-                onToggleEditMode={() => {
-                  const userOwnsThisDomain = currentUser && domainData && domainData.ownerId === currentUser.ID;
-                  if (!userOwnsThisDomain) { 
-                    showToast("You can only edit nodes in domains you own.", "warning"); 
-                    return; 
-                  } 
-                  setIsEditMode(!isEditMode); 
-                }}
-                mode={mode}
-                nodeHistory={nodeHistory}
-                onNavigateBack={navigateBackHistory}
-                onNavigateToNode={navigateToNodeById}
-                showDefinition={showDefinition}
-                onToggleDefinition={() => setShowDefinition(!showDefinition)}
-                hasMultipleDescriptions={hasMultipleDescriptions()}
-                totalDescriptions={totalDescriptionsCount()}
-                selectedDefinitionIndex={selectedDefinitionIndex}
-                currentDescription={currentDescriptionText()}
-                onNavigatePrevDescription={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
-                onNavigateNextDescription={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
-                relatedExercises={relatedExercises}
-                onReviewDefinition={handleReviewDefinition}
-                showSolution={showSolution}
-                onToggleSolution={() => setShowSolution(!showSolution)}
-                showHints={showHints}
-                onToggleHints={() => setShowHints(!showHints)}
-                userAnswer={userAnswer}
-                onUpdateAnswer={setUserAnswer}
-                answerFeedback={answerFeedback}
-                onVerifyAnswer={verifyAnswer}
-                onRateExercise={handleRateExerciseUnderstanding}
-                exerciseAttemptCompleted={exerciseAttemptCompleted}
-                availableDefinitionsForEdit={availableDefinitionsForModals}
-                onSubmitEdit={handleSubmitEdit}
-                onStatusChange={handleStatusChange}
-                availableDefinitions={availableDefinitionsForModals.map(d => ({code: d.code, name: d.name}))}
-              />
-            )}
-          </div>
+          {/* Render draggable windows */}
+          {ui.state.windows.map(window => (
+            <DraggableWindow
+              key={window.id}
+              id={window.id}
+              title={window.title}
+              initialPosition={window.position}
+              initialSize={window.size}
+              onClose={() => ui.closeWindow(window.id)}
+              onFocus={() => ui.focusWindow(window.id)}
+              zIndex={window.zIndex}
+              isMinimized={window.isMinimized}
+              onMinimize={() => ui.minimizeWindow(window.id)}
+            >
+              {window.type === 'detail' && (
+                <DetailWindowContent
+                  nodeData={window.contentProps.nodeData}
+                  windowId={window.id}
+                  graphData={currentStructuralGraphData}
+                  onNavigateToNode={navigateToNodeById}
+                  codeToNumericIdMap={codeToNumericIdMap}
+                  currentUser={currentUser}
+                  domainData={domainData}
+                  onRefresh={refreshGraphAndSRSData}
+                />
+              )}
+              {window.type === 'review' && (
+                <ReviewWindowContent
+                  domainId={parseInt(subjectMatterId, 10)}
+                  onNavigateToNode={navigateToNodeById}
+                  windowId={window.id}
+                />
+              )}
+            </DraggableWindow>
+          ))}
         </div>
       </div>
-    </MathJaxProvider>
   );
 };
 
-export default KnowledgeGraph;
+const KnowledgeGraphWrapper: FC<KnowledgeGraphProps> = (props) => (
+  <MathJaxProvider>
+    <KnowledgeGraph {...props} />
+  </MathJaxProvider>
+);
+
+export default KnowledgeGraphWrapper;
