@@ -1,5 +1,4 @@
 // client/src/app/components/Graph/KnowledgeGraph.tsx
-// Enhanced with proper multi-node selection and credit flow animations
 
 "use client";
 
@@ -28,7 +27,7 @@ import {
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
 import { getStatusColor, isNodeDue, calculateDaysUntilReview } from '../../../lib/srs-api';
-import { NodeStatus, CreditFlowAnimation, ReviewRequest, Quality } from '../../../types/srs';
+import { NodeStatus } from '../../../types/srs';
 
 import {
   GraphNode,
@@ -38,7 +37,6 @@ import {
   AppMode,
   FilteredNodeType,
   KnowledgeGraphProps,
-  AnswerFeedback,
 } from './utils/types';
 import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
@@ -48,20 +46,16 @@ import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
+import { PositionManager } from './utils/PositionManager';
 
-interface GraphStructureState {
-  nodes: Map<string, GraphNodeCore>;
-  links: Map<string, GraphLinkCore>;
-  version: number;
-  lastStructuralChange: number;
-}
+// ============================================================================
+// TYPE DEFINITIONS FOR TRUE STRUCTURE/METADATA SEPARATION
+// ============================================================================
 
+// Structure only contains topology data - no names or visual properties
 interface GraphNodeCore {
   id: string;
-  name: string;
   type: 'definition' | 'exercise';
-  isRootDefinition?: boolean;
-  difficulty?: string;
   prerequisites?: string[];
   domainId?: number;
   xPosition?: number;
@@ -76,14 +70,18 @@ interface GraphLinkCore {
   weight: number;
 }
 
-interface GraphMetadataState {
-  nodeMetadata: Map<string, NodeMetadata>;
-  linkMetadata: Map<string, LinkMetadata>;
+interface GraphStructureState {
+  nodes: Map<string, GraphNodeCore>;
+  links: Map<string, GraphLinkCore>;
   version: number;
-  lastMetadataChange: number;
+  lastStructuralChange: number;
 }
 
+// Metadata contains all visual and display properties
 interface NodeMetadata {
+  name: string;
+  isRootDefinition?: boolean;
+  difficulty?: string;
   status?: NodeStatus;
   isDue?: boolean;
   daysUntilReview?: number | null;
@@ -97,107 +95,44 @@ interface LinkMetadata {
   isHighlighted?: boolean;
 }
 
-class PositionManager {
-  private positions = new Map<string, { x: number; y: number; fx?: number; fy?: number }>();
-  private isStable = false;
-  private stabilityTimeout: NodeJS.Timeout | null = null;
-  private callbacks: Array<() => void> = [];
-
-  savePosition(nodeId: string, x: number, y: number, fixed: boolean = false) {
-    const current = this.positions.get(nodeId) || {};
-    this.positions.set(nodeId, {
-      ...current,
-      x,
-      y,
-      fx: fixed ? x : current.fx,
-      fy: fixed ? y : current.fy,
-    });
-  }
-
-  fixPosition(nodeId: string, x: number, y: number) {
-    this.savePosition(nodeId, x, y, true);
-  }
-
-  unfixPosition(nodeId: string) {
-    const current = this.positions.get(nodeId);
-    if (current) {
-      this.positions.set(nodeId, {
-        ...current,
-        fx: undefined,
-        fy: undefined,
-      });
-    }
-  }
-
-  getPosition(nodeId: string) {
-    return this.positions.get(nodeId);
-  }
-
-  getAllPositions() {
-    return new Map(this.positions);
-  }
-
-  applyPositions(nodes: GraphNode[]) {
-    nodes.forEach(node => {
-      const savedPos = this.positions.get(node.id);
-      if (savedPos) {
-        node.x = savedPos.x;
-        node.y = savedPos.y;
-        if (savedPos.fx !== undefined) node.fx = savedPos.fx;
-        if (savedPos.fy !== undefined) node.fy = savedPos.fy;
-      }
-    });
-  }
-
-  extractPositions(nodes: GraphNode[]) {
-    nodes.forEach(node => {
-      if (typeof node.x === 'number' && typeof node.y === 'number') {
-        this.savePosition(node.id, node.x, node.y, node.fx !== undefined);
-      }
-    });
-  }
-
-  markStable() {
-    if (!this.isStable) {
-      this.isStable = true;
-      this.callbacks.forEach(callback => callback());
-      console.log('Graph positions marked as stable');
-    }
-  }
-
-  markUnstable() {
-    this.isStable = false;
-    if (this.stabilityTimeout) {
-      clearTimeout(this.stabilityTimeout);
-    }
-    this.stabilityTimeout = setTimeout(() => {
-      this.markStable();
-    }, 5000);
-  }
-
-  onStabilityChange(callback: () => void) {
-    this.callbacks.push(callback);
-    return () => {
-      const index = this.callbacks.indexOf(callback);
-      if (index > -1) this.callbacks.splice(index, 1);
-    };
-  }
-
-  isPositionStable() {
-    return this.isStable;
-  }
-
-  clearPositions(nodeIds?: string[]) {
-    if (nodeIds) {
-      nodeIds.forEach(id => this.positions.delete(id));
-    } else {
-      this.positions.clear();
-    }
-    this.isStable = false;
-  }
+interface GraphMetadataState {
+  nodeMetadata: Map<string, NodeMetadata>;
+  linkMetadata: Map<string, LinkMetadata>;
+  version: number;
+  lastMetadataChange: number;
 }
 
-// [Previous hook functions remain the same...]
+// ============================================================================
+// UTILS
+// ============================================================================
+
+// Robust string hash for change detection (fixes version collision bug)
+function hashString(str: string): number {
+  let hash = 5381; // djb2
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+// Debounce with correct type
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// ============================================================================
+// HOOKS FOR TRUE STRUCTURE/METADATA SEPARATION
+// ============================================================================
+
+// Only tracks true structural changes (topology)
 const useGraphStructure = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
@@ -207,29 +142,34 @@ const useGraphStructure = (
     const nodes = new Map<string, GraphNodeCore>();
     const links = new Map<string, GraphLinkCore>();
 
-    const defHash = Object.keys(definitions).sort().join(',');
-    const exHash = Object.keys(exercises).sort().join(',');
-    const prerequisiteHash = [
-      ...Object.values(definitions).map(d => `${d.code}:${(d.prerequisites || []).sort().join(',')}`),
-      ...Object.values(exercises).map(e => `${e.code}:${(e.prerequisites || []).sort().join(',')}`),
-    ].join('|');
+    // Hash only includes structural data (IDs and prerequisites)
+    const defStructureHash = Object.values(definitions)
+      .map(d => `${d.code}:${(d.prerequisites || []).sort().join(',')}`)
+      .sort()
+      .join('|');
+    
+    const exStructureHash = Object.values(exercises)
+      .map(e => `${e.code}:${(e.prerequisites || []).sort().join(',')}`)
+      .sort()
+      .join('|');
+    
+    // FIX: robust version
+    const version = hashString([defStructureHash, exStructureHash, mode].join('::'));
 
-    const version = [defHash, exHash, mode, prerequisiteHash].join('::').length;
-
+    // Build nodes from definitions (structure only)
     Object.values(definitions).forEach(def => {
-      if (!def?.code || !def?.name) return;
+      if (!def?.code) return;
       
       nodes.set(def.code, {
         id: def.code,
-        name: def.name,
         type: 'definition',
-        isRootDefinition: !def.prerequisites || def.prerequisites.length === 0,
         prerequisites: def.prerequisites,
         domainId: def.domainId,
         xPosition: def.xPosition,
         yPosition: def.yPosition,
       });
 
+      // Create links from prerequisites
       (def.prerequisites || []).forEach(prereqCode => {
         const linkId = `${prereqCode}-${def.code}`;
         links.set(linkId, {
@@ -242,21 +182,21 @@ const useGraphStructure = (
       });
     });
 
+    // Build nodes from exercises (only in practice mode)
     if (mode === 'practice') {
       Object.values(exercises).forEach(ex => {
-        if (!ex?.code || !ex?.name) return;
+        if (!ex?.code) return;
         
         nodes.set(ex.code, {
           id: ex.code,
-          name: ex.name,
           type: 'exercise',
-          difficulty: ex.difficulty,
           prerequisites: ex.prerequisites,
           domainId: ex.domainId,
           xPosition: ex.xPosition,
           yPosition: ex.yPosition,
         });
 
+        // Create links from prerequisites to exercises
         (ex.prerequisites || []).forEach(prereqCode => {
           if (nodes.has(prereqCode)) {
             const linkId = `${prereqCode}-${ex.code}`;
@@ -281,9 +221,11 @@ const useGraphStructure = (
       lastStructuralChange: Date.now(),
     };
   }, [
+    // Dependencies only track structural changes
     Object.keys(definitions).sort().join(','),
     Object.keys(exercises).sort().join(','),
     mode,
+    // Track prerequisite structure changes
     JSON.stringify(Object.fromEntries(
       Object.values(definitions).map(d => [d.code, (d.prerequisites || []).sort()])
     )),
@@ -293,42 +235,41 @@ const useGraphStructure = (
   ]);
 };
 
-// Enhanced metadata manager with better highlighting support
+// Tracks all metadata including names
 const useGraphMetadata = (
   structureNodes: Map<string, GraphNodeCore>,
+  definitions: Record<string, Definition>,
+  exercises: Record<string, Exercise>,
   srs: any,
   codeToNumericIdMap: Map<string, number>,
   activeNodeIds: Set<string>,
-  selectedNodeIds: Set<string>, 
+  selectedNodeIds: Set<string>,
   highlightNodes: Set<string>
 ): GraphMetadataState => {
   return useMemo(() => {
     const nodeMetadata = new Map<string, NodeMetadata>();
     const linkMetadata = new Map<string, LinkMetadata>();
 
+    // Build metadata for each node
     structureNodes.forEach((nodeCore, nodeId) => {
       const numericId = codeToNumericIdMap.get(nodeId);
       const progress = numericId ? srs.getNodeProgress(numericId, nodeCore.type) : null;
       
-      let baseColor;
-      if (nodeCore.type === 'definition') {
-        baseColor = nodeCore.isRootDefinition ? '#28a745' : '#007bff';
-      } else {
-        const difficultyColors = ['#66bb6a', '#9ccc65', '#d4e157', '#ffee58', '#ffa726', '#ff7043', '#ef5350'];
-        let difficultyLevel = 2;
-        if (nodeCore.difficulty) {
-          const parsedDifficulty = parseInt(nodeCore.difficulty, 10);
-          if (!isNaN(parsedDifficulty)) {
-            difficultyLevel = Math.max(0, Math.min(6, parsedDifficulty - 1));
-          }
-        }
-        baseColor = difficultyColors[difficultyLevel];
-      }
-      
+      // Get full node data to access metadata properties
+      const fullNodeData = definitions[nodeId] || exercises[nodeId];
+
+      // Fallbacks (critical fix): even if full data isn't present yet,
+      // produce minimal metadata so the node isn't dropped.
+      const isDefinition = nodeCore.type === 'definition';
+      const isRoot = (nodeCore.prerequisites || []).length === 0;
+      const baseColor = isDefinition ? (isRoot ? '#28a745' : '#007bff') : '#9ccc65';
       const srsColor = progress?.status ? getStatusColor(progress.status) : baseColor;
-      
+
       nodeMetadata.set(nodeId, {
-        status: progress?.status || 'fresh',
+        name: fullNodeData?.name ?? nodeId,
+        isRootDefinition: isDefinition ? isRoot : undefined,
+        difficulty: !isDefinition ? (fullNodeData?.difficulty as string | undefined) : undefined,
+        status: (progress?.status as NodeStatus) || 'fresh',
         isDue: progress ? isNodeDue(progress.nextReview) : false,
         daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
         progress: progress || null,
@@ -343,15 +284,22 @@ const useGraphMetadata = (
       lastMetadataChange: Date.now(),
     };
   }, [
+    // Dependencies track metadata changes
     srs.state.domainProgress,
     srs.state.lastUpdated,
     Array.from(activeNodeIds).sort().join(','),
-    Array.from(selectedNodeIds).sort().join(','), 
+    Array.from(selectedNodeIds).sort().join(','),
     Array.from(highlightNodes).sort().join(','),
     codeToNumericIdMap,
+    // Track name and other metadata changes
+    Object.values(definitions).map(d => d.name).join('|'),
+    Object.values(exercises).map(e => e.name).join('|'),
+    Object.values(definitions).map(d => d.difficulty || '').join('|'),
+    Object.values(exercises).map(e => e.difficulty || '').join('|'),
   ]);
 };
 
+// This hook correctly handles structure vs metadata updates
 const useStableGraph = (
   structure: GraphStructureState,
   metadata: GraphMetadataState,
@@ -365,30 +313,33 @@ const useStableGraph = (
     const structureChanged = structure.version !== lastStructureVersionRef.current;
     
     if (structureChanged) {
-      console.log('Structure changed, rebuilding nodes/links');
+      console.log('STRUCTURE CHANGED: Rebuilding nodes/links with physics reset');
       
+      // Extract positions from old nodes before rebuilding
       if (stableNodesRef.current.length > 0) {
         positionManager.extractPositions(stableNodesRef.current);
       }
       
+      // Build new nodes array from structure + metadata
       const newNodes: GraphNode[] = [];
       const newLinks: GraphLink[] = [];
 
       structure.nodes.forEach((nodeCore, nodeId) => {
         const nodeMeta = metadata.nodeMetadata.get(nodeId);
-        
+        // nodeMeta should always exist now due to fallback in useGraphMetadata
         const mergedNode: GraphNode = {
           ...nodeCore,
-          ...nodeMeta,
+          ...(nodeMeta || { name: nodeId, status: 'fresh' as NodeStatus, color: '#999' }),
+          // Set initial position from database
           x: nodeCore.xPosition,
           y: nodeCore.yPosition,
           fx: nodeCore.xPosition,
           fy: nodeCore.yPosition,
         };
-        
         newNodes.push(mergedNode);
       });
 
+      // Build links
       structure.links.forEach(linkCore => {
         newLinks.push({
           source: linkCore.source,
@@ -398,6 +349,7 @@ const useStableGraph = (
         });
       });
 
+      // Apply saved positions to new nodes
       positionManager.applyPositions(newNodes);
       
       stableNodesRef.current = newNodes;
@@ -406,6 +358,8 @@ const useStableGraph = (
       
       positionManager.markUnstable();
     } else {
+      // Only metadata changed - update in place to preserve physics
+      console.log('METADATA ONLY: Updating node properties in-place');
       stableNodesRef.current.forEach(node => {
         const nodeMeta = metadata.nodeMetadata.get(node.id);
         if (nodeMeta) {
@@ -417,21 +371,14 @@ const useStableGraph = (
     return {
       nodes: stableNodesRef.current,
       links: stableLinksRef.current,
-      structureChanged,
+      requiresPhysicsReset: structureChanged,
     };
   }, [structure.version, metadata.version, positionManager]);
 };
 
-function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
   return (
@@ -493,8 +440,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Refs for stable callbacks
   const isInitializedRef = useRef<boolean>(false);
+  const pendingFocusNodeIdRef = useRef<string | null>(null);
 
-  // Build graph using new architecture
+  // Build graph using architecture with true structure/metadata separation
   const graphStructure = useGraphStructure(
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
@@ -511,9 +459,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     [ui.state.windows]
   );
 
-  // Enhanced metadata with multi-selection support
+  // Metadata hook tracks names and visual properties
   const graphMetadata = useGraphMetadata(
     graphStructure.nodes,
+    currentStructuralGraphData.definitions || {},
+    currentStructuralGraphData.exercises || {},
     srs,
     codeToNumericIdMap,
     activeNodeIds,
@@ -521,18 +471,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     highlightNodes
   );
 
+  // Stable graph correctly handles structure vs metadata updates
   const stableGraph = useStableGraph(graphStructure, graphMetadata, positionManagerRef.current);
 
   const graphHighlightedNodes = useMemo(() => {
     const combined = new Set<string>();
     
-    // Add active nodes (with open windows) - highest priority
     activeNodeIds.forEach(id => combined.add(id));
-    
-    // Add selected nodes from left panel
     selectedNodeIds.forEach(id => combined.add(id));
-    
-    // Add hover highlighted nodes
     highlightNodes.forEach(id => combined.add(id));
     
     return combined;
@@ -541,11 +487,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const handleNodeSelect = useCallback((nodeId: string, isSelected: boolean) => {
     setSelectedNodeIds(prev => {
       const newSet = new Set(prev);
-      if (isSelected) {
-        newSet.add(nodeId);
-      } else {
-        newSet.delete(nodeId);
-      }
+      if (isSelected) newSet.add(nodeId);
+      else newSet.delete(nodeId);
       return newSet;
     });
   }, []);
@@ -624,6 +567,83 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, []);
 
+  // NEW SURGICAL UPDATE FUNCTIONS
+  const surgicallyUpdateDefinition = useCallback((nodeCode: string, updatedData: ApiDefinition) => {
+    console.log('Performing surgical update for definition:', nodeCode);
+    
+    setNodeDataCache(prevCache => {
+      const newCache = new Map(prevCache);
+      newCache.set(nodeCode, updatedData);
+      return newCache;
+    });
+    
+    setCodeToNumericIdMap(prevMap => {
+      const newMap = new Map(prevMap);
+      if (updatedData.id && !newMap.has(nodeCode)) {
+        newMap.set(nodeCode, updatedData.id);
+      }
+      return newMap;
+    });
+    
+    setCurrentStructuralGraphData(prevData => {
+      const newDefinitions = { ...prevData.definitions };
+      if (newDefinitions[nodeCode]) {
+        newDefinitions[nodeCode] = { 
+          ...newDefinitions[nodeCode],
+          ...updatedData,
+          type: 'definition',
+          prerequisiteWeights: updatedData.prerequisiteWeights || 
+            (updatedData.prerequisites ? Object.fromEntries(updatedData.prerequisites.map(p => [p, 1.0])) : {})
+        };
+      }
+      return { ...prevData, definitions: newDefinitions };
+    });
+  }, []);
+
+  const surgicallyUpdateExercise = useCallback((nodeCode: string, updatedData: ApiExercise) => {
+    console.log('Performing surgical update for exercise:', nodeCode);
+    
+    setNodeDataCache(prevCache => {
+      const newCache = new Map(prevCache);
+      newCache.set(nodeCode, updatedData);
+      return newCache;
+    });
+    
+    setCodeToNumericIdMap(prevMap => {
+      const newMap = new Map(prevMap);
+      if (updatedData.id && !newMap.has(nodeCode)) {
+        newMap.set(nodeCode, updatedData.id);
+      }
+      return newMap;
+    });
+    
+    setCurrentStructuralGraphData(prevData => {
+      const newExercises = { ...prevData.exercises };
+      if (newExercises[nodeCode]) {
+        newExercises[nodeCode] = { 
+          ...newExercises[nodeCode],
+          ...updatedData,
+          type: 'exercise',
+          prerequisiteWeights: updatedData.prerequisiteWeights || 
+            (updatedData.prerequisites ? Object.fromEntries(updatedData.prerequisites.map(p => [p, 1.0])) : {})
+        };
+      }
+      return { ...prevData, exercises: newExercises };
+    });
+  }, []);
+
+  // Combined surgical update function
+  const handleSurgicalNodeUpdate = useCallback((nodeCode: string, updatedData: ApiDefinition | ApiExercise) => {
+    const nodeType = (updatedData as any).type || 
+      (currentStructuralGraphData.definitions?.[nodeCode] ? 'definition' : 'exercise');
+    
+    if (nodeType === 'definition') {
+      surgicallyUpdateDefinition(nodeCode, updatedData as ApiDefinition);
+    } else {
+      surgicallyUpdateExercise(nodeCode, updatedData as ApiExercise);
+    }
+  }, [surgicallyUpdateDefinition, surgicallyUpdateExercise, currentStructuralGraphData]);
+
   // Initialize domain data
   useEffect(() => {
     const domainId = parseInt(subjectMatterId, 10);
@@ -657,7 +677,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           }
         } else {
           const enrolledDomains = await getEnrolledDomains();
-          const isUserEnrolled = enrolledDomains.some(d => d.id === domainId);
+          const isUserEnrolled = enrolledDomains.some((d: any) => d.id === domainId);
           setIsEnrolled(isUserEnrolled);
           
           if (isUserEnrolled) {
@@ -679,29 +699,205 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     checkUserAndEnrollment();
   }, [subjectMatterId, srs, isEnrolled]);
 
-  // Handle node drag end (position updates) - NO SIMULATION RESTART
+  // Handle node drag end with position manager
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
     if (node?.id && typeof node.x === 'number' && typeof node.y === 'number') {
       positionManagerRef.current.fixPosition(node.id, node.x, node.y);
       setPositionsChanged(true);
-      node.fx = node.x;
-      node.fy = node.y;
+      (node as any).fx = node.x;
+      (node as any).fy = node.y;
     }
   }, []);
+
+  // Enhanced engine stop handler with initial zoom
+  const handleEngineStop = useCallback(() => {
+    positionManagerRef.current.markStable();
+    
+    if (isProcessingData && graphRef.current && stableGraph.nodes.length > 0) {
+      setTimeout(() => {
+        graphRef.current?.zoomToFit?.(400, 50);
+        console.log('Initial zoom-to-fit applied');
+      }, 100);
+    }
+  }, [isProcessingData, stableGraph.nodes.length]);
 
   // Handle node click
   const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false, context: 'click' | 'study' | 'navigation' = 'click') => {
     if (!nodeOnClick?.id) return;
 
     const position = {
-      x: window.innerWidth - 500,
+      x: typeof window !== 'undefined' ? window.innerWidth - 500 : 800,
       y: 100 + (ui.state.windows.filter(w => w.type === 'detail').length * 30)
     };
 
     ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
   }, [ui]);
 
-  // Refresh function - PRESERVES POSITIONS
+  // Enhanced node hover with proper highlighting
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
+    const newHighlightNodes = new Set<string>();
+    const newHighlightLinks = new Set<string>();
+    
+    if (node?.id) {
+      newHighlightNodes.add(node.id);
+      stableGraph.links.forEach(link => {
+        const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
+        const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
+        
+        if (sourceId === node.id) {
+          if (targetId) newHighlightNodes.add(targetId);
+          if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
+        } else if (targetId === node.id) {
+          if (sourceId) newHighlightNodes.add(sourceId);
+          if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
+        }
+      });
+    }
+    
+    setHighlightNodes(newHighlightNodes);
+    setHighlightLinks(newHighlightLinks);
+  }, [stableGraph.links]);
+
+  // ======= Surgical create: insert new node without full rerender & keep pan =======
+
+  // Compute spawn near neighbors or viewport center
+  const computeSpawnPosition = useCallback((created: Partial<ApiDefinition & ApiExercise>) => {
+    const neighbors = new Set<string>([...(created.prerequisites || [])]);
+    let spawn = nodeCreationPosition;
+    if (neighbors.size > 0 && stableGraph.nodes.length > 0) {
+      let sx = 0, sy = 0, c = 0;
+      for (const n of stableGraph.nodes) {
+        if (neighbors.has(n.id) && typeof (n as any).x === 'number' && typeof (n as any).y === 'number') {
+          sx += (n as any).x as number;
+          sy += (n as any).y as number;
+          c++;
+        }
+      }
+      if (c > 0) spawn = { x: sx / c, y: sy / c };
+    }
+    if (!spawn) {
+      try {
+        if (graphRef.current?.canvas) {
+          const rect = graphRef.current.canvas().getBoundingClientRect();
+          const center = graphRef.current.screen2GraphCoords(rect.width / 2, rect.height / 2);
+          spawn = { x: center.x, y: center.y };
+        }
+      } catch {}
+    }
+    if (!spawn) spawn = { x: 0, y: 0 };
+    return { x: spawn.x + (Math.random() - 0.5) * 40, y: spawn.y + (Math.random() - 0.5) * 40 };
+  }, [nodeCreationPosition, stableGraph.nodes]);
+
+  // Create new node with enhanced positioning
+  const createNewNode = useCallback((type: 'definition' | 'exercise') => {
+    if (!isEnrolled) {
+      if (domainData && domainData.privacy === 'public') {
+        setShowEnrollmentModal(true);
+      }
+      return;
+    }
+
+    let position: {x: number, y: number} = { x: 0, y: 0 };
+    if (graphRef.current?.canvas) {
+      try {
+        const rect = graphRef.current.canvas().getBoundingClientRect();
+        const centerScreenX = rect.width / 2;
+        const centerScreenY = rect.height / 2;
+        const centerGraphCoords = graphRef.current.screen2GraphCoords(centerScreenX, centerScreenY);
+        position = { 
+          x: centerGraphCoords.x + (Math.random() - 0.5) * 50, 
+          y: centerGraphCoords.y + (Math.random() - 0.5) * 50 
+        };
+      } catch(e) { 
+        console.warn("Could not get graph center for new node.", e); 
+      }
+    }
+    
+    setNodeCreationType(type);
+    setNodeCreationPosition(position);
+    setShowNodeCreationModal(true);
+  }, [isEnrolled, domainData]);
+
+  // SURGICAL INSERT ON CREATE (no full refresh)
+  const handleNodeCreationSuccess = useCallback(async (nodeCode: string) => {
+    setShowNodeCreationModal(false);
+    showToast(`${nodeCreationType === 'definition' ? 'Definition' : 'Exercise'} "${nodeCode}" created.`, 'success');
+
+    // Fetch only the created node (avoid full reload)
+    let createdData: any = null;
+    try {
+      const raw = nodeCreationType === 'definition' 
+        ? await getDefinitionByCode(nodeCode) 
+        : await getExerciseByCode(nodeCode);
+      // Some APIs return arrays; normalize
+      createdData = Array.isArray(raw) ? raw[0] : raw;
+    } catch (e) {
+      console.warn('Could not fetch created node details, using minimal payload.', e);
+    }
+
+    // Normalize payload to guarantee essential fields
+    const payload: any = {
+      ...(createdData || {}),
+      code: (createdData && createdData.code) ? createdData.code : nodeCode,
+      name: (createdData && createdData.name) ? createdData.name : nodeCode,
+      prerequisites: (createdData && Array.isArray(createdData.prerequisites)) ? createdData.prerequisites : [],
+      prerequisiteWeights: (createdData && createdData.prerequisiteWeights) ? createdData.prerequisiteWeights : {},
+      type: nodeCreationType
+    };
+
+    // Decide spawn position and pin it so the view doesn't jump
+    const spawn = computeSpawnPosition(payload);
+    positionManagerRef.current.fixPosition(nodeCode, spawn.x, spawn.y);
+
+    // Update maps/cache
+    if (typeof payload.id === 'number') {
+      setCodeToNumericIdMap(m => new Map(m).set(nodeCode, payload.id));
+    }
+    setNodeDataCache(c => new Map(c).set(nodeCode, payload));
+
+    // Insert surgically into structure state (only the new node & its links)
+    setCurrentStructuralGraphData(prev => {
+      const next = { ...prev };
+      if (payload.type === 'definition') {
+        next.definitions = { ...(next.definitions || {}) };
+        next.definitions[nodeCode] = {
+          ...(next.definitions?.[nodeCode] || {}),
+          ...payload,
+          type: 'definition',
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          prerequisiteWeights: payload.prerequisiteWeights || Object.fromEntries((payload.prerequisites || []).map((p: string) => [p, 1.0]))
+        };
+      } else {
+        next.exercises = { ...(next.exercises || {}) };
+        next.exercises[nodeCode] = {
+          ...(next.exercises?.[nodeCode] || {}),
+          ...payload,
+          type: 'exercise',
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          prerequisiteWeights: payload.prerequisiteWeights || Object.fromEntries((payload.prerequisites || []).map((p: string) => [p, 1.0]))
+        };
+      }
+      return next;
+    });
+
+    // Set a pending focus that will occur once the node appears in stableGraph
+    pendingFocusNodeIdRef.current = nodeCode;
+  }, [nodeCreationType, computeSpawnPosition]);
+
+  // After structure updates, focus newly created node once it materializes
+  useEffect(() => {
+    const pending = pendingFocusNodeIdRef.current;
+    if (!pending) return;
+    const node = stableGraph.nodes.find(n => n.id === pending);
+    if (node) {
+      handleNodeClick(node, false, 'navigation');
+      pendingFocusNodeIdRef.current = null;
+    }
+  }, [stableGraph.nodes, handleNodeClick]);
+
+  // Refresh function with position preservation
   const refreshGraphAndSRSData = useCallback(async () => {
     setIsRefreshing(true);
     showToast("Refreshing graph data...", "info", 2000);
@@ -729,19 +925,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId, loadComprehensiveDomainData, isEnrolled, srs, stableGraph.nodes]);
   
-  // Mode change - PRESERVES POSITIONS
+  // Mode change with position preservation
   const changeMode = useCallback((newMode: AppMode) => {
     if (newMode === mode) return;
-    
     if (stableGraph.nodes.length > 0) {
       positionManagerRef.current.extractPositions(stableGraph.nodes);
     }
-    
     setMode(newMode);
     setHighlightNodes(new Set());
     setHighlightLinks(new Set());
-    
-    // Clear selection when changing modes
     setSelectedNodeIds(new Set());
   }, [mode, stableGraph.nodes]);
 
@@ -761,80 +953,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return tempNodes.sort((a, b) => a.id.localeCompare(b.id));
   }, [stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated]);
 
-  // Enhanced node hover with proper highlighting
-  const handleNodeHover = useCallback((node: GraphNode | null) => {
-    const newHighlightNodes = new Set<string>();
-    const newHighlightLinks = new Set<string>();
-    
-    if (node?.id) {
-      newHighlightNodes.add(node.id);
-      stableGraph.links.forEach(link => {
-        const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
-        const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
-        
-        if (sourceId === node.id) {
-          if (targetId) newHighlightNodes.add(targetId);
-          if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
-        } else if (targetId === node.id) {
-          if (sourceId) newHighlightNodes.add(sourceId);
-          if (sourceId && targetId) newHighlightLinks.add(`${sourceId}-${targetId}`);
-        }
-      });
-    }
-    
-    setHighlightNodes(newHighlightNodes);
-    setHighlightLinks(newHighlightLinks);
-  }, [stableGraph.links]);
-
   // Basic handlers
   const toggleLeftPanel = useCallback(() => setShowLeftPanel(prev => !prev), []);
 
   const cycleLabelDisplay = useCallback(() => {
     setLabelDisplayMode(prev => prev === 'names' ? 'codes' : prev === 'codes' ? 'off' : 'names');
   }, []);
-
-  // Create new node
-  const createNewNode = useCallback((type: 'definition' | 'exercise') => {
-    if (!isEnrolled) {
-      if (domainData && domainData.privacy === 'public') {
-        setShowEnrollmentModal(true);
-      }
-      return;
-    }
-
-    let position: {x: number, y: number} = { x: 0, y: 0 };
-    if (graphRef.current?.canvas) {
-      try {
-        const { k = 1, x = 0, y = 0 } = graphRef.current.zoom() || {};
-        const rect = graphRef.current.canvas().getBoundingClientRect();
-        const centerX = (-x + rect.width / 2) / k;
-        const centerY = (-y + rect.height / 2) / k;
-        position = { x: centerX + (Math.random() - 0.5) * 50, y: centerY + (Math.random() - 0.5) * 50 };
-      } catch(e) { console.warn("Could not get graph center for new node.", e); }
-    }
-    
-    setNodeCreationType(type);
-    setNodeCreationPosition(position);
-    setShowNodeCreationModal(true);
-  }, [isEnrolled, domainData]);
-
-  const handleNodeCreationSuccess = useCallback(async (nodeCode: string) => {
-    setShowNodeCreationModal(false);
-    showToast(`${nodeCreationType === 'definition' ? 'Definition' : 'Exercise'} "${nodeCode}" created! Refreshing...`, 'success');
-    
-    if (stableGraph.nodes.length > 0) {
-      positionManagerRef.current.extractPositions(stableGraph.nodes);
-    }
-    
-    await refreshGraphAndSRSData(); 
-    
-    setTimeout(() => {
-      const newlyCreatedNode = stableGraph.nodes.find(n => n.id === nodeCode);
-      if (newlyCreatedNode) {
-          handleNodeClick(newlyCreatedNode, false, 'navigation');
-      }
-    }, 700);
-  }, [nodeCreationType, refreshGraphAndSRSData, handleNodeClick, stableGraph.nodes]);
 
   // Additional helper functions
   const handleEnrollment = useCallback(async () => {
@@ -949,9 +1073,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Enhanced credit flow animations
   const enhancedCreditFlowAnimations = useMemo(() => {
-    return srs.state.creditFlowAnimations.map(animation => ({
+    return srs.state.creditFlowAnimations.map((animation: any) => ({
       ...animation,
-      duration: 4000, // Extended duration for better visibility
+      duration: 4000,
       timestamp: animation.timestamp || Date.now()
     }));
   }, [srs.state.creditFlowAnimations]);
@@ -960,8 +1084,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   useEffect(() => {
     if (enhancedCreditFlowAnimations.length > 0) {
       const timer = setTimeout(() => {
-        srs.clearError(); // This will clear animations through the reducer
-      }, 5000); // 5 seconds to see animations
+        srs.clearError();
+      }, 5000);
       
       return () => clearTimeout(timer);
     }
@@ -1041,7 +1165,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
           {/* Graph Area */}
           <div className="flex-1 bg-gray-50 overflow-hidden relative">
-            {isProcessingData || isRefreshing ? (
+            {(isProcessingData || isRefreshing) ? (
               <div className="flex items-center justify-center h-full text-gray-500">
                 Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
               </div>
@@ -1058,7 +1182,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 onNodeClick={handleNodeClick}
                 onNodeHover={handleNodeHover}
                 onNodeDragEnd={handleNodeDragEnd}
+                onEngineStop={handleEngineStop}
                 creditFlowAnimations={enhancedCreditFlowAnimations}
+                requiresPhysicsReset={stableGraph.requiresPhysicsReset}
+                metadataVersion={graphMetadata.version.toString()}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -1097,6 +1224,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   codeToNumericIdMap={codeToNumericIdMap}
                   currentUser={currentUser}
                   domainData={domainData}
+                  onUpdateNodeData={handleSurgicalNodeUpdate}
                   onRefresh={refreshGraphAndSRSData}
                 />
               )}

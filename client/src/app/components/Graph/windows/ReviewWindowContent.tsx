@@ -37,7 +37,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   const [startTime, setStartTime] = useState<number | null>(null);
   const [autoNavigateToNodes, setAutoNavigateToNodes] = useState(false);
   
-  // FIX: Use ref to prevent infinite loops
+  // FIX 1: Add refresh mechanism to update item details when nodes are edited
+  const currentItemIdRef = useRef<string | null>(null);
+  
+  // Use refs to prevent infinite loops
   const hasInitialized = useRef(false);
   const isCleaningUp = useRef(false);
 
@@ -49,10 +52,31 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     }
   }, [domainId, srs]);
 
-  // FIX: Separate cleanup effect with stable dependencies
+  // FIX 1: Listen for data changes and refresh current item if needed
+  useEffect(() => {
+    if (currentReviewItem && currentItemIdRef.current === currentReviewItem.nodeCode) {
+      // Refresh current item details when domain data changes
+      const refreshCurrentItem = async () => {
+        try {
+          let details;
+          if (currentReviewItem.nodeType === 'definition') {
+            details = await getDefinition(currentReviewItem.nodeId);
+          } else {
+            details = await getExercise(currentReviewItem.nodeId);
+          }
+          setItemDetails(details);
+        } catch (error) {
+          console.error("Error refreshing current item:", error);
+        }
+      };
+      
+      refreshCurrentItem();
+    }
+  }, [srs.state.lastUpdated, currentReviewItem]);
+
+  // Separate cleanup effect with stable dependencies
   useEffect(() => {
     return () => {
-      // FIX: Use ref to prevent multiple cleanup calls
       if (isCleaningUp.current) return;
       isCleaningUp.current = true;
       
@@ -67,7 +91,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         srs.endStudySession().catch(console.error);
       }
     };
-  }, []); // FIX: Empty dependency array to run only on unmount
+  }, []);
 
   // Handle session start
   const handleStartSession = useCallback(async () => {
@@ -120,6 +144,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     if (!review) {
       setCurrentReviewItem(null);
       setItemDetails(null);
+      currentItemIdRef.current = null;
       // Clear review state when no more items
       ui.setReviewState(false, null, false);
       
@@ -133,6 +158,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     setIsLoadingItem(true);
     setShowAnswer(false);
     setCurrentReviewItem(review);
+    currentItemIdRef.current = review.nodeCode;
     
     // Set review state in UI context (for anti-cheat)
     ui.setReviewState(true, review.nodeCode, false);
@@ -210,7 +236,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     }
   }, [currentReviewItem, srs, startTime, reviewQueue, loadReviewItem]);
 
-  // FIX: Handle session end properly
+  // Handle session end properly
   const handleEndSession = useCallback(async () => {
     try {
       if (srs.state.currentSession) {
@@ -224,6 +250,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       setStartTime(null);
       setShowAnswer(false);
       setItemDetails(null);
+      currentItemIdRef.current = null;
       
       // Clear review state in UI context
       ui.setReviewState(false, null, false);
@@ -280,21 +307,28 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         {/* Content */}
         {currentReviewItem.nodeType === 'definition' ? (
           <div>
-            <h3 className="text-lg font-semibold mb-2">Define: {itemDetails.name}</h3>
+            {/* FIX 2: Wrap node name in MathJaxContent for LaTeX rendering */}
+            <h3 className="text-lg font-semibold mb-2">
+              Define: <MathJaxContent inline={true}>{itemDetails.name}</MathJaxContent>
+            </h3>
             {showAnswer && (
-              <MathJaxContent className="p-4 bg-gray-50 rounded-md border text-base">
+              <MathJaxContent className="p-4 bg-gray-50 rounded-md border text-base whitespace-pre-wrap">
                 {itemDetails.description?.split('|||')[0] || "N/A"}
               </MathJaxContent>
             )}
           </div>
         ) : (
           <div>
-            <h3 className="text-lg font-semibold mb-2">Exercise: {itemDetails.name}</h3>
-            <MathJaxContent className="p-4 bg-gray-50 rounded-md border text-base mb-2">
+            {/* FIX 2: Wrap node name in MathJaxContent for LaTeX rendering */}
+            <h3 className="text-lg font-semibold mb-2">
+              Exercise: <MathJaxContent inline={true}>{itemDetails.name}</MathJaxContent>
+            </h3>
+            {/* FIX 3: Add whitespace-pre-wrap for line breaks */}
+            <MathJaxContent className="p-4 bg-gray-50 rounded-md border text-base mb-2 whitespace-pre-wrap">
               {itemDetails.statement || "N/A"}
             </MathJaxContent>
             {showAnswer && (
-              <MathJaxContent className="p-4 bg-green-50 rounded-md border border-green-200 text-base">
+              <MathJaxContent className="p-4 bg-green-50 rounded-md border border-green-200 text-base whitespace-pre-wrap">
                 <strong>Solution:</strong> {itemDetails.description || "N/A"}
               </MathJaxContent>
             )}

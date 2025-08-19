@@ -1,7 +1,7 @@
 // File: ./src/app/components/Graph/panels/RightPanel.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { ArrowLeft, Edit, X, Eye, History, ChevronDown, ChevronUp } from 'lucide-react';
@@ -64,13 +64,17 @@ interface RightPanelProps {
   availableDefinitions: { code: string; name: string }[];
 }
 
-const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercise'}> = ({ nodeId, nodeType}) => {
+// Extracted ReviewHistory component for better organization
+const ReviewHistory: React.FC<{
+  nodeId: number;
+  nodeType: 'definition' | 'exercise';
+}> = React.memo(({ nodeId, nodeType }) => {
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     if (!nodeId) return;
     setIsLoading(true);
     setError(null);
@@ -83,16 +87,16 @@ const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercis
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [nodeId, nodeType]);
 
   useEffect(() => {
     if (showHistory && nodeId) {
       fetchHistory();
     }
-     if (!showHistory) {
-        setHistory([]);
+    if (!showHistory) {
+      setHistory([]);
     }
-  }, [showHistory, nodeId, nodeType]);
+  }, [showHistory, nodeId, nodeType, fetchHistory]);
 
   return (
     <div className="mt-3">
@@ -120,7 +124,9 @@ const ReviewHistory: React.FC<{nodeId: number, nodeType: 'definition' | 'exercis
       )}
     </div>
   );
-};
+});
+
+ReviewHistory.displayName = 'ReviewHistory';
 
 const RightPanel: React.FC<RightPanelProps> = ({
   isVisible,
@@ -163,6 +169,13 @@ const RightPanel: React.FC<RightPanelProps> = ({
   const srs = useSRS();
   const nodeProgress = selectedNode && selectedNodeDetails ? srs.getNodeProgress(selectedNodeDetails.id, selectedNode.type) : null;
 
+  const handleStatusSelection = useCallback(async (status: NodeStatus) => {
+    if (selectedNode && selectedNodeDetails) {
+      await onStatusChange(selectedNodeDetails.id.toString(), status);
+    }
+  }, [selectedNode, selectedNodeDetails, onStatusChange]);
+
+  // Show empty state when panel is not visible or no node is selected
   if (!isVisible || !selectedNode) {
     return (
       <div className="h-full flex items-center justify-center p-4">
@@ -173,15 +186,10 @@ const RightPanel: React.FC<RightPanelProps> = ({
       </div>
     );
   }
-  
-  const handleStatusSelection = async (status: NodeStatus) => {
-    if (selectedNode && selectedNodeDetails) {
-        await onStatusChange(selectedNodeDetails.id.toString(), status);
-    }
-  };
 
   return (
     <div className="h-full flex flex-col">
+      {/* Header */}
       <div className="border-b p-3 flex-shrink-0">
         <div className="flex justify-between items-center">
           <div className="flex items-center min-w-0 mr-2">
@@ -207,6 +215,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
         </div>
       </div>
 
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 text-sm">
         {!selectedNodeDetails && !isEditMode ? (
           <div className="text-center py-5 text-gray-500">Loading details...</div>
@@ -229,6 +238,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                 <TabsTrigger value="details" className="text-xs h-7">Details</TabsTrigger>
                 <TabsTrigger value="srs" className="text-xs h-7">SRS Progress</TabsTrigger>
               </TabsList>
+              
               <TabsContent value="details" className="mt-3 space-y-4">
                 {selectedNode.type === 'definition' ? (
                   <DefinitionView
@@ -266,13 +276,15 @@ const RightPanel: React.FC<RightPanelProps> = ({
                   />
                 )}
               </TabsContent>
+              
               <TabsContent value="srs" className="mt-3 space-y-3">
                 <StatusIndicator
-                    status={nodeProgress?.status || 'fresh'}
-                    isDue={nodeProgress?.isDue}
-                    daysUntilReview={nodeProgress?.daysUntilReview}
-                    nextReviewDate={nodeProgress?.nextReview}
+                  status={nodeProgress?.status || 'fresh'}
+                  isDue={nodeProgress?.isDue}
+                  daysUntilReview={nodeProgress?.daysUntilReview}
+                  nextReviewDate={nodeProgress?.nextReview}
                 />
+                
                 <div>
                   <label className="block text-xs font-medium mb-1 text-gray-600">Set Status:</label>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -290,7 +302,9 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     ))}
                   </div>
                 </div>
+                
                 <ProgressDisplay progress={nodeProgress} />
+                
                 {selectedNodeDetails?.id && (
                   <ReviewHistory nodeId={selectedNodeDetails.id} nodeType={selectedNode.type} />
                 )}

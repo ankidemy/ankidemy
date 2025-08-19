@@ -29,12 +29,13 @@ import { showToast } from '@/app/components/core/ToastNotification';
 interface DetailWindowContentProps {
   nodeData: GraphNode;
   windowId: string;
-  graphData?: any; // For getting available definitions
+  graphData?: any;
   onNavigateToNode?: (nodeId: string) => void;
   codeToNumericIdMap?: Map<string, number>;
   currentUser?: any;
   domainData?: any;
-  onRefresh?: () => void;
+  onUpdateNodeData?: (nodeCode: string, updatedData: ApiDefinition | ApiExercise) => void; // Surgical update
+  onRefresh?: () => void; // Fallback full refresh
 }
 
 export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
@@ -45,7 +46,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   codeToNumericIdMap = new Map(),
   currentUser,
   domainData,
-  onRefresh,
+  onUpdateNodeData, // NEW: Surgical update callback
+  onRefresh, // Fallback refresh
 }) => {
   const srs = useSRS();
   const ui = useUI();
@@ -109,7 +111,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   // Initialize with first node
   useEffect(() => {
     loadNodeDetails(currentNode);
-  }, []);
+  }, [loadNodeDetails, currentNode]);
 
   // Navigation within window
   const navigateToNode = useCallback(async (nodeId: string) => {
@@ -267,7 +269,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     setIsEditMode(!isEditMode);
   }, [currentUser, domainData, isEditMode]);
 
-  // FIX: Add edit submission functionality
+  // ENHANCED: Surgical edit submission with fallback
   const handleSubmitEdit = useCallback(async () => {
     if (!nodeDetails) return;
     
@@ -296,7 +298,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
 
     try {
-      let updatedNode;
+      let updatedNode: ApiDefinition | ApiExercise;
+      
       if (currentNode.type === 'definition') {
         const defDetails = nodeDetails as Definition;
         let formDesc = (document.getElementById('description') as HTMLTextAreaElement)?.value || '';
@@ -336,6 +339,15 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         });
       }
 
+      // NEW: Use surgical update if available, otherwise fall back to refresh
+      if (onUpdateNodeData) {
+        console.log('Using surgical update for node:', currentNode.id);
+        onUpdateNodeData(currentNode.id, updatedNode);
+      } else if (onRefresh) {
+        console.log('Falling back to full refresh after edit');
+        onRefresh();
+      }
+
       // Update local state with new data
       setNodeDetails({ ...updatedNode, type: currentNode.type } as Definition | Exercise);
       
@@ -352,16 +364,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       setIsEditMode(false);
       showToast(`${currentNode.type === 'definition' ? 'Definition' : 'Exercise'} "${currentNode.name}" updated.`, "success");
 
-      // Refresh the parent graph data
-      if (onRefresh) {
-        onRefresh();
-      }
-
     } catch (error) {
       console.error("Error updating node:", error);
       showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
     }
-  }, [nodeDetails, currentUser, domainData, currentNode, selectedDefinitionIndex, windowId, ui, onRefresh]);
+  }, [nodeDetails, currentUser, domainData, currentNode, selectedDefinitionIndex, windowId, ui, onUpdateNodeData, onRefresh]);
 
   // Helper functions for descriptions
   const hasMultipleDescriptions = () => {

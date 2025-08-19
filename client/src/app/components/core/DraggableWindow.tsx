@@ -49,7 +49,15 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   
   const windowRef = useRef<HTMLDivElement>(null);
   const dragStartPos = useRef({ x: 0, y: 0 });
-  const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  // FIX: Store initial position and size when resize starts
+  const resizeStartPos = useRef({ 
+    x: 0, 
+    y: 0, 
+    width: 0, 
+    height: 0,
+    initialX: 0,  // Add initial window position
+    initialY: 0   // Add initial window position
+  });
 
   // Ensure window stays within viewport
   useEffect(() => {
@@ -104,8 +112,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       
       let newWidth = resizeStartPos.current.width;
       let newHeight = resizeStartPos.current.height;
-      let newX = position.x;
-      let newY = position.y;
+      // FIX: Use initial position instead of current position
+      let newX = resizeStartPos.current.initialX;
+      let newY = resizeStartPos.current.initialY;
 
       if (resizeDirection.includes('right')) {
         newWidth = Math.max(minWidth, resizeStartPos.current.width + deltaX);
@@ -114,7 +123,8 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       if (resizeDirection.includes('left')) {
         newWidth = Math.max(minWidth, resizeStartPos.current.width - deltaX);
         if (maxWidth) newWidth = Math.min(maxWidth, newWidth);
-        newX = position.x + (resizeStartPos.current.width - newWidth);
+        // FIX: Calculate position based on initial position and size change
+        newX = resizeStartPos.current.initialX + (resizeStartPos.current.width - newWidth);
       }
       if (resizeDirection.includes('bottom')) {
         newHeight = Math.max(minHeight, resizeStartPos.current.height + deltaY);
@@ -123,7 +133,8 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       if (resizeDirection.includes('top')) {
         newHeight = Math.max(minHeight, resizeStartPos.current.height - deltaY);
         if (maxHeight) newHeight = Math.min(maxHeight, newHeight);
-        newY = position.y + (resizeStartPos.current.height - newHeight);
+        // FIX: Calculate position based on initial position and size change
+        newY = resizeStartPos.current.initialY + (resizeStartPos.current.height - newHeight);
       }
 
       setSize({ width: newWidth, height: newHeight });
@@ -140,11 +151,14 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   const startResize = (direction: string) => (e: React.MouseEvent) => {
     setIsResizing(true);
     setResizeDirection(direction);
+    // FIX: Store both mouse position, size, AND window position when resize starts
     resizeStartPos.current = {
       x: e.clientX,
       y: e.clientY,
       width: size.width,
-      height: size.height
+      height: size.height,
+      initialX: position.x,  // Store initial window position
+      initialY: position.y   // Store initial window position
     };
     onFocus();
     e.preventDefault();
@@ -161,7 +175,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging, isResizing, position, size]);
+  }, [isDragging, isResizing, position, size, resizeDirection, minWidth, minHeight, maxWidth, maxHeight]);
 
   // ESC key handler
   useEffect(() => {

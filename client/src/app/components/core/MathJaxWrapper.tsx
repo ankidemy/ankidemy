@@ -1,14 +1,12 @@
-// src/app/components/core/MathJaxWrapper.tsx
+// File: src/app/components/core/MathJaxWrapper.tsx
 "use client";
 
-import React, { ReactNode, memo, useState, useEffect } from 'react';
-import { MathJax, MathJaxContext } from 'better-react-mathjax';
+import React, { ReactNode, memo, useEffect, useRef, useState } from 'react';
+import { MathJaxContext } from 'better-react-mathjax';
 
-// Define typed MathJax configuration
+// ---- Types ----
 interface MathJaxConfig {
-  loader?: {
-    load?: string[];
-  };
+  loader?: { load?: string[] };
   tex?: {
     packages?: string[] | { "[+]": string[] };
     inlineMath?: [string, string][];
@@ -16,154 +14,151 @@ interface MathJaxConfig {
     processEscapes?: boolean;
     processEnvironments?: boolean;
   };
-  svg?: {
-    fontCache?: "local" | "global" | "none";
-  };
-  startup?: {
-    typeset?: boolean;
-  };
-  options?: {
-    enableMenu?: boolean;
-    renderActions?: any;
-  };
+  svg?: { fontCache?: 'local' | 'global' | 'none' };
+  startup?: { typeset?: boolean };
+  options?: { enableMenu?: boolean; renderActions?: any };
 }
 
-// Comprehensive default configuration
+// ---- Default config ----
 const defaultConfig: MathJaxConfig = {
-  loader: { load: ["[tex]/html", "[tex]/ams", "[tex]/noerrors", "[tex]/noundefined"] },
+  loader: { load: ['[tex]/html', '[tex]/ams', '[tex]/noerrors', '[tex]/noundefined'] },
   tex: {
-    packages: { "[+]": ["html", "ams", "noerrors", "noundefined"] },
-    inlineMath: [
-      ["$", "$"],
-      ["\\(", "\\)"]
-    ],
-    displayMath: [
-      ["$$", "$$"],
-      ["\\[", "\\]"]
-    ],
+    packages: { '[+]': ['html', 'ams', 'noerrors', 'noundefined'] },
+    inlineMath: [["$", "$"], ["\\(", "\\)"]],
+    displayMath: [["$$", "$$"], ["\\[", "\\]"]],
     processEscapes: true,
-    processEnvironments: true
+    processEnvironments: true,
   },
-  svg: {
-    fontCache: "global"
-  },
-  startup: {
-    typeset: true
-  },
-  options: {
-    enableMenu: false, // Disable the right-click menu for a cleaner UI
-  }
+  svg: { fontCache: 'global' },
+  startup: { typeset: true },
+  options: { enableMenu: false },
 };
 
-interface MathJaxProviderProps {
-  children: ReactNode;
-  config?: MathJaxConfig;
+interface MathJaxProviderProps { children: ReactNode; config?: MathJaxConfig }
+
+// ---- Provider ----
+export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ children, config = defaultConfig }) => {
+  // Silence noisy unhandled rejections coming from MathJax internals during hot reload/unmount races
+  useEffect(() => {
+    const handler = (e: PromiseRejectionEvent) => {
+      const msg = (e?.reason && (e.reason.message || String(e.reason))) || '';
+      if (typeof msg === 'string' && msg.includes('Typesetting failed')) {
+        e.preventDefault?.();
+        // Still log for diagnostics without crashing overlay
+        // eslint-disable-next-line no-console
+        console.warn('[MathJax] Suppressed async typeset error:', e.reason);
+      }
+    };
+    window.addEventListener('unhandledrejection', handler);
+    return () => window.removeEventListener('unhandledrejection', handler);
+  }, []);
+
+  return <MathJaxContext config={config}>{children}</MathJaxContext>;
+});
+MathJaxProvider.displayName = 'MathJaxProvider';
+
+// ---- Safe, manual typesetting (no <MathJax> component) ----
+interface MathTextProps {
+  text: string;
+  inline?: boolean;
+  className?: string;
+  errorFallback?: ReactNode;
 }
 
-interface MathJaxContentProps {
+export const MathText: React.FC<MathTextProps> = ({ text, inline = false, className = '', errorFallback = <span className="text-red-500">Error rendering LaTeX</span> }) => {
+  const ref = useRef<HTMLSpanElement | HTMLDivElement>(null);
+  const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    setErrored(false);
+    const el = ref.current;
+    if (!el) return;
+
+    // Reset previous content before typesetting to avoid nested markup
+    el.innerHTML = '';
+    el.append(document.createTextNode(text ?? ''));
+
+    const anyWindow = window as any;
+    const mj = anyWindow?.MathJax;
+
+    if (!mj || typeof mj.typesetPromise !== 'function') {
+      // MathJax not ready yet; try again on next tick
+      const id = requestAnimationFrame(() => {
+        const mj2 = (window as any)?.MathJax;
+        if (mj2 && typeof mj2.typesetPromise === 'function' && ref.current) {
+          mj2.typesetPromise([ref.current]).catch((err: any) => {
+            // eslint-disable-next-line no-console
+            console.warn('[MathJax] Typeset error (raf retry):', err);
+            setErrored(true);
+          });
+        }
+      });
+      return () => cancelAnimationFrame(id);
+    }
+
+    let cancelled = false;
+    mj.typesetPromise([el]).catch((err: any) => {
+      if (!cancelled) {
+        // eslint-disable-next-line no-console
+        console.warn('[MathJax] Typeset error:', err);
+        setErrored(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [text]);
+
+  const Tag: any = inline ? 'span' : 'div';
+  if (errored) return <>{errorFallback}</>;
+  return <Tag ref={ref} className={`${className} ${inline ? 'inline-block' : 'block'}`} />;
+};
+
+// Convenience wrappers
+export const InlineMath: React.FC<Omit<MathTextProps, 'inline'>> = (props) => <MathText {...props} inline={true} />;
+export const BlockMath: React.FC<Omit<MathTextProps, 'inline'>> = (props) => <MathText {...props} inline={false} />;
+
+// Utilities (kept from previous API)
+export const formatLaTeX = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/\n\s*\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>')
+    .replace(/\\n/g, '<br/>')
+    .replace(/\\$/g, '\\\\$')
+    .replace(/([^\\])\$\$/g, '$1\n$$')
+    .replace(/\$\$([^\n])/g, '$$\n$1');
+};
+
+export const sanitizeLatex = (text: string): string => {
+  if (!text) return '';
+  return text.replace(/\\(include|input|write|openout|closeout|loop|repeat|csname|endcsname)/g, '\\textbackslash$1');
+};
+
+// ---- Backwards-compat wrapper: MathJaxContent (accepts children) ----
+export interface MathJaxContentProps {
   children: ReactNode;
   className?: string;
   inline?: boolean;
   errorFallback?: ReactNode;
 }
 
-// Error boundary component for LaTeX rendering errors
-class MathJaxErrorBoundary extends React.Component<
-  { children: ReactNode; fallback: ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { children: ReactNode; fallback: ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
+export const MathJaxContent: React.FC<MathJaxContentProps> = memo(({ children, className = '', inline = false, errorFallback }) => {
+  const normalized =
+    typeof children === 'string' || typeof children === 'number'
+      ? String(children)
+      : Array.isArray(children)
+        ? children.filter((c) => typeof c === 'string' || typeof c === 'number').join(' ')
+        : '';
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
-    return this.props.children;
-  }
-}
-
-// Provider component - memoized for performance
-export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ 
-  children, 
-  config = defaultConfig 
-}) => {
   return (
-    <MathJaxContext config={config}>
-      {children}
-    </MathJaxContext>
-  );
-});
-MathJaxProvider.displayName = 'MathJaxProvider';
-
-// Content component with error handling
-export const MathJaxContent: React.FC<MathJaxContentProps> = memo(({ 
-  children,
-  className = "",
-  inline = false,
-  errorFallback = <span className="text-red-500">Error rendering LaTeX</span>
-}) => {
-  return (
-    <MathJaxErrorBoundary fallback={errorFallback}>
-      <MathJax className={`${className} ${inline ? 'inline-block' : 'block'}`}>
-        {children}
-      </MathJax>
-    </MathJaxErrorBoundary>
+    <MathText
+      text={normalized}
+      inline={inline}
+      className={className}
+      errorFallback={errorFallback ?? <span className="text-red-500">Error rendering LaTeX</span>}
+    />
   );
 });
 MathJaxContent.displayName = 'MathJaxContent';
 
-// Convenience components for specific use cases
-export const InlineMath: React.FC<Omit<MathJaxContentProps, 'inline'>> = (props) => (
-  <MathJaxContent {...props} inline={true} />
-);
-InlineMath.displayName = 'InlineMath';
-
-export const BlockMath: React.FC<Omit<MathJaxContentProps, 'inline'>> = (props) => (
-  <MathJaxContent {...props} inline={false} />
-);
-BlockMath.displayName = 'BlockMath';
-
-// Enhanced LaTeX formatting utility
-export const formatLaTeX = (text: string): string => {
-  if (!text) return '';
-  
-  return text
-    // Convert newlines to HTML breaks for proper display
-    .replace(/\n\s*\n/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>')
-    .replace(/\\n/g, '<br/>')
-    // Fix common LaTeX errors
-    .replace(/\\$/g, '\\\\$') // Escape dollar signs that follow backslashes
-    .replace(/([^\\])\$\$/g, '$1\n$$') // Ensure display math has proper spacing
-    .replace(/\$\$([^\n])/g, '$$\n$1'); // Ensure display math has proper spacing
-};
-
-// LaTeX sanitizer for user-generated content
-export const sanitizeLatex = (text: string): string => {
-  if (!text) return '';
-  
-  // Remove potentially dangerous LaTeX commands
-  return text
-    .replace(/\\(include|input|write|openout|closeout|loop|repeat|csname|endcsname)/g, '\\textbackslash$1');
-};
-
-// Hook for lazy-loading MathJax only when needed
-export const useLazyMathJax = (shouldLoad: boolean = true): boolean => {
-  const [loaded, setLoaded] = useState(false);
-  
-  useEffect(() => {
-    if (shouldLoad && !loaded) {
-      // MathJax will be loaded by the MathJaxContext when it's rendered
-      setLoaded(true);
-    }
-  }, [shouldLoad, loaded]);
-  
-  return loaded;
-};

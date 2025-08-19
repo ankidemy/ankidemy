@@ -38,75 +38,82 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
   onCancel,
   onSubmit
 }) => {
+  // Store weights by **numeric ID** (matches API update payload)
   const [prerequisiteWeights, setPrerequisiteWeights] = useState<Record<number, number>>({});
 
+  // Initialize from props ONLY when the edited node changes to avoid losing selection on window clicks
   useEffect(() => {
     if (selectedNodeDetails?.prerequisites) {
       const weights: Record<number, number> = {};
-      selectedNodeDetails.prerequisites.forEach(prereqCode => {
-        const foundDef = availableDefinitionsForEdit.find(def => def.code === prereqCode);
+      selectedNodeDetails.prerequisites.forEach((prereqCode) => {
+        const foundDef = availableDefinitionsForEdit.find((def) => def.code === prereqCode);
         if (foundDef) {
-          weights[foundDef.numericId] = selectedNodeDetails.prerequisiteWeights?.[prereqCode] || 1.0;
+          weights[foundDef.numericId] = selectedNodeDetails.prerequisiteWeights?.[prereqCode] ?? 1.0;
         }
       });
       setPrerequisiteWeights(weights);
     } else {
       setPrerequisiteWeights({});
     }
-  }, [selectedNodeDetails, availableDefinitionsForEdit]);
+    // NOTE: we intentionally only depend on selectedNode.id to prevent resets while editing
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode.id]);
+
+  // Build selected IDs from weights map (unique, numeric)
+  const getSelectedPrereqIds = (): number[] => {
+    return [
+      ...new Set(
+        Object.keys(prerequisiteWeights)
+          .map((id) => parseInt(id, 10))
+          .filter((id) => !Number.isNaN(id))
+      ),
+    ];
+  };
+
+  const selectedPrereqIds = getSelectedPrereqIds();
 
   const handlePrereqSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedOptions = Array.from(e.target.selectedOptions);
     const newWeights: Record<number, number> = {};
-    
-    // FIX: Use Set to prevent duplicate processing
+
+    // Unique numeric IDs from selected options
     const uniqueIds = new Set<number>();
-    
-    selectedOptions.forEach(option => {
+    selectedOptions.forEach((option) => {
       const numericId = parseInt(option.value, 10);
-      if (!isNaN(numericId)) {
-        uniqueIds.add(numericId);
-      }
+      if (!Number.isNaN(numericId)) uniqueIds.add(numericId);
     });
-    
-    // Build weights object from unique IDs
-    uniqueIds.forEach(numericId => {
-      newWeights[numericId] = prerequisiteWeights[numericId] || 1.0;
+
+    // Preserve existing weights; default to 1.0 for new ones
+    uniqueIds.forEach((numericId) => {
+      newWeights[numericId] = prerequisiteWeights[numericId] ?? 1.0;
     });
-    
+
     setPrerequisiteWeights(newWeights);
   };
 
   const handleWeightChange = (prereqId: number, weight: string) => {
     const numWeight = parseFloat(weight);
-    const clampedWeight = isNaN(numWeight) ? 1.0 : Math.max(0.01, Math.min(1.0, numWeight));
-    setPrerequisiteWeights(prev => ({
+    const clampedWeight = Number.isNaN(numWeight) ? 1.0 : Math.max(0.01, Math.min(1.0, numWeight));
+    setPrerequisiteWeights((prev) => ({
       ...prev,
-      [prereqId]: clampedWeight
+      [prereqId]: clampedWeight,
     }));
-  };
-
-  const getSelectedPrereqIds = (): number[] => {
-    const ids = Object.keys(prerequisiteWeights).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    // FIX: Remove duplicates using Set
-    return [...new Set(ids)];
   };
 
   if (!selectedNodeDetails) return null;
 
   const isDefinition = selectedNode.type === 'definition';
-  const selectedPrereqIds = getSelectedPrereqIds();
 
   return (
     <div className="space-y-4 text-sm">
       <div>
         <label className="block text-xs font-medium mb-1 text-gray-600">Code (ID)</label>
-        <Input value={selectedNode.id} disabled className="h-8 text-sm bg-gray-100"/>
+        <Input value={selectedNode.id} disabled className="h-8 text-sm bg-gray-100" />
       </div>
-      
+
       <div>
         <label htmlFor="name" className="block text-xs font-medium mb-1 text-gray-600">Name</label>
-        <Input id="name" defaultValue={selectedNode.name} className="h-8 text-sm"/>
+        <Input id="name" defaultValue={selectedNode.name} className="h-8 text-sm" />
       </div>
 
       {isDefinition ? (
@@ -126,7 +133,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Enter definition..."
             />
           </div>
-          
+
           <div>
             <label htmlFor="notes" className="block text-xs font-medium mb-1 text-gray-600">Notes</label>
             <textarea
@@ -136,9 +143,10 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               defaultValue={(selectedNodeDetails as Definition)?.notes || ''}
               placeholder="Additional notes... (supports LaTeX)"
             />
+            {/* Escape JSX curly braces so this doesn't parse `{i=0}` as JS */}
             <p className="text-xs text-gray-500 mt-1">Supports LaTeX notation: $x^2$, $\sum_&#123;i=0&#125;^n i$</p>
           </div>
-          
+
           <div>
             <label htmlFor="references" className="block text-xs font-medium mb-1 text-gray-600">References (one per line)</label>
             <textarea
@@ -162,7 +170,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Exercise statement..."
             />
           </div>
-          
+
           <div>
             <label htmlFor="description" className="block text-xs font-medium mb-1 text-gray-600">Solution</label>
             <textarea
@@ -173,7 +181,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               placeholder="Solution details..."
             />
           </div>
-          
+
           <div>
             <label htmlFor="hints" className="block text-xs font-medium mb-1 text-gray-600">Hints</label>
             <textarea
@@ -194,9 +202,10 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               defaultValue={(selectedNodeDetails as Exercise)?.notes || ''}
               placeholder="Additional notes... (supports LaTeX)"
             />
+            {/* Escape JSX curly braces so this doesn't parse `{i=0}` as JS */}
             <p className="text-xs text-gray-500 mt-1">Supports LaTeX notation: $x^2$, $\sum_&#123;i=0&#125;^n i$</p>
           </div>
-          
+
           <div className="flex space-x-4 items-end">
             <div>
               <label htmlFor="difficulty" className="block text-xs font-medium mb-1 text-gray-600">Difficulty (1-7)</label>
@@ -219,7 +228,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               <label htmlFor="verifiable" className="text-xs font-medium text-gray-600">Verifiable?</label>
             </div>
           </div>
-          
+
           <div>
             <label htmlFor="result" className="block text-xs font-medium mb-1 text-gray-600">Expected Result (if verifiable)</label>
             <Input
@@ -236,20 +245,24 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
         <label htmlFor="prerequisites" className="block text-xs font-medium mb-1 text-gray-600">Prerequisites (Definitions)</label>
         <select
           id="prerequisites"
+          name="prerequisiteIds"  /* API expects numeric prerequisiteIds */
           multiple
+          size={Math.min(12, Math.max(6, availableDefinitionsForEdit.length))}
           className="w-full border border-gray-300 rounded p-2 h-24 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
           value={selectedPrereqIds.map(String)}
           onChange={handlePrereqSelectionChange}
+          // Prevent the draggable window from intercepting interactions so native multi-select works
+          onMouseDownCapture={(e) => e.stopPropagation()}
+          onKeyDownCapture={(e) => e.stopPropagation()}
         >
           {availableDefinitionsForEdit
-            .filter(def => def.code !== selectedNode.id)
-            .sort((a,b) => a.code.localeCompare(b.code))
-            .map(def => (
+            .filter((def) => def.code !== selectedNode.id)
+            .sort((a, b) => a.code.localeCompare(b.code))
+            .map((def) => (
               <option key={def.numericId} value={String(def.numericId)}>
                 {def.code}: {def.name}
               </option>
-            ))
-          }
+            ))}
         </select>
         <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
 
@@ -257,12 +270,11 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
           <div className="mt-3 p-3 border rounded-md bg-gray-50">
             <h4 className="text-xs font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
             <div className="space-y-2 max-h-32 overflow-y-auto">
-              {/* FIX: Remove duplicates and ensure unique keys */}
-              {[...new Set(selectedPrereqIds)] // Remove duplicates first
-                .map(prereqId => availableDefinitionsForEdit.find(p => p.numericId === prereqId))
-                .filter((prereq): prereq is NonNullable<typeof prereq> => prereq !== null) // Type-safe filter
+              {[...new Set(selectedPrereqIds)]
+                .map((prereqId) => availableDefinitionsForEdit.find((p) => p.numericId === prereqId))
+                .filter((prereq): prereq is AvailableDefinitionOption => Boolean(prereq))
                 .sort((a, b) => a.code.localeCompare(b.code))
-                .map(prereq => (
+                .map((prereq) => (
                   <div key={`edit-prereq-weight-${prereq.numericId}`} className="flex items-center justify-between text-xs">
                     <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
                       {prereq.code}
@@ -272,10 +284,12 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
                       min="0.01"
                       max="1.00"
                       step="0.01"
-                      value={prerequisiteWeights[prereq.numericId] || 1.0}
+                      value={prerequisiteWeights[prereq.numericId] ?? 1.0}
                       onChange={(e) => handleWeightChange(prereq.numericId, e.target.value)}
                       className="w-16 px-1 py-0.5 border border-gray-300 rounded text-xs h-6"
                       title="Weight for credit propagation (1.0 = full, 0.01 = minimal)"
+                      onMouseDownCapture={(e) => e.stopPropagation()}
+                      onKeyDownCapture={(e) => e.stopPropagation()}
                     />
                   </div>
                 ))}
@@ -289,10 +303,10 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
 
       <div className="flex justify-end space-x-2 pt-2 border-t mt-4">
         <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
-        <Button 
-          size="sm" 
+        <Button
+          size="sm"
           onClick={() => {
-            const form = document.querySelector('form') as HTMLFormElement;
+            const form = document.querySelector('form') as HTMLFormElement | null;
             if (form) {
               const existingWeightsInput = form.querySelector('input[name="prerequisiteWeights"]');
               if (existingWeightsInput) {
