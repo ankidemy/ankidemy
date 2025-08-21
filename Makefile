@@ -19,7 +19,7 @@ dev-build:
 
 # Stop all services (dev or prod)
 down:
-	docker compose down
+	docker compose down --remove-orphans
 
 # View logs for all services
 logs:
