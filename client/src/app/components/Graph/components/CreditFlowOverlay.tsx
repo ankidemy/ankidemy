@@ -3,7 +3,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import { CreditFlowAnimation } from '@/types/srs';
 
 interface CreditFlowOverlayProps {
@@ -14,77 +14,77 @@ interface CreditFlowOverlayProps {
 
 const CreditFlowOverlay: React.FC<CreditFlowOverlayProps> = ({ animations, nodePositions, graphRef }) => {
   const [activeParticles, setActiveParticles] = useState<any[]>([]);
-  
-  // FIX: Use a more robust counter system
-  const particleCounterRef = useRef(0);
-  const processedAnimationsRef = useRef(new Set<string>());
 
-  const generateUniqueParticleId = useCallback(() => {
-    return `particle-${Date.now()}-${particleCounterRef.current++}-${Math.random().toString(36).substr(2, 9)}`;
-  }, []);
+  // Internal lifecycle without useEffect
+  class OverlayLifecycle {
+    private processed = new Set<string>();
+    private counter = 0;
+    private lastCommit: number | null = null;
 
-  const createParticlesFromAnimations = useCallback((newAnimations: CreditFlowAnimation[]) => {
-    if (!graphRef.current || newAnimations.length === 0) return;
+    constructor(private commit: (particles: any[]) => void) {}
 
-    const newParticles = newAnimations
-      .filter(anim => {
-        const animKey = `${anim.nodeId}-${anim.timestamp}-${anim.credit}-${anim.type}`;
-        if (processedAnimationsRef.current.has(animKey)) {
-          console.debug('Skipping duplicate animation:', animKey);
-          return false;
-        }
-        processedAnimationsRef.current.add(animKey);
-        return true;
-      })
-      .map(anim => {
-        const nodePos = nodePositions.get(anim.nodeId);
-        if (!nodePos) {
-          console.warn(`No position for node ${anim.nodeId}`);
-          return null;
-        }
-        const screenPos = graphRef.current.graph2ScreenCoords(nodePos.x, nodePos.y);
-        return {
-          id: generateUniqueParticleId(),
-          x: screenPos.x,
-          y: screenPos.y,
+    private uid() {
+      return `particle-${Date.now()}-${this.counter++}-${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    pump(newAnimations: CreditFlowAnimation[], toScreen: (nodeId: string) => { x: number; y: number } | null, existing: any[]) {
+      if (!newAnimations || newAnimations.length === 0) return;
+
+      const additions: any[] = [];
+      for (const anim of newAnimations) {
+        const key = `${anim.nodeId}-${anim.timestamp}-${anim.credit}-${anim.type}`;
+        if (this.processed.has(key)) continue;
+        const pt = toScreen(anim.nodeId);
+        if (!pt) continue;
+        this.processed.add(key);
+        additions.push({
+          id: this.uid(),
+          x: pt.x,
+          y: pt.y,
           credit: anim.credit,
           type: anim.type,
           startTime: Date.now(),
-        };
-      })
-      .filter((p): p is NonNullable<typeof p> => p !== null);
+        });
+      }
 
-    if (newParticles.length > 0) {
-      setActiveParticles(prev => {
-        const existingIds = new Set(prev.map(p => p.id));
-        const filtered = newParticles.filter(p => !existingIds.has(p.id));
-        return [...prev, ...filtered];
-      });
-
-      // Cleanup old animation keys
-      const cutoffTime = Date.now() - 10000;
-      Array.from(processedAnimationsRef.current).forEach(key => {
-        const parts = key.split('-');
-        const timestamp = parseInt(parts[1]);
-        if (!isNaN(timestamp) && timestamp < cutoffTime) {
-          processedAnimationsRef.current.delete(key);
+      if (additions.length > 0) {
+        // Prune very old particles to avoid unbounded growth
+        const now = Date.now();
+        const pruned = existing.filter(p => now - p.startTime < 2000);
+        const merged = pruned.concat(additions);
+        // Defer commit to after paint; avoid setting state during render
+        if (this.lastCommit !== now) {
+          this.lastCommit = now;
+          setTimeout(() => this.commit(merged), 0);
         }
-      });
-    }
-  }, [nodePositions, graphRef, generateUniqueParticleId]);
+      }
 
-  useEffect(() => {
-    if (animations.length > 0) {
-      createParticlesFromAnimations(animations);
+      // Periodically forget very old processed keys
+      if (this.processed.size > 2000) {
+        const cutoff = Date.now() - 10000;
+        for (const key of Array.from(this.processed)) {
+          const parts = key.split('-');
+          const ts = parseInt(parts[1]);
+          if (!isNaN(ts) && ts < cutoff) this.processed.delete(key);
+        }
+      }
     }
-  }, [animations, createParticlesFromAnimations]);
+  }
 
-  useEffect(() => {
-    return () => {
-      processedAnimationsRef.current.clear();
-      particleCounterRef.current = 0;
+  const lifecycleRef = useRef<OverlayLifecycle | null>(null);
+  if (!lifecycleRef.current) {
+    lifecycleRef.current = new OverlayLifecycle((particles) => setActiveParticles(particles));
+  }
+
+  // Drive lifecycle each render; dedup/commit happens internally
+  if (graphRef.current) {
+    const toScreen = (nodeId: string) => {
+      const pos = nodePositions.get(nodeId);
+      if (!pos) return null;
+      try { return graphRef.current.graph2ScreenCoords(pos.x, pos.y); } catch { return null; }
     };
-  }, []);
+    lifecycleRef.current.pump(animations, toScreen, activeParticles);
+  }
 
   if (!graphRef.current) return null;
 

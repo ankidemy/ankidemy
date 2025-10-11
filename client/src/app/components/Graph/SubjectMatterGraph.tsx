@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from "@/app/components/core/button";
 import { Plus, Info } from 'lucide-react';
@@ -29,7 +29,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
 }) => {
   const graphRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
+  // Subject matters and derived graph data (no effects)
   const [hoveredNode, setHoveredNode] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
@@ -37,67 +37,8 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
   const [subjectMatters, setSubjectMatters] = useState<SubjectMatter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasBeenFitted, setHasBeenFitted] = useState(false);
-
-  // Fetch enrolled domains from API
-  useEffect(() => {
-    const fetchDomains = async () => {
-      try {
-        setIsLoading(true);
-        const domains = await getEnrolledDomains();
-        
-        // Convert domains to subject matters with proper API data
-        const subjectMattersData = domains.map(domain => ({
-          id: domain.id.toString(),
-          name: domain.name,
-          nodeCount: domain.nodeCount || 0,
-          exerciseCount: domain.exerciseCount || 0,
-        }));
-        
-        setSubjectMatters(subjectMattersData);
-      } catch (err) {
-        console.error("Error fetching domains:", err);
-        setError("Error loading domains. Please try again.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchDomains();
-  }, []);
-
-  // Track container dimensions
-  useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setDimensions({
-          width: rect.width || 800, // fallback width
-          height: rect.height || 400  // fallback height
-        });
-      }
-    };
-
-    // Initial measurement
-    updateDimensions();
-
-    // Use ResizeObserver for more accurate dimension tracking
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
-
-    // Fallback with window resize
-    window.addEventListener('resize', updateDimensions);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', updateDimensions);
-    };
-  }, []);
-
-  useEffect(() => {
+  const graphData = useMemo(() => {
     try {
-      // Convert subject matters to graph data
       const nodes = subjectMatters.map(subject => ({
         id: subject.id,
         name: subject.name,
@@ -105,94 +46,130 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
         exerciseCount: subject.exerciseCount || 0,
         val: Math.max(8, Math.min(25, 8 + (subject.nodeCount || 0) / 3))
       }));
-      
-      // Create minimal links between nodes to form an interesting structure
-      const links = [];
+
+      const links: { source: string; target: string; value: number }[] = [];
       if (nodes.length > 1) {
-        // Create a star-like structure for most domains
         const centerIndex = Math.floor(Math.random() * nodes.length);
-        
         for (let i = 0; i < nodes.length; i++) {
           if (i !== centerIndex) {
-            links.push({
-              source: nodes[centerIndex].id,
-              target: nodes[i].id,
-              value: 1 / Math.log(nodes.length + 1)
-            });
+            links.push({ source: nodes[centerIndex].id, target: nodes[i].id, value: 1 / Math.log(nodes.length + 1) });
           }
         }
-        
-        // Add a few random connections for more interest
         const extraLinks = Math.min(Math.floor(nodes.length / 3), 5);
         for (let i = 0; i < extraLinks; i++) {
           const source = Math.floor(Math.random() * nodes.length);
           let target = Math.floor(Math.random() * nodes.length);
-          while (target === source) {
-            target = Math.floor(Math.random() * nodes.length);
-          }
-          links.push({
-            source: nodes[source].id,
-            target: nodes[target].id,
-            value: 0.5
-          });
+          while (target === source) target = Math.floor(Math.random() * nodes.length);
+          links.push({ source: nodes[source].id, target: nodes[target].id, value: 0.5 });
         }
       }
-      
-      setGraphData({ nodes, links });
+
+      return { nodes, links };
     } catch (err) {
-      console.error("Error preparing graph data:", err);
-      setError("Error visualizing domains. Please try again.");
+      console.error('Error preparing graph data:', err);
+      setError('Error visualizing domains. Please try again.');
+      return { nodes: [], links: [] };
     }
   }, [subjectMatters]);
 
   // Fit graph to view - only on first render
   const fitGraphToView = useCallback(() => {
-    if (graphRef.current && graphData.nodes.length > 0 && dimensions.width >= 0 && dimensions.height > 0 && !hasBeenFitted) {
-      // Small delay to ensure everything is rendered
-      setTimeout(() => {
-        if (graphRef.current && !hasBeenFitted) {
-          try {
-            // Set a reasonable zoom level instead of fitting
-            graphRef.current.zoom(2, 500);
-            graphRef.current.centerAt(0, 0, 500);
-            setHasBeenFitted(true);
-            
-            console.log('Graph positioned with zoom 2');
-          } catch (error) {
-            console.error('Error positioning graph:', error);
-          }
-        }
-      }, 100);
-    }
-  }, [graphData.nodes.length, dimensions, hasBeenFitted]);
+    if (!graphRef.current || hasBeenFitted) return;
+    if (graphData.nodes.length === 0) return;
+    if (dimensions.width <= 0 || dimensions.height <= 0) return;
+    setTimeout(() => {
+      try {
+        if (!graphRef.current || hasBeenFitted) return;
+        graphRef.current.zoom(2, 500);
+        graphRef.current.centerAt(0, 0, 500);
+        setHasBeenFitted(true);
+        console.log('Graph positioned with zoom 2');
+      } catch (error) {
+        console.error('Error positioning graph:', error);
+      }
+    }, 100);
+  }, [graphData.nodes.length, dimensions.width, dimensions.height, hasBeenFitted]);
 
   // Handle engine stop
   const handleEngineStop = useCallback(() => {
     fitGraphToView();
   }, [fitGraphToView]);
 
-  // Fit graph when dimensions change (only if not been fitted yet)
-  useEffect(() => {
-    if (graphData.nodes.length > 0) {
-      fitGraphToView();
-    }
-  }, [dimensions, fitGraphToView, graphData.nodes.length]);
+  // Lifecycle to replace effects: fetch domains, track size, and initial fit
+  class SMGraphLifecycle {
+    private fetched = false;
+    private attachedEl: HTMLElement | null = null;
+    private resizeObserver: ResizeObserver | null = null;
+    private resizeHandler = () => this.measure();
+    private fitScheduled = false;
 
-  // Force initial render when graph data is ready
-  useEffect(() => {
-    if (graphData.nodes.length > 0 && dimensions.width > 0 && dimensions.height > 0 && graphRef.current) {
-      // Force animation to start and ensure nodes are positioned
-      setTimeout(() => {
-        if (graphRef.current) {
-          // Resume animation to ensure the simulation runs
-          graphRef.current.resumeAnimation();
-          // Set initial zoom and position
-          graphRef.current.zoom(2, 100);
-          graphRef.current.centerAt(0, 0, 100);
-        }
-      }, 100);
+    async ensureData() {
+      if (this.fetched) return;
+      this.fetched = true;
+      try {
+        setIsLoading(true);
+        const domains = await getEnrolledDomains();
+        const mapped = domains.map((domain: any) => ({
+          id: String(domain.id),
+          name: domain.name,
+          nodeCount: domain.nodeCount || 0,
+          exerciseCount: domain.exerciseCount || 0,
+        }));
+        setSubjectMatters(mapped);
+      } catch (err) {
+        console.error('Error fetching domains:', err);
+        setError('Error loading domains. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
     }
-  }, [graphData.nodes.length, dimensions]);
+
+    attachResize(el: HTMLElement | null) {
+      if (!el || this.attachedEl === el) return;
+      this.detachResize();
+      this.attachedEl = el;
+      this.resizeObserver = new ResizeObserver(this.resizeHandler);
+      this.resizeObserver.observe(el);
+      window.addEventListener('resize', this.resizeHandler);
+      this.measure();
+    }
+
+    private measure() {
+      if (!this.attachedEl) return;
+      const rect = this.attachedEl.getBoundingClientRect();
+      setDimensions({ width: rect.width || 800, height: rect.height || 400 });
+      if (!this.fitScheduled) {
+        this.fitScheduled = true;
+        setTimeout(() => {
+          this.fitScheduled = false;
+          fitGraphToView();
+          if (graphRef.current) {
+            try {
+              graphRef.current.resumeAnimation();
+              graphRef.current.zoom(2, 100);
+              graphRef.current.centerAt(0, 0, 100);
+            } catch {}
+          }
+        }, 100);
+      }
+    }
+
+    detachResize() {
+      if (this.resizeObserver && this.attachedEl) {
+        try { this.resizeObserver.disconnect(); } catch {}
+      }
+      if (this.resizeObserver) this.resizeObserver = null;
+      if (this.attachedEl) this.attachedEl = null;
+      window.removeEventListener('resize', this.resizeHandler);
+    }
+  }
+
+  const lifecycleRef = useRef<SMGraphLifecycle | null>(null);
+  if (!lifecycleRef.current) {
+    lifecycleRef.current = new SMGraphLifecycle();
+  }
+  void lifecycleRef.current.ensureData();
+  lifecycleRef.current.attachResize(containerRef.current);
 
   // Custom node renderer with simplified, faster rendering
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {

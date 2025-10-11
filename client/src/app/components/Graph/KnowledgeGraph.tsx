@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect, useMemo, FC } from 'react';
+import React, { useState, useRef, useCallback, useMemo, FC } from 'react';
 import { MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
 import { UIProvider, useUI } from '@/contexts/UIContext';
 import { DraggableWindow } from '@/app/components/core/DraggableWindow';
@@ -40,6 +40,7 @@ import {
 } from './utils/types';
 import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
+import { GraphLifecycle } from './utils/GraphLifecycle';
 import TopControls from './panels/TopControls';
 import LeftPanelToggle from './panels/LeftPanelToggle';
 import LeftPanel from './panels/LeftPanel';
@@ -298,9 +299,7 @@ const useGraphMetadata = (
     // Dependencies track metadata changes
     srs.state.domainProgress,
     srs.state.lastUpdated,
-    Array.from(activeNodeIds).sort().join(','),
-    Array.from(selectedNodeIds).sort().join(','),
-    Array.from(highlightNodes).sort().join(','),
+    // active/selected/highlight removed to avoid hover-triggered reflow
     codeToNumericIdMap,
     // Track name and other metadata changes
     Object.values(definitions).map(d => d.name).join('|'),
@@ -321,81 +320,110 @@ const useStableGraph = (
   const stableNodesRef = useRef<GraphNode[]>([]);
   const stableLinksRef = useRef<GraphLink[]>([]);
   const lastStructureVersionRef = useRef<number>(-1);
+  const structureNonceRef = useRef<number>(0);
 
   return useMemo(() => {
     const structureChanged = structure.version !== lastStructureVersionRef.current;
-    
-    if (structureChanged) {
-      console.log('STRUCTURE CHANGED: Rebuilding nodes/links with physics reset');
-      
-      // Extract positions from old nodes before rebuilding
-      if (stableNodesRef.current.length > 0) {
-        positionManager.extractPositions(stableNodesRef.current);
-      }
-      
-      // Build new nodes array from structure + metadata
-      const newNodes: GraphNode[] = [];
-      const newLinks: GraphLink[] = [];
 
-      structure.nodes.forEach((nodeCore, nodeId) => {
+    // Always update metadata in place; never touch x/y here
+    stableNodesRef.current.forEach(node => {
+      const nodeMeta = metadata.nodeMetadata.get(node.id);
+      if (nodeMeta) Object.assign(node, nodeMeta);
+    });
+
+    if (!structureChanged) {
+      return {
+        nodes: stableNodesRef.current,
+        links: stableLinksRef.current,
+        requiresPhysicsReset: false,
+        structureVersion: structureNonceRef.current,
+      };
+    }
+
+    // DIFF structure -> mutate arrays in place
+    const prevNodes = stableNodesRef.current;
+    const prevIndexById = new Map<string, number>();
+    prevNodes.forEach((n, i) => prevIndexById.set(n.id, i));
+
+    const nextIds = new Set<string>();
+    let addedNodes = 0;
+    let removedNodes = 0;
+
+    structure.nodes.forEach((nodeCore, nodeId) => {
+      nextIds.add(nodeId);
+      const idx = prevIndexById.get(nodeId);
+      if (idx === undefined) {
         const nodeMeta = metadata.nodeMetadata.get(nodeId);
-        // nodeMeta should always exist now due to fallback in useGraphMetadata
-        const mergedNode: GraphNode = {
+        const created: GraphNode = {
           ...nodeCore,
           ...(nodeMeta || { name: nodeId, status: 'fresh' as NodeStatus, color: '#999' }),
-          // Set initial position from database
           x: nodeCore.xPosition,
           y: nodeCore.yPosition,
         };
-        newNodes.push(mergedNode);
-      });
+        const saved = positionManager.getPosition(nodeId);
+        if (saved) { created.x = saved.x; created.y = saved.y; }
+        prevNodes.push(created);
+        addedNodes++;
+      }
+    });
 
-      // Build links
-      structure.links.forEach(linkCore => {
-        newLinks.push({
-          source: linkCore.source,
-          target: linkCore.target,
-          type: linkCore.type,
-          weight: linkCore.weight,
-        });
-      });
-
-      // Apply saved positions to new nodes
-      positionManager.applyPositions(newNodes);
-      
-      stableNodesRef.current = newNodes;
-      stableLinksRef.current = newLinks;
-      lastStructureVersionRef.current = structure.version;
-      
-      positionManager.markUnstable();
-    } else {
-      // Only metadata changed - update in place to preserve physics
-      console.log('METADATA ONLY: Updating node properties in-place');
-      stableNodesRef.current.forEach(node => {
-        const nodeMeta = metadata.nodeMetadata.get(node.id);
-        if (nodeMeta) {
-          Object.assign(node, nodeMeta);
-        }
-        // Do not alter x/y or fx/fy here to avoid reheating/drift on hover
-      });
-      // Sync link weights/opacities without rebuilding links
-      const linkCoreById = new Map<string, GraphLinkCore>();
-      structure.links.forEach(lc => linkCoreById.set(`${lc.source}-${lc.target}`, lc));
-      stableLinksRef.current.forEach(link => {
-        const sourceId = typeof link.source === 'object' ? (link.source as any).id : String(link.source);
-        const targetId = typeof link.target === 'object' ? (link.target as any).id : String(link.target);
-        const id = `${sourceId}-${targetId}`;
-        const core = linkCoreById.get(id);
-        if (core && core.weight !== link.weight) {
-          (link as any).weight = core.weight;
-        }
-      });
+    for (let i = prevNodes.length - 1; i >= 0; i--) {
+      const n = prevNodes[i];
+      if (!nextIds.has(n.id)) {
+        prevNodes.splice(i, 1);
+        removedNodes++;
+      }
     }
 
+    // Links diff
+    const prevLinks = stableLinksRef.current;
+    const prevLinkIndex = new Map<string, number>();
+    for (let i = 0; i < prevLinks.length; i++) {
+      const l = prevLinks[i];
+      const sid = typeof l.source === 'object' ? (l.source as any).id : String(l.source);
+      const tid = typeof l.target === 'object' ? (l.target as any).id : String(l.target);
+      prevLinkIndex.set(`${sid}-${tid}`, i);
+    }
+
+    const seen = new Set<string>();
+    let addedLinks = 0;
+    let removedLinks = 0;
+
+    structure.links.forEach(lc => {
+      const id = `${lc.source}-${lc.target}`;
+      seen.add(id);
+      const idx = prevLinkIndex.get(id);
+      if (idx === undefined) {
+        prevLinks.push({ source: lc.source, target: lc.target, type: lc.type, weight: lc.weight });
+        addedLinks++;
+      } else {
+        const existing = prevLinks[idx] as any;
+        if (existing.weight !== lc.weight) existing.weight = lc.weight;
+      }
+    });
+
+    for (let i = prevLinks.length - 1; i >= 0; i--) {
+      const l = prevLinks[i];
+      const sid = typeof l.source === 'object' ? (l.source as any).id : String(l.source);
+      const tid = typeof l.target === 'object' ? (l.target as any).id : String(l.target);
+      const id = `${sid}-${tid}`;
+      if (!seen.has(id)) {
+        prevLinks.splice(i, 1);
+        removedLinks++;
+      }
+    }
+
+    structureNonceRef.current++;
+    lastStructureVersionRef.current = structure.version;
+
+    const requiresReset = removedNodes > 0 || removedLinks > 0 || (addedNodes + addedLinks) > 8;
+    if (requiresReset) positionManager.markUnstable();
+
     return {
-      nodes: stableNodesRef.current,
-      links: stableLinksRef.current,
-      requiresPhysicsReset: structureChanged,
+      nodes: prevNodes,
+      links: prevLinks,
+      requiresPhysicsReset: requiresReset,
+      structureVersion: structureNonceRef.current,
     };
   }, [structure.version, metadata.version, positionManager]);
 };
@@ -520,17 +548,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const handleClearSelection = useCallback(() => {
     setSelectedNodeIds(new Set());
   }, []);
-
-  // Handle initial data processing
-  useEffect(() => {
-    if (stableGraph.nodes.length > 0 && isProcessingData) {
-      const timer = setTimeout(() => {
-        setIsProcessingData(false);
-        console.log('Initial graph processing complete');
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [stableGraph.nodes.length, isProcessingData]);
 
   // Load comprehensive domain data
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
@@ -670,60 +687,44 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [surgicallyUpdateDefinition, surgicallyUpdateExercise, currentStructuralGraphData]);
 
-  // Initialize domain data
-  useEffect(() => {
-    const domainId = parseInt(subjectMatterId, 10);
-    if (!isNaN(domainId)) {
-      loadComprehensiveDomainData(domainId);
-    }
-  }, [subjectMatterId, loadComprehensiveDomainData]);
+  // Enrollment and user/domain bootstrap (moved out of useEffect)
+  const checkAndInitEnrollment = useCallback(async (domainId: number) => {
+    try {
+      const user = await getCurrentUser();
+      setCurrentUser(user);
 
-  // Check enrollment status
-  useEffect(() => {
-    const checkUserAndEnrollment = async () => {
-      if (!subjectMatterId || isNaN(parseInt(subjectMatterId))) return;
-      
-      const domainId = parseInt(subjectMatterId);
-      
-      try {
-        const user = await getCurrentUser();
-        setCurrentUser(user);
-        
-        const domain = await getDomain(domainId);
-        setDomainData(domain);
-        setDomainName(domain.name);
-        
-        const userOwnsThisDomain = domain.ownerId === user.ID;
-        
-        if (userOwnsThisDomain) {
-          setIsEnrolled(true);
+      const domain = await getDomain(domainId);
+      setDomainData(domain);
+      setDomainName(domain.name);
+
+      const userOwnsThisDomain = domain.ownerId === user.ID;
+
+      if (userOwnsThisDomain) {
+        setIsEnrolled(true);
+        if (!isInitializedRef.current) {
+          srs.setCurrentDomain(domainId);
+          isInitializedRef.current = true;
+        }
+      } else {
+        const enrolledDomains = await getEnrolledDomains();
+        const isUserEnrolled = enrolledDomains.some((d: any) => d.id === domainId);
+        setIsEnrolled(isUserEnrolled);
+
+        if (isUserEnrolled) {
           if (!isInitializedRef.current) {
             srs.setCurrentDomain(domainId);
             isInitializedRef.current = true;
           }
-        } else {
-          const enrolledDomains = await getEnrolledDomains();
-          const isUserEnrolled = enrolledDomains.some((d: any) => d.id === domainId);
-          setIsEnrolled(isUserEnrolled);
-          
-          if (isUserEnrolled) {
-            if (!isInitializedRef.current) {
-              srs.setCurrentDomain(domainId);
-              isInitializedRef.current = true;
-            }
-          } else if (domain.privacy === 'public') {
-            setTimeout(() => {
-              if (!isEnrolled) setShowEnrollmentModal(true);
-            }, 1500);
-          }
+        } else if (domain.privacy === 'public') {
+          setTimeout(() => {
+            if (!isEnrolled) setShowEnrollmentModal(true);
+          }, 1500);
         }
-      } catch (error) {
-        console.error("Error checking enrollment status:", error);
       }
-    };
-    
-    checkUserAndEnrollment();
-  }, [subjectMatterId, srs, isEnrolled]);
+    } catch (error) {
+      console.error("Error checking enrollment status:", error);
+    }
+  }, [srs, isEnrolled]);
 
   // Handle node drag end with position manager
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
@@ -916,16 +917,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     pendingFocusNodeIdRef.current = nodeCode;
   }, [nodeCreationType, computeSpawnPosition]);
 
-  // After structure updates, focus newly created node once it materializes
-  useEffect(() => {
-    const pending = pendingFocusNodeIdRef.current;
-    if (!pending) return;
-    const node = stableGraph.nodes.find(n => n.id === pending);
-    if (node) {
-      handleNodeClick(node, false, 'navigation');
-      pendingFocusNodeIdRef.current = null;
-    }
-  }, [stableGraph.nodes, handleNodeClick]);
+  // Focus newly created node handled by GraphLifecycle
 
   // Refresh function with position preservation
   const refreshGraphAndSRSData = useCallback(async () => {
@@ -1110,16 +1102,36 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }));
   }, [srs.state.creditFlowAnimations]);
 
-  // Clear animations after extended duration
-  useEffect(() => {
-    if (enhancedCreditFlowAnimations.length > 0) {
-      const timer = setTimeout(() => {
-        srs.clearError();
-      }, 5000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [enhancedCreditFlowAnimations.length, srs]);
+  // Clear animations handled by GraphLifecycle
+
+  // Drive lifecycle (replaces useEffect-based orchestration)
+  const lifecycleRef = useRef<GraphLifecycle | null>(null);
+  if (!lifecycleRef.current) {
+    lifecycleRef.current = new GraphLifecycle({
+      loadDomain: async (domainId: number) => {
+        await loadComprehensiveDomainData(domainId);
+      },
+      checkEnrollmentAndInit: async (domainId: number) => {
+        await checkAndInitEnrollment(domainId);
+      },
+      setIsProcessingData: (v: boolean) => setIsProcessingData(v),
+      srs,
+      getPendingFocusNodeId: () => pendingFocusNodeIdRef.current,
+      clearPendingFocusNodeId: () => { pendingFocusNodeIdRef.current = null; },
+      focusNodeById: (nodeId: string) => {
+        const node = stableGraph.nodes.find(n => n.id === nodeId);
+        if (node) handleNodeClick(node, false, 'navigation');
+      }
+    });
+  }
+
+  lifecycleRef.current.tick({
+    subjectMatterId,
+    stableGraphNodes: stableGraph.nodes,
+    isProcessingData,
+    enhancedCreditFlowAnimationsLength: enhancedCreditFlowAnimations.length,
+    isEnrolled,
+  });
 
   return (
       <div className="h-full flex flex-col overflow-hidden bg-gray-100">
@@ -1215,7 +1227,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 onEngineStop={handleEngineStop}
                 creditFlowAnimations={enhancedCreditFlowAnimations}
                 requiresPhysicsReset={stableGraph.requiresPhysicsReset}
-                metadataVersion={graphMetadata.version.toString()}
+                structureVersion={stableGraph.structureVersion}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">

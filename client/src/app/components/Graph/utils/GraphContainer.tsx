@@ -3,7 +3,7 @@
 
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
@@ -32,7 +32,7 @@ interface GraphContainerProps {
   graphRef: React.MutableRefObject<any>;
   creditFlowAnimations?: CreditFlowAnimation[];
   requiresPhysicsReset?: boolean;
-  metadataVersion?: string;
+  structureVersion?: number;
 }
 
 // Pure renderer with memoized calculations
@@ -51,48 +51,99 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   graphRef,
   creditFlowAnimations = [],
   requiresPhysicsReset = false,
-  metadataVersion,
+  structureVersion,
 }) => {
-  // State for rendering triggers and position tracking
-  const [renderTrigger, setRenderTrigger] = useState(0);
+  // Position tracking and incremental repaint scheduling
   const nodePositions = useRef(new Map<string, {x: number, y: number}>());
   const lastNodeCountRef = useRef(0);
   const simulationStableRef = useRef(false);
   const labelRendererRef = useRef(new LabelRenderer());
+  const rafRefreshRef = useRef<number | null>(null);
+  const prewarmKeyRef = useRef<string>('');
+
+  const scheduleRafRefresh = useCallback(() => {
+    if (rafRefreshRef.current != null) return;
+    rafRefreshRef.current = requestAnimationFrame(() => {
+      rafRefreshRef.current = null;
+      try { graphRef.current?.refresh?.(); } catch {}
+    });
+  }, [graphRef]);
+
+  // Pre-warm label cache to avoid first-hover flicker
+  // We derive a coarse key from label mode + node set identity (length + edge ids)
+  const prewarmKey = useMemo(() => {
+    const first = graphNodes[0]?.id || '';
+    const last = graphNodes[graphNodes.length - 1]?.id || '';
+    return `${labelDisplayMode}|${graphNodes.length}|${first}|${last}`;
+  }, [graphNodes, labelDisplayMode]);
+
+  if (prewarmKeyRef.current !== prewarmKey) {
+    prewarmKeyRef.current = prewarmKey;
+    const renderer = labelRendererRef.current;
+    // Prewarm up to a budget to keep app responsive; renderer enforces concurrency
+    const BUDGET = Math.min(300, graphNodes.length);
+    for (let i = 0; i < BUDGET; i++) {
+      const n = graphNodes[i];
+      if (!n) break;
+      let text = '';
+      if (labelDisplayMode === 'codes') text = n.id;
+      else if (labelDisplayMode === 'names') text = n.name;
+      else if (labelDisplayMode === 'off') text = `${n.id}: ${n.name}`; // used on hover; prewarm to avoid flicker
+      if (!text) continue;
+      if (!renderer.getCache(text)) {
+        renderer.render(text, scheduleRafRefresh);
+      }
+    }
+  }
 
   // Memoized graph data to prevent unnecessary re-renders
   // Only change graphData reference on structural change to avoid reheating on hover
   const memoizedGraphData = useMemo(() => {
     console.log(`GraphContainer: Creating graph data with ${graphNodes.length} nodes, ${graphLinks.length} links`);
     return { nodes: graphNodes, links: graphLinks };
-  }, [graphNodes, graphLinks]);
+  }, [graphNodes, graphLinks, structureVersion]);
 
-  // Track position changes for credit flow overlay
-  useEffect(() => {
-    const newPositions = new Map<string, {x: number, y: number}>();
+  // Derive node positions map without effects (consumed by overlay on animation creation)
+  const computedNodePositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
     graphNodes.forEach(node => {
       if (typeof node.x === 'number' && typeof node.y === 'number') {
-        newPositions.set(node.id, { x: node.x, y: node.y });
+        map.set(node.id, { x: node.x, y: node.y });
       }
     });
-    nodePositions.current = newPositions;
+    // Keep ref in sync for any internal access while avoiding effects
+    nodePositions.current = map;
+    return map;
   }, [graphNodes]);
 
   // Detect structural changes for physics reset
   const structuralChange = useMemo(() => {
-    const currentNodeCount = graphNodes.length;
-    const changed = currentNodeCount !== lastNodeCountRef.current || requiresPhysicsReset;
-    lastNodeCountRef.current = currentNodeCount;
-    
+    // Only trigger physics reset when explicitly requested by caller
+    const changed = !!requiresPhysicsReset;
+    lastNodeCountRef.current = graphNodes.length;
     if (changed) {
-      console.log(`GraphContainer: Structural change detected - ${currentNodeCount} nodes, physics reset: ${requiresPhysicsReset}`);
+      console.log(`GraphContainer: Physics reset requested. Nodes: ${graphNodes.length}`);
       simulationStableRef.current = false;
     }
-    
     return changed;
-  }, [graphNodes.length, requiresPhysicsReset]);
+  }, [requiresPhysicsReset, graphNodes.length]);
 
   // Memoized node renderer for better performance
+  // Per-node persistent label cache to avoid transient cache misses on hover
+  type NodeWithCache = GraphNode & { __labelCache?: Map<string, RenderedLabel> };
+
+  const getNodeLabelCache = (n: GraphNode): Map<string, RenderedLabel> => {
+    const nn = n as NodeWithCache;
+    if (!nn.__labelCache) nn.__labelCache = new Map();
+    return nn.__labelCache;
+  };
+
+  const makeLabelKey = (mode: LabelDisplayMode, id: string, text: string, highlighted: boolean) => {
+    // For 'off', labels only show on hover/highlight — key separately to avoid clashes
+    const scope = mode === 'off' ? (highlighted ? 'hover' : 'none') : mode;
+    return `${scope}|${id}|${text}`;
+  };
+
   const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
@@ -200,7 +251,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     }
 
     // Label rendering with caching
-    const labelThreshold = 0.6;
+    const labelThreshold = 0.5;
     const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted;
 
     if (shouldShowLabel) {
@@ -216,9 +267,14 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       }
 
       if (labelText) {
-        const cachedLabel = labelRendererRef.current.getCache(labelText);
+        const key = makeLabelKey(labelDisplayMode, id, labelText, isHighlighted || isSelected);
+        const nodeCache = getNodeLabelCache(node);
+        // Try fast per-node cache first, then global cache
+        let cachedLabel = nodeCache.get(key) || labelRendererRef.current.getCache(labelText);
 
         if (cachedLabel) {
+          // Persist into node cache for future frames
+          if (!nodeCache.has(key)) nodeCache.set(key, cachedLabel);
           const { image, width, height } = cachedLabel;
           const scale = 1 / Math.sqrt(globalScale);
           const labelWidth = width * scale;
@@ -233,20 +289,13 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
             labelHeight
           );
         } else {
-          labelRendererRef.current.render(labelText, () => {
-            setRenderTrigger(c => c + 1);
-          });
-          
-          // Placeholder
-          const placeholderSize = 12 / globalScale;
-          ctx.font = `${placeholderSize}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-          ctx.fillText('...', x, y + nodeSize + (12 / globalScale));
+          // Request render; on completion schedule a single RAF-based refresh
+          labelRendererRef.current.render(labelText, scheduleRafRefresh);
+          // No placeholder to avoid noticeable flicker; label will appear when ready
         }
       }
     }
-  }, [selectedNodeId, highlightNodes, labelDisplayMode]);
+  }, [selectedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh]);
 
   // Memoized link color calculation
   const getLinkColor = useCallback((link: GraphLink) => {
@@ -460,19 +509,11 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     onEngineStop?.();
   }, [onEngineStop]);
 
-  // Cache management for structural changes
-  useEffect(() => {
-    const renderer = labelRendererRef.current;
-
-    if (structuralChange) {
-      console.log("GraphContainer: Structural change detected, clearing label cache");
-      renderer.clearCache();
-    }
-
-    return () => {
-      renderer.clearCache();
-    };
-  }, [structuralChange]);
+  // Cache management for structural changes (no effects)
+  if (structuralChange) {
+    // Clear expensive text/LaTeX label cache when topology changes
+    labelRendererRef.current.clearCache();
+  }
 
   // Directional particles for animated links
   const getDirectionalParticles = useCallback((link: any) => {
@@ -567,10 +608,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         maxZoom={8}
       />
       
-      <CreditFlowOverlay 
-        animations={creditFlowAnimations} 
-        nodePositions={nodePositions.current}
-        graphRef={graphRef} 
+      <CreditFlowOverlay
+        animations={creditFlowAnimations}
+        nodePositions={computedNodePositions}
+        graphRef={graphRef}
       />
     </div>
   );
@@ -587,7 +628,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
     prevProps.creditFlowAnimations === nextProps.creditFlowAnimations &&
     prevProps.requiresPhysicsReset === nextProps.requiresPhysicsReset &&
-    prevProps.metadataVersion === nextProps.metadataVersion
+    prevProps.structureVersion === nextProps.structureVersion
   );
 });
 

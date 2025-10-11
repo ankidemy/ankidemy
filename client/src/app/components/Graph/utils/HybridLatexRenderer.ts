@@ -23,7 +23,11 @@ export class LabelRenderer {
   private cache: Map<string, RenderedLabel> = new Map();
   // A set to track which labels are currently being rendered to avoid duplicate work.
   private renderingInProgress: Set<string> = new Set();
-  private readonly maxCacheSize = 500;
+  // Concurrency-limited queue to avoid blocking the main thread with many MathJax jobs at once
+  private queue: Array<{ text: string; onRendered: RenderCallback }>= [];
+  private activeCount = 0;
+  private readonly maxConcurrent = 3;
+  private readonly maxCacheSize = 1500;
 
   /**
    * Requests a label to be rendered. If not in cache, it starts the async rendering process.
@@ -36,29 +40,47 @@ export class LabelRenderer {
       return; // Already cached or being rendered.
     }
 
-    this.renderingInProgress.add(text);
+    // Queue and pump with concurrency limit
+    this.queue.push({ text, onRendered });
+    this.pump();
+  }
 
-    this.createImageFromText(text)
-      .then(renderedLabel => {
-        this.cache.set(text, renderedLabel);
-        this.pruneCache();
-        onRendered(); // Notify the caller that a re-paint is needed.
-      })
-      .catch(error => {
-        console.error(`Failed to render label for "${text}":`, error);
-        // Even on error, try to render a simple fallback
-        this.createFallbackImage(text)
-          .then(fallback => {
+  private pump(): void {
+    while (this.activeCount < this.maxConcurrent && this.queue.length > 0) {
+      const job = this.queue.shift()!;
+      const { text, onRendered } = job;
+
+      if (this.cache.has(text)) {
+        onRendered();
+        continue;
+      }
+      if (this.renderingInProgress.has(text)) {
+        continue;
+      }
+
+      this.renderingInProgress.add(text);
+      this.activeCount++;
+
+      this.createImageFromText(text)
+        .then(renderedLabel => {
+          this.cache.set(text, renderedLabel);
+          this.pruneCache();
+          onRendered();
+        })
+        .catch(error => {
+          console.error(`Failed to render label for "${text}":`, error);
+          return this.createFallbackImage(text).then(fallback => {
             this.cache.set(text, fallback);
             onRendered();
-          })
-          .catch(() => {
-            // If even fallback fails, just remove from rendering set
-          });
-      })
-      .finally(() => {
-        this.renderingInProgress.delete(text);
-      });
+          }).catch(() => { /* swallow */ });
+        })
+        .finally(() => {
+          this.renderingInProgress.delete(text);
+          this.activeCount--;
+          // Defer next pump to avoid deep recursion
+          setTimeout(() => this.pump(), 0);
+        });
+    }
   }
 
   /**
@@ -76,38 +98,51 @@ export class LabelRenderer {
   private async createFallbackImage(text: string): Promise<RenderedLabel> {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
-    
-    const fontSize = 14;
-    const padding = 2;
-    
+
+    // Device pixel ratio aware rendering for crisp text
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+
+    const fontSize = 14; // CSS pixels seen by ForceGraph coordinates
+    const padding = 2;   // CSS pixels
+
+    // Measure in CSS pixels first
     ctx.font = `${fontSize}px Arial, sans-serif`;
     const metrics = ctx.measureText(text);
-    const width = Math.ceil(metrics.width + padding * 2);
-    const height = Math.ceil(fontSize * 1.05 + padding * 2);
-    
-    canvas.width = width;
-    canvas.height = height;
-    
+    const widthCSS = Math.ceil(metrics.width + padding * 2);
+    const heightCSS = Math.ceil(fontSize * 1.05 + padding * 2);
+
+    // Allocate backing store in device pixels for crispness
+    canvas.width = Math.max(1, widthCSS * dpr);
+    canvas.height = Math.max(1, heightCSS * dpr);
+
+    // Map drawing units to CSS pixel space
+    ctx.scale(dpr, dpr);
+
+    // Optional: avoid extra smoothing when downscaling on canvas
+    // (has effect when browser rescales images; text is drawn at native res)
+    (ctx as any).imageSmoothingEnabled = true;
+    (ctx as any).imageSmoothingQuality = 'high';
+
     // Draw background
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.fillRect(0, 0, width, height);
-    
-    // Draw border
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
+    ctx.fillRect(0, 0, widthCSS, heightCSS);
+
+    // Subtle border
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, width, height);
-    
-    // Draw text
-    ctx.fillStyle = '#333333';
+    ctx.strokeRect(0, 0, widthCSS, heightCSS);
+
+    // Draw sharp text in CSS pixel space (scaled by DPR under the hood)
+    ctx.fillStyle = '#1f2937';
     ctx.font = `${fontSize}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, width / 2, height / 2);
-    
-    // Convert canvas to image
+    ctx.fillText(text, widthCSS / 2, heightCSS / 2);
+
+    // Convert canvas to image; report CSS dimensions so drawImage uses proper size
     return new Promise((resolve) => {
       const image = new Image();
-      image.onload = () => resolve({ image, width, height });
+      image.onload = () => resolve({ image, width: widthCSS, height: heightCSS });
       image.src = canvas.toDataURL();
     });
   }
@@ -129,7 +164,7 @@ export class LabelRenderer {
     } = options;
 
     // Truncate very long text to prevent performance issues and oversized labels.
-    const truncatedText = text.length > 50 ? text.substring(0, 47) + '...' : text;
+    const truncatedText = text.length > 80 ? text.substring(0, 77) + '...' : text;
 
     // 1. Create a temporary off-screen div to render the content with styles.
     const container = document.createElement('div');
@@ -152,7 +187,8 @@ export class LabelRenderer {
       word-wrap: break-word;
       visibility: visible;
     `;
-    container.innerHTML = truncatedText;
+    // Set text safely; MathJax can parse TeX delimiters in text nodes
+    container.textContent = truncatedText;
     document.body.appendChild(container);
 
     try {
@@ -163,14 +199,17 @@ export class LabelRenderer {
 
       // 3. Measure the final dimensions of the rendered div.
       const rect = container.getBoundingClientRect();
-      const width = Math.max(20, Math.ceil(rect.width))+10;
-      const height = Math.max(16, Math.ceil(rect.height))+10;
+      const width = Math.max(20, Math.ceil(rect.width)) + 10;
+      const height = Math.max(16, Math.ceil(rect.height)) + 10;
+
+      // Render at device-pixel ratio for crisp results while keeping CSS size
+      const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
 
       // 4. Create an SVG with <foreignObject> to capture the styled HTML.
       // This is the magic step that leverages the browser's high-quality rendering engine.
       const svgString = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-          <foreignObject x="0" y="0" width="100%" height="100%">
+        <svg xmlns="http://www.w3.org/2000/svg" width="${width * dpr}" height="${height * dpr}" viewBox="0 0 ${width} ${height}">
+          <foreignObject x="0" y="0" width="${width}" height="${height}">
             <div xmlns="http://www.w3.org/1999/xhtml" style="padding: ${padding}px; font-family: ${fontFamily}; font-size: ${fontSize}px; color: ${color}; background-color: ${backgroundColor}; border-radius: 2px; border: 1px solid rgba(0,0,0,0.1); line-height: 1.05; max-width: ${maxWidth}px; word-wrap: break-word; display: inline-block; box-sizing: border-box;">
               ${container.innerHTML}
             </div>
