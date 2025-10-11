@@ -82,13 +82,12 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     try {
       let details;
       if (node.type === 'definition') {
-        const res = await getDefinitionByCode(node.id);
+        const res = await getDefinitionByCode(node.id, { domainId: domainData?.id });
         details = Array.isArray(res) ? res[0] : res;
       } else {
-        const res = await getExerciseByCode(node.id);
+        const res = await getExerciseByCode(node.id, { domainId: domainData?.id });
         details = Array.isArray(res) ? res[0] : res;
       }
-      
       if (details) {
         setNodeDetails({ ...details, type: node.type } as Definition | Exercise);
         
@@ -106,7 +105,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [graphData]);
+  }, [graphData, domainData?.id]);
 
   // Initialize with first node
   useEffect(() => {

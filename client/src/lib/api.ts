@@ -584,8 +584,10 @@ export const deleteDefinition = async (id: number): Promise<void> => {
   return handleResponse(response);
 };
 
-export const getDefinitionByCode = async (code: string): Promise<Definition> => {
-  const response = await fetch(`${API_URL}/api/definitions/code/${code}`, {
+export const getDefinitionByCode = async (code: string, opts?: { domainId?: number }): Promise<Definition> => {
+  const domainQuery = opts?.domainId ? `?domainId=${opts.domainId}` : '';
+  const url = `${API_URL}/api/definitions/code/${encodeURIComponent(code)}${domainQuery}`;
+  const response = await fetch(url, {
     headers: getAuthHeaders(),
   });
   
@@ -707,8 +709,10 @@ export const deleteExercise = async (id: number): Promise<void> => {
   return handleResponse(response);
 };
 
-export const getExerciseByCode = async (code: string): Promise<Exercise> => {
-  const response = await fetch(`${API_URL}/api/exercises/code/${code}`, {
+export const getExerciseByCode = async (code: string, opts?: { domainId?: number }): Promise<Exercise> => {
+  const domainQuery = opts?.domainId ? `?domainId=${opts.domainId}` : '';
+  const url = `${API_URL}/api/exercises/code/${encodeURIComponent(code)}${domainQuery}`;
+  const response = await fetch(url, {
     headers: getAuthHeaders(),
   });
   

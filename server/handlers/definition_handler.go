@@ -3,12 +3,12 @@
 package handlers
 
 import (
-	"net/http"
-	"strconv"
+    "net/http"
+    "strconv"
 
-	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
-	"myapp/server/models"
+    "github.com/gin-gonic/gin"
+    "myapp/server/dao"
+    "myapp/server/models"
 )
 
 // DefinitionHandler handles definition-related HTTP requests
@@ -266,7 +266,7 @@ func (h *DefinitionHandler) DeleteDefinition(c *gin.Context) {
 
 // GetDefinitionByCode returns definitions by code
 func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
-	code := c.Param("code")
+    code := c.Param("code")
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid definition code"})
 		return
@@ -275,20 +275,20 @@ func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
 	// Get domain ID from query parameter
 	domainID, _ := strconv.ParseUint(c.Query("domainId"), 10, 32)
 
-	var definitions []*models.DefinitionWithPrerequisites
-	var err error
+    var definitions []*models.DefinitionWithPrerequisites
+    var err error
 
 	// If domain ID is provided, get specific definition by code and domain
-	if domainID > 0 {
-		var definition *models.DefinitionWithPrerequisites
-		definition, err = h.definitionDAO.FindByCodeAndDomain(code, uint(domainID))
-		if err == nil {
-			definitions = []*models.DefinitionWithPrerequisites{definition}
-		}
-	} else {
-		// Otherwise get all definitions with the given code
-		definitions, err = h.definitionDAO.FindByCode(code)
-	}
+    if domainID > 0 {
+        var definition *models.DefinitionWithPrerequisites
+        definition, err = h.definitionDAO.FindByCodeAndDomain(code, uint(domainID))
+        if err == nil {
+            definitions = []*models.DefinitionWithPrerequisites{definition}
+        }
+    } else {
+        // Otherwise get all definitions with the given code
+        definitions, err = h.definitionDAO.FindByCode(code)
+    }
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Definition not found"})
@@ -296,8 +296,8 @@ func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
 	}
 
 	// Filter by access permissions and convert to response format
-	var responses []models.DefinitionResponse
-	for _, definition := range definitions {
+    var responses []models.DefinitionResponse
+    for _, definition := range definitions {
 		// Check domain access
 		domain, err := h.domainDAO.FindByID(definition.DomainID)
 		if err != nil {
@@ -305,22 +305,25 @@ func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
 		}
 
 		// Add to response if domain is public or user has access
-		if domain.Privacy == "public" {
-			responses = append(responses, h.definitionDAO.ConvertToResponse(definition))
-			continue
-		}
+        if domain.Privacy == "public" {
+            resp := h.definitionDAO.ConvertToResponse(definition)
+            responses = append(responses, resp)
+            continue
+        }
 
 		userID, exists := c.Get("userID")
 		if exists && userID.(uint) == domain.OwnerID {
-			responses = append(responses, h.definitionDAO.ConvertToResponse(definition))
-			continue
-		}
+            resp := h.definitionDAO.ConvertToResponse(definition)
+            responses = append(responses, resp)
+            continue
+        }
 
 		isAdmin, adminExists := c.Get("isAdmin")
 		if adminExists && isAdmin.(bool) {
-			responses = append(responses, h.definitionDAO.ConvertToResponse(definition))
-		}
-	}
+            resp := h.definitionDAO.ConvertToResponse(definition)
+            responses = append(responses, resp)
+        }
+    }
 
 	if len(responses) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to any definitions with this code"})

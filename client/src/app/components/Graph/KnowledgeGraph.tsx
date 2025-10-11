@@ -595,6 +595,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const surgicallyUpdateDefinition = useCallback((nodeCode: string, updatedData: ApiDefinition) => {
     console.log('Performing surgical update for definition:', nodeCode);
     
+    
     setNodeDataCache(prevCache => {
       const newCache = new Map(prevCache);
       newCache.set(nodeCode, updatedData);
@@ -626,6 +627,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const surgicallyUpdateExercise = useCallback((nodeCode: string, updatedData: ApiExercise) => {
     console.log('Performing surgical update for exercise:', nodeCode);
+    
     
     setNodeDataCache(prevCache => {
       const newCache = new Map(prevCache);
@@ -854,8 +856,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } else {
       try {
         const raw = nodeCreationType === 'definition' 
-          ? await getDefinitionByCode(nodeCode) 
-          : await getExerciseByCode(nodeCode);
+          ? await getDefinitionByCode(nodeCode, { domainId: domainData?.id }) 
+          : await getExerciseByCode(nodeCode, { domainId: domainData?.id });
         // Some APIs return arrays; normalize
         createdData = Array.isArray(raw) ? raw[0] : raw;
       } catch (e) {
