@@ -330,7 +330,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           description: (document.getElementById('description') as HTMLTextAreaElement)?.value,
           hints: (document.getElementById('hints') as HTMLTextAreaElement)?.value,
           notes: (document.getElementById('exerciseNotes') as HTMLTextAreaElement)?.value,
-          difficulty: (document.getElementById('difficulty') as HTMLInputElement)?.value,
+          difficulty: (() => { const v = (document.getElementById('difficulty') as HTMLInputElement)?.value; const n = parseInt(v || '', 10); return Number.isFinite(n) ? n : undefined; })(),
           verifiable: (document.getElementById('verifiable') as HTMLInputElement)?.checked,
           result: (document.getElementById('verifiable') as HTMLInputElement)?.checked ? 
             (document.getElementById('result') as HTMLInputElement)?.value : undefined,

@@ -22,7 +22,7 @@ export interface Exercise {
   id: number;
   code: string;
   name: string;
-  difficulty: string;
+  difficulty: number;
   statement: string;
   description: string;
   hints?: string;
@@ -41,7 +41,7 @@ export interface GraphNode {
   name: string;
   type: 'definition' | 'exercise';
   isRootDefinition?: boolean;
-  difficulty?: string; // For exercises
+  difficulty?: number; // For exercises
   x?: number;
   y?: number;
   vx?: number;
@@ -130,7 +130,7 @@ export interface ExerciseRequest {
   domainId: number;
   verifiable?: boolean;
   result?: string;
-  difficulty?: string;
+  difficulty?: number;
   prerequisiteCodes?: string[];
   prerequisiteWeights?: Record<string, number>; // FIXED: weights for prerequisites
   xPosition?: number;

@@ -24,35 +24,37 @@ func NewGraphDAO(db *gorm.DB) *GraphDAO {
 
 // GraphData represents the full structure of a knowledge graph
 type GraphData struct {
-	Definitions map[string]DefinitionNode `json:"definitions"`
-	Exercises   map[string]ExerciseNode   `json:"exercises"`
+    Definitions map[string]DefinitionNode `json:"definitions"`
+    Exercises   map[string]ExerciseNode   `json:"exercises"`
 }
 
 // DefinitionNode represents a definition in the graph export/import format
 type DefinitionNode struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Notes         string   `json:"notes,omitempty"`
-	References    []string `json:"references,omitempty"`
-	Prerequisites []string `json:"prerequisites,omitempty"`
-	XPosition     float64  `json:"xPosition,omitempty"`
-	YPosition     float64  `json:"yPosition,omitempty"`
+    Code          string   `json:"code"`
+    Name          string   `json:"name"`
+    Description   string   `json:"description"`
+    Notes         string   `json:"notes,omitempty"`
+    References    []string `json:"references,omitempty"`
+    Prerequisites []string `json:"prerequisites,omitempty"`
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
+    XPosition     float64  `json:"xPosition,omitempty"`
+    YPosition     float64  `json:"yPosition,omitempty"`
 }
 
 // ExerciseNode represents an exercise in the graph export/import format
 type ExerciseNode struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	Statement     string   `json:"statement"`
-	Description   string   `json:"description,omitempty"`
-	Hints         string   `json:"hints,omitempty"`
-	Verifiable    bool     `json:"verifiable,omitempty"`
-	Result        string   `json:"result,omitempty"`
-	Difficulty    int      `json:"difficulty,omitempty"`
-	Prerequisites []string `json:"prerequisites,omitempty"`
-	XPosition     float64  `json:"xPosition,omitempty"`
-	YPosition     float64  `json:"yPosition,omitempty"`
+    Code          string   `json:"code"`
+    Name          string   `json:"name"`
+    Statement     string   `json:"statement"`
+    Description   string   `json:"description,omitempty"`
+    Hints         string   `json:"hints,omitempty"`
+    Verifiable    bool     `json:"verifiable,omitempty"`
+    Result        string   `json:"result,omitempty"`
+    Difficulty    int      `json:"difficulty,omitempty"`
+    Prerequisites []string `json:"prerequisites,omitempty"`
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
+    XPosition     float64  `json:"xPosition,omitempty"`
+    YPosition     float64  `json:"yPosition,omitempty"`
 }
 
 // VisualNode represents a node in the visual graph
@@ -232,47 +234,53 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			references = append(references, ref.Reference)
 		}
 		
-		// Get prerequisite codes
-		prerequisiteCodes, err := d.getPrerequisiteCodes(def.ID, "definition")
-		if err != nil {
-			return nil, err
-		}
+        // Get prerequisite codes and weights
+        prerequisiteCodes, err := d.getPrerequisiteCodes(def.ID, "definition")
+        if err != nil {
+            return nil, err
+        }
+        prereqWeights, err := d.getPrerequisiteWeights(def.ID, "definition")
+        if err != nil { return nil, err }
 		
 		// Use definition CODE as key, not ID
-		graphData.Definitions[def.Code] = DefinitionNode{
-			Code:          def.Code,
-			Name:          def.Name,
-			Description:   def.Description,
-			Notes:         def.Notes,
-			References:    references,
-			Prerequisites: prerequisiteCodes,
-			XPosition:     def.XPosition,
-			YPosition:     def.YPosition,
-		}
+        graphData.Definitions[def.Code] = DefinitionNode{
+            Code:          def.Code,
+            Name:          def.Name,
+            Description:   def.Description,
+            Notes:         def.Notes,
+            References:    references,
+            Prerequisites: prerequisiteCodes,
+            PrerequisiteWeights: prereqWeights,
+            XPosition:     def.XPosition,
+            YPosition:     def.YPosition,
+        }
 	}
 	
 	// Add exercises using CODE as key (FIXED)
 	for _, ex := range exercises {
-		// Get prerequisite codes
-		prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
-		if err != nil {
-			return nil, err
-		}
+        // Get prerequisite codes and weights
+        prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
+        if err != nil {
+            return nil, err
+        }
+        prereqWeights, err := d.getPrerequisiteWeights(ex.ID, "exercise")
+        if err != nil { return nil, err }
 		
 		// Use exercise CODE as key, not ID
-		graphData.Exercises[ex.Code] = ExerciseNode{
-			Code:          ex.Code,
-			Name:          ex.Name,
-			Statement:     ex.Statement,
-			Description:   ex.Description,
-			Hints:         ex.Hints,
-			Verifiable:    ex.Verifiable,
-			Result:        ex.Result,
-			Difficulty:    ex.Difficulty,
-			Prerequisites: prerequisiteCodes,
-			XPosition:     ex.XPosition,
-			YPosition:     ex.YPosition,
-		}
+        graphData.Exercises[ex.Code] = ExerciseNode{
+            Code:          ex.Code,
+            Name:          ex.Name,
+            Statement:     ex.Statement,
+            Description:   ex.Description,
+            Hints:         ex.Hints,
+            Verifiable:    ex.Verifiable,
+            Result:        ex.Result,
+            Difficulty:    ex.Difficulty,
+            Prerequisites: prerequisiteCodes,
+            PrerequisiteWeights: prereqWeights,
+            XPosition:     ex.XPosition,
+            YPosition:     ex.YPosition,
+        }
 	}
 	
 	return graphData, nil
@@ -294,6 +302,25 @@ func (d *GraphDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string,
 	}
 	
 	return codes, nil
+}
+
+// getPrerequisiteWeights returns map[code]weight for a node's prerequisites
+func (d *GraphDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
+    query := `
+        SELECT d.code, np.weight 
+        FROM node_prerequisites np
+        JOIN definitions d ON np.prerequisite_id = d.id 
+        WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
+        ORDER BY d.code
+    `
+    type row struct { Code string; Weight float64 }
+    var rows []row
+    if err := d.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
+        return nil, err
+    }
+    res := make(map[string]float64, len(rows))
+    for _, r := range rows { res[r.Code] = r.Weight }
+    return res, nil
 }
 
 // ImportDomain imports a domain from the graph format using clean DAOs
@@ -343,9 +370,9 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				YPosition:   defNode.YPosition,
 			}
 			
-			if err := definitionDAO.Create(def, defNode.References, nil); err != nil {
-				return err
-			}
+            if err := definitionDAO.Create(def, defNode.References, nil, nil); err != nil {
+                return err
+            }
 			
 			// Store by both the key and the code for lookup
 			definitions[code] = def
@@ -365,9 +392,20 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				}
 				
 				if len(prerequisiteIDs) > 0 {
-					if err := definitionDAO.Update(def, defNode.References, prerequisiteIDs); err != nil {
-						return err
-					}
+            // Build weights map by ID if provided
+            var idWeights map[uint]float64
+            if len(defNode.PrerequisiteWeights) > 0 {
+                idWeights = make(map[uint]float64, len(defNode.PrerequisiteWeights))
+                for pcode, w := range defNode.PrerequisiteWeights {
+                    if prereqDef, ok := definitions[pcode]; ok {
+                        if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
+                        idWeights[prereqDef.ID] = w
+                    }
+                }
+            }
+            if err := definitionDAO.Update(def, defNode.References, prerequisiteIDs, idWeights); err != nil {
+                return err
+            }
 				}
 			}
 		}
@@ -397,9 +435,19 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				}
 			}
 			
-			if err := exerciseDAO.Create(ex, prerequisiteIDs); err != nil {
-				return err
-			}
+            var idWeights map[uint]float64
+            if len(exNode.PrerequisiteWeights) > 0 {
+                idWeights = make(map[uint]float64, len(exNode.PrerequisiteWeights))
+                for pcode, w := range exNode.PrerequisiteWeights {
+                    if prereqDef, ok := definitions[pcode]; ok {
+                        if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
+                        idWeights[prereqDef.ID] = w
+                    }
+                }
+            }
+            if err := exerciseDAO.Create(ex, prerequisiteIDs, idWeights); err != nil {
+                return err
+            }
 		}
 		
 		return nil

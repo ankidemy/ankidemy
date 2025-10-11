@@ -52,31 +52,35 @@ func (Reference) TableName() string {
 
 // DefinitionRequest is used for creating or updating definitions
 type DefinitionRequest struct {
-	Code           string   `json:"code"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	Notes          string   `json:"notes,omitempty"`
-	References     []string `json:"references,omitempty"`
-	PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
-	DomainID       uint     `json:"domainId"`
-	XPosition      float64  `json:"xPosition,omitempty"`
-	YPosition      float64  `json:"yPosition,omitempty"`
+    Code           string   `json:"code"`
+    Name           string   `json:"name"`
+    Description    string   `json:"description"`
+    Notes          string   `json:"notes,omitempty"`
+    References     []string `json:"references,omitempty"`
+    PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
+    // Optional weights for each prerequisite ID (0.01 - 1.0). If omitted, defaults to 1.0 on server.
+    PrerequisiteWeights map[uint]float64 `json:"prerequisiteWeights,omitempty"`
+    DomainID       uint     `json:"domainId"`
+    XPosition      float64  `json:"xPosition,omitempty"`
+    YPosition      float64  `json:"yPosition,omitempty"`
 }
 
 // DefinitionResponse is used for returning definitions
 type DefinitionResponse struct {
-	ID            uint      `json:"id"`
-	Code          string    `json:"code"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	Notes         string    `json:"notes,omitempty"`
-	References    []string  `json:"references,omitempty"`
-	Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes
-	DomainID      uint      `json:"domainId"`
-	OwnerID       uint      `json:"ownerId"`
-	XPosition     float64   `json:"xPosition,omitempty"`
-	YPosition     float64   `json:"yPosition,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
+    ID            uint      `json:"id"`
+    Code          string    `json:"code"`
+    Name          string    `json:"name"`
+    Description   string    `json:"description"`
+    Notes         string    `json:"notes,omitempty"`
+    References    []string  `json:"references,omitempty"`
+    Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes
+    // Map of prerequisite code -> weight (0.01 - 1.0)
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
+    DomainID      uint      `json:"domainId"`
+    OwnerID       uint      `json:"ownerId"`
+    XPosition     float64   `json:"xPosition,omitempty"`
+    YPosition     float64   `json:"yPosition,omitempty"`
+    CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 

@@ -61,6 +61,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const labelRendererRef = useRef(new LabelRenderer());
 
   // Memoized graph data to prevent unnecessary re-renders
+  // Only change graphData reference on structural change to avoid reheating on hover
   const memoizedGraphData = useMemo(() => {
     console.log(`GraphContainer: Creating graph data with ${graphNodes.length} nodes, ${graphLinks.length} links`);
     return { nodes: graphNodes, links: graphLinks };
@@ -108,10 +109,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       } else {
         const difficultyColors = ['#66bb6a', '#9ccc65', '#d4e157', '#ffee58', '#ffa726', '#ff7043', '#ef5350'];
         let difficultyLevel = 2;
-        if (node.difficulty) {
-          const parsedDifficulty = parseInt(node.difficulty, 10);
-          if (!isNaN(parsedDifficulty)) {
-            difficultyLevel = Math.max(0, Math.min(6, parsedDifficulty - 1));
+        if (node.difficulty !== undefined && node.difficulty !== null) {
+          const parsed = typeof node.difficulty === 'number' ? node.difficulty : parseInt(String(node.difficulty), 10);
+          if (!isNaN(parsed)) {
+            difficultyLevel = Math.max(0, Math.min(6, parsed - 1));
           }
         }
         baseColor = difficultyColors[difficultyLevel];

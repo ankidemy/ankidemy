@@ -50,10 +50,12 @@ type ExerciseRequest struct {
 	DomainID       uint     `json:"domainId"`
 	Verifiable     bool     `json:"verifiable,omitempty"`
 	Result         string   `json:"result,omitempty"`
-	Difficulty     int      `json:"difficulty,omitempty"`
-	PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
-	XPosition      float64  `json:"xPosition,omitempty"`
-	YPosition      float64  `json:"yPosition,omitempty"`
+    Difficulty     int      `json:"difficulty,omitempty"`
+    PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
+    // Optional weights for each prerequisite ID (0.01 - 1.0). If omitted, defaults to 1.0 on server.
+    PrerequisiteWeights map[uint]float64 `json:"prerequisiteWeights,omitempty"`
+    XPosition      float64  `json:"xPosition,omitempty"`
+    YPosition      float64  `json:"yPosition,omitempty"`
 }
 
 // ExerciseResponse is used for returning exercises
@@ -70,11 +72,13 @@ type ExerciseResponse struct {
 	Verifiable    bool      `json:"verifiable"`
 	Result        string    `json:"result,omitempty"`
 	Difficulty    int       `json:"difficulty,omitempty"`
-	Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes
-	XPosition     float64   `json:"xPosition,omitempty"`
-	YPosition     float64   `json:"yPosition,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+    Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes
+    // Map of prerequisite code -> weight (0.01 - 1.0)
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
+    XPosition     float64   `json:"xPosition,omitempty"`
+    YPosition     float64   `json:"yPosition,omitempty"`
+    CreatedAt     time.Time `json:"createdAt"`
+    UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 // ExerciseWithPrerequisites holds an exercise with its prerequisite data  

@@ -19,7 +19,7 @@ func NewExerciseDAO(db *gorm.DB) *ExerciseDAO {
 }
 
 // Create creates a new exercise with prerequisites managed via node_prerequisites
-func (d *ExerciseDAO) Create(exercise *models.Exercise, prerequisiteIDs []uint) error {
+func (d *ExerciseDAO) Create(exercise *models.Exercise, prerequisiteIDs []uint, weights map[uint]float64) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Create the exercise
 		if err := tx.Create(exercise).Error; err != nil {
@@ -27,8 +27,8 @@ func (d *ExerciseDAO) Create(exercise *models.Exercise, prerequisiteIDs []uint) 
 		}
 		
 		// Add prerequisites to node_prerequisites table
-		if len(prerequisiteIDs) > 0 {
-			for _, prereqID := range prerequisiteIDs {
+        if len(prerequisiteIDs) > 0 {
+            for _, prereqID := range prerequisiteIDs {
 				// Verify prerequisite exists (should be a definition)
 				var count int64
 				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
@@ -38,14 +38,28 @@ func (d *ExerciseDAO) Create(exercise *models.Exercise, prerequisiteIDs []uint) 
 					continue // Skip invalid prerequisite
 				}
 				
-				prerequisite := models.NodePrerequisite{
-					NodeID:           exercise.ID,
-					NodeType:         "exercise",
-					PrerequisiteID:   prereqID,
-					PrerequisiteType: "definition", // Exercises typically depend on definitions
-					Weight:           1.0,
-					IsManual:         false,
-				}
+                // Determine weight (default 1.0, clamp 0.01-1.0)
+                w := 1.0
+                if weights != nil {
+                    if val, ok := weights[prereqID]; ok {
+                        if val < 0.01 {
+                            w = 0.01
+                        } else if val > 1.0 {
+                            w = 1.0
+                        } else {
+                            w = val
+                        }
+                    }
+                }
+
+                prerequisite := models.NodePrerequisite{
+                    NodeID:           exercise.ID,
+                    NodeType:         "exercise",
+                    PrerequisiteID:   prereqID,
+                    PrerequisiteType: "definition", // Exercises typically depend on definitions
+                    Weight:           w,
+                    IsManual:         false,
+                }
 				
 				if err := tx.Create(&prerequisite).Error; err != nil {
 					// Ignore duplicates
@@ -59,7 +73,7 @@ func (d *ExerciseDAO) Create(exercise *models.Exercise, prerequisiteIDs []uint) 
 }
 
 // Update updates an existing exercise and its prerequisites
-func (d *ExerciseDAO) Update(exercise *models.Exercise, prerequisiteIDs []uint) error {
+func (d *ExerciseDAO) Update(exercise *models.Exercise, prerequisiteIDs []uint, weights map[uint]float64) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Update the exercise
 		if err := tx.Save(exercise).Error; err != nil {
@@ -72,8 +86,8 @@ func (d *ExerciseDAO) Update(exercise *models.Exercise, prerequisiteIDs []uint) 
 			return err
 		}
 		
-		if len(prerequisiteIDs) > 0 {
-			for _, prereqID := range prerequisiteIDs {
+        if len(prerequisiteIDs) > 0 {
+            for _, prereqID := range prerequisiteIDs {
 				// Verify prerequisite exists (should be a definition)
 				var count int64
 				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
@@ -83,14 +97,28 @@ func (d *ExerciseDAO) Update(exercise *models.Exercise, prerequisiteIDs []uint) 
 					continue // Skip invalid prerequisite
 				}
 				
-				prerequisite := models.NodePrerequisite{
-					NodeID:           exercise.ID,
-					NodeType:         "exercise",
-					PrerequisiteID:   prereqID,
-					PrerequisiteType: "definition", // Exercises typically depend on definitions
-					Weight:           1.0,
-					IsManual:         false,
-				}
+                // Determine weight (default 1.0, clamp 0.01-1.0)
+                w := 1.0
+                if weights != nil {
+                    if val, ok := weights[prereqID]; ok {
+                        if val < 0.01 {
+                            w = 0.01
+                        } else if val > 1.0 {
+                            w = 1.0
+                        } else {
+                            w = val
+                        }
+                    }
+                }
+
+                prerequisite := models.NodePrerequisite{
+                    NodeID:           exercise.ID,
+                    NodeType:         "exercise",
+                    PrerequisiteID:   prereqID,
+                    PrerequisiteType: "definition", // Exercises typically depend on definitions
+                    Weight:           w,
+                    IsManual:         false,
+                }
 				
 				if err := tx.Create(&prerequisite).Error; err != nil {
 					// Ignore duplicates
@@ -231,25 +259,29 @@ func (d *ExerciseDAO) GetByDomainID(domainID uint) ([]models.ExerciseWithPrerequ
 
 // ConvertToResponse converts an ExerciseWithPrerequisites to an ExerciseResponse
 func (d *ExerciseDAO) ConvertToResponse(exercise *models.ExerciseWithPrerequisites) models.ExerciseResponse {
-	return models.ExerciseResponse{
-		ID:            exercise.ID,
-		Code:          exercise.Code,
-		Name:          exercise.Name,
-		Statement:     exercise.Statement,
-		Description:   exercise.Description,
-		Notes:         exercise.Notes,
-		Hints:         exercise.Hints,
-		DomainID:      exercise.DomainID,
-		OwnerID:       exercise.OwnerID,
-		Verifiable:    exercise.Verifiable,
-		Result:        exercise.Result,
-		Difficulty:    exercise.Difficulty,
-		Prerequisites: exercise.PrerequisiteCodes,
-		XPosition:     exercise.XPosition,
-		YPosition:     exercise.YPosition,
-		CreatedAt:     exercise.CreatedAt,
-		UpdatedAt:     exercise.UpdatedAt,
-	}
+    // Load weights per prerequisite code
+    weights, _ := d.getPrerequisiteWeights(exercise.ID, "exercise")
+
+    return models.ExerciseResponse{
+        ID:            exercise.ID,
+        Code:          exercise.Code,
+        Name:          exercise.Name,
+        Statement:     exercise.Statement,
+        Description:   exercise.Description,
+        Notes:         exercise.Notes,
+        Hints:         exercise.Hints,
+        DomainID:      exercise.DomainID,
+        OwnerID:       exercise.OwnerID,
+        Verifiable:    exercise.Verifiable,
+        Result:        exercise.Result,
+        Difficulty:    exercise.Difficulty,
+        Prerequisites: exercise.PrerequisiteCodes,
+        PrerequisiteWeights: weights,
+        XPosition:     exercise.XPosition,
+        YPosition:     exercise.YPosition,
+        CreatedAt:     exercise.CreatedAt,
+        UpdatedAt:     exercise.UpdatedAt,
+    }
 }
 
 // Helper function to get prerequisite codes for a node
@@ -268,6 +300,31 @@ func (d *ExerciseDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]stri
 	}
 	
 	return codes, nil
+}
+
+// getPrerequisiteWeights returns map[code]weight for a node's prerequisites
+func (d *ExerciseDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
+    query := `
+        SELECT d.code, np.weight 
+        FROM node_prerequisites np
+        JOIN definitions d ON np.prerequisite_id = d.id 
+        WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
+        ORDER BY d.code
+    `
+
+    type row struct {
+        Code   string
+        Weight float64
+    }
+    var rows []row
+    if err := d.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
+        return nil, err
+    }
+    res := make(map[string]float64, len(rows))
+    for _, r := range rows {
+        res[r.Code] = r.Weight
+    }
+    return res, nil
 }
 
 // UpdatePositions updates the x,y positions of multiple exercises

@@ -80,9 +80,9 @@ func TestDefinitionCreate(t *testing.T) {
 		YPosition:   200.0,
 	}
 	references := []string{"Book A", "Website B"}
-	if err := definitionDAO.Create(definition, references, nil); err != nil {
-		t.Fatalf("Failed to create definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition, references, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition: %v", err)
+    }
 
 	// Verify definition was created
 	if definition.ID == 0 {
@@ -150,9 +150,9 @@ func TestDefinitionWithPrerequisites(t *testing.T) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(definition1, nil, nil); err != nil {
-		t.Fatalf("Failed to create first definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition1, nil, nil, nil); err != nil {
+        t.Fatalf("Failed to create first definition: %v", err)
+    }
 
 	// Create second definition with prerequisite
 	definition2 := &models.Definition{
@@ -163,9 +163,9 @@ func TestDefinitionWithPrerequisites(t *testing.T) {
 		OwnerID:     user.ID,
 	}
 	prerequisiteIDs := []uint{definition1.ID}
-	if err := definitionDAO.Create(definition2, nil, prerequisiteIDs); err != nil {
-		t.Fatalf("Failed to create definition with prerequisite: %v", err)
-	}
+    if err := definitionDAO.Create(definition2, nil, prerequisiteIDs, nil); err != nil {
+        t.Fatalf("Failed to create definition with prerequisite: %v", err)
+    }
 
 	// Find definition by code
 	foundDef, err := definitionDAO.FindByCode("DEF2")
@@ -227,17 +227,17 @@ func TestDefinitionUpdate(t *testing.T) {
 		OwnerID:     user.ID,
 	}
 	originalReferences := []string{"Original Reference"}
-	if err := definitionDAO.Create(definition, originalReferences, nil); err != nil {
-		t.Fatalf("Failed to create definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition, originalReferences, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition: %v", err)
+    }
 
 	// Update the definition
 	definition.Name = "Updated Name"
 	definition.Description = "Updated description"
 	newReferences := []string{"New Reference 1", "New Reference 2"}
-	if err := definitionDAO.Update(definition, newReferences, nil); err != nil {
-		t.Fatalf("Failed to update definition: %v", err)
-	}
+    if err := definitionDAO.Update(definition, newReferences, nil, nil); err != nil {
+        t.Fatalf("Failed to update definition: %v", err)
+    }
 
 	// Find updated definition
 	updatedDef, err := definitionDAO.FindByID(definition.ID)
@@ -303,9 +303,9 @@ func TestDefinitionDelete(t *testing.T) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(definition, nil, nil); err != nil {
-		t.Fatalf("Failed to create definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition, nil, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition: %v", err)
+    }
 
 	// Delete the definition
 	if err := definitionDAO.Delete(definition.ID); err != nil {

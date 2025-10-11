@@ -6,7 +6,9 @@ import {
   createDefinition,
   createExercise,
   DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
-  ExerciseRequest
+  ExerciseRequest,
+  Definition as ApiDefinition,
+  Exercise as ApiExercise
 } from '@/lib/api';
 import { X } from 'lucide-react';
 
@@ -21,7 +23,7 @@ interface NodeCreationModalProps {
   domainId: number;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (nodeCode: string) => void; // Return code for UI consistency
+  onSuccess: (nodeCode: string, created?: ApiDefinition | ApiExercise) => void; // Return code and payload for surgical insert
   availablePrerequisites: PrerequisiteOption[]; // Updated type
   position?: {x: number, y: number};
 }
@@ -122,7 +124,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           yPosition: position?.y
         };
         const response = await createDefinition(domainId, definitionData);
-        onSuccess(response.code);
+        onSuccess(response.code, response);
       } else {
         if (!statement.trim()) throw new Error('Statement is required for exercises');
         const exerciseData: ExerciseRequest = {
@@ -133,7 +135,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           notes: notes.trim() || undefined,
           hints: hints.trim() || undefined,
           domainId,
-          difficulty: difficulty,
+          difficulty: parseInt(difficulty, 10),
           verifiable,
           result: verifiable ? (result.trim() || undefined) : undefined,
           prerequisiteIds: selectedPrereqNumericIds,
@@ -142,7 +144,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           yPosition: position?.y
         };
         const response = await createExercise(domainId, exerciseData);
-        onSuccess(response.code);
+        onSuccess(response.code, response);
       }
       onClose();
     } catch (err: any) {

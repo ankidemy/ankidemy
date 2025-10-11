@@ -77,9 +77,9 @@ func TestExerciseCreate(t *testing.T) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(definition, nil, nil); err != nil {
-		t.Fatalf("Failed to create definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition, nil, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition: %v", err)
+    }
 
 	// Create an exercise
 	exercise := &models.Exercise{
@@ -98,9 +98,9 @@ func TestExerciseCreate(t *testing.T) {
 		YPosition:   200.0,
 	}
 	prerequisiteIDs := []uint{definition.ID}
-	if err := exerciseDAO.Create(exercise, prerequisiteIDs); err != nil {
-		t.Fatalf("Failed to create exercise: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise, prerequisiteIDs, nil); err != nil {
+        t.Fatalf("Failed to create exercise: %v", err)
+    }
 
 	// Verify exercise was created
 	if exercise.ID == 0 {
@@ -178,9 +178,9 @@ func TestExerciseUpdate(t *testing.T) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(def1, nil, nil); err != nil {
-		t.Fatalf("Failed to create definition 1: %v", err)
-	}
+    if err := definitionDAO.Create(def1, nil, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition 1: %v", err)
+    }
 
 	def2 := &models.Definition{
 		Code:        "DEF2",
@@ -189,9 +189,9 @@ func TestExerciseUpdate(t *testing.T) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(def2, nil, nil); err != nil {
-		t.Fatalf("Failed to create definition 2: %v", err)
-	}
+    if err := definitionDAO.Create(def2, nil, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition 2: %v", err)
+    }
 
 	// Create an exercise with def1 as prerequisite
 	exercise := &models.Exercise{
@@ -205,9 +205,9 @@ func TestExerciseUpdate(t *testing.T) {
 		Verifiable:  false,
 		Difficulty:  1,
 	}
-	if err := exerciseDAO.Create(exercise, []uint{def1.ID}); err != nil {
-		t.Fatalf("Failed to create exercise: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise, []uint{def1.ID}, nil); err != nil {
+        t.Fatalf("Failed to create exercise: %v", err)
+    }
 
 	// Update exercise with new properties and def2 as prerequisite
 	exercise.Name = "Updated Exercise"
@@ -301,9 +301,9 @@ func TestExerciseDelete(t *testing.T) {
 		OwnerID:     user.ID,
 		Difficulty:  2,
 	}
-	if err := exerciseDAO.Create(exercise, nil); err != nil {
-		t.Fatalf("Failed to create exercise: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise, nil, nil); err != nil {
+        t.Fatalf("Failed to create exercise: %v", err)
+    }
 
 	// Delete the exercise
 	if err := exerciseDAO.Delete(exercise.ID); err != nil {
@@ -373,9 +373,9 @@ func TestFindExercisesByDomain(t *testing.T) {
 		OwnerID:     user.ID,
 		Difficulty:  3,
 	}
-	if err := exerciseDAO.Create(exercise1, nil); err != nil {
-		t.Fatalf("Failed to create exercise 1: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise1, nil, nil); err != nil {
+        t.Fatalf("Failed to create exercise 1: %v", err)
+    }
 
 	exercise2 := &models.Exercise{
 		Code:        "EX5",
@@ -386,9 +386,9 @@ func TestFindExercisesByDomain(t *testing.T) {
 		OwnerID:     user.ID,
 		Difficulty:  4,
 	}
-	if err := exerciseDAO.Create(exercise2, nil); err != nil {
-		t.Fatalf("Failed to create exercise 2: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise2, nil, nil); err != nil {
+        t.Fatalf("Failed to create exercise 2: %v", err)
+    }
 
 	exercise3 := &models.Exercise{
 		Code:        "EX6",
@@ -399,9 +399,9 @@ func TestFindExercisesByDomain(t *testing.T) {
 		OwnerID:     user.ID,
 		Difficulty:  2,
 	}
-	if err := exerciseDAO.Create(exercise3, nil); err != nil {
-		t.Fatalf("Failed to create exercise 3: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise3, nil, nil); err != nil {
+        t.Fatalf("Failed to create exercise 3: %v", err)
+    }
 
 	// Find exercises by domain
 	exercises, err := exerciseDAO.FindByDomain(domain1.ID)
@@ -472,9 +472,9 @@ func TestFindExerciseByCode(t *testing.T) {
 		OwnerID:     user.ID,
 		Difficulty:  3,
 	}
-	if err := exerciseDAO.Create(exercise, nil); err != nil {
-		t.Fatalf("Failed to create exercise: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise, nil, nil); err != nil {
+        t.Fatalf("Failed to create exercise: %v", err)
+    }
 
 	// Find exercise by code
 	foundEx, err := exerciseDAO.FindByCode("UNIQUE_CODE")

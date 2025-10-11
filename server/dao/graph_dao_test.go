@@ -74,9 +74,9 @@ func createTestGraphData(db *gorm.DB) (uint, error) {
 		XPosition:   100.0,
 		YPosition:   100.0,
 	}
-	if err := definitionDAO.Create(def1, []string{"Reference 1"}, nil); err != nil {
-		return 0, err
-	}
+    if err := definitionDAO.Create(def1, []string{"Reference 1"}, nil, nil); err != nil {
+        return 0, err
+    }
 
 	def2 := &models.Definition{
 		Code:        "G2",
@@ -87,9 +87,9 @@ func createTestGraphData(db *gorm.DB) (uint, error) {
 		XPosition:   200.0,
 		YPosition:   100.0,
 	}
-	if err := definitionDAO.Create(def2, []string{"Reference 2"}, []uint{def1.ID}); err != nil {
-		return 0, err
-	}
+    if err := definitionDAO.Create(def2, []string{"Reference 2"}, []uint{def1.ID}, nil); err != nil {
+        return 0, err
+    }
 
 	def3 := &models.Definition{
 		Code:        "G3",
@@ -100,9 +100,9 @@ func createTestGraphData(db *gorm.DB) (uint, error) {
 		XPosition:   300.0,
 		YPosition:   100.0,
 	}
-	if err := definitionDAO.Create(def3, []string{"Reference 3"}, []uint{def2.ID}); err != nil {
-		return 0, err
-	}
+    if err := definitionDAO.Create(def3, []string{"Reference 3"}, []uint{def2.ID}, nil); err != nil {
+        return 0, err
+    }
 
 	// Create exercise
 	exercise := &models.Exercise{
@@ -117,9 +117,9 @@ func createTestGraphData(db *gorm.DB) (uint, error) {
 		XPosition:   400.0,
 		YPosition:   200.0,
 	}
-	if err := exerciseDAO.Create(exercise, []uint{def3.ID}); err != nil {
-		return 0, err
-	}
+    if err := exerciseDAO.Create(exercise, []uint{def3.ID}, nil); err != nil {
+        return 0, err
+    }
 
 	return domain.ID, nil
 }

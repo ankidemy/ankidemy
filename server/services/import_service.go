@@ -75,7 +75,9 @@ type ImportDefinitionNode struct {
 	Description   FlexibleStringArray `json:"description"` // Now handles both string and []string
 	Notes         string              `json:"notes,omitempty"`
 	References    []string            `json:"references,omitempty"`
-	Prerequisites []string            `json:"prerequisites,omitempty"`
+    Prerequisites []string            `json:"prerequisites,omitempty"`
+    // Optional weights per prerequisite code (0.01 - 1.0)
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
 	XPosition     float64             `json:"xPosition,omitempty"`
 	YPosition     float64             `json:"yPosition,omitempty"`
 }
@@ -90,7 +92,9 @@ type ImportExerciseNode struct {
 	Difficulty    interface{} `json:"difficulty,omitempty"` // Accept both string and number
 	Verifiable    bool        `json:"verifiable,omitempty"`
 	Result        string      `json:"result,omitempty"`
-	Prerequisites []string    `json:"prerequisites,omitempty"`
+    Prerequisites []string    `json:"prerequisites,omitempty"`
+    // Optional weights per prerequisite code (0.01 - 1.0)
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
 	XPosition     float64     `json:"xPosition,omitempty"`
 	YPosition     float64     `json:"yPosition,omitempty"`
 }
@@ -202,19 +206,23 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		Exercises:   make(map[string]ImportExerciseNode),
 	}
 
-	// Export definitions
-	for _, def := range definitions {
+    // Export definitions (with weights)
+    for _, def := range definitions {
 		// Extract references
 		references := make([]string, 0, len(def.References))
 		for _, ref := range def.References {
 			references = append(references, ref.Reference)
 		}
 
-		// Get prerequisite codes
-		prerequisiteCodes, err := s.getPrerequisiteCodes(def.ID, "definition")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get prerequisites for definition %s: %v", def.Code, err)
-		}
+        // Get prerequisite codes and weights
+        prerequisiteCodes, err := s.getPrerequisiteCodes(def.ID, "definition")
+        if err != nil {
+            return nil, fmt.Errorf("failed to get prerequisites for definition %s: %v", def.Code, err)
+        }
+        prereqWeights, err := s.getPrerequisiteWeights(def.ID, "definition")
+        if err != nil {
+            return nil, fmt.Errorf("failed to get prerequisite weights for definition %s: %v", def.Code, err)
+        }
 
 		// Handle multiple descriptions - STANDARDIZED EXPORT
 		var descriptions FlexibleStringArray
@@ -224,40 +232,46 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			descriptions = FlexibleStringArray([]string{def.Description})
 		}
 
-		exportData.Definitions[def.Code] = ImportDefinitionNode{
-			Code:          def.Code,
-			Name:          def.Name,
-			Description:   descriptions, // Always export as FlexibleStringArray (which marshals to []string)
-			Notes:         def.Notes,
-			References:    references,
-			Prerequisites: prerequisiteCodes,
-			XPosition:     def.XPosition,
-			YPosition:     def.YPosition,
-		}
-	}
+        exportData.Definitions[def.Code] = ImportDefinitionNode{
+            Code:          def.Code,
+            Name:          def.Name,
+            Description:   descriptions, // Always export as FlexibleStringArray (which marshals to []string)
+            Notes:         def.Notes,
+            References:    references,
+            Prerequisites: prerequisiteCodes,
+            PrerequisiteWeights: prereqWeights,
+            XPosition:     def.XPosition,
+            YPosition:     def.YPosition,
+        }
+    }
 
-	// Export exercises
-	for _, ex := range exercises {
-		// Get prerequisite codes
-		prerequisiteCodes, err := s.getPrerequisiteCodes(ex.ID, "exercise")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get prerequisites for exercise %s: %v", ex.Code, err)
-		}
+    // Export exercises (with weights)
+    for _, ex := range exercises {
+        // Get prerequisite codes and weights
+        prerequisiteCodes, err := s.getPrerequisiteCodes(ex.ID, "exercise")
+        if err != nil {
+            return nil, fmt.Errorf("failed to get prerequisites for exercise %s: %v", ex.Code, err)
+        }
+        prereqWeights, err := s.getPrerequisiteWeights(ex.ID, "exercise")
+        if err != nil {
+            return nil, fmt.Errorf("failed to get prerequisite weights for exercise %s: %v", ex.Code, err)
+        }
 
-		exportData.Exercises[ex.Code] = ImportExerciseNode{
-			Code:          ex.Code,
-			Name:          ex.Name,
-			Statement:     ex.Statement,
-			Description:   ex.Description, // Exercises keep single string description
-			Hints:         ex.Hints,
-			Difficulty:    ex.Difficulty, // Export as number (int) for consistency
-			Verifiable:    ex.Verifiable,
-			Result:        ex.Result,
-			Prerequisites: prerequisiteCodes,
-			XPosition:     ex.XPosition,
-			YPosition:     ex.YPosition,
-		}
-	}
+        exportData.Exercises[ex.Code] = ImportExerciseNode{
+            Code:          ex.Code,
+            Name:          ex.Name,
+            Statement:     ex.Statement,
+            Description:   ex.Description, // Exercises keep single string description
+            Hints:         ex.Hints,
+            Difficulty:    ex.Difficulty, // Export as number (int) for consistency
+            Verifiable:    ex.Verifiable,
+            Result:        ex.Result,
+            Prerequisites: prerequisiteCodes,
+            PrerequisiteWeights: prereqWeights,
+            XPosition:     ex.XPosition,
+            YPosition:     ex.YPosition,
+        }
+    }
 
 	return exportData, nil
 }
@@ -447,6 +461,28 @@ func (s *ImportService) getPrerequisiteCodes(nodeID uint, nodeType string) ([]st
 	return codes, nil
 }
 
+// getPrerequisiteWeights returns a map[code]weight for a node's prerequisites
+func (s *ImportService) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
+    query := `
+        SELECT d.code, np.weight 
+        FROM node_prerequisites np
+        JOIN definitions d ON np.prerequisite_id = d.id 
+        WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
+        ORDER BY d.code
+    `
+    type row struct{
+        Code string
+        Weight float64
+    }
+    var rows []row
+    if err := s.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
+        return nil, err
+    }
+    res := make(map[string]float64, len(rows))
+    for _, r := range rows { res[r.Code] = r.Weight }
+    return res, nil
+}
+
 // importDataToDomain handles the core import logic for definitions and exercises
 func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, ownerID uint, data *ImportData) error {
 	// Create DAOs for the transaction
@@ -479,9 +515,9 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}
 
 		// Create the definition with references but no prerequisites yet
-		if err := definitionDAO.Create(definition, defNode.References, nil); err != nil {
-			return fmt.Errorf("failed to create definition %s: %v", code, err)
-		}
+        if err := definitionDAO.Create(definition, defNode.References, nil, nil); err != nil {
+            return fmt.Errorf("failed to create definition %s: %v", code, err)
+        }
 
 		definitions[code] = definition
 		log.Printf("Created definition: %s (ID: %d)", definition.Name, definition.ID)
@@ -501,12 +537,22 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				}
 			}
 
-			if len(prerequisiteIDs) > 0 {
-				// Update definition with prerequisites
-				if err := definitionDAO.Update(definition, defNode.References, prerequisiteIDs); err != nil {
-					return fmt.Errorf("failed to update definition %s with prerequisites: %v", code, err)
-				}
-			}
+            if len(prerequisiteIDs) > 0 {
+                var idWeights map[uint]float64
+                if len(defNode.PrerequisiteWeights) > 0 {
+                    idWeights = make(map[uint]float64, len(defNode.PrerequisiteWeights))
+                    for pcode, w := range defNode.PrerequisiteWeights {
+                        if prereqDef, ok := definitions[pcode]; ok {
+                            if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
+                            idWeights[prereqDef.ID] = w
+                        }
+                    }
+                }
+                // Update definition with prerequisites (and weights if provided)
+                if err := definitionDAO.Update(definition, defNode.References, prerequisiteIDs, idWeights); err != nil {
+                    return fmt.Errorf("failed to update definition %s with prerequisites: %v", code, err)
+                }
+            }
 		}
 	}
 
@@ -543,10 +589,21 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			}
 		}
 
-		// Create exercise with prerequisites
-		if err := exerciseDAO.Create(exercise, prerequisiteIDs); err != nil {
-			return fmt.Errorf("failed to create exercise %s: %v", code, err)
-		}
+        // Build weights map by ID if provided
+        var idWeights map[uint]float64
+        if len(exNode.PrerequisiteWeights) > 0 {
+            idWeights = make(map[uint]float64, len(exNode.PrerequisiteWeights))
+            for pcode, w := range exNode.PrerequisiteWeights {
+                if prereqDef, ok := definitions[pcode]; ok {
+                    if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
+                    idWeights[prereqDef.ID] = w
+                }
+            }
+        }
+        // Create exercise with prerequisites (and weights if provided)
+        if err := exerciseDAO.Create(exercise, prerequisiteIDs, idWeights); err != nil {
+            return fmt.Errorf("failed to create exercise %s: %v", code, err)
+        }
 
 		log.Printf("Created exercise: %s (ID: %d)", exercise.Name, exercise.ID)
 	}

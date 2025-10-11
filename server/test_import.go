@@ -143,9 +143,9 @@ func runTestImport() {
 		}
 		
 		// Create the definition (with references but no prerequisites yet)
-		if err := definitionDAO.Create(definition, def.References, nil); err != nil {
-			log.Fatalf("Failed to create definition %s: %v", code, err)
-		}
+        if err := definitionDAO.Create(definition, def.References, nil, nil); err != nil {
+            log.Fatalf("Failed to create definition %s: %v", code, err)
+        }
 		
 		definitions[code] = definition
 		fmt.Printf("Created definition: %s (ID: %d)\n", definition.Name, definition.ID)
@@ -172,9 +172,9 @@ func runTestImport() {
 					references = append(references, ref.Reference)
 				}
 				
-				if err := definitionDAO.Update(definition, references, prerequisiteIDs); err != nil {
-					log.Fatalf("Failed to update definition %s with prerequisites: %v", code, err)
-				}
+                if err := definitionDAO.Update(definition, references, prerequisiteIDs, nil); err != nil {
+                    log.Fatalf("Failed to update definition %s with prerequisites: %v", code, err)
+                }
 			}
 		}
 	}
@@ -212,9 +212,9 @@ func runTestImport() {
 			}
 		}
 		
-		if err := exerciseDAO.Create(exercise, prerequisiteIDs); err != nil {
-			log.Fatalf("Failed to create exercise %s: %v", code, err)
-		}
+        if err := exerciseDAO.Create(exercise, prerequisiteIDs, nil); err != nil {
+            log.Fatalf("Failed to create exercise %s: %v", code, err)
+        }
 		
 		exercises[code] = exercise
 		fmt.Printf("Created exercise: %s (ID: %d)\n", exercise.Name, exercise.ID)

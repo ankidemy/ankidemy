@@ -53,12 +53,11 @@ export class PositionManager {
         
         appliedCount++;
       } else {
-        // Use database position if available
+        // Use database position if available (do NOT fix nodes by default)
         if (node.xPosition !== undefined && node.yPosition !== undefined) {
           node.x = node.xPosition;
           node.y = node.yPosition;
-          node.fx = node.xPosition;
-          node.fy = node.yPosition;
+          // Leave fx/fy undefined so simulation doesn't reheat on hover
         }
       }
     });

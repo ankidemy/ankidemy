@@ -211,7 +211,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                 {node.type}
               </span>
               
-              {node.type === 'exercise' && node.difficulty && (
+              {node.type === 'exercise' && node.difficulty !== undefined && (
                 <span className="flex items-center">
                   <span className="mr-1">★</span>
                   <span>{node.difficulty}/7</span>

@@ -78,9 +78,9 @@ func createProgressTestData(db *gorm.DB) (uint, uint, uint, uint, error) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(definition, nil, nil); err != nil {
-		return 0, 0, 0, 0, err
-	}
+    if err := definitionDAO.Create(definition, nil, nil, nil); err != nil {
+        return 0, 0, 0, 0, err
+    }
 
 	// Create an exercise
 	exercise := &models.Exercise{
@@ -92,9 +92,9 @@ func createProgressTestData(db *gorm.DB) (uint, uint, uint, uint, error) {
 		Verifiable:  true,
 		Result:      "42",
 	}
-	if err := exerciseDAO.Create(exercise, []uint{definition.ID}); err != nil {
-		return 0, 0, 0, 0, err
-	}
+    if err := exerciseDAO.Create(exercise, []uint{definition.ID}, nil); err != nil {
+        return 0, 0, 0, 0, err
+    }
 
 	return user.ID, domain.ID, definition.ID, exercise.ID, nil
 }

@@ -122,10 +122,10 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		YPosition:   req.YPosition,
 	}
 
-	if err := h.exerciseDAO.Create(exercise, req.PrerequisiteIDs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exercise"})
-		return
-	}
+    if err := h.exerciseDAO.Create(exercise, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exercise"})
+        return
+    }
 
 	// Get the created exercise with prerequisites
 	createdEx, err := h.exerciseDAO.FindByIDWithPrerequisites(exercise.ID)
@@ -239,10 +239,10 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 	exercise.Verifiable = req.Verifiable
 
 	// Update exercise
-	if err := h.exerciseDAO.Update(exercise, req.PrerequisiteIDs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update exercise"})
-		return
-	}
+    if err := h.exerciseDAO.Update(exercise, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update exercise"})
+        return
+    }
 
 	// Get the updated exercise with prerequisites
 	updatedEx, err := h.exerciseDAO.FindByIDWithPrerequisites(exercise.ID)

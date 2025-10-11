@@ -214,7 +214,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
                 type="number"
                 min="1"
                 max="7"
-                defaultValue={(selectedNodeDetails as Exercise)?.difficulty || '3'}
+                defaultValue={String((selectedNodeDetails as Exercise)?.difficulty ?? 3)}
                 className="w-20 h-8 text-sm"
               />
             </div>

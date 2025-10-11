@@ -200,9 +200,9 @@ func TestDefinitionAndExercise(t *testing.T) {
 		YPosition:   200.0,
 	}
 	references := []string{"Book A", "Website B"}
-	if err := definitionDAO.Create(definition, references, nil); err != nil {
-		t.Fatalf("Failed to create definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition, references, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition: %v", err)
+    }
 
 	// Create another definition with the first as prerequisite
 	definition2 := &models.Definition{
@@ -217,27 +217,27 @@ func TestDefinitionAndExercise(t *testing.T) {
 	}
 	references2 := []string{"Book C"}
 	prerequisiteIDs := []uint{definition.ID}
-	if err := definitionDAO.Create(definition2, references2, prerequisiteIDs); err != nil {
-		t.Fatalf("Failed to create definition with prerequisite: %v", err)
-	}
+    if err := definitionDAO.Create(definition2, references2, prerequisiteIDs, nil); err != nil {
+        t.Fatalf("Failed to create definition with prerequisite: %v", err)
+    }
 
 	// Create an exercise based on both definitions
-	exercise := &models.Exercise{
-		Code:        "EX1",
-		Name:        "Function Exercise",
-		Statement:   "Prove that f(x) = x² is a function",
-		Description: "Solution involves...",
-		Hints:       "Consider the definition of a function",
-		DomainID:    domain.ID,
-		OwnerID:     user.ID,
-		Verifiable:  false,
-		Difficulty:  "medium",
-		XPosition:   400.0,
-		YPosition:   300.0,
-	}
-	if err := exerciseDAO.Create(exercise, prerequisiteIDs); err != nil {
-		t.Fatalf("Failed to create exercise: %v", err)
-	}
+    exercise := &models.Exercise{
+        Code:        "EX1",
+        Name:        "Function Exercise",
+        Statement:   "Prove that f(x) = x² is a function",
+        Description: "Solution involves...",
+        Hints:       "Consider the definition of a function",
+        DomainID:    domain.ID,
+        OwnerID:     user.ID,
+        Verifiable:  false,
+        Difficulty:  3,
+        XPosition:   400.0,
+        YPosition:   300.0,
+    }
+    if err := exerciseDAO.Create(exercise, prerequisiteIDs, nil); err != nil {
+        t.Fatalf("Failed to create exercise: %v", err)
+    }
 
 	// Find definition by code
 	foundDef, err := definitionDAO.FindByCode("DEF2")
@@ -274,9 +274,9 @@ func TestDefinitionAndExercise(t *testing.T) {
 	// Test update operations
 	foundDef.Name = "Updated Functions"
 	newReferences := []string{"Book D", "Book E"}
-	if err := definitionDAO.Update(foundDef, newReferences, prerequisiteIDs); err != nil {
-		t.Fatalf("Failed to update definition: %v", err)
-	}
+    if err := definitionDAO.Update(foundDef, newReferences, prerequisiteIDs, nil); err != nil {
+        t.Fatalf("Failed to update definition: %v", err)
+    }
 
 	// Verify update
 	updatedDef, _ := definitionDAO.FindByID(foundDef.ID)
@@ -330,9 +330,9 @@ func TestProgressTracking(t *testing.T) {
 		DomainID:    domain.ID,
 		OwnerID:     user.ID,
 	}
-	if err := definitionDAO.Create(definition, nil, nil); err != nil {
-		t.Fatalf("Failed to create definition: %v", err)
-	}
+    if err := definitionDAO.Create(definition, nil, nil, nil); err != nil {
+        t.Fatalf("Failed to create definition: %v", err)
+    }
 
 	// Create an exercise
 	exercise := &models.Exercise{
@@ -344,9 +344,9 @@ func TestProgressTracking(t *testing.T) {
 		Verifiable:  true,
 		Result:      "42",
 	}
-	if err := exerciseDAO.Create(exercise, []uint{definition.ID}); err != nil {
-		t.Fatalf("Failed to create exercise: %v", err)
-	}
+    if err := exerciseDAO.Create(exercise, []uint{definition.ID}, nil); err != nil {
+        t.Fatalf("Failed to create exercise: %v", err)
+    }
 
 	// Enroll user in domain
 	if err := progressDAO.EnrollUserInDomain(user.ID, domain.ID); err != nil {

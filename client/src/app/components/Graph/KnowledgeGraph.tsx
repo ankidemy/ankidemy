@@ -81,7 +81,7 @@ interface GraphStructureState {
 interface NodeMetadata {
   name: string;
   isRootDefinition?: boolean;
-  difficulty?: string;
+  difficulty?: number;
   status?: NodeStatus;
   isDue?: boolean;
   daysUntilReview?: number | null;
@@ -156,10 +156,9 @@ const useGraphStructure = (
     // FIX: robust version
     const version = hashString([defStructureHash, exStructureHash, mode].join('::'));
 
-    // Build nodes from definitions (structure only)
+    // PASS 1: Build nodes for all definitions (structure only)
     Object.values(definitions).forEach(def => {
       if (!def?.code) return;
-      
       nodes.set(def.code, {
         id: def.code,
         type: 'definition',
@@ -168,9 +167,14 @@ const useGraphStructure = (
         xPosition: def.xPosition,
         yPosition: def.yPosition,
       });
+    });
 
-      // Create links from prerequisites
+    // PASS 2: Build links between definitions
+    Object.values(definitions).forEach(def => {
+      if (!def?.code) return;
       (def.prerequisites || []).forEach(prereqCode => {
+        // Guard: only create link if both endpoints exist (prevents d3 error)
+        if (!nodes.has(prereqCode) || !nodes.has(def.code)) return;
         const linkId = `${prereqCode}-${def.code}`;
         links.set(linkId, {
           id: linkId,
@@ -198,7 +202,7 @@ const useGraphStructure = (
 
         // Create links from prerequisites to exercises
         (ex.prerequisites || []).forEach(prereqCode => {
-          if (nodes.has(prereqCode)) {
+          if (nodes.has(prereqCode) && nodes.has(ex.code)) {
             const linkId = `${prereqCode}-${ex.code}`;
             links.set(linkId, {
               id: linkId,
@@ -231,6 +235,13 @@ const useGraphStructure = (
     )),
     JSON.stringify(Object.fromEntries(
       Object.values(exercises).map(e => [e.code, (e.prerequisites || []).sort()])
+    )),
+    // Track weight changes without triggering physics reset (version unaffected)
+    JSON.stringify(Object.fromEntries(
+      Object.values(definitions).map(d => [d.code, d.prerequisiteWeights || {}])
+    )),
+    JSON.stringify(Object.fromEntries(
+      Object.values(exercises).map(e => [e.code, e.prerequisiteWeights || {}])
     )),
   ]);
 };
@@ -268,7 +279,7 @@ const useGraphMetadata = (
       nodeMetadata.set(nodeId, {
         name: fullNodeData?.name ?? nodeId,
         isRootDefinition: isDefinition ? isRoot : undefined,
-        difficulty: !isDefinition ? (fullNodeData?.difficulty as string | undefined) : undefined,
+        difficulty: !isDefinition ? (fullNodeData?.difficulty as number | undefined) : undefined,
         status: (progress?.status as NodeStatus) || 'fresh',
         isDue: progress ? isNodeDue(progress.nextReview) : false,
         daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
@@ -294,8 +305,10 @@ const useGraphMetadata = (
     // Track name and other metadata changes
     Object.values(definitions).map(d => d.name).join('|'),
     Object.values(exercises).map(e => e.name).join('|'),
-    Object.values(definitions).map(d => d.difficulty || '').join('|'),
-    Object.values(exercises).map(e => e.difficulty || '').join('|'),
+    Object.values(exercises).map(e => String(e.difficulty ?? '')).join('|'),
+    // Track positions so we can apply them without a physics reset
+    Object.values(definitions).map(d => `${d.code}:${d.xPosition ?? ''}:${d.yPosition ?? ''}`).join('|'),
+    Object.values(exercises).map(e => `${e.code}:${e.xPosition ?? ''}:${e.yPosition ?? ''}`).join('|'),
   ]);
 };
 
@@ -333,8 +346,6 @@ const useStableGraph = (
           // Set initial position from database
           x: nodeCore.xPosition,
           y: nodeCore.yPosition,
-          fx: nodeCore.xPosition,
-          fy: nodeCore.yPosition,
         };
         newNodes.push(mergedNode);
       });
@@ -364,6 +375,19 @@ const useStableGraph = (
         const nodeMeta = metadata.nodeMetadata.get(node.id);
         if (nodeMeta) {
           Object.assign(node, nodeMeta);
+        }
+        // Do not alter x/y or fx/fy here to avoid reheating/drift on hover
+      });
+      // Sync link weights/opacities without rebuilding links
+      const linkCoreById = new Map<string, GraphLinkCore>();
+      structure.links.forEach(lc => linkCoreById.set(`${lc.source}-${lc.target}`, lc));
+      stableLinksRef.current.forEach(link => {
+        const sourceId = typeof link.source === 'object' ? (link.source as any).id : String(link.source);
+        const targetId = typeof link.target === 'object' ? (link.target as any).id : String(link.target);
+        const id = `${sourceId}-${targetId}`;
+        const core = linkCoreById.get(id);
+        if (core && core.weight !== link.weight) {
+          (link as any).weight = core.weight;
         }
       });
     }
@@ -819,20 +843,24 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [isEnrolled, domainData]);
 
   // SURGICAL INSERT ON CREATE (no full refresh)
-  const handleNodeCreationSuccess = useCallback(async (nodeCode: string) => {
+  const handleNodeCreationSuccess = useCallback(async (nodeCode: string, created?: any) => {
     setShowNodeCreationModal(false);
     showToast(`${nodeCreationType === 'definition' ? 'Definition' : 'Exercise'} "${nodeCode}" created.`, 'success');
 
     // Fetch only the created node (avoid full reload)
     let createdData: any = null;
-    try {
-      const raw = nodeCreationType === 'definition' 
-        ? await getDefinitionByCode(nodeCode) 
-        : await getExerciseByCode(nodeCode);
-      // Some APIs return arrays; normalize
-      createdData = Array.isArray(raw) ? raw[0] : raw;
-    } catch (e) {
-      console.warn('Could not fetch created node details, using minimal payload.', e);
+    if (created) {
+      createdData = created;
+    } else {
+      try {
+        const raw = nodeCreationType === 'definition' 
+          ? await getDefinitionByCode(nodeCode) 
+          : await getExerciseByCode(nodeCode);
+        // Some APIs return arrays; normalize
+        createdData = Array.isArray(raw) ? raw[0] : raw;
+      } catch (e) {
+        console.warn('Could not fetch created node details, using minimal payload.', e);
+      }
     }
 
     // Normalize payload to guarantee essential fields

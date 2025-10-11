@@ -111,10 +111,10 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		YPosition:   req.YPosition,
 	}
 
-	if err := h.definitionDAO.Create(definition, req.References, req.PrerequisiteIDs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create definition"})
-		return
-	}
+    if err := h.definitionDAO.Create(definition, req.References, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create definition"})
+        return
+    }
 
 	// Get the created definition with prerequisites
 	createdDef, err := h.definitionDAO.FindByIDWithPrerequisites(definition.ID)
@@ -215,10 +215,10 @@ func (h *DefinitionHandler) UpdateDefinition(c *gin.Context) {
 	}
 
 	// Update definition
-	if err := h.definitionDAO.Update(definition, req.References, req.PrerequisiteIDs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update definition"})
-		return
-	}
+    if err := h.definitionDAO.Update(definition, req.References, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update definition"})
+        return
+    }
 
 	// Get the updated definition with prerequisites
 	updatedDef, err := h.definitionDAO.FindByIDWithPrerequisites(definition.ID)

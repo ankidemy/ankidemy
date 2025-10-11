@@ -67,7 +67,7 @@ export interface Exercise {
   ownerId: number;
   verifiable: boolean;
   result?: string;
-  difficulty?: string;
+  difficulty?: number;
   xPosition?: number;
   yPosition?: number;
   createdAt: string;
@@ -101,7 +101,7 @@ export interface ExerciseRequest {
   domainId: number;
   verifiable?: boolean;
   result?: string;
-  difficulty?: string;
+  difficulty?: number;
   prerequisiteIds?: number[];
   prerequisiteWeights?: Record<number, number>; // NEW: weights for each prerequisite ID
   xPosition?: number;
@@ -158,7 +158,7 @@ export interface GraphData {
     hints?: string;
     verifiable?: boolean;
     result?: string;
-    difficulty?: string;
+    difficulty?: number;
     prerequisites?: string[];
     prerequisiteWeights?: Record<string, number>; // ADDED: weights
     xPosition?: number;
@@ -177,6 +177,7 @@ export interface DomainExportData {
       notes?: string;
       references?: string[];
       prerequisites?: string[];
+      prerequisiteWeights?: Record<string, number>;
       xPosition?: number;
       yPosition?: number;
     };
@@ -192,6 +193,7 @@ export interface DomainExportData {
       verifiable?: boolean;
       result?: string;
       prerequisites?: string[];
+      prerequisiteWeights?: Record<string, number>;
       xPosition?: number;
       yPosition?: number;
     };
@@ -640,11 +642,7 @@ export const getDomainExercises = async (domainId: number): Promise<Exercise[]> 
 };
 
 export const createExercise = async (domainId: number, exercise: ExerciseRequest): Promise<Exercise> => {
-  // Convert difficulty from string to number for API compatibility
-  const exerciseData = {
-    ...exercise,
-    difficulty: exercise.difficulty ? parseInt(exercise.difficulty, 10) : undefined
-  };
+  const exerciseData = { ...exercise };
   const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
     method: 'POST',
     headers: { 
@@ -672,7 +670,7 @@ export const updateExercise = async (id: number, exerciseData: {
   description?: string;
   notes?: string;
   hints?: string;
-  difficulty?: string;
+  difficulty?: number;
   verifiable?: boolean;
   result?: string;
   prerequisiteIds?: number[];
@@ -680,11 +678,7 @@ export const updateExercise = async (id: number, exerciseData: {
   xPosition?: number;
   yPosition?: number;
 }): Promise<Exercise> => {
-  // Convert difficulty from string to number for API compatibility
-  const dataToSend = {
-    ...exerciseData,
-    difficulty: exerciseData.difficulty ? parseInt(exerciseData.difficulty, 10) : undefined
-  };
+  const dataToSend = { ...exerciseData };
   const response = await fetch(`${API_URL}/api/exercises/${id}`, {
     method: 'PUT',
     headers: { 
@@ -1009,7 +1003,7 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
             exercises: {}
           };
           
-          // Process definitions - ensure description is always an array
+          // Process definitions - ensure description is always an array and carry weights
           for (const [key, def] of Object.entries(rawData.definitions || {})) {
             const definition = def as any;
             let descriptions: string[] = [];
@@ -1027,6 +1021,7 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
               descriptions = ['No description'];
             }
             
+            const defWeights = (definition.prerequisiteWeights && typeof definition.prerequisiteWeights === 'object') ? definition.prerequisiteWeights as Record<string, number> : undefined;
             standardizedData.definitions[key] = {
               code: definition.code || key,
               name: definition.name || 'Unnamed',
@@ -1034,12 +1029,13 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
               notes: definition.notes || '',
               references: Array.isArray(definition.references) ? definition.references : [],
               prerequisites: Array.isArray(definition.prerequisites) ? definition.prerequisites : [],
+              prerequisiteWeights: defWeights,
               xPosition: Number(definition.xPosition) || 0,
               yPosition: Number(definition.yPosition) || 0,
             };
           }
           
-          // Process exercises - ensure difficulty is a number
+          // Process exercises - ensure difficulty is a number and carry weights
           for (const [key, ex] of Object.entries(rawData.exercises || {})) {
             const exercise = ex as any;
             let difficulty: number = 3; // Default
@@ -1053,6 +1049,7 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
               }
             }
             
+            const exWeights = (exercise.prerequisiteWeights && typeof exercise.prerequisiteWeights === 'object') ? exercise.prerequisiteWeights as Record<string, number> : undefined;
             standardizedData.exercises[key] = {
               code: exercise.code || key,
               name: exercise.name || 'Unnamed',
@@ -1063,6 +1060,7 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
               verifiable: Boolean(exercise.verifiable),
               result: exercise.result || '',
               prerequisites: Array.isArray(exercise.prerequisites) ? exercise.prerequisites : [],
+              prerequisiteWeights: exWeights,
               xPosition: Number(exercise.xPosition) || 0,
               yPosition: Number(exercise.yPosition) || 0,
             };
@@ -1128,6 +1126,15 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
       } else {
         errors.push(`Definition ${key} has invalid description format`);
       }
+      // Optional: validate prerequisiteWeights if present
+      if (definition.prerequisiteWeights && typeof definition.prerequisiteWeights === 'object') {
+        for (const [pcode, w] of Object.entries(definition.prerequisiteWeights)) {
+          const wn = Number(w);
+          if (isNaN(wn) || wn <= 0 || wn > 1) {
+            errors.push(`Definition ${key} has invalid weight for prerequisite ${pcode} (must be 0 < w <= 1)`);
+          }
+        }
+      }
     }
   }
   
@@ -1147,6 +1154,14 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
         
         if (isNaN(difficulty) || difficulty < 1 || difficulty > 7) {
           errors.push(`Exercise ${key} has invalid difficulty (must be 1-7)`);
+        }
+      }
+      if (exercise.prerequisiteWeights && typeof exercise.prerequisiteWeights === 'object') {
+        for (const [pcode, w] of Object.entries(exercise.prerequisiteWeights)) {
+          const wn = Number(w);
+          if (isNaN(wn) || wn <= 0 || wn > 1) {
+            errors.push(`Exercise ${key} has invalid weight for prerequisite ${pcode} (must be 0 < w <= 1)`);
+          }
         }
       }
     }
