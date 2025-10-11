@@ -154,8 +154,11 @@ Authorization: Bearer your_jwt_token
 ### Credit Propagation
 -   Successful reviews → positive credits to prerequisites
 -   Failed reviews → negative credits to dependents
--   +100% credit → review postponed
--   -100% credit → review anticipated
+-   BFS only, nearest first; start node never gets implicit
+-   Single contribution per node per review (no multi-parent sum)
+-   Credit per node = `pathWeight / (distance + 1)`; clamp to [-1,1]
+-   +100% credit → review postponed; −100% → review anticipated
+-   Implicit credits reset after 12 hours without updates
 
 ### Session Types
 -   **definition**: Review definitions only

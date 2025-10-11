@@ -1633,10 +1633,24 @@ Common HTTP status codes:
 
 ## SRS System Concepts
 
+See also: [SRS Credit Mechanics](./SRS.md) for a deeper explanation and examples.
+
 ### Credit Propagation
-When a user successfully reviews a node, positive credits flow to prerequisite nodes. Failed reviews send negative credits to dependent nodes. Credits accumulate and can:
-- Postpone reviews when reaching +100% credit
-- Anticipate reviews when reaching -100% credit
+When a user successfully reviews a node, positive credits flow to prerequisite nodes. Failed reviews send negative credits to dependent nodes.
+
+Key rules:
+- BFS traversal only: nearer nodes receive credit before farther ones.
+- Single contribution per node per review: if multiple shortest paths reach the same node, exactly one contribution is applied (the one with the largest absolute path weight). No intra‑review accumulation across siblings.
+- Amount per node: `pathWeight / (graphDistance + 1)` with immediate neighbors using denominator 2; negative on failure. Tiny amounts (|credit| < 0.01) are discarded. Traversal is capped to a max distance of 6.
+- Start node: receives only explicit +1.0 credit for that review; never receives implicit credit, even in cycles.
+
+Accumulation and thresholds:
+- Implicit credit accumulates across multiple reviews within the reset window, clamped to [-1.0, +1.0].
+- At +1.0: the review is postponed (treated like a correct review for scheduling).
+- At −1.0: the review is anticipated (made due now).
+
+Reset policy:
+- Implicit credits reset if 12 hours have elapsed since the last update to that node’s progress. This prevents long‑term farming while remaining user‑friendly across time-of-day boundaries.
 
 ### Node Statuses
 - **Fresh**: Never studied, default state

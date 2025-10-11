@@ -3,3 +3,6 @@
 
 server/tmp/*
 server/sample.json
+
+*.gocache/
+*localcache/
