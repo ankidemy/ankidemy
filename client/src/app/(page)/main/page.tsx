@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight, Lock, Users, Globe, Upload, X } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
@@ -22,6 +22,7 @@ import {
   getCurrentUser,
   User
 } from '@/lib/api';
+import { archiveDomain } from '@/lib/api';
 
 export default function MainPage() {
   // State
@@ -40,11 +41,15 @@ export default function MainPage() {
   // UI state
   const [enrolling, setEnrolling] = useState<Set<number>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
 
   // NEW: Import dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
 
   const router = useRouter();
+
+  // Close menu by clicking anywhere inside the page container; elements that should keep it open stop propagation.
+  // Note: Using React bubbling avoids conflicts with native document listeners.
 
   // Load user data
   useEffect(() => {
@@ -167,7 +172,8 @@ export default function MainPage() {
   // Handle domain access
   const handleDomainAccess = async (domain: Domain) => {
     // Check if user owns the domain
-    const isOwned = currentUser && domain.ownerId === currentUser.id;
+    const currentUserId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+    const isOwned = !!currentUserId && domain.ownerId === currentUserId;
     const isEnrolled = enrolledDomainIds.has(domain.id);
     
     if (isOwned || isEnrolled) {
@@ -191,9 +197,27 @@ export default function MainPage() {
     }
   };
 
+  // Archive a domain (soft delete)
+  const handleArchive = async (domain: Domain) => {
+    const confirmed = window.confirm(`Archive "${domain.name}"? You can restore it later from Archived Domains.`);
+    if (!confirmed) return;
+    try {
+      await archiveDomain(domain.id);
+      // Remove from lists where it may appear
+      setMyDomains(prev => prev.filter(d => d.id !== domain.id));
+      setEnrolledDomains(prev => prev.filter(d => d.id !== domain.id));
+      setPublicDomains(prev => prev.filter(d => d.id !== domain.id));
+      showToast(`Archived "${domain.name}"`, 'success');
+    } catch (e) {
+      console.error('Failed to archive domain', e);
+      showToast('Failed to archive domain', 'error');
+    }
+  };
+
   // Get domain status info
   const getDomainStatus = (domain: Domain) => {
-    const isOwned = currentUser && domain.ownerId === currentUser.id;
+    const currentUserId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+    const isOwned = !!currentUserId && domain.ownerId === currentUserId;
     const isEnrolled = enrolledDomainIds.has(domain.id);
     
     if (isOwned) {
@@ -253,7 +277,7 @@ export default function MainPage() {
       
       <div className="min-h-screen bg-white w-full mt-16">
         {/* Use consistent padding like dashboard */}
-        <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8">
+        <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8" onClick={() => setMenuOpenId(null)}>
           
           {/* Tabs */}
           <div className="flex border-b mb-6">
@@ -279,7 +303,7 @@ export default function MainPage() {
 
           {/* NEW: Create Domain and Import Buttons */}
           {currentUser && (
-            <div className="flex gap-3 mb-6">
+            <div className="flex items-center gap-3 mb-6">
               <Link href="/main/domains/create">
                 <Button className="flex items-center">
                   <Plus size={16} className="mr-1" />
@@ -294,6 +318,13 @@ export default function MainPage() {
                 <Upload size={16} className="mr-1" />
                 Import from JSON
               </Button>
+              <div className="ml-auto">
+                <Link href="/main/domains/archived">
+                  <Button variant="outline" className="flex items-center">
+                    Archived Domains
+                  </Button>
+                </Link>
+              </div>
             </div>
           )}
           
@@ -328,6 +359,11 @@ export default function MainPage() {
                       Create Your First Domain
                     </Button>
                   </Link>
+                  <Link href="/main/domains/archived">
+                    <Button variant="outline">
+                      Archived Domains
+                    </Button>
+                  </Link>
                   <Button 
                     variant="outline" 
                     onClick={() => setShowImportDialog(true)}
@@ -343,15 +379,44 @@ export default function MainPage() {
               {displayDomains.map((domain) => {
                 const statusInfo = getDomainStatus(domain);
                 const isEnrolling = enrolling.has(domain.id);
-                const isOwned = currentUser && domain.ownerId === currentUser.id;
+                const currentUserId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+                const isOwned = !!currentUserId && domain.ownerId === currentUserId;
                 const isEnrolled = enrolledDomainIds.has(domain.id);
                 
                 return (
-                  <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm">
+                  <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm relative">
+                    {/* Card actions: 3-dot menu in upper-right */}
+                    <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="p-1 rounded hover:bg-gray-100"
+                        onClick={() => setMenuOpenId(prev => prev === domain.id ? null : domain.id)}
+                        aria-label="More options"
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {menuOpenId === domain.id && (
+                        <div className="absolute right-0 mt-2 w-44 bg-white border rounded-md shadow-lg" onClick={(e) => e.stopPropagation()}>
+                          {isOwned && (
+                            <button
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                              onClick={() => { setMenuOpenId(null); handleArchive(domain); }}
+                            >
+                              Archive
+                            </button>
+                          )}
+                          <button
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => { setMenuOpenId(null); handleDomainAccess(domain); }}
+                          >
+                            Open
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
                     <p className="text-gray-600 mb-4 line-clamp-2 min-h-[2.5rem]">{domain.description || "No description"}</p>
                     
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center relative">
                       <div className="flex items-center space-x-2">
                         <span className={`text-sm px-2 py-1 rounded-full flex items-center ${statusInfo.className}`}>
                           {statusInfo.icon}
@@ -372,7 +437,6 @@ export default function MainPage() {
                             {isEnrolling ? 'Enrolling...' : 'Enroll'}
                           </Button>
                         )}
-                        
                         {/* Explore button */}
                         <button
                           onClick={() => handleDomainAccess(domain)}

@@ -185,12 +185,18 @@ Authorization: Bearer your_jwt_token
 
 Domains represent knowledge areas that contain definitions and exercises.
 
+Note on archiving:
+- Deleting a domain via `DELETE /domains/:id` performs a soft delete (archives the domain).
+- Archived domains are hidden from all standard lists and the Domain Network until restored.
+- Owners and admins can list archived domains, restore, or permanently purge them.
+
 ### Get All Domains
 
 - **URL**: `/domains`
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **Response**: `200 OK`
+  - Returns only unarchived domains.
   ```json
   [
     {
@@ -211,6 +217,7 @@ Domains represent knowledge areas that contain definitions and exercises.
 - **Method**: `GET`
 - **Auth Required**: No
 - **Response**: `200 OK`
+  - Returns only unarchived domains.
   ```json
   [
     {
@@ -231,6 +238,7 @@ Domains represent knowledge areas that contain definitions and exercises.
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **Response**: `200 OK`
+  - Returns only unarchived domains you own. To list archived ones, use `/domains/archived/my`.
   ```json
   [
     {
@@ -251,6 +259,7 @@ Domains represent knowledge areas that contain definitions and exercises.
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **Response**: `200 OK`
+  - Returns only unarchived domains you are enrolled in.
   ```json
   [
     {
@@ -346,20 +355,72 @@ Domains represent knowledge areas that contain definitions and exercises.
   - `403 Forbidden`: Not authorized to update this domain
   - `404 Not Found`: Domain not found
 
-### Delete Domain
+### Archive Domain (Soft Delete)
 
 - **URL**: `/domains/:id`
 - **Method**: `DELETE`
 - **Auth Required**: Yes
 - **URL Parameters**: `id` - Domain ID
+- **Behavior**: Performs a soft delete (archives the domain). Archived domains are excluded from all standard domain lists and the Domain Network until restored.
+- **Permissions**: Owner or admin.
 - **Response**: `200 OK`
   ```json
-  {
-    "message": "Domain deleted successfully"
-  }
+  { "message": "Domain deleted successfully" }
   ```
 - **Error Responses**:
-  - `403 Forbidden`: Not authorized to delete this domain
+  - `403 Forbidden`: Not authorized to archive this domain
+  - `404 Not Found`: Domain not found
+
+### Get My Archived Domains
+
+- **URL**: `/domains/archived/my`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **Description**: Returns domains owned by the current user that are archived (soft‑deleted). Includes stats where available.
+- **Response**: `200 OK`
+  ```json
+  [
+    {
+      "id": 1,
+      "name": "Algebra",
+      "privacy": "private",
+      "ownerId": 42,
+      "description": "…",
+      "createdAt": "2025-10-11T00:00:00Z",
+      "updatedAt": "2025-10-11T00:00:00Z"
+    }
+  ]
+  ```
+
+### Restore Domain (Unarchive)
+
+- **URL**: `/domains/:id/restore`
+- **Method**: `POST`
+- **Auth Required**: Yes
+- **URL Parameters**: `id` - Domain ID
+- **Permissions**: Owner or admin.
+- **Response**: `200 OK`
+  ```json
+  { "message": "Domain restored successfully" }
+  ```
+- **Error Responses**:
+  - `403 Forbidden`: Not authorized to restore this domain
+  - `404 Not Found`: Domain not found
+
+### Purge Domain (Hard Delete)
+
+- **URL**: `/domains/:id/purge`
+- **Method**: `DELETE`
+- **Auth Required**: Yes
+- **URL Parameters**: `id` - Domain ID
+- **Behavior**: Permanently deletes the domain and related data (definitions, exercises, prerequisites, user progress, sessions, comments). This action cannot be undone.
+- **Permissions**: Owner or admin.
+- **Response**: `200 OK`
+  ```json
+  { "message": "Domain permanently deleted" }
+  ```
+- **Error Responses**:
+  - `403 Forbidden`: Not authorized to purge this domain
   - `404 Not Found`: Domain not found
 
 ### Enroll in Domain

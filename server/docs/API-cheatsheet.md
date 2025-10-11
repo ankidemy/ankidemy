@@ -17,20 +17,23 @@
 
 ## Domains
 
-| Endpoint                          | Method   | Auth Required | Description           | Key Request Fields            |
-| :--------------------------------| :------- | :------------ | :-------------------- | :---------------------------- |
-| `/api/domains`                    | `GET`    | Yes           | Get all domains       | -                             |
-| `/api/domains/public`             | `GET`    | No            | Get public domains    | -                             |
-| `/api/domains/my`                 | `GET`    | Yes           | Get my domains        | -                             |
-| `/api/domains/enrolled`           | `GET`    | Yes           | Get enrolled domains  | -                             |
-| `/api/domains`                    | `POST`   | Yes           | Create domain         | `name`, `privacy`, `description` |
-| `/api/domains/:id`                | `GET`    | Yes           | Get domain by ID      | -                             |
-| `/api/domains/:id`                | `PUT`    | Yes           | Update domain         | `name`, `privacy`, etc.       |
-| `/api/domains/:id`                | `DELETE` | Yes           | Delete domain         | -                             |
-| `/api/domains/:id/enroll`         | `POST`   | Yes           | Enroll in domain      | -                             |
-| `/api/domains/:id/comments`       | `GET`    | Yes           | Get domain comments   | -                             |
-| `/api/domains/:id/comments`       | `POST`   | Yes           | Add domain comment    | `content`                     |
-| `/api/domains/:id/comments/:commentId` | `DELETE` | Yes           | Delete domain comment | -                             |
+| Endpoint                          | Method   | Auth Required | Description                          | Key Request Fields            |
+| :--------------------------------| :------- | :------------ | :----------------------------------- | :---------------------------- |
+| `/api/domains`                    | `GET`    | Yes           | Get all domains (unarchived only)    | -                             |
+| `/api/domains/public`             | `GET`    | No            | Get public domains (unarchived only) | -                             |
+| `/api/domains/my`                 | `GET`    | Yes           | Get my domains (unarchived only)     | -                             |
+| `/api/domains/enrolled`           | `GET`    | Yes           | Get enrolled domains (unarchived)    | -                             |
+| `/api/domains`                    | `POST`   | Yes           | Create domain                        | `name`, `privacy`, `description` |
+| `/api/domains/:id`                | `GET`    | Yes           | Get domain by ID                     | -                             |
+| `/api/domains/:id`                | `PUT`    | Yes           | Update domain                        | `name`, `privacy`, etc.       |
+| `/api/domains/:id`                | `DELETE` | Yes           | Archive domain (soft delete)         | -                             |
+| `/api/domains/archived/my`        | `GET`    | Yes           | List my archived domains             | -                             |
+| `/api/domains/:id/restore`        | `POST`   | Yes           | Restore archived domain              | -                             |
+| `/api/domains/:id/purge`          | `DELETE` | Yes           | Permanently delete domain + data     | -                             |
+| `/api/domains/:id/enroll`         | `POST`   | Yes           | Enroll in domain                     | -                             |
+| `/api/domains/:id/comments`       | `GET`    | Yes           | Get domain comments                  | -                             |
+| `/api/domains/:id/comments`       | `POST`   | Yes           | Add domain comment                   | `content`                     |
+| `/api/domains/:id/comments/:commentId` | `DELETE` | Yes           | Delete domain comment                | -                             |
 
 ## Definitions
 

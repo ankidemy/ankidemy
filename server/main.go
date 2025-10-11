@@ -144,15 +144,18 @@ func main() {
 			// Domain routes (now with import support)
 			domains := authorized.Group("/domains")
 			{
-				domains.GET("", domainHandler.GetDomains)
-				domains.POST("", domainHandler.CreateDomain) // Now supports import data
-				domains.GET("/my", domainHandler.GetMyDomains)
-				domains.GET("/enrolled", domainHandler.GetEnrolledDomains)
-				domains.GET("/:id", domainHandler.GetDomain)
-				domains.PUT("/:id", domainHandler.UpdateDomain)
-				domains.DELETE("/:id", domainHandler.DeleteDomain)
-				domains.POST("/:id/enroll", domainHandler.EnrollInDomain)
-				domains.POST("/:id/import", domainHandler.ImportToDomain) // NEW: Import to existing domain
+			domains.GET("", domainHandler.GetDomains)
+			domains.POST("", domainHandler.CreateDomain) // Now supports import data
+			domains.GET("/my", domainHandler.GetMyDomains)
+			domains.GET("/archived/my", domainHandler.GetMyArchivedDomains)
+			domains.GET("/enrolled", domainHandler.GetEnrolledDomains)
+			domains.GET("/:id", domainHandler.GetDomain)
+			domains.PUT("/:id", domainHandler.UpdateDomain)
+			domains.DELETE("/:id", domainHandler.DeleteDomain)
+			domains.POST("/:id/restore", domainHandler.RestoreDomain)
+			domains.DELETE("/:id/purge", domainHandler.PurgeDomain)
+			domains.POST("/:id/enroll", domainHandler.EnrollInDomain)
+			domains.POST("/:id/import", domainHandler.ImportToDomain) // NEW: Import to existing domain
 				
 				// Domain comments
 				domains.GET("/:id/comments", domainHandler.GetComments)

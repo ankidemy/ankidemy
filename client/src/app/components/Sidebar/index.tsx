@@ -34,6 +34,8 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           </button>
         </div>
         <nav className="px-4 space-y-4">
+          <Link href="/main" className="block p-2 rounded hover:bg-gray-100">Home</Link>
+          <Link href="/main/domains/archived" className="block p-2 rounded hover:bg-gray-100">Archived Domains</Link>
           <Link href="/profile/configure" className="block p-2 rounded hover:bg-gray-100">Configurar perfil</Link>
           <Link href="/profile/edit" className="block p-2 rounded hover:bg-gray-100">Editar perfil</Link>
           <Link href="/profile/security" className="block p-2 rounded hover:bg-gray-100">Seguridad</Link>

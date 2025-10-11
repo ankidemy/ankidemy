@@ -12,9 +12,9 @@ import (
 
 // DomainHandler handles domain-related HTTP requests
 type DomainHandler struct {
-	domainDAO     *dao.DomainDAO
-	progressDAO   *dao.ProgressDAO
-	importService *services.ImportService
+    domainDAO     *dao.DomainDAO
+    progressDAO   *dao.ProgressDAO
+    importService *services.ImportService
 }
 
 // NewDomainHandler creates a new DomainHandler
@@ -329,7 +329,92 @@ func (h *DomainHandler) DeleteDomain(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Domain deleted successfully"})
+    c.JSON(http.StatusOK, gin.H{"message": "Domain deleted successfully"})
+}
+
+// GetMyArchivedDomains returns archived (soft-deleted) domains owned by the current user with stats
+func (h *DomainHandler) GetMyArchivedDomains(c *gin.Context) {
+    userID, exists := c.Get("userID")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+        return
+    }
+
+    domains, err := h.domainDAO.GetArchivedByOwnerIDWithStats(userID.(uint))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve archived domains"})
+        return
+    }
+    c.JSON(http.StatusOK, domains)
+}
+
+// RestoreDomain unarchives a soft-deleted domain
+func (h *DomainHandler) RestoreDomain(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+        return
+    }
+
+    // We must check ownership/admin using Unscoped find
+    domain, err := h.domainDAO.FindByID(uint(id))
+    if err != nil {
+        // Try unscoped load for deleted records to check owner
+        var d models.Domain
+        if e := h.domainDAO.DB().Unscoped().First(&d, uint(id)).Error; e != nil {
+            c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+            return
+        }
+        domain = &d
+    }
+
+    userID, exists := c.Get("userID")
+    if !exists || userID.(uint) != domain.OwnerID {
+        isAdmin, adminExists := c.Get("isAdmin")
+        if !adminExists || !isAdmin.(bool) {
+            c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to restore this domain"})
+            return
+        }
+    }
+
+    if err := h.domainDAO.Restore(uint(id)); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore domain"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "Domain restored successfully"})
+}
+
+// PurgeDomain permanently deletes a domain and all related data
+func (h *DomainHandler) PurgeDomain(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+        return
+    }
+
+    // Load unscoped to check ownership when soft-deleted
+    var domain models.Domain
+    if err := h.domainDAO.DB().Unscoped().First(&domain, uint(id)).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+        return
+    }
+
+    userID, exists := c.Get("userID")
+    if !exists || userID.(uint) != domain.OwnerID {
+        isAdmin, adminExists := c.Get("isAdmin")
+        if !adminExists || !isAdmin.(bool) {
+            c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this domain"})
+            return
+        }
+    }
+
+    if err := h.domainDAO.HardDeleteCascade(uint(id)); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to permanently delete domain"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "Domain permanently deleted"})
 }
 
 // EnrollInDomain enrolls the current user in a domain
@@ -506,16 +591,19 @@ func (h *DomainHandler) RegisterRoutes(router *gin.RouterGroup) {
 	authorized := router.Group("/")
 	{
 		domains := authorized.Group("/domains")
-		{
-			domains.GET("", h.GetDomains)
-			domains.POST("", h.CreateDomain) // Now supports import data
-			domains.GET("/my", h.GetMyDomains)
-			domains.GET("/enrolled", h.GetEnrolledDomains)
-			domains.GET("/:id", h.GetDomain)
-			domains.PUT("/:id", h.UpdateDomain)
-			domains.DELETE("/:id", h.DeleteDomain)
-			domains.POST("/:id/enroll", h.EnrollInDomain)
-			domains.POST("/:id/import", h.ImportToDomain) // NEW: Import to existing domain
+        {
+            domains.GET("", h.GetDomains)
+            domains.POST("", h.CreateDomain) // Now supports import data
+            domains.GET("/my", h.GetMyDomains)
+            domains.GET("/archived/my", h.GetMyArchivedDomains)
+            domains.GET("/enrolled", h.GetEnrolledDomains)
+            domains.GET("/:id", h.GetDomain)
+            domains.PUT("/:id", h.UpdateDomain)
+            domains.DELETE("/:id", h.DeleteDomain)
+            domains.POST("/:id/restore", h.RestoreDomain)
+            domains.DELETE("/:id/purge", h.PurgeDomain)
+            domains.POST("/:id/enroll", h.EnrollInDomain)
+            domains.POST("/:id/import", h.ImportToDomain) // NEW: Import to existing domain
 			
 			// Domain comments
 			domains.GET("/:id/comments", h.GetComments)

@@ -506,6 +506,37 @@ export const deleteDomain = async (id: number): Promise<void> => {
   return handleResponse(response);
 };
 
+// Archive domain (soft delete). Alias for deleteDomain for clearer semantics in UI
+export const archiveDomain = async (id: number): Promise<void> => {
+  return deleteDomain(id);
+};
+
+// List archived domains owned by current user
+export const getMyArchivedDomains = async (): Promise<Domain[]> => {
+  const response = await fetch(`${API_URL}/api/domains/archived/my`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// Restore a soft-deleted domain
+export const restoreDomain = async (id: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${id}/restore`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// Permanently delete a domain and all related data
+export const purgeDomain = async (id: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${id}/purge`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
 export const enrollInDomain = async (id: number): Promise<void> => {
   const response = await fetch(`${API_URL}/api/domains/${id}/enroll`, {
     method: 'POST',
