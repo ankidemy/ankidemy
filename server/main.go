@@ -64,6 +64,7 @@ func main() {
 	exerciseDAO := dao.NewExerciseDAO(db)
 	progressDAO := dao.NewProgressDAO(db)
 	graphDAO := dao.NewGraphDAO(db)
+	domainNetworkDAO := dao.NewDomainNetworkDAO(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -88,6 +89,7 @@ func main() {
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO)
+	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
 	srsHandler := handlers.NewSRSHandler(db)
 
 	// Initialize router
@@ -175,6 +177,14 @@ func main() {
 				domains.PUT("/:id/graph/positions", graphHandler.UpdatePositions)
 				domains.GET("/:id/export", graphHandler.ExportDomain)
 				// Note: Import is now handled by domainHandler.ImportToDomain above
+			}
+
+			// Domain network routes (user-defined links between domains)
+			network := authorized.Group("/network")
+			{
+				network.GET("/links", domainNetworkHandler.GetLinks)
+				network.POST("/links", domainNetworkHandler.CreateLink)
+				network.DELETE("/links/:id", domainNetworkHandler.DeleteLink)
 			}
 
 			// Definition routes

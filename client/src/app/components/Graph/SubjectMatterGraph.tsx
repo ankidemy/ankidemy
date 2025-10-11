@@ -1,15 +1,14 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from "@/app/components/core/button";
-import { Plus, Info } from 'lucide-react';
-import { getEnrolledDomains } from '@/lib/api';
+import { Plus, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { getEnrolledDomains, getDomainLinks, createDomainLink, deleteDomainLink, DomainLink } from '@/lib/api';
+import { showToast } from "@/app/components/core/ToastNotification";
+import * as d3 from 'd3';
 
-// Import ForceGraph dynamically to avoid SSR issues
-const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
-  ssr: false
-});
+const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 
 interface SubjectMatter {
   id: string;
@@ -21,56 +20,83 @@ interface SubjectMatter {
 interface SubjectMatterGraphProps {
   onSelectSubjectMatter: (id: string) => void;
   onCreateSubjectMatter?: () => void;
+  subjectMatters?: SubjectMatter[];
+  autoFitOnLoad?: boolean; // if true, fit graph to view on initial load
 }
 
-const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ 
-  onSelectSubjectMatter,
-  onCreateSubjectMatter
-}) => {
+const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubjectMatter, onCreateSubjectMatter, subjectMatters: subjectMattersProp, autoFitOnLoad = true }) => {
   const graphRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Subject matters and derived graph data (no effects)
+
+  // UI/State
   const [hoveredNode, setHoveredNode] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showInfo, setShowInfo] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 1100, height: 400 });
   const [subjectMatters, setSubjectMatters] = useState<SubjectMatter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasBeenFitted, setHasBeenFitted] = useState(false);
-  const graphData = useMemo(() => {
-    try {
-      const nodes = subjectMatters.map(subject => ({
-        id: subject.id,
-        name: subject.name,
-        nodeCount: subject.nodeCount || 0,
-        exerciseCount: subject.exerciseCount || 0,
-        val: Math.max(8, Math.min(25, 8 + (subject.nodeCount || 0) / 3))
-      }));
+  const [links, setLinks] = useState<DomainLink[]>([]);
+  const [editMode, setEditMode] = useState(false);
+  const [editAction, setEditAction] = useState<'connect' | 'delete'>('connect');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-      const links: { source: string; target: string; value: number }[] = [];
-      if (nodes.length > 1) {
-        const centerIndex = Math.floor(Math.random() * nodes.length);
-        for (let i = 0; i < nodes.length; i++) {
-          if (i !== centerIndex) {
-            links.push({ source: nodes[centerIndex].id, target: nodes[i].id, value: 1 / Math.log(nodes.length + 1) });
-          }
+  // Choose subjects: prefer provided; else fetch enrolled
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setIsLoading(true);
+        if (subjectMattersProp && subjectMattersProp.length) {
+          setSubjectMatters(subjectMattersProp);
+        } else {
+          const domains = await getEnrolledDomains();
+          const mapped = domains.map((domain: any) => ({
+            id: String(domain.id),
+            name: domain.name,
+            nodeCount: domain.nodeCount || 0,
+            exerciseCount: domain.exerciseCount || 0,
+          }));
+          setSubjectMatters(mapped);
         }
-        const extraLinks = Math.min(Math.floor(nodes.length / 3), 5);
-        for (let i = 0; i < extraLinks; i++) {
-          const source = Math.floor(Math.random() * nodes.length);
-          let target = Math.floor(Math.random() * nodes.length);
-          while (target === source) target = Math.floor(Math.random() * nodes.length);
-          links.push({ source: nodes[source].id, target: nodes[target].id, value: 0.5 });
-        }
+      } catch (err) {
+        console.error('Error fetching domains:', err);
+        setError('Error loading domains. Please try again.');
+      } finally {
+        setIsLoading(false);
       }
+    };
+    load();
+  }, [subjectMattersProp]);
 
-      return { nodes, links };
-    } catch (err) {
-      console.error('Error preparing graph data:', err);
-      setError('Error visualizing domains. Please try again.');
-      return { nodes: [], links: [] };
-    }
-  }, [subjectMatters]);
+  // Load links for current subjects
+  useEffect(() => {
+    const fetchLinks = async () => {
+      try {
+        if (!subjectMatters.length) { setLinks([]); return; }
+        const ids = subjectMatters.map(s => Number(s.id)).filter(Boolean);
+        const res = await getDomainLinks(ids);
+        setLinks(res || []);
+      } catch (err) {
+        console.error('Error fetching domain links:', err);
+      }
+    };
+    fetchLinks();
+  }, [subjectMatters.map(s => s.id).join(',')]);
+
+  // Derived graph data
+  const graphData = useMemo(() => {
+    const nodes = subjectMatters.map(subject => ({
+      id: String(subject.id),
+      name: subject.name,
+      nodeCount: subject.nodeCount || 0,
+      exerciseCount: subject.exerciseCount || 0,
+      val: Math.max(8, Math.min(25, 8 + (subject.nodeCount || 0) / 3))
+    }));
+    const idSet = new Set(nodes.map(n => String(n.id)));
+    const linkObjs = (links || [])
+      .map(l => ({ id: l.id, source: String(l.domainAId), target: String(l.domainBId), value: 1 }))
+      .filter(l => idSet.has(String(l.source)) && idSet.has(String(l.target)));
+    return { nodes, links: linkObjs } as any;
+  }, [subjectMatters, links]);
 
   // Fit graph to view - only on first render
   const fitGraphToView = useCallback(() => {
@@ -80,156 +106,147 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
     setTimeout(() => {
       try {
         if (!graphRef.current || hasBeenFitted) return;
-        graphRef.current.zoom(2, 500);
-        graphRef.current.centerAt(0, 0, 500);
+        if (typeof graphRef.current.zoomToFit === 'function') {
+          graphRef.current.zoomToFit(600, 40);
+        } else {
+          // Fallback: center and set a reasonable zoom
+          graphRef.current.centerAt(0, 0, 600);
+          graphRef.current.zoom(1, 600);
+        }
         setHasBeenFitted(true);
-        console.log('Graph positioned with zoom 2');
       } catch (error) {
         console.error('Error positioning graph:', error);
       }
     }, 100);
   }, [graphData.nodes.length, dimensions.width, dimensions.height, hasBeenFitted]);
 
-  // Handle engine stop
-  const handleEngineStop = useCallback(() => {
+  const handleEngineStop = useCallback(() => { fitGraphToView(); }, [fitGraphToView]);
+
+  // Also trigger fit once when data and dimensions are ready (independent of engine stop)
+  useEffect(() => {
+    if (!autoFitOnLoad) return;
     fitGraphToView();
-  }, [fitGraphToView]);
+  }, [autoFitOnLoad, graphData.nodes.length, dimensions.width, dimensions.height, fitGraphToView]);
 
-  // Lifecycle to replace effects: fetch domains, track size, and initial fit
-  class SMGraphLifecycle {
-    private fetched = false;
-    private attachedEl: HTMLElement | null = null;
-    private resizeObserver: ResizeObserver | null = null;
-    private resizeHandler = () => this.measure();
-    private fitScheduled = false;
-
-    async ensureData() {
-      if (this.fetched) return;
-      this.fetched = true;
-      try {
-        setIsLoading(true);
-        const domains = await getEnrolledDomains();
-        const mapped = domains.map((domain: any) => ({
-          id: String(domain.id),
-          name: domain.name,
-          nodeCount: domain.nodeCount || 0,
-          exerciseCount: domain.exerciseCount || 0,
+  // Forces for less crowding
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (!fg) return;
+    const n = Math.max(1, subjectMatters.length);
+    const baseDist = 100 + Math.sqrt(n) * 28;
+    try {
+      const linkForce = fg.d3Force && fg.d3Force('link');
+      if (linkForce && typeof linkForce.distance === 'function') {
+        linkForce.distance(() => baseDist).strength(0.6);
+      }
+      if (fg.d3Force) {
+        fg.d3Force('charge', (d3 as any).forceManyBody().strength(-380));
+        fg.d3Force('collide', (d3 as any).forceCollide((node: any) => {
+          const count = (node.nodeCount || 0) + (node.exerciseCount || 0);
+          const r = Math.max(8, Math.min(15, 8 + count / 4));
+          return r + 16;
         }));
-        setSubjectMatters(mapped);
-      } catch (err) {
-        console.error('Error fetching domains:', err);
-        setError('Error loading domains. Please try again.');
-      } finally {
-        setIsLoading(false);
       }
-    }
+      fg.d3VelocityDecay(0.25);
+      fg.d3ReheatSimulation();
+    } catch {}
+  }, [subjectMatters.length]);
 
-    attachResize(el: HTMLElement | null) {
-      if (!el || this.attachedEl === el) return;
-      this.detachResize();
-      this.attachedEl = el;
-      this.resizeObserver = new ResizeObserver(this.resizeHandler);
-      this.resizeObserver.observe(el);
-      window.addEventListener('resize', this.resizeHandler);
-      this.measure();
-    }
+  // Cleanup on unmount to avoid d3 processing stale links/nodes
+  useEffect(() => {
+    return () => {
+      try {
+        if (graphRef.current && typeof graphRef.current.graphData === 'function') {
+          graphRef.current.graphData({ nodes: [], links: [] });
+        }
+      } catch {}
+    };
+  }, []);
 
-    private measure() {
-      if (!this.attachedEl) return;
-      const rect = this.attachedEl.getBoundingClientRect();
+  // Resize tracking
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const rect = el.getBoundingClientRect();
       setDimensions({ width: rect.width || 800, height: rect.height || 400 });
-      if (!this.fitScheduled) {
-        this.fitScheduled = true;
-        setTimeout(() => {
-          this.fitScheduled = false;
-          fitGraphToView();
-          if (graphRef.current) {
-            try {
-              graphRef.current.resumeAnimation();
-              graphRef.current.zoom(2, 100);
-              graphRef.current.centerAt(0, 0, 100);
-            } catch {}
-          }
-        }, 100);
-      }
-    }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-    detachResize() {
-      if (this.resizeObserver && this.attachedEl) {
-        try { this.resizeObserver.disconnect(); } catch {}
-      }
-      if (this.resizeObserver) this.resizeObserver = null;
-      if (this.attachedEl) this.attachedEl = null;
-      window.removeEventListener('resize', this.resizeHandler);
-    }
-  }
-
-  const lifecycleRef = useRef<SMGraphLifecycle | null>(null);
-  if (!lifecycleRef.current) {
-    lifecycleRef.current = new SMGraphLifecycle();
-  }
-  void lifecycleRef.current.ensureData();
-  lifecycleRef.current.attachResize(containerRef.current);
-
-  // Custom node renderer with simplified, faster rendering
+  // Node drawing
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
     const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
     const name = node.name || 'Unknown';
     const nodeCount = node.nodeCount || 0;
     const exerciseCount = node.exerciseCount || 0;
-    
-    // Simplified text scaling
     const fontSize = Math.max(8, Math.min(16, 12 / Math.sqrt(globalScale)));
     const isHovered = hoveredNode && hoveredNode.id === node.id;
-    
-    // Simplified node sizing
+    const isSelected = selectedNodeId === node.id;
     const baseSize = Math.max(8, Math.min(15, 8 + (nodeCount + exerciseCount) / 4));
-    const size = isHovered ? baseSize * 1.1 : baseSize;
-    
-    // Draw node circle
-    ctx.fillStyle = isHovered ? '#10B981' : '#6B7280';
+    const size = (isHovered || isSelected) ? baseSize * 1.15 : baseSize;
+
+    ctx.fillStyle = isSelected ? '#F59E0B' : (isHovered ? '#10B981' : '#6B7280');
     ctx.beginPath();
     ctx.arc(x, y, size, 0, 2 * Math.PI);
     ctx.fill();
-    
-    // Thinner border
-    ctx.strokeStyle = isHovered ? '#FFFFFF' : '#D1D5DB';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = isSelected ? '#92400E' : (isHovered ? '#FFFFFF' : '#D1D5DB');
+    ctx.lineWidth = isSelected ? 1.2 : 0.6;
     ctx.stroke();
-    
-    // Text rendering (on top of nodes)
+
     ctx.font = `${fontSize}px Arial`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    
-    // Main text (no stroke border since text is already dark)
     ctx.fillStyle = '#1F2937';
     ctx.fillText(name, x, y - size - 10);
-    
-    // Stats rendering
-    if (globalScale > 0.5) { // Only show stats when zoomed in enough
+
+    if (globalScale > 0.5) {
       const statsText = `${nodeCount}d, ${exerciseCount}e`;
       const statsSize = Math.max(6, fontSize * 0.75);
       ctx.font = `${statsSize}px Arial`;
-      
-      // Stats text (no stroke border)
       ctx.fillStyle = '#6B7280';
       ctx.fillText(statsText, x, y + size + 12);
     }
-  }, [hoveredNode]);
+  }, [hoveredNode, selectedNodeId]);
 
-  // Handle node click
-  const handleNodeClick = useCallback((node: any) => {
-    if (node && node.id) {
-      onSelectSubjectMatter(node.id);
+  // Click/hover handlers
+  const handleNodeClick = useCallback(async (node: any) => {
+    if (!node?.id) return;
+    if (editMode && editAction === 'connect') {
+      if (!selectedNodeId) { setSelectedNodeId(node.id); return; }
+      if (selectedNodeId === node.id) { setSelectedNodeId(null); return; }
+      try {
+        const a = Number(selectedNodeId);
+        const b = Number(node.id);
+        const created = await createDomainLink(a, b);
+        setLinks(prev => [created, ...prev.filter(l => !(l.domainAId === Math.min(a,b) && l.domainBId === Math.max(a,b)))]);
+        setSelectedNodeId(null);
+        showToast('Connection created', 'success', 1200);
+      } catch (e:any) {
+        showToast(e?.message || 'Failed to create connection', 'error', 2000);
+      }
+      return;
     }
-  }, [onSelectSubjectMatter]);
+    onSelectSubjectMatter(String(node.id));
+  }, [editMode, editAction, selectedNodeId, onSelectSubjectMatter]);
 
-  // Handle node hover
-  const handleNodeHover = useCallback((node: any) => {
-    setHoveredNode(node);
-  }, []);
+  const handleLinkClick = useCallback(async (link: any) => {
+    if (!editMode || editAction !== 'delete') return;
+    if (!link?.id) return;
+    const ok = window.confirm('Delete this connection?');
+    if (!ok) return;
+    try {
+      await deleteDomainLink(Number(link.id));
+      setLinks(prev => prev.filter(l => l.id !== Number(link.id)));
+      showToast('Connection deleted', 'success', 1200);
+    } catch (e:any) {
+      showToast(e?.message || 'Failed to delete connection', 'error', 2000);
+    }
+  }, [editMode, editAction]);
+
+  const handleNodeHover = useCallback((node: any) => { setHoveredNode(node); }, []);
 
   if (isLoading) {
     return (
@@ -244,12 +261,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
       <div className="h-full w-full flex items-center justify-center">
         <div className="text-red-500 text-xl p-8 bg-white rounded shadow-md">
           {error}
-          <button
-            onClick={() => window.location.reload()}
-            className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded"
-          >
-            Retry
-          </button>
+          <button onClick={() => window.location.reload()} className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded">Retry</button>
         </div>
       </div>
     );
@@ -257,39 +269,36 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
 
   return (
     <div className="h-full w-full relative" ref={containerRef}>
-      {/* Info Panel */}
-      {showInfo && (
-        <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg p-4 shadow-lg z-10 max-w-sm">
-          <h3 className="font-semibold text-gray-800 mb-2">Subject Matter Graph</h3>
-          <p className="text-sm text-gray-600 mb-2">
-            This visualization shows your enrolled domains as connected nodes. Each node represents a subject matter domain.
-          </p>
-          <ul className="text-xs text-gray-500 space-y-1">
-            <li>• Node size reflects the number of definitions</li>
-            <li>• Click a node to explore its knowledge graph</li>
-            <li>• Hover to see definition and exercise counts</li>
-          </ul>
-        </div>
-      )}
-
-      {/* Controls */}
-      <div className="absolute top-4 left-4 flex gap-2 z-10">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowInfo(!showInfo)}
-        >
-          <Info className="w-4 h-4" />
-        </Button>
-        {onCreateSubjectMatter && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onCreateSubjectMatter}
-          >
+      {/* Left Controls */}
+      {onCreateSubjectMatter && (
+        <div className="absolute top-4 left-4 flex gap-2 z-10">
+          <Button variant="outline" size="sm" onClick={onCreateSubjectMatter}>
             <Plus className="w-4 h-4" />
             Create Domain
           </Button>
+        </div>
+      )}
+
+      {/* Edit Links Controls */}
+      <div className="absolute top-4 right-4 flex gap-2 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-1">
+        <Button
+          variant={editMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setEditMode(!editMode); setSelectedNodeId(null); }}
+          title="Toggle edit links mode"
+        >
+          <LinkIcon className="w-4 h-4 mr-1" />
+          {editMode ? 'Editing' : 'Edit Links'}
+        </Button>
+        {editMode && (
+          <>
+            <Button variant={editAction === 'connect' ? "default" : "outline"} size="sm" onClick={() => setEditAction('connect')} title="Create connection">
+              <LinkIcon className="w-4 h-4" />
+            </Button>
+            <Button variant={editAction === 'delete' ? "destructive" : "outline"} size="sm" onClick={() => { setEditAction('delete'); setSelectedNodeId(null); }} title="Delete connection">
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </>
         )}
       </div>
 
@@ -299,9 +308,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
           <div className="text-center">
             <div className="text-4xl text-gray-300 mb-4">📚</div>
             <h3 className="text-lg font-medium text-gray-600 mb-2">No Domains Yet</h3>
-            <p className="text-gray-500 mb-4">
-              You haven't enrolled in any domains yet. Create your first domain or explore public ones to get started!
-            </p>
+            <p className="text-gray-500 mb-4">You haven't enrolled in any domains yet. Create your first domain or explore public ones to get started!</p>
             {onCreateSubjectMatter && (
               <Button onClick={onCreateSubjectMatter}>
                 <Plus className="w-4 h-4 mr-2" />
@@ -327,13 +334,13 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
             const nodeCount = node.nodeCount || 0;
             const exerciseCount = node.exerciseCount || 0;
             const size = Math.max(8, Math.min(15, 8 + (nodeCount + exerciseCount) / 4)) * 1.3;
-            
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, 2 * Math.PI);
             ctx.fill();
           }}
           onNodeClick={handleNodeClick}
+          onLinkClick={handleLinkClick}
           onNodeHover={handleNodeHover}
           onEngineStop={handleEngineStop}
           linkDirectionalParticles={1}
@@ -341,11 +348,9 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
           linkDirectionalParticleWidth={0.5}
           linkColor={() => 'rgba(156, 163, 175, 0.5)'}
           linkWidth={3}
-          linkDistance={200000}
-          nodeRepulsion={2000}
           d3AlphaDecay={0.05}
-          d3VelocityDecay={0.05}
-          cooldownTicks={200}
+          d3VelocityDecay={0.25}
+          cooldownTicks={180}
           enableZoomPanInteraction={true}
           minZoom={0.5}
           maxZoom={8}

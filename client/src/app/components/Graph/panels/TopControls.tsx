@@ -3,7 +3,8 @@
 
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { ArrowLeft, Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload } from 'lucide-react';
+import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload } from 'lucide-react';
+import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
@@ -200,15 +201,12 @@ const TopControls: React.FC<TopControlsProps> = ({
 
   return (
     <div className="bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
-      {/* Left: Back Button + Title + Domain Selector */}
+      {/* Left: Logo link + Domain Selector */}
       <div className="flex items-center flex-shrink-0 mr-4 space-x-3">
-        <Button variant="ghost" size="icon" onClick={onBack} className="h-9 w-9">
-          <ArrowLeft size={18} />
-        </Button>
-        <h2 className="text-lg font-semibold truncate" title={subjectMatterId}>
-          {subjectMatterId || "Knowledge Graph"}
-        </h2>
-        
+        <Link href="/main" className="text-orange-500 hover:text-orange-600 font-bold text-xl leading-none">
+          ankidemy
+        </Link>
+
         <DomainSelector currentDomainName={subjectMatterId} />
 
         {/* NEW: Graph space indicator (only in dev mode) */}

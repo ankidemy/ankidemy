@@ -36,6 +36,15 @@ export interface Domain {
   exercises?: Exercise[];
 }
 
+// NEW: Domain network link types
+export interface DomainLink {
+  id: number;
+  domainAId: number;
+  domainBId: number;
+  createdBy: number;
+  createdAt: string;
+}
+
 // FIXED: Added prerequisiteWeights to Definition interface
 export interface Definition {
   id: number;
@@ -1238,5 +1247,44 @@ export const refreshGraphData = async (domainId: number): Promise<VisualGraph> =
     headers: getAuthHeaders(),
   });
   
+  return handleResponse(response);
+};
+
+// DOMAIN NETWORK API
+
+/**
+ * Lists user-defined domain links, optionally filtered to certain domain IDs
+ */
+export const getDomainLinks = async (domainIds?: number[]): Promise<DomainLink[]> => {
+  const params = domainIds && domainIds.length > 0 ? `?domainIds=${domainIds.join(',')}` : '';
+  const response = await fetch(`${API_URL}/api/network/links${params}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Creates a user-defined link between two domains
+ */
+export const createDomainLink = async (domainId1: number, domainId2: number): Promise<DomainLink> => {
+  const response = await fetch(`${API_URL}/api/network/links`, {
+    method: 'POST',
+    headers: { 
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ domainId1, domainId2 }),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Deletes a user-defined link by ID
+ */
+export const deleteDomainLink = async (linkId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/network/links/${linkId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
   return handleResponse(response);
 };

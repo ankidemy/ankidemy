@@ -96,12 +96,13 @@ const DomainSelector: React.FC<DomainSelectorProps> = ({ currentDomainName }) =>
         variant="ghost"
         size="sm"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center text-sm font-normal max-w-xs"
+        className="flex items-center max-w-xs text-base font-semibold text-gray-800"
+        title={currentDomainName}
       >
-        <span className="truncate mr-1" title={currentDomainName}>
+        <span className="truncate mr-1">
           {currentDomainName}
         </span>
-        <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </Button>
 
       {isOpen && (

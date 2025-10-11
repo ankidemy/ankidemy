@@ -57,6 +57,7 @@ func InitDB() (*gorm.DB, error) {
     &models.StudySession{},
     &models.SessionReview{},
     &models.ReviewHistory{},
+    &models.DomainLink{},
 	}
 	
 	// AutoMigrate all models - note that in production you might want more controlled migrations

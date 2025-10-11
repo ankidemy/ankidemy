@@ -278,7 +278,28 @@ export default function MainPage() {
       <div className="min-h-screen bg-white w-full mt-16">
         {/* Use consistent padding like dashboard */}
         <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8" onClick={() => setMenuOpenId(null)}>
-          
+          {/* Domain Network Visualization (moved above tabs) */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold mb-6 text-gray-800">Domain Network</h2>
+            <div className="border rounded-xl h-96 overflow-hidden bg-gray-50 relative">
+              <SubjectMatterGraph 
+                subjectMatters={displayDomains.map(domain => ({
+                  id: domain.id.toString(),
+                  name: domain.name,
+                  nodeCount: 0,
+                  exerciseCount: 0
+                }))}
+                onSelectSubjectMatter={(id) => {
+                  const domain = displayDomains.find(d => d.id.toString() === id);
+                  if (domain) {
+                    handleDomainAccess(domain);
+                  }
+                }}
+                onCreateSubjectMatter={currentUser ? () => router.push('/main/domains/create') : undefined}
+              />
+            </div>
+          </div>
+
           {/* Tabs */}
           <div className="flex border-b mb-6">
             <button
@@ -461,27 +482,7 @@ export default function MainPage() {
             </div>
           )}
           
-          {/* Domain Network Visualization */}
-          <div className="mt-12">
-            <h2 className="text-xl font-bold mb-6 text-gray-800">Domain Network</h2>
-            <div className="border rounded-xl h-96 overflow-hidden bg-gray-50 relative">
-              <SubjectMatterGraph 
-                subjectMatters={displayDomains.map(domain => ({
-                  id: domain.id.toString(),
-                  name: domain.name,
-                  nodeCount: 0, // In a real app, you'd fetch this data
-                  exerciseCount: 0
-                }))}
-                onSelectSubjectMatter={(id) => {
-                  const domain = displayDomains.find(d => d.id.toString() === id);
-                  if (domain) {
-                    handleDomainAccess(domain);
-                  }
-                }}
-                onCreateSubjectMatter={currentUser ? () => router.push('/main/domains/create') : undefined}
-              />
-            </div>
-          </div>
+          {/* Graph was moved above */}
         </div>
       </div>
 
