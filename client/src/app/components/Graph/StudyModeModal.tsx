@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
-import { MathJaxContent, MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
+import { MathJaxProvider, MathText, InlineMath } from '@/app/components/core/MathJaxWrapper';
 import { useSRS } from '@/contexts/SRSContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType, StudySession } from '@/types/srs';
 import { ArrowLeft, ArrowRight, CheckCircle, Eye, Loader2, XCircle, Target, MapPin } from 'lucide-react';
@@ -208,23 +208,17 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
 
         {currentReviewItem.nodeType === 'definition' ? (
           <div>
-            <h3 className="text-lg font-semibold mb-2">Define: {itemDetails.name}</h3>
+            <h3 className="text-lg font-semibold mb-2">Define: <InlineMath text={itemDetails.name} /></h3>
             {showAnswer && (
-              <MathJaxContent className="p-3 bg-gray-50 rounded-md border text-sm">
-                {itemDetails.description?.split('|||')[0] || "N/A"}
-              </MathJaxContent>
+              <MathText className="p-3 bg-gray-50 rounded-md border text-sm" text={itemDetails.description?.split('|||')[0] || "N/A"} />
             )}
           </div>
         ) : (
           <div>
-            <h3 className="text-lg font-semibold mb-2">Exercise: {itemDetails.name}</h3>
-            <MathJaxContent className="p-3 bg-gray-50 rounded-md border text-sm mb-2">
-              {itemDetails.statement || "N/A"}
-            </MathJaxContent>
+            <h3 className="text-lg font-semibold mb-2">Exercise: <InlineMath text={itemDetails.name} /></h3>
+            <MathText className="p-3 bg-gray-50 rounded-md border text-sm mb-2" text={itemDetails.statement || "N/A"} />
             {showAnswer && (
-              <MathJaxContent className="p-3 bg-green-50 rounded-md border border-green-200 text-sm">
-                <strong>Solution:</strong> {itemDetails.description || "N/A"}
-              </MathJaxContent>
+              <MathText className="p-3 bg-green-50 rounded-md border border-green-200 text-sm" text={`Solution: ${itemDetails.description || "N/A"}`} />
             )}
           </div>
         )}

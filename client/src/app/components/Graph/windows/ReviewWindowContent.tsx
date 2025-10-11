@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger } from "@/app/components/core/tabs";
-import { MathJaxContent, MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
+import { MathJaxProvider, InlineMath, MathText } from '@/app/components/core/MathJaxWrapper';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
@@ -307,30 +307,24 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         {/* Content */}
         {currentReviewItem.nodeType === 'definition' ? (
           <div>
-            {/* FIX 2: Wrap node name in MathJaxContent for LaTeX rendering */}
+            {/* FIX 2: Wrap node name for LaTeX rendering (InlineMath) */}
             <h3 className="text-lg font-semibold mb-2">
-              Define: <MathJaxContent inline={true}>{itemDetails.name}</MathJaxContent>
+              Define: <InlineMath text={itemDetails.name} />
             </h3>
             {showAnswer && (
-              <MathJaxContent className="p-4 bg-gray-50 rounded-md border text-base whitespace-pre-wrap">
-                {itemDetails.description?.split('|||')[0] || "N/A"}
-              </MathJaxContent>
+              <MathText className="p-4 bg-gray-50 rounded-md border text-base whitespace-pre-wrap" text={itemDetails.description?.split('|||')[0] || "N/A"} />
             )}
           </div>
         ) : (
           <div>
-            {/* FIX 2: Wrap node name in MathJaxContent for LaTeX rendering */}
+            {/* FIX 2: Wrap node name for LaTeX rendering (InlineMath) */}
             <h3 className="text-lg font-semibold mb-2">
-              Exercise: <MathJaxContent inline={true}>{itemDetails.name}</MathJaxContent>
+              Exercise: <InlineMath text={itemDetails.name} />
             </h3>
             {/* FIX 3: Add whitespace-pre-wrap for line breaks */}
-            <MathJaxContent className="p-4 bg-gray-50 rounded-md border text-base mb-2 whitespace-pre-wrap">
-              {itemDetails.statement || "N/A"}
-            </MathJaxContent>
+            <MathText className="p-4 bg-gray-50 rounded-md border text-base mb-2 whitespace-pre-wrap" text={itemDetails.statement || "N/A"} />
             {showAnswer && (
-              <MathJaxContent className="p-4 bg-green-50 rounded-md border border-green-200 text-base whitespace-pre-wrap">
-                <strong>Solution:</strong> {itemDetails.description || "N/A"}
-              </MathJaxContent>
+              <MathText className="p-4 bg-green-50 rounded-md border border-green-200 text-base whitespace-pre-wrap" text={`Solution: ${itemDetails.description || "N/A"}`} />
             )}
           </div>
         )}

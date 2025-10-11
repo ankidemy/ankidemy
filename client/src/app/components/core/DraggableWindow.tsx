@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Minus, Maximize2 } from 'lucide-react';
 import { Button } from './button';
+import { InlineMath } from './MathJaxWrapper';
 import { cn } from '@/lib/utils';
 
 interface DraggableWindowProps {
@@ -191,6 +192,13 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
     return () => window.removeEventListener('keydown', handleEsc);
   }, [zIndex, onClose]);
 
+  const renderTitle = (node: React.ReactNode, className?: string) => {
+    if (typeof node === 'string' || typeof node === 'number') {
+      return <InlineMath text={String(node)} className={className} />;
+    }
+    return node;
+  };
+
   if (isMinimized) {
     return (
       <div
@@ -207,7 +215,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
         onClick={onMinimize}
       >
         <div className="bg-gray-100 px-3 py-1 flex items-center justify-between">
-          <span className="text-sm font-medium truncate">{title}</span>
+          <span className="text-sm font-medium truncate">
+            {renderTitle(title, 'text-sm font-medium truncate')}
+          </span>
           <Button
             variant="ghost"
             size="icon"
@@ -244,7 +254,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
         className="bg-gradient-to-r from-gray-100 to-gray-50 px-4 py-2 flex items-center justify-between cursor-move select-none"
         onMouseDown={handleMouseDown}
       >
-        <h3 className="text-sm font-semibold text-gray-700 truncate flex-1">{title}</h3>
+        <h3 className="text-sm font-semibold text-gray-700 truncate flex-1">
+          {renderTitle(title, 'truncate')}
+        </h3>
         <div className="window-controls flex items-center gap-1 ml-2">
           {onMinimize && (
             <Button

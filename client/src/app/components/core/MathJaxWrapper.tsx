@@ -135,30 +135,4 @@ export const sanitizeLatex = (text: string): string => {
   return text.replace(/\\(include|input|write|openout|closeout|loop|repeat|csname|endcsname)/g, '\\textbackslash$1');
 };
 
-// ---- Backwards-compat wrapper: MathJaxContent (accepts children) ----
-export interface MathJaxContentProps {
-  children: ReactNode;
-  className?: string;
-  inline?: boolean;
-  errorFallback?: ReactNode;
-}
-
-export const MathJaxContent: React.FC<MathJaxContentProps> = memo(({ children, className = '', inline = false, errorFallback }) => {
-  const normalized =
-    typeof children === 'string' || typeof children === 'number'
-      ? String(children)
-      : Array.isArray(children)
-        ? children.filter((c) => typeof c === 'string' || typeof c === 'number').join(' ')
-        : '';
-
-  return (
-    <MathText
-      text={normalized}
-      inline={inline}
-      className={className}
-      errorFallback={errorFallback ?? <span className="text-red-500">Error rendering LaTeX</span>}
-    />
-  );
-});
-MathJaxContent.displayName = 'MathJaxContent';
-
+// (Deprecated wrapper MathJaxContent removed. Use MathText/InlineMath/BlockMath.)

@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
-import { MathText } from '@/app/components/core/MathJaxWrapper';
+import { MathText, InlineMath } from '@/app/components/core/MathJaxWrapper';
 import { Exercise, AnswerFeedback } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
@@ -184,7 +184,9 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
                 className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
                 title={`Navigate to ${prereqCode}`}
               >
-                {getPrerequisiteDisplayText(prereqCode)}
+                <span className="truncate max-w-[220px] inline-block align-middle">
+                  <InlineMath text={getPrerequisiteDisplayText(prereqCode)} />
+                </span>
               </Button>
             ))}
           </div>

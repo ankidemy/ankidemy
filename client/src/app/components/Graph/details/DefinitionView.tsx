@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
-import { MathText } from '@/app/components/core/MathJaxWrapper';
+import { MathText, InlineMath } from '@/app/components/core/MathJaxWrapper';
 import { Definition } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
@@ -115,7 +115,13 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
                 title={`Navigate to ${prereqCode}`}
               >
-                {getPrerequisiteDisplayText(prereqCode)}
+                {/* Render LaTeX inside button label */}
+                <span className="truncate max-w-[220px] inline-block align-middle">
+                  {/* Using InlineMath to typeset within a button */}
+                  {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
+                  {/* @ts-ignore - InlineMath provided by MathJaxWrapper */}
+                  <InlineMath text={getPrerequisiteDisplayText(prereqCode)} />
+                </span>
               </Button>
             ))}
           </div>

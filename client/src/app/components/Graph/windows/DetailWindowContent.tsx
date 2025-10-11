@@ -15,7 +15,7 @@ import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/s
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory } from '@/lib/srs-api';
-import { MathJaxContent } from '@/app/components/core/MathJaxWrapper';
+import { InlineMath } from '@/app/components/core/MathJaxWrapper';
 import { 
   getDefinitionByCode, 
   getExerciseByCode, 
@@ -424,9 +424,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           </Button>
         )}
         <h3 className="flex-1 font-semibold text-base truncate">
-          <MathJaxContent inline={true}>
-            {currentNode.id}: {currentNode.name}
-          </MathJaxContent>
+          <InlineMath text={`${currentNode.id}: ${currentNode.name}`} />
         </h3>
         <Button
           variant="ghost"
