@@ -86,10 +86,10 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 	}
 
 	graph := s.creditService.BuildGraph(prerequisites)
-	credits := s.creditService.PropagateCredit(request.NodeID, request.NodeType, request.Success, graph)
+    credits := s.creditService.PropagateCredit(request.NodeID, request.NodeType, request.Success, graph)
 
 	// Apply credits to all affected nodes
-	updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, time.Now())
+    updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, time.Now())
 	if err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to apply credits: %w", err)
@@ -132,7 +132,25 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
     srsDao := dao.NewSRSDao(tx)
     var warnings []string
 
-    for _, credit := range credits {
+    // Deduplicate credits per node for this single review to ensure only one
+    // contribution per node. Prefer explicit over implicit; for implicit duplicates,
+    // keep the one with the larger absolute credit.
+    dedup := make(map[string]models.CreditUpdate)
+    order := make([]string, 0, len(credits))
+    for _, cr := range credits {
+        key := fmt.Sprintf("%s_%d", cr.NodeType, cr.NodeID)
+        if existing, ok := dedup[key]; ok {
+            if cr.Type == "explicit" || (existing.Type != "explicit" && math.Abs(cr.Credit) > math.Abs(existing.Credit)) {
+                dedup[key] = cr
+            }
+            continue
+        }
+        dedup[key] = cr
+        order = append(order, key)
+    }
+
+    for _, key := range order {
+        credit := dedup[key]
         // Get or create progress
         progress, err := srsDao.GetUserProgress(userID, credit.NodeID, credit.NodeType)
         if err != nil {
@@ -190,6 +208,13 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
 
         } else {
             // Implicit review - handle credit accumulation with enhanced bounds checking
+            // Reset implicit credits if more than 12 hours have passed since last update.
+            // This prevents long-term farming while avoiding calendar/day-boundary pitfalls.
+            if progress.UpdatedAt.Before(currentTime.Add(-12 * time.Hour)) {
+                progress.AccumulatedCredit = 0
+                progress.CreditPostponed = false
+            }
+
             originalCredit := progress.AccumulatedCredit
             newCredit := progress.AccumulatedCredit + credit.Credit
             creditPostponed := progress.CreditPostponed

@@ -1,13 +1,13 @@
 package services
 
 import (
-	"fmt"
-	"math"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-	"myapp/server/models"
+    "fmt"
+    "math"
+    "sort"
+    "strconv"
+    "strings"
+    "time"
+    "myapp/server/models"
 )
 
 // SpacedRepetitionService implements the SM-2 algorithm
@@ -116,108 +116,151 @@ const (
 
 // PropagateCredit calculates credit flow from an explicit review
 func (c *CreditPropagationService) PropagateCredit(
-	reviewedNodeID uint,
-	reviewedNodeType string,
-	success bool,
-	graph map[string]*GraphNode,
+    reviewedNodeID uint,
+    reviewedNodeType string,
+    success bool,
+    graph map[string]*GraphNode,
 ) []models.CreditUpdate {
-	credits := []models.CreditUpdate{}
-	visited := make(map[string]bool)
+    credits := []models.CreditUpdate{}
 
-	// Always include the explicitly reviewed node
-	credits = append(credits, models.CreditUpdate{
-		NodeID:   reviewedNodeID,
-		NodeType: reviewedNodeType,
-		Credit:   1.0,
-		Type:     "explicit",
-	})
+    // Always include the explicitly reviewed node
+    credits = append(credits, models.CreditUpdate{
+        NodeID:   reviewedNodeID,
+        NodeType: reviewedNodeType,
+        Credit:   1.0,
+        Type:     "explicit",
+    })
 
-	nodeKey := c.getNodeKey(reviewedNodeID, reviewedNodeType)
-	startNode, exists := graph[nodeKey]
-	if !exists {
-		return credits
-	}
+    nodeKey := c.getNodeKey(reviewedNodeID, reviewedNodeType)
+    startNode, exists := graph[nodeKey]
+    if !exists {
+        return credits
+    }
 
-	// Determine direction of propagation
-	var connections []GraphEdge
-	if success {
-		connections = startNode.Prerequisites
-	} else {
-		connections = startNode.Dependents
-	}
+    // Perform BFS-based propagation for implicit credits
+    implicit := c.bfsPropagate(startNode, success, graph)
+    // Append implicit credits after the explicit one
+    credits = append(credits, implicit...)
 
-	// Start DFS propagation
-	for _, conn := range connections {
-		c.dfsPropagate(conn.ID, conn.Type, 1, conn.Weight, success, graph, visited, &credits)
-	}
-
-	return credits
+    return credits
 }
 
-// dfsPropagate performs depth-first search for credit propagation
-func (c *CreditPropagationService) dfsPropagate(
-	nodeID uint,
-	nodeType string,
-	distance int,
-	pathWeight float64,
-	success bool,
-	graph map[string]*GraphNode,
-	visited map[string]bool,
-	credits *[]models.CreditUpdate,
-) {
-	if distance > MaxDistance {
-		return
-	}
+// bfsPropagate performs breadth-first propagation of implicit credits.
+// It guarantees that nodes at shorter distances are processed first and
+// aggregates contributions from multiple shortest paths at the same distance.
+func (c *CreditPropagationService) bfsPropagate(
+    start *GraphNode,
+    success bool,
+    graph map[string]*GraphNode,
+) []models.CreditUpdate {
+    type entry struct {
+        id         uint
+        t          string
+        distance   int
+        pathWeight float64
+    }
 
-	nodeKey := c.getNodeKey(nodeID, nodeType)
-	if visited[nodeKey] {
-		return
-	}
-	visited[nodeKey] = true
+    // Helper to get next edges based on direction
+    nextEdges := func(n *GraphNode) []GraphEdge {
+        if success {
+            return n.Prerequisites
+        }
+        return n.Dependents
+    }
 
-	node, exists := graph[nodeKey]
-	if !exists {
-		return
-	}
+    // Track best (shortest) distance discovered per node
+    bestDist := make(map[string]int)
+    // Track single contributing path weight for a node at the best distance.
+    // To avoid multi-parent amplification, we keep only one contribution per node.
+    bestWeight := make(map[string]float64)
+    // Maintain discovery order to output credits in BFS order
+    discovery := make([]string, 0, 64)
 
-	// Calculate credit amount
-	creditAmount := pathWeight / (1 + float64(distance))
+    // Prevent the explicitly reviewed start node from receiving implicit credit
+    // via cycles by pre-marking it as seen at distance 0.
+    startKey := c.getNodeKey(start.ID, start.Type)
+    bestDist[startKey] = 0
+    bestWeight[startKey] = 0
 
-	// Apply threshold check
-	if math.Abs(creditAmount) >= CreditThreshold {
-		finalCredit := creditAmount
-		if !success {
-			finalCredit = -creditAmount
-		}
+    // Initialize queue with immediate neighbors
+    q := make([]entry, 0, 64)
+    for _, e := range nextEdges(start) {
+        // Start with d=2 for immediate neighbors so that
+        // amount = 1/d yields 1/2 for distance-1 = 1.
+        // This avoids any chance of giving full (1.0) credit to neighbors.
+        q = append(q, entry{id: e.ID, t: e.Type, distance: 2, pathWeight: e.Weight})
+    }
 
-		*credits = append(*credits, models.CreditUpdate{
-			NodeID:   nodeID,
-			NodeType: nodeType,
-			Credit:   finalCredit,
-			Type:     "implicit",
-		})
-	}
+    for len(q) > 0 {
+        cur := q[0]
+        q = q[1:]
 
-	// Continue propagation
-	var connections []GraphEdge
-	if success {
-		connections = node.Prerequisites
-	} else {
-		connections = node.Dependents
-	}
+        // Maintain MaxDistance as a cap on graph distance.
+        // Our 'distance' here is actually (graphDistance + 1), i.e., the denominator d.
+        // So we compare (cur.distance - 1) to MaxDistance.
+        if cur.distance-1 > MaxDistance {
+            continue
+        }
 
-	for _, conn := range connections {
-		c.dfsPropagate(
-			conn.ID,
-			conn.Type,
-			distance+1,
-			pathWeight*conn.Weight,
-			success,
-			graph,
-			visited,
-			credits,
-		)
-	}
+        key := c.getNodeKey(cur.id, cur.t)
+        // First time discovered: set distance, initialize weight, and enqueue neighbors
+        d, seen := bestDist[key]
+        if !seen {
+            bestDist[key] = cur.distance
+            bestWeight[key] = cur.pathWeight
+            discovery = append(discovery, key)
+
+            // Enqueue neighbors for further expansion
+            if node, ok := graph[key]; ok {
+                for _, e := range nextEdges(node) {
+                    q = append(q, entry{
+                        id:         e.ID,
+                        t:          e.Type,
+                        distance:   cur.distance + 1, // increment denominator d by 1 per hop
+                        pathWeight: cur.pathWeight * e.Weight,
+                    })
+                }
+            }
+            continue
+        }
+
+        // If we encounter another shortest path of equal distance, keep only a single
+        // contribution. Choose the path with the larger absolute weight to avoid
+        // under-crediting strongly connected paths while preventing accumulation.
+        if cur.distance == d {
+            if math.Abs(cur.pathWeight) > math.Abs(bestWeight[key]) {
+                bestWeight[key] = cur.pathWeight
+            }
+            continue
+        }
+
+        // If the path is longer than the best known, ignore (BFS ensures this mostly)
+    }
+
+    // Build implicit credit updates in BFS discovery order
+    credits := make([]models.CreditUpdate, 0, len(discovery))
+    for _, key := range discovery {
+        id, t := c.parseNodeKey(key)
+        distance := bestDist[key]
+        weight := bestWeight[key]
+
+        // distance here is the denominator d = (graph distance + 1).
+        amount := weight / float64(distance)
+        if math.Abs(amount) < CreditThreshold {
+            continue
+        }
+        if !success {
+            amount = -amount
+        }
+        credits = append(credits, models.CreditUpdate{
+            NodeID:   id,
+            NodeType: t,
+            Credit:   amount,
+            Type:     "implicit",
+        })
+    }
+
+    return credits
 }
 
 // BuildGraph creates a graph representation from prerequisites

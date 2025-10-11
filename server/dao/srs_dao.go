@@ -90,14 +90,20 @@ func (d *SRSDao) DeletePrerequisitesForNode(nodeID uint, nodeType string) error 
 
 // GetUserProgress gets progress for a user on a specific node
 func (d *SRSDao) GetUserProgress(userID uint, nodeID uint, nodeType string) (*models.UserNodeProgress, error) {
-	var progress models.UserNodeProgress
-	result := d.db.Where("user_id = ? AND node_id = ? AND node_type = ?", userID, nodeID, nodeType).First(&progress)
-	
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return nil, nil // No progress found, not an error
-	}
-	
-	return &progress, result.Error
+    var progress models.UserNodeProgress
+    // Use Find + RowsAffected to avoid ErrRecordNotFound logs at INFO level
+    tx := d.db.Where("user_id = ? AND node_id = ? AND node_type = ?", userID, nodeID, nodeType).
+        Limit(1).
+        Find(&progress)
+
+    if tx.Error != nil {
+        return nil, tx.Error
+    }
+    if tx.RowsAffected == 0 {
+        return nil, nil // No progress found, not an error
+    }
+
+    return &progress, nil
 }
 
 // CreateOrUpdateProgress creates or updates user progress
