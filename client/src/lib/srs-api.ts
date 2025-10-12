@@ -21,10 +21,23 @@ import { getVisualGraph } from './api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
+// Centralized auth redirect helper (duplicated to keep file standalone)
+const redirectToLogin = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.replace(`/login?next=${next}`);
+    }
+  } catch {}
+};
+
 // Helper function to get auth headers
-const getAuthHeaders = () => {
+const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('token');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
 };
 
 const handleSRSResponse = async (response: Response) => {
@@ -54,9 +67,16 @@ const handleSRSResponse = async (response: Response) => {
       }
     }
 
-    // Only log as error if it's not a credit limitation
-    if (!errorMessage.includes('credit limit') && !errorMessage.includes('Credit limit')) {
-      console.error(`SRS API Error: ${errorMessage}`, { status: response.status, url: response.url });
+    // Auth handling
+    if (response.status === 401) {
+      try { localStorage.removeItem('token'); } catch {}
+      Promise.resolve().then(redirectToLogin);
+      console.warn('Auth expired or missing (SRS); redirecting to login', { url: response.url });
+    } else {
+      // Only log as error if it's not a credit limitation
+      if (!errorMessage.includes('credit limit') && !errorMessage.includes('Credit limit')) {
+        console.error(`SRS API Error: ${errorMessage}`, { status: response.status, url: response.url });
+      }
     }
     
     throw new Error(errorMessage);

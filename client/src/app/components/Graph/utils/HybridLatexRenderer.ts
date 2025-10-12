@@ -246,12 +246,12 @@ export class LabelRenderer {
   private pruneCache(): void {
     if (this.cache.size > this.maxCacheSize) {
       // Simple strategy: delete the first (oldest) entry.
-      const oldestKey = this.cache.keys().next().value;
+      const oldestKey = this.cache.keys().next().value as string;
       const oldestEntry = this.cache.get(oldestKey);
       if (oldestEntry) {
         this.revokeObjectURL(oldestEntry);
       }
-      this.cache.delete(oldestKey);
+      this.cache.delete(oldestKey as string);
     }
   }
 

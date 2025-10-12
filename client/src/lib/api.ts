@@ -3,6 +3,17 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
+// Centralized auth redirect helper
+const redirectToLogin = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.replace(`/login?next=${next}`);
+    }
+  } catch {}
+};
+
 // Types
 export interface AuthResponse {
   token: string;
@@ -217,9 +228,11 @@ export interface CreateDomainWithImportRequest {
 }
 
 // Helper functions
-const getAuthHeaders = () => {
+const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('token');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
 };
 
 // Enhance the handleResponse function to better handle API responses
@@ -241,6 +254,11 @@ const handleResponse = async (response: Response) => {
         break;
       case 401:
         errorMessage = 'Authentication required. Please log in again.';
+        try { localStorage.removeItem('token'); } catch {}
+        // Redirect to login after current microtask
+        Promise.resolve().then(redirectToLogin);
+        // Downgrade to warn to avoid noisy console errors for expected expiry
+        console.warn('Auth expired or missing; redirecting to login', { url: response.url });
         break;
       case 403:
         errorMessage = 'You do not have permission to perform this action.';
@@ -253,7 +271,9 @@ const handleResponse = async (response: Response) => {
         break;
     }
     
-    console.error(`API Error: ${errorMessage}`, { status: response.status, url: response.url });
+    if (response.status !== 401) {
+      console.error(`API Error: ${errorMessage}`, { status: response.status, url: response.url });
+    }
     throw new Error(errorMessage);
   }
 
@@ -367,6 +387,8 @@ export const updateCurrentUser = async (userData: {
   username?: string;
   email?: string;
   password?: string;
+  // Some endpoints may require the current password when changing password
+  currentPassword?: string;
   firstName?: string;
   lastName?: string;
 }): Promise<User> => {

@@ -26,7 +26,7 @@ interface UIState {
 
 // Action types
 type UIAction =
-  | { type: 'OPEN_WINDOW'; payload: Omit<WindowState, 'zIndex'> }
+  | { type: 'OPEN_WINDOW'; payload: Omit<WindowState, 'zIndex' | 'isMinimized'> }
   | { type: 'CLOSE_WINDOW'; payload: { id: string } }
   | { type: 'FOCUS_WINDOW'; payload: { id: string } }
   | { type: 'UPDATE_WINDOW'; payload: { id: string; updates: Partial<WindowState> } }

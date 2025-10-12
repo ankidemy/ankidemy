@@ -10,7 +10,7 @@ import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
 import NodeEditForm from '../details/NodeEditForm';
 import { useSRS } from '@/contexts/SRSContext';
-import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem, Quality } from '@/types/srs';
+import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory } from '@/lib/srs-api';
@@ -167,10 +167,12 @@ const RightPanel: React.FC<RightPanelProps> = ({
   availableDefinitions,
 }) => {
   const srs = useSRS();
-  const nodeProgress = selectedNode && selectedNodeDetails ? srs.getNodeProgress(selectedNodeDetails.id, selectedNode.type) : null;
+  const nodeProgress = selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number'
+    ? srs.getNodeProgress(selectedNodeDetails.id, selectedNode.type)
+    : null;
 
   const handleStatusSelection = useCallback(async (status: NodeStatus) => {
-    if (selectedNode && selectedNodeDetails) {
+    if (selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number') {
       await onStatusChange(selectedNodeDetails.id.toString(), status);
     }
   }, [selectedNode, selectedNodeDetails, onStatusChange]);
@@ -215,7 +217,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 text-sm">
-        {!selectedNodeDetails && !isEditMode ? (
+        {!selectedNodeDetails ? (
           <div className="text-center py-5 text-gray-500">Loading details...</div>
         ) : isEditMode ? (
           <NodeEditForm

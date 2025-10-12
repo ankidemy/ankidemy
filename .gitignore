@@ -6,3 +6,9 @@ server/sample.json
 
 *.gocache/
 *localcache/
+
+
+*gocache*
+*gopath*
+*build.out
+*build.raw

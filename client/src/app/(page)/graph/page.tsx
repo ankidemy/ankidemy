@@ -1,7 +1,7 @@
 // src/app/(page)/graph/page.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MathJaxContext } from 'better-react-mathjax';
 import GraphLayout from '@/app/components/Layout/GraphLayout';
@@ -26,7 +26,7 @@ const config = {
   }
 };
 
-export default function GraphPage() {
+function GraphPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -204,5 +204,15 @@ export default function GraphPage() {
         </div>
       </GraphLayout>
     </MathJaxContext>
+  );
+}
+
+export default function GraphPage() {
+  return (
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center">
+      <p className="text-xl text-gray-500">Loading graph...</p>
+    </div>}>
+      <GraphPageContent />
+    </Suspense>
   );
 }

@@ -33,7 +33,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({
         <span style={{ color }} className="mr-1 text-lg">
           {icon}
         </span>
-        {isDue && <Clock size={14} className="text-orange-500" title="Due for review" />}
+        {isDue && <Clock size={14} className="text-orange-500" aria-label="Due for review" />}
       </div>
     );
   }

@@ -4,7 +4,8 @@ import { NodeProgress, NodeStatus } from "@/types/srs"; // Import SRS types
 
 // Main types for API objects
 export interface Definition {
-  id: number;
+  // Numeric database id may be absent in export payloads; treat as optional
+  id?: number;
   code: string;
   name: string;
   description: string | string[];
@@ -19,14 +20,20 @@ export interface Definition {
 }
 
 export interface Exercise {
-  id: number;
+  // Numeric database id may be absent in export payloads; treat as optional
+  id?: number;
   code: string;
   name: string;
-  difficulty: number;
+  // Difficulty is sometimes omitted in export payloads
+  difficulty?: number;
   statement: string;
-  description: string;
+  // Some payloads omit description for exercises
+  description?: string;
+  // Optional metadata fields sometimes present in payloads
+  notes?: string;
   hints?: string;
-  verifiable: boolean;
+  // Backend may omit verifiable flag in exports
+  verifiable?: boolean;
   result?: string;
   prerequisites?: string[]; // codes of prerequisite definitions
   prerequisiteWeights?: Record<string, number>; // FIXED: weights for each prerequisite
@@ -42,6 +49,7 @@ export interface GraphNode {
   type: 'definition' | 'exercise';
   isRootDefinition?: boolean;
   difficulty?: number; // For exercises
+  color?: string;
   x?: number;
   y?: number;
   vx?: number;

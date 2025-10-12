@@ -204,7 +204,7 @@ const TopControls: React.FC<TopControlsProps> = ({
       {/* Left: Logo link + Domain Selector */}
       <div className="flex items-center flex-shrink-0 mr-4 space-x-3">
         <Link href="/main" className="text-orange-500 hover:text-orange-600 font-bold text-xl leading-none">
-          ankidemy
+          Ankidemy
         </Link>
 
         <DomainSelector currentDomainName={subjectMatterId} />

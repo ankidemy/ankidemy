@@ -1,5 +1,7 @@
 // src/types/srs.ts
 // SRS-specific types for the enhanced application
+// Reference UI graph types for consistency across the app
+import type { Definition, Exercise } from "../app/components/Graph/utils/types";
 
 export type NodeStatus = 'fresh' | 'tackling' | 'grasped' | 'learned';
 export type ReviewQuality = 0 | 1 | 2 | 3 | 4 | 5;
@@ -23,6 +25,9 @@ export interface NodeProgress {
   successfulReviews: number;
   createdAt: string;
   updatedAt: string;
+  // Derived fields used in UI — optional
+  isDue?: boolean;
+  daysUntilReview?: number | null;
 }
 
 // Prerequisites relationship
@@ -92,7 +97,6 @@ export interface DomainStats {
 // Enhanced definition with SRS data
 export interface DefinitionWithSRS extends Definition {
   progress?: NodeProgress;
-  prerequisites?: number[];
   dependents?: number[];
   isDue: boolean;
   daysUntilReview?: number;
@@ -101,7 +105,6 @@ export interface DefinitionWithSRS extends Definition {
 // Enhanced exercise with SRS data
 export interface ExerciseWithSRS extends Exercise {
   progress?: NodeProgress;
-  prerequisites?: number[];
   dependents?: number[];
   isDue: boolean;
   daysUntilReview?: number;

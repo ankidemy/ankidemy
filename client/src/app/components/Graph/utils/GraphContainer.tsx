@@ -144,7 +144,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     return `${scope}|${id}|${text}`;
   };
 
-  const nodeCanvasObject = useCallback((node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+  const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
@@ -298,7 +298,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   }, [selectedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh]);
 
   // Memoized link color calculation
-  const getLinkColor = useCallback((link: GraphLink) => {
+  const getLinkColor = useCallback((link: any) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
@@ -338,7 +338,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   }, [graphNodes, highlightLinks, highlightNodes]);
 
   // Memoized link width calculation
-  const getLinkWidth = useCallback((link: GraphLink) => {
+  const getLinkWidth = useCallback((link: any) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
@@ -575,9 +575,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         linkDirectionalParticleSpeed={0.008}
         
         // Event handlers
-        onNodeClick={onNodeClick}
-        onNodeHover={onNodeHover}
-        onNodeDragEnd={onNodeDragEnd}
+        onNodeClick={(node) => onNodeClick(node as any)}
+        onNodeHover={(node) => onNodeHover(node as any)}
+        onNodeDragEnd={(node) => onNodeDragEnd(node as any)}
         onEngineStop={handleEngineStop}
         
         // Physics simulation parameters
@@ -590,7 +590,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         
         // Node display settings
         nodeRelSize={1.2}
-        nodeVisibility={(node: GraphNode) => 
+        nodeVisibility={(node: any) => 
           filteredNodeType === 'all' || 
           node.type === filteredNodeType || 
           selectedNodeId === node.id || 
@@ -599,7 +599,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         
         // Interaction settings
         enableNodeDrag={true}
-        enableZoomPanInteraction={true}
+        enableZoomInteraction={true}
+        enablePanInteraction={true}
         enablePointerInteraction={true}
         
         // Performance settings

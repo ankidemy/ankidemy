@@ -6,10 +6,12 @@ import { useRouter } from 'next/navigation';
 import { logout, User } from '@/lib/api';
 
 interface NavbarProps {
-  currentUser?: User | null; 
+  currentUser?: User | null;
+  onMenuClick?: () => void; // Optional: let parent open a sidebar
+  extraMenuItems?: { href: string; label: string }[]; // Extra dropdown links (e.g., Archived Domains)
 }
 
-const Navbar: React.FC<NavbarProps> = ({ currentUser }) => {
+const Navbar: React.FC<NavbarProps> = ({ currentUser, onMenuClick, extraMenuItems = [] }) => {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -67,7 +69,13 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser }) => {
           {/* User Menu */}
           <div className="relative" ref={menuRef}>
             <button
-              onClick={() => setShowMenu(!showMenu)}
+              onClick={() => {
+                if (onMenuClick) {
+                  onMenuClick();
+                } else {
+                  setShowMenu(!showMenu);
+                }
+              }}
               className="relative group"
               aria-label="Abrir menú"
             >
@@ -90,6 +98,17 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser }) => {
                   )}
                   
                   <ul className="py-2 text-sm text-gray-800">
+                    {extraMenuItems.map(item => (
+                      <li key={item.href}>
+                        <Link 
+                          href={item.href}
+                          className="block px-4 py-2 hover:bg-orange-50 hover:text-orange-600 transition-colors rounded-md mx-2"
+                          onClick={() => setShowMenu(false)}
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    ))}
                     <li>
                       <Link 
                         href="/profile"

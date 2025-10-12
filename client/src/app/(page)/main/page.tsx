@@ -9,7 +9,6 @@ import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical } from 'l
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
-import Sidebar from "@/app/components/Sidebar";
 import DomainForm from "@/app/components/Domain/DomainForm";
 import { showToast } from '@/app/components/core/ToastNotification';
 
@@ -267,13 +266,20 @@ export default function MainPage() {
     router.push(`/main/domains/${domain.id}/study`);
   };
 
-  const openSidebar = () => setSidebarOpen(true);
+  // No sidebar on Main page anymore; use Navbar dropdown menu
+  const openSidebar = () => setSidebarOpen(false);
   const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div>
-      <Navbar onMenuClick={openSidebar} />
-      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+      {/* Use Navbar's built-in hamburger dropdown (no slide-over sidebar) */}
+      <Navbar 
+        // Do not pass onMenuClick so the Navbar shows its dropdown
+        // Provide extra menu items we previously had in the right panel
+        extraMenuItems={[
+          { href: '/main/domains/archived', label: 'Archived Domains' },
+        ]}
+      />
       
       <div className="min-h-screen bg-white w-full mt-16">
         {/* Use consistent padding like dashboard */}

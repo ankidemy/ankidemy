@@ -118,8 +118,8 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
     const definitions = selectedNodes.filter(node => node.type === 'definition').length;
     const exercises = selectedNodes.filter(node => node.type === 'exercise').length;
     const due = selectedNodes.filter(node => {
-      const progress = srs.getNodeProgress(node.id, node.type);
-      return progress?.isDue;
+      const progress = (node as any).progress || null;
+      return !!progress?.isDue;
     }).length;
     
     return { total: selectedNodes.length, definitions, exercises, due };
@@ -129,7 +129,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
   const renderNodeItem = useCallback((node: GraphNode) => {
     const isActive = activeNodeIds.has(node.id);
     const isSelected = selectedNodeIds.has(node.id);
-    const nodeProgress = srs.getNodeProgress(node.id, node.type);
+    const nodeProgress = (node as any).progress || null;
     
     // Enhanced styling based on state
     let itemClasses = "px-3 py-2 text-sm rounded-lg cursor-pointer border-2 transition-all duration-200 relative ";
@@ -234,8 +234,8 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
           
           {/* Visual indicators for active/selected state */}
           {isActive && (
-            <div className="flex-shrink-0">
-              <Eye size={14} className="text-blue-500" title="Detail window open" />
+            <div className="flex-shrink-0" aria-label="Detail window open">
+              <Eye size={14} className="text-blue-500" />
             </div>
           )}
         </div>

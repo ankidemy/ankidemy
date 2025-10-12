@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/app/components/core/card";
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import * as api from '@/lib/api';
 import { useRouter } from 'next/navigation';
+
+const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export default function ProfilePage() {
   const [currentUser, setCurrentUser] = useState<api.User | null>(null);
@@ -47,7 +49,7 @@ export default function ProfilePage() {
         setLoading(false);
       } catch (err) {
         console.error('Error fetching user:', err);
-        setError(`Failed to fetch user: ${err.message}`);
+        setError(`Failed to fetch user: ${errMsg(err)}`);
         setLoading(false);
         // Redirect to login if not authenticated
         router.push('/login');
@@ -57,12 +59,12 @@ export default function ProfilePage() {
     fetchCurrentUser();
   }, [router]);
 
-  const handleInputChange = (e) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleProfileUpdate = async (e) => {
+  const handleProfileUpdate = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setActionStatus('Updating profile...');
     
@@ -80,11 +82,11 @@ export default function ProfilePage() {
       setActionStatus('Profile updated successfully');
     } catch (err) {
       console.error('Error updating profile:', err);
-      setActionStatus(`Failed to update profile: ${err.message}`);
+      setActionStatus(`Failed to update profile: ${errMsg(err)}`);
     }
   };
 
-  const handlePasswordChange = async (e) => {
+  const handlePasswordChange = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     // Validate passwords
@@ -123,7 +125,7 @@ export default function ProfilePage() {
       }));
     } catch (err) {
       console.error('Error changing password:', err);
-      setActionStatus(`Failed to change password: ${err.message}`);
+      setActionStatus(`Failed to change password: ${errMsg(err)}`);
     }
   };
 
@@ -207,41 +209,54 @@ export default function ProfilePage() {
         {/* Edit profile form */}
         <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Profile Information</CardTitle>
-            <CardDescription>Your account details</CardDescription>
+            <CardTitle>Edit Profile</CardTitle>
+            <CardDescription>Update your basic account details</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <form onSubmit={handleProfileUpdate} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Username</label>
-                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
-                    {currentUser?.username || 'N/A'}
-                  </div>
+                  <Input
+                    name="username"
+                    value={formData.username}
+                    onChange={handleInputChange}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
-                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
-                    {currentUser?.email || 'N/A'}
-                  </div>
+                  <Input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    required
+                  />
                 </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">First Name</label>
-                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
-                    {currentUser?.firstName || 'N/A'}
-                  </div>
+                  <Input
+                    name="firstName"
+                    value={formData.firstName}
+                    onChange={handleInputChange}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Last Name</label>
-                  <div className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
-                    {currentUser?.lastName || 'N/A'}
-                  </div>
+                  <Input
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleInputChange}
+                  />
                 </div>
               </div>
-            </div>
+              
+              <Button type="submit" className="mt-2">Save Changes</Button>
+            </form>
           </CardContent>
         </Card>
         

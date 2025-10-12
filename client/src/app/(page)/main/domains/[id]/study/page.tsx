@@ -9,9 +9,9 @@ import { exportDomain, updateGraphPositions, GraphData } from '@/lib/api';
 
 // Add correct typing for params
 interface StudyPageProps {
-  params: {
-    id: string;
-  };
+  // In Next.js 15 with React 19, page `params` can be a Promise
+  // when using Client Components with `use()` to unwrap.
+  params: Promise<{ id: string }>;
 }
 
 export default function StudyPage({ params }: StudyPageProps) {

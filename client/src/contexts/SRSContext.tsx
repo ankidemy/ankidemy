@@ -639,7 +639,8 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Add a check to ensure the item is not the *currently set* currentReview,
         // although session logic usually handles this by removing the item after submission.
         // This provides an extra layer of safety.
-        const isNotCurrent = !state.currentReview || review.id !== state.currentReview.id;
+        const isNotCurrent = !state.currentReview || 
+          !(review.nodeId === state.currentReview.nodeId && review.nodeType === state.currentReview.nodeType);
         // Also check if the item is somehow null/undefined in the array
         const isValidItem = !!review;
         return matchesType && isNotCurrent && isValidItem;

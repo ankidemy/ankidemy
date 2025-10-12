@@ -5,7 +5,6 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/app/components/Navbar';
-import Sidebar from '@/app/components/Sidebar';
 import { Button } from '@/app/components/core/button';
 import { Card } from '@/app/components/core/card';
 import { showToast } from '@/app/components/core/ToastNotification';
@@ -20,7 +19,6 @@ import {
 
 export default function ArchivedDomainsPage() {
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string|null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
@@ -73,13 +71,11 @@ export default function ArchivedDomainsPage() {
     }
   };
 
-  const openSidebar = () => setSidebarOpen(true);
-  const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div>
-      <Navbar onMenuClick={openSidebar} />
-      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+      {/* Reuse Navbar dropdown menu like main/dashboard */}
+      <Navbar extraMenuItems={[{ href: '/main/domains/archived', label: 'Archived Domains' }]} />
 
       <div className="min-h-screen bg-white w-full mt-16">
         <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8">
@@ -127,4 +123,3 @@ export default function ArchivedDomainsPage() {
     </div>
   );
 }
-

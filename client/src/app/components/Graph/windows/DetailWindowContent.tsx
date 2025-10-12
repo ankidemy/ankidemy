@@ -183,7 +183,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       nodeId: numericId,
       nodeType: 'definition',
       success: qualityMap[quality] >= 3,
-      quality: qualityMap[quality],
+      quality: qualityMap[quality] as any,
       timeTaken: 0,
       sessionId: srs.state.currentSession?.id,
     });
@@ -199,7 +199,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       nodeId: numericId,
       nodeType: 'exercise',
       success: qualityMap[quality] >= 3,
-      quality: qualityMap[quality],
+      quality: qualityMap[quality] as any,
       timeTaken: 0,
       sessionId: srs.state.currentSession?.id,
     });
@@ -258,23 +258,32 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [showHistory, numericId, fetchHistory]);
 
+  // Robust domain ownership check (handles type mismatches and missing data)
+  const isDomainOwner = useCallback(() => {
+    const ownerId = domainData?.ownerId;
+    const userId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+    if (ownerId == null || userId == null) {
+      // If we cannot determine yet, don't block UI; server will enforce auth
+      return true;
+    }
+    return Number(ownerId) === Number(userId);
+  }, [domainData?.ownerId, (currentUser as any)?.id]);
+
   // Edit mode toggle
   const toggleEditMode = useCallback(() => {
-    const userOwnsThisDomain = currentUser && domainData && domainData.ownerId === currentUser.ID;
-    if (!userOwnsThisDomain) {
+    if (!isDomainOwner()) {
       showToast('You can only edit nodes in domains you own', 'warning');
       return;
     }
     setIsEditMode(!isEditMode);
-  }, [currentUser, domainData, isEditMode]);
+  }, [isDomainOwner, isEditMode]);
 
   // ENHANCED: Surgical edit submission with fallback
   const handleSubmitEdit = useCallback(async () => {
     if (!nodeDetails) return;
     
-    // Check domain ownership
-    const userOwnsThisDomain = currentUser && domainData && domainData.ownerId === currentUser.ID;
-    if (!userOwnsThisDomain) {
+    // Check domain ownership (client-side hint; server enforces auth)
+    if (!isDomainOwner()) {
       showToast("You don't have permission to edit nodes in this domain.", "error");
       setIsEditMode(false);
       return;
@@ -312,7 +321,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           formDesc = descriptions.join('|||');
         }
         
-        updatedNode = await updateDefinition(defDetails.id, { 
+        updatedNode = await updateDefinition(defDetails.id!, { 
           name: formName, 
           description: formDesc,
           notes: (document.getElementById('notes') as HTMLTextAreaElement)?.value,
@@ -323,7 +332,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         });
       } else { 
         const exDetails = nodeDetails as Exercise;
-        updatedNode = await updateExercise(exDetails.id, {
+        updatedNode = await updateExercise(exDetails.id!, {
           name: formName,
           statement: (document.getElementById('statement') as HTMLTextAreaElement)?.value,
           description: (document.getElementById('description') as HTMLTextAreaElement)?.value,
@@ -447,19 +456,23 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             </p>
           </div>
         ) : isEditMode ? (
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmitEdit(); }}>
-            <NodeEditForm
-              selectedNode={currentNode}
-              selectedNodeDetails={nodeDetails}
-              availableDefinitionsForEdit={availableDefinitions}
-              hasMultipleDescriptions={hasMultipleDescriptions()}
-              currentDescription={currentDescriptionText()}
-              totalDescriptions={totalDescriptionsCount()}
-              selectedDefinitionIndex={selectedDefinitionIndex}
-              onCancel={() => setIsEditMode(false)}
-              onSubmit={handleSubmitEdit}
-            />
-          </form>
+          nodeDetails ? (
+            <form onSubmit={(e) => { e.preventDefault(); handleSubmitEdit(); }}>
+              <NodeEditForm
+                selectedNode={currentNode}
+                selectedNodeDetails={nodeDetails}
+                availableDefinitionsForEdit={availableDefinitions}
+                hasMultipleDescriptions={hasMultipleDescriptions()}
+                currentDescription={currentDescriptionText()}
+                totalDescriptions={totalDescriptionsCount()}
+                selectedDefinitionIndex={selectedDefinitionIndex}
+                onCancel={() => setIsEditMode(false)}
+                onSubmit={handleSubmitEdit}
+              />
+            </form>
+          ) : (
+            <div className="text-center py-5 text-gray-500">Loading details...</div>
+          )
         ) : (
           <Tabs defaultValue="details" className="w-full">
             <TabsList className="grid w-full grid-cols-2 h-9">

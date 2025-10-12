@@ -280,7 +280,7 @@ const useGraphMetadata = (
       nodeMetadata.set(nodeId, {
         name: fullNodeData?.name ?? nodeId,
         isRootDefinition: isDefinition ? isRoot : undefined,
-        difficulty: !isDefinition ? (fullNodeData?.difficulty as number | undefined) : undefined,
+        difficulty: !isDefinition ? ((fullNodeData as ApiExercise | undefined)?.difficulty) : undefined,
         status: (progress?.status as NodeStatus) || 'fresh',
         isDue: progress ? isNodeDue(progress.nextReview) : false,
         daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
@@ -697,7 +697,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setDomainData(domain);
       setDomainName(domain.name);
 
-      const userOwnsThisDomain = domain.ownerId === user.ID;
+      const userOwnsThisDomain = domain.ownerId === user.id;
 
       if (userOwnsThisDomain) {
         setIsEnrolled(true);
@@ -1173,11 +1173,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           positionsChanged={positionsChanged}
           isSavingPositions={isSavingPositions}
           onSavePositions={savePositions}
-          isEnrolled={isEnrolled}
+          
           onEnroll={() => setShowEnrollmentModal(true)}
           currentDomainId={parseInt(subjectMatterId, 10)}
           currentDomainName={domainName}
-          isOwner={currentUser && domainData && domainData.ownerId === currentUser.ID}
+          isOwner={currentUser && domainData && domainData.ownerId === currentUser.id}
+          isEnrolled={isEnrolled ?? undefined}
           onDataImported={refreshGraphAndSRSData}
         />
 
