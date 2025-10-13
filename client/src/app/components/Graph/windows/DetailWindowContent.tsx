@@ -504,9 +504,49 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             ) : (
               <MetaExerciseEditForm
                 meta={metaDetails as any}
-                onAddVersion={async (v)=>{ if (!metaDetails) return; await addMetaExerciseVersion(metaDetails.id, v as any); const fresh = await getMetaExercise(metaDetails.id); setMetaDetails(fresh); showToast('Version added','success'); }}
-                onUpdateVersion={async (id, v)=>{ if (!metaDetails) return; await updateMetaExerciseVersion(metaDetails.id, id, v as any); const fresh = await getMetaExercise(metaDetails.id); setMetaDetails(fresh); showToast('Version updated','success'); }}
-                onDeleteVersion={async (id)=>{ if (!metaDetails) return; await deleteMetaExerciseVersion(metaDetails.id, id); const fresh = await getMetaExercise(metaDetails.id); setMetaDetails(fresh); showToast('Version deleted','success'); }}
+                onAddVersion={async (v)=>{
+                  if (!metaDetails) return;
+                  await addMetaExerciseVersion(metaDetails.id, v as any);
+                  const fresh = await getMetaExercise(metaDetails.id);
+                  setMetaDetails(fresh);
+                  // Initialize Details with the first version if none selected yet
+                  if (!currentVersion && fresh.versions && fresh.versions.length > 0) {
+                    const ver = fresh.versions[0];
+                    setCurrentVersion(ver);
+                    setNodeDetails({ ...(ver as any), id: ver.id, code: fresh.code, name: fresh.name, type: 'exercise' } as Exercise);
+                  }
+                  showToast('Version added','success');
+                }}
+                onUpdateVersion={async (id, v)=>{
+                  if (!metaDetails) return;
+                  await updateMetaExerciseVersion(metaDetails.id, id, v as any);
+                  const fresh = await getMetaExercise(metaDetails.id);
+                  setMetaDetails(fresh);
+                  if (currentVersion && currentVersion.id === id) {
+                    const updated = (fresh.versions || []).find(x => x.id === id);
+                    if (updated) {
+                      setCurrentVersion(updated);
+                      setNodeDetails({ ...(updated as any), id: updated.id, code: fresh.code, name: fresh.name, type: 'exercise' } as Exercise);
+                    }
+                  }
+                  showToast('Version updated','success');
+                }}
+                onDeleteVersion={async (id)=>{
+                  if (!metaDetails) return;
+                  await deleteMetaExerciseVersion(metaDetails.id, id);
+                  const fresh = await getMetaExercise(metaDetails.id);
+                  setMetaDetails(fresh);
+                  if (currentVersion && currentVersion.id === id) {
+                    const fallback = (fresh.versions || [])[0] || null;
+                    setCurrentVersion(fallback as any);
+                    if (fallback) {
+                      setNodeDetails({ ...(fallback as any), id: fallback.id, code: fresh.code, name: fresh.name, type: 'exercise' } as Exercise);
+                    } else {
+                      setNodeDetails({ id: 0, code: fresh.code, name: fresh.name, statement: '', description: '', notes: '', hints: '', verifiable: false, type: 'exercise' } as any);
+                    }
+                  }
+                  showToast('Version deleted','success');
+                }}
                 onBack={() => setIsEditMode(false)}
               />
             )
@@ -533,9 +573,45 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 {metaDetails ? (
                   <MetaExerciseEditForm
                     meta={metaDetails}
-                    onAddVersion={isDomainOwner() ? async (v)=>{ const fresh = await addMetaExerciseVersion(metaDetails.id, v as any); const m = await getMetaExercise(metaDetails.id); setMetaDetails(m); showToast('Version added','success'); } : undefined}
-                    onUpdateVersion={isDomainOwner() ? async (id, v)=>{ await updateMetaExerciseVersion(metaDetails.id, id, v as any); const m = await getMetaExercise(metaDetails.id); setMetaDetails(m); showToast('Version updated','success'); } : undefined}
-                    onDeleteVersion={isDomainOwner() ? async (id)=>{ await deleteMetaExerciseVersion(metaDetails.id, id); const m = await getMetaExercise(metaDetails.id); setMetaDetails(m); showToast('Version deleted','success'); } : undefined}
+                    onAddVersion={isDomainOwner() ? async (v)=>{
+                      await addMetaExerciseVersion(metaDetails.id, v as any);
+                      const m = await getMetaExercise(metaDetails.id);
+                      setMetaDetails(m);
+                      if (!currentVersion && m.versions && m.versions.length > 0) {
+                        const ver = m.versions[0];
+                        setCurrentVersion(ver);
+                        setNodeDetails({ ...(ver as any), id: ver.id, code: m.code, name: m.name, type: 'exercise' } as Exercise);
+                      }
+                      showToast('Version added','success');
+                    } : undefined}
+                    onUpdateVersion={isDomainOwner() ? async (id, v)=>{
+                      await updateMetaExerciseVersion(metaDetails.id, id, v as any);
+                      const m = await getMetaExercise(metaDetails.id);
+                      setMetaDetails(m);
+                      if (currentVersion && currentVersion.id === id) {
+                        const updated = (m.versions || []).find(x => x.id === id);
+                        if (updated) {
+                          setCurrentVersion(updated);
+                          setNodeDetails({ ...(updated as any), id: updated.id, code: m.code, name: m.name, type: 'exercise' } as Exercise);
+                        }
+                      }
+                      showToast('Version updated','success');
+                    } : undefined}
+                    onDeleteVersion={isDomainOwner() ? async (id)=>{
+                      await deleteMetaExerciseVersion(metaDetails.id, id);
+                      const m = await getMetaExercise(metaDetails.id);
+                      setMetaDetails(m);
+                      if (currentVersion && currentVersion.id === id) {
+                        const fallback = (m.versions || [])[0] || null;
+                        setCurrentVersion(fallback as any);
+                        if (fallback) {
+                          setNodeDetails({ ...(fallback as any), id: fallback.id, code: m.code, name: m.name, type: 'exercise' } as Exercise);
+                        } else {
+                          setNodeDetails({ id: 0, code: m.code, name: m.name, statement: '', description: '', notes: '', hints: '', verifiable: false, type: 'exercise' } as any);
+                        }
+                      }
+                      showToast('Version deleted','success');
+                    } : undefined}
                   />
                 ) : (
                   <div className="text-center py-5 text-gray-500">Loading versions…</div>

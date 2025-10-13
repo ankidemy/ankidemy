@@ -299,6 +299,9 @@ const useGraphMetadata = (
     // Dependencies track metadata changes
     srs.state.domainProgress,
     srs.state.lastUpdated,
+    // IMPORTANT: Recompute when the set of structure nodes changes (e.g., switching to practice mode)
+    // This ensures newly materialized exercise nodes receive proper SRS-driven colors instead of gray fallbacks.
+    (() => Array.from(structureNodes.keys()).sort().join('|'))(),
     // active/selected/highlight removed to avoid hover-triggered reflow
     codeToNumericIdMap,
     // Track name and other metadata changes
