@@ -19,14 +19,42 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
 
   const [draft, setDraft] = useState<Partial<ExerciseVersion>>({});
 
+  // Helper to read current field value (controlled inputs)
+  const val = <K extends keyof ExerciseVersion>(key: K, fallback: any = ''): any => {
+    const d: any = draft as any;
+    if (d[key] !== undefined && d[key] !== null) return d[key];
+    const c: any = cur as any;
+    return (c && c[key] !== undefined && c[key] !== null) ? c[key] : fallback;
+  };
+
   const handleSave = async () => {
     if (!cur || !onUpdateVersion) return;
-    await onUpdateVersion(cur.id, draft);
+    // Send merged payload to avoid server wiping fields on missing JSON keys
+    const payload: Partial<ExerciseVersion> = {
+      statement: val('statement',''),
+      description: val('description',''),
+      hints: val('hints',''),
+      notes: val('notes',''),
+      difficulty: val('difficulty', 3),
+      verifiable: val('verifiable', false),
+      result: val('result',''),
+    } as Partial<ExerciseVersion>;
+    await onUpdateVersion(cur.id, payload);
+    setDraft({});
   };
 
   const handleAdd = async () => {
     if (!onAddVersion || !draft.statement || draft.statement.trim().length === 0) return;
-    await onAddVersion({ statement: draft.statement, description: draft.description, hints: draft.hints, notes: draft.notes, difficulty: draft.difficulty, verifiable: draft.verifiable, result: draft.result });
+    const difficulty = typeof draft.difficulty === 'number' && draft.difficulty >= 1 && draft.difficulty <= 7 ? draft.difficulty : 3;
+    await onAddVersion({
+      statement: draft.statement,
+      description: draft.description,
+      hints: draft.hints,
+      notes: draft.notes,
+      difficulty,
+      verifiable: !!draft.verifiable,
+      result: draft.result,
+    });
     setDraft({});
   };
 
@@ -50,25 +78,69 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
         )}
       </div>
 
-      <div className="p-2 border rounded">
+      <div className="p-2 border rounded" key={cur?.id ?? 'no-version'}>
         <label className="block text-xs font-medium mb-1 text-gray-600">Statement</label>
-        <textarea rows={4} defaultValue={cur?.statement} onChange={(e)=> setDraft(d=> ({...d, statement: e.target.value}))} disabled={!onUpdateVersion} className="w-full border rounded px-2 py-1 text-sm" />
+        <textarea
+          rows={4}
+          value={val('statement','')}
+          onChange={(e)=> setDraft(d=> ({...d, statement: e.target.value}))}
+          disabled={!onUpdateVersion}
+          className="w-full border rounded px-2 py-1 text-sm"
+        />
         <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Solution</label>
-        <textarea rows={4} defaultValue={cur?.description} onChange={(e)=> setDraft(d=> ({...d, description: e.target.value}))} disabled={!onUpdateVersion} className="w-full border rounded px-2 py-1 text-sm" />
+        <textarea
+          rows={4}
+          value={val('description','')}
+          onChange={(e)=> setDraft(d=> ({...d, description: e.target.value}))}
+          disabled={!onUpdateVersion}
+          className="w-full border rounded px-2 py-1 text-sm"
+        />
         <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Hints</label>
-        <textarea rows={3} defaultValue={cur?.hints} onChange={(e)=> setDraft(d=> ({...d, hints: e.target.value}))} disabled={!onUpdateVersion} className="w-full border rounded px-2 py-1 text-sm" />
+        <textarea
+          rows={3}
+          value={val('hints','')}
+          onChange={(e)=> setDraft(d=> ({...d, hints: e.target.value}))}
+          disabled={!onUpdateVersion}
+          className="w-full border rounded px-2 py-1 text-sm"
+        />
         <div className="grid grid-cols-3 gap-2 mt-2">
           <div>
             <label className="block text-xs font-medium mb-1 text-gray-600">Difficulty (1-7)</label>
-            <Input type="number" min={1} max={7} defaultValue={cur?.difficulty ?? 3} onChange={(e)=> setDraft(d=> ({...d, difficulty: parseInt(e.target.value,10)}))} disabled={!onUpdateVersion} />
+            <Input
+              type="number"
+              min={1}
+              max={7}
+              value={val('difficulty',3)}
+              onChange={(e)=> {
+                const n = parseInt(e.target.value,10);
+                const clamped = isNaN(n) ? 3 : Math.max(1, Math.min(7, n));
+                setDraft(d=> ({...d, difficulty: clamped}))
+              }}
+              disabled={!onUpdateVersion}
+            />
           </div>
           <div className="flex items-center mt-5">
-            <input id="verifiable_v" type="checkbox" defaultChecked={!!cur?.verifiable} onChange={(e)=> setDraft(d=> ({...d, verifiable: e.target.checked}))} className="mr-2" disabled={!onUpdateVersion} />
-            <label htmlFor="verifiable_v" className="text-xs text-gray-600">Verifiable</label>
+            {(() => { const chkId = `verifiable_v_${cur?.id ?? 'new'}`; return (
+              <>
+                <input
+                  id={chkId}
+                  type="checkbox"
+                  checked={!!val('verifiable', false)}
+                  onChange={(e)=> setDraft(d=> ({...d, verifiable: e.target.checked}))}
+                  className="mr-2"
+                  disabled={!onUpdateVersion}
+                />
+                <label htmlFor={chkId} className="text-xs text-gray-600">Verifiable</label>
+              </>
+            ); })()}
           </div>
           <div>
             <label className="block text-xs font-medium mb-1 text-gray-600">Expected Result</label>
-            <Input defaultValue={cur?.result || ''} onChange={(e)=> setDraft(d=> ({...d, result: e.target.value}))} disabled={!onUpdateVersion} />
+            <Input
+              value={val('result','')}
+              onChange={(e)=> setDraft(d=> ({...d, result: e.target.value}))}
+              disabled={!onUpdateVersion}
+            />
           </div>
         </div>
 
