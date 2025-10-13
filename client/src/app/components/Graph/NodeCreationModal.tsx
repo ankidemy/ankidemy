@@ -148,7 +148,11 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         });
         // Add extra versions, if any
         for (const v of extraVersions) {
-          await addMetaExerciseVersion((response as any).id, v);
+          const payload = {
+            ...v,
+            difficulty: typeof v.difficulty === 'number' && v.difficulty >= 1 && v.difficulty <= 7 ? v.difficulty : 3,
+          };
+          await addMetaExerciseVersion((response as any).id, payload);
         }
         onSuccess(response.code, response as any);
       }
@@ -203,7 +207,15 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700">Additional Versions</span>
-                <Button type="button" size="sm" variant="outline" onClick={() => setExtraVersions(v => [...v, { statement: '' }])} disabled={isSubmitting}>Add Another Version</Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setExtraVersions(v => [...v, { statement: '', difficulty: 3 }])}
+                  disabled={isSubmitting}
+                >
+                  Add Another Version
+                </Button>
               </div>
               {extraVersions.map((v, idx) => (
                 <div key={`extra-v-${idx}`} className="p-2 border rounded">

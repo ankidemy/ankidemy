@@ -11,7 +11,7 @@ import { useUI } from '@/contexts/UIContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
 import { Eye, Loader2, CheckCircle, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { getDefinition, getExercise } from '@/lib/api';
+import { getDefinition, getExercise, getNextMetaExerciseVersion } from '@/lib/api';
 
 interface ReviewWindowContentProps {
   domainId: number;
@@ -62,7 +62,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
           if (currentReviewItem.nodeType === 'definition') {
             details = await getDefinition(currentReviewItem.nodeId);
           } else {
-            details = await getExercise(currentReviewItem.nodeId);
+            // For exercises, nodeId refers to meta_exercise id. Fetch next version to review.
+            details = await getNextMetaExerciseVersion(currentReviewItem.nodeId);
           }
           setItemDetails(details);
         } catch (error) {
@@ -168,7 +169,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       if (review.nodeType === 'definition') {
         details = await getDefinition(review.nodeId);
       } else {
-        details = await getExercise(review.nodeId);
+        // For exercises, nodeId is a meta_exercise id. Retrieve the selected version.
+        details = await getNextMetaExerciseVersion(review.nodeId);
       }
       setItemDetails(details);
       
@@ -213,6 +215,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       quality: quality,
       timeTaken: timeTaken,
       sessionId: srs.state.currentSession.id,
+      // If we reviewed a meta-exercise, include the concrete version id for analytics
+      versionId: currentReviewItem.nodeType === 'exercise' && itemDetails?.id ? itemDetails.id : undefined,
     };
 
     try {

@@ -163,11 +163,12 @@ func (h *ExerciseHandler) GetExercise(c *gin.Context) {
 	}
 
 	// Check access to the domain
-	domain, err := h.domainDAO.FindByID(exercise.DomainID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve domain information"})
-		return
-	}
+    domain, err := h.domainDAO.FindByID(exercise.DomainID)
+    if err != nil {
+        // Surface a 404 when the domain is missing instead of 500
+        c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+        return
+    }
 
 	// Check if the domain is public or the user is the owner
 	if domain.Privacy != "public" {

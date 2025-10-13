@@ -82,6 +82,8 @@ func (h *MetaExerciseHandler) AddVersion(c *gin.Context) {
     if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid ID"}); return }
     var req models.ExerciseVersionRequest
     if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+    // Validate/clamp difficulty to satisfy DB constraint (1-7)
+    if req.Difficulty < 1 || req.Difficulty > 7 { req.Difficulty = 3 }
     v, err := h.metaDAO.AddVersion(uint(id64), &req)
     if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to add version"}); return }
     c.JSON(http.StatusCreated, v)
@@ -132,4 +134,3 @@ func (h *MetaExerciseHandler) GetNextVersion(c *gin.Context) {
         UpdatedAt: v.UpdatedAt,
     })
 }
-

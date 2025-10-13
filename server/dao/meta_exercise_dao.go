@@ -57,6 +57,11 @@ func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionReq
     // Load meta for mirroring fields
     var meta models.MetaExercise
     if err := d.db.First(&meta, metaID).Error; err != nil { return nil, err }
+    // Ensure difficulty within valid bounds (default to 3 if missing/invalid)
+    diff := req.Difficulty
+    if diff < 1 || diff > 7 {
+        diff = 3
+    }
     ex := &models.Exercise{
         Code: meta.Code,
         Name: meta.Name,
@@ -69,7 +74,7 @@ func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionReq
         MetaExerciseID: meta.ID,
         Verifiable: req.Verifiable,
         Result: req.Result,
-        Difficulty: req.Difficulty,
+        Difficulty: diff,
         XPosition: meta.XPosition,
         YPosition: meta.YPosition,
     }
@@ -183,4 +188,3 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
     }
     return resp, nil
 }
-
