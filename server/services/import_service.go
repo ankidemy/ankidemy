@@ -64,8 +64,9 @@ func (fsa FlexibleStringArray) ToStringSlice() []string {
 
 // ImportData represents the unified structure for import/export operations
 type ImportData struct {
-	Definitions map[string]ImportDefinitionNode `json:"definitions"`
-	Exercises   map[string]ImportExerciseNode   `json:"exercises"`
+    Definitions map[string]ImportDefinitionNode `json:"definitions"`
+    Exercises   map[string]ImportExerciseNode   `json:"exercises"`
+    MetaExercises map[string]ImportMetaExerciseNode `json:"metaExercises,omitempty"`
 }
 
 // ImportDefinitionNode represents a definition in the import/export format
@@ -97,6 +98,28 @@ type ImportExerciseNode struct {
     PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
 	XPosition     float64     `json:"xPosition,omitempty"`
 	YPosition     float64     `json:"yPosition,omitempty"`
+}
+
+// ImportExerciseVersion represents a single version in a meta-exercise
+type ImportExerciseVersion struct {
+    Statement   string `json:"statement"`
+    Description string `json:"description,omitempty"`
+    Hints       string `json:"hints,omitempty"`
+    Verifiable  bool   `json:"verifiable,omitempty"`
+    Result      string `json:"result,omitempty"`
+    Difficulty  int    `json:"difficulty,omitempty"`
+    Notes       string `json:"notes,omitempty"`
+}
+
+// ImportMetaExerciseNode represents a pool of versions sharing code/name
+type ImportMetaExerciseNode struct {
+    Code        string   `json:"code"`
+    Name        string   `json:"name"`
+    Prerequisites []string `json:"prerequisites,omitempty"`
+    PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
+    XPosition   float64  `json:"xPosition,omitempty"`
+    YPosition   float64  `json:"yPosition,omitempty"`
+    Versions    []ImportExerciseVersion `json:"versions"`
 }
 
 // NewImportService creates a new ImportService instance
@@ -185,26 +208,27 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		return nil, fmt.Errorf("failed to fetch definitions: %v", err)
 	}
 
-	// Get exercises
-	var exercises []models.Exercise
-	if err := s.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch exercises: %v", err)
-	}
+    // Get pools (meta_exercises)
+    var metas []models.MetaExercise
+    if err := s.db.Where("domain_id = ?", domainID).Find(&metas).Error; err != nil {
+        return nil, fmt.Errorf("failed to fetch meta exercises: %v", err)
+    }
 
 	// Check domain exists
-	if len(definitions) == 0 && len(exercises) == 0 {
-		var count int64
-		s.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
-		if count == 0 {
-			return nil, errors.New("domain not found")
-		}
-	}
+    if len(definitions) == 0 && len(metas) == 0 {
+        var count int64
+        s.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
+        if count == 0 {
+            return nil, errors.New("domain not found")
+        }
+    }
 
 	// Prepare export data
-	exportData := &ImportData{
-		Definitions: make(map[string]ImportDefinitionNode),
-		Exercises:   make(map[string]ImportExerciseNode),
-	}
+    exportData := &ImportData{
+        Definitions: make(map[string]ImportDefinitionNode),
+        Exercises:   make(map[string]ImportExerciseNode),
+        MetaExercises: make(map[string]ImportMetaExerciseNode),
+    }
 
     // Export definitions (with weights)
     for _, def := range definitions {
@@ -245,31 +269,36 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
         }
     }
 
-    // Export exercises (with weights)
-    for _, ex := range exercises {
-        // Get prerequisite codes and weights
-        prerequisiteCodes, err := s.getPrerequisiteCodes(ex.ID, "exercise")
-        if err != nil {
-            return nil, fmt.Errorf("failed to get prerequisites for exercise %s: %v", ex.Code, err)
+    // Export meta-exercises (with versions and weights)
+    for _, me := range metas {
+        prerequisiteCodes, err := s.getPrerequisiteCodes(me.ID, "meta_exercise")
+        if err != nil { return nil, fmt.Errorf("failed to get prerequisites for meta %s: %v", me.Code, err) }
+        prereqWeights, err := s.getPrerequisiteWeights(me.ID, "meta_exercise")
+        if err != nil { return nil, fmt.Errorf("failed to get prerequisite weights for meta %s: %v", me.Code, err) }
+        var versions []models.Exercise
+        if err := s.db.Where("meta_exercise_id = ?", me.ID).Order("id ASC").Find(&versions).Error; err != nil {
+            return nil, fmt.Errorf("failed to fetch versions for %s: %v", me.Code, err)
         }
-        prereqWeights, err := s.getPrerequisiteWeights(ex.ID, "exercise")
-        if err != nil {
-            return nil, fmt.Errorf("failed to get prerequisite weights for exercise %s: %v", ex.Code, err)
+        vnodes := make([]ImportExerciseVersion, 0, len(versions))
+        for _, v := range versions {
+            vnodes = append(vnodes, ImportExerciseVersion{
+                Statement: v.Statement,
+                Description: v.Description,
+                Hints: v.Hints,
+                Verifiable: v.Verifiable,
+                Result: v.Result,
+                Difficulty: v.Difficulty,
+                Notes: v.Notes,
+            })
         }
-
-        exportData.Exercises[ex.Code] = ImportExerciseNode{
-            Code:          ex.Code,
-            Name:          ex.Name,
-            Statement:     ex.Statement,
-            Description:   ex.Description, // Exercises keep single string description
-            Hints:         ex.Hints,
-            Difficulty:    ex.Difficulty, // Export as number (int) for consistency
-            Verifiable:    ex.Verifiable,
-            Result:        ex.Result,
+        exportData.MetaExercises[me.Code] = ImportMetaExerciseNode{
+            Code: me.Code,
+            Name: me.Name,
             Prerequisites: prerequisiteCodes,
             PrerequisiteWeights: prereqWeights,
-            XPosition:     ex.XPosition,
-            YPosition:     ex.YPosition,
+            XPosition: me.XPosition,
+            YPosition: me.YPosition,
+            Versions: vnodes,
         }
     }
 
@@ -345,23 +374,24 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 		allCodes[def.Code] = true
 	}
 
-	// Validate exercises
-	for code, ex := range data.Exercises {
-		if ex.Code == "" {
-			return fmt.Errorf("exercise %s has empty code", code)
-		}
-		if ex.Name == "" {
-			return fmt.Errorf("exercise %s has empty name", code)
-		}
-		if ex.Statement == "" {
-			return fmt.Errorf("exercise %s has empty statement", code)
-		}
-
-		if allCodes[ex.Code] {
-			return fmt.Errorf("duplicate code found: %s", ex.Code)
-		}
-		allCodes[ex.Code] = true
-	}
+    // Validate metaExercises or legacy exercises
+    if len(data.MetaExercises) > 0 {
+        for code, me := range data.MetaExercises {
+            if me.Code == "" { return fmt.Errorf("metaExercise %s has empty code", code) }
+            if me.Name == "" { return fmt.Errorf("metaExercise %s has empty name", code) }
+            if len(me.Versions) == 0 { return fmt.Errorf("metaExercise %s has no versions", code) }
+            if allCodes[me.Code] { return fmt.Errorf("duplicate code found: %s", me.Code) }
+            allCodes[me.Code] = true
+        }
+    } else {
+        for code, ex := range data.Exercises {
+            if ex.Code == "" { return fmt.Errorf("exercise %s has empty code", code) }
+            if ex.Name == "" { return fmt.Errorf("exercise %s has empty name", code) }
+            if ex.Statement == "" { return fmt.Errorf("exercise %s has empty statement", code) }
+            if allCodes[ex.Code] { return fmt.Errorf("duplicate code found: %s", ex.Code) }
+            allCodes[ex.Code] = true
+        }
+    }
 
 	// Validate prerequisite references
 	for code, def := range data.Definitions {
@@ -372,13 +402,23 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 		}
 	}
 
-	for code, ex := range data.Exercises {
-		for _, prereq := range ex.Prerequisites {
-			if !allCodes[prereq] {
-				return fmt.Errorf("exercise %s references unknown prerequisite: %s", code, prereq)
-			}
-		}
-	}
+    if len(data.MetaExercises) > 0 {
+        for code, me := range data.MetaExercises {
+            for _, p := range me.Prerequisites {
+                if !allCodes[p] {
+                    return fmt.Errorf("metaExercise %s references unknown prerequisite code: %s", code, p)
+                }
+            }
+        }
+    } else {
+        for code, ex := range data.Exercises {
+            for _, prereq := range ex.Prerequisites {
+                if !allCodes[prereq] {
+                    return fmt.Errorf("exercise %s references unknown prerequisite: %s", code, prereq)
+                }
+            }
+        }
+    }
 
 	return nil
 }
@@ -556,13 +596,78 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}
 	}
 
-	// Create exercises
-	for code, exNode := range data.Exercises {
-		// Parse difficulty - now handles both string and number
-		difficulty := 3 // Default medium difficulty
-		if difficultyInt, err := s.parseDifficulty(exNode.Difficulty); err == nil {
-			difficulty = difficultyInt
-		}
+    // Backward compatibility: if no metaExercises present, group legacy exercises by code -> meta
+    if len(data.MetaExercises) == 0 && len(data.Exercises) > 0 {
+        grouped := make(map[string][]ImportExerciseNode)
+        for _, ex := range data.Exercises { grouped[ex.Code] = append(grouped[ex.Code], ex) }
+        data.MetaExercises = make(map[string]ImportMetaExerciseNode)
+        for k, list := range grouped {
+            if len(list) == 0 { continue }
+            base := list[0]
+            // Union prerequisites + weights
+            pre := map[string]float64{}
+            for _, e := range list {
+                for _, p := range e.Prerequisites { if _, ok := pre[p]; !ok { pre[p] = 1.0 } }
+                for p, w := range e.PrerequisiteWeights { pre[p] = w }
+            }
+            versions := make([]ImportExerciseVersion, 0, len(list))
+            for _, e := range list {
+                diff, _ := s.parseDifficulty(e.Difficulty)
+                versions = append(versions, ImportExerciseVersion{ Statement: e.Statement, Description: e.Description, Hints: e.Hints, Verifiable: e.Verifiable, Result: e.Result, Difficulty: diff })
+            }
+            data.MetaExercises[k] = ImportMetaExerciseNode{ Code: base.Code, Name: base.Name, Prerequisites: keys(pre), PrerequisiteWeights: pre, XPosition: base.XPosition, YPosition: base.YPosition, Versions: versions }
+        }
+    }
+
+    // Create meta-exercises and then attach prerequisites + versions
+    metas := make(map[string]*models.MetaExercise)
+    for code, me := range data.MetaExercises {
+        meta := &models.MetaExercise{ Code: me.Code, Name: me.Name, DomainID: domain.ID, OwnerID: ownerID, XPosition: me.XPosition, YPosition: me.YPosition }
+        if err := tx.Create(meta).Error; err != nil { return fmt.Errorf("failed to create metaExercise %s: %v", code, err) }
+        metas[code] = meta
+    }
+
+    // Attach meta prerequisites (can reference definitions or other metas) after all metas exist
+    for code, me := range data.MetaExercises {
+        if len(me.Prerequisites) == 0 { continue }
+        for _, pcode := range me.Prerequisites {
+            // Determine target type
+            if def, ok := definitions[pcode]; ok {
+                w := clamp01(me.PrerequisiteWeights[pcode])
+                np := &models.NodePrerequisite{ NodeID: metas[code].ID, NodeType: "meta_exercise", PrerequisiteID: def.ID, PrerequisiteType: "definition", Weight: w, IsManual: true }
+                _ = tx.Create(np).Error
+                continue
+            }
+            if meta, ok := metas[pcode]; ok {
+                w := clamp01(me.PrerequisiteWeights[pcode])
+                np := &models.NodePrerequisite{ NodeID: metas[code].ID, NodeType: "meta_exercise", PrerequisiteID: meta.ID, PrerequisiteType: "meta_exercise", Weight: w, IsManual: true }
+                _ = tx.Create(np).Error
+                continue
+            }
+            log.Printf("Warning: Unknown prerequisite code %s for metaExercise %s", pcode, code)
+        }
+    }
+
+    // Create versions for each meta
+    for code, me := range data.MetaExercises {
+        meta := metas[code]
+        for _, v := range me.Versions {
+            vv := &models.Exercise{
+                Code: me.Code, Name: me.Name, Statement: v.Statement, Description: v.Description, Hints: v.Hints, Notes: v.Notes,
+                DomainID: domain.ID, OwnerID: ownerID, MetaExerciseID: meta.ID, Verifiable: v.Verifiable, Result: v.Result, Difficulty: v.Difficulty,
+                XPosition: me.XPosition, YPosition: me.YPosition,
+            }
+            if err := tx.Create(vv).Error; err != nil { return fmt.Errorf("failed to create version for %s: %v", code, err) }
+        }
+    }
+
+    // Legacy path (if still any exercises remain in shape; unlikely after conversion above)
+    for code, exNode := range data.Exercises {
+        // Parse difficulty - now handles both string and number
+        difficulty := 3 // Default medium difficulty
+        if difficultyInt, err := s.parseDifficulty(exNode.Difficulty); err == nil {
+            difficulty = difficultyInt
+        }
 
 		exercise := &models.Exercise{
 			Code:        exNode.Code,
@@ -605,10 +710,10 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
             return fmt.Errorf("failed to create exercise %s: %v", code, err)
         }
 
-		log.Printf("Created exercise: %s (ID: %d)", exercise.Name, exercise.ID)
-	}
+        log.Printf("Created exercise: %s (ID: %d)", exercise.Name, exercise.ID)
+    }
 
-	return nil
+    return nil
 }
 
 // parseDifficulty converts interface{} difficulty to int with fallback
@@ -642,6 +747,14 @@ func (s *ImportService) parseDifficulty(difficulty interface{}) (int, error) {
 		return 0, fmt.Errorf("invalid difficulty type: %T", v)
 	}
 }
+
+func clamp01(w float64) float64 {
+    if w < 0.01 { return 0.01 }
+    if w > 1.0 { return 1.0 }
+    return w
+}
+
+func keys(m map[string]float64) []string { res := make([]string, 0, len(m)); for k := range m { res = append(res, k) }; return res }
 
 // parseDifficultyString converts string difficulty to int with fallback
 func (s *ImportService) parseDifficultyString(difficulty string) (int, error) {

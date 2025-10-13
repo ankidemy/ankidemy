@@ -259,9 +259,9 @@ export const getDomainPrerequisites = async (domainId: number): Promise<NodePrer
 // Create a prerequisite relationship
 export const createPrerequisite = async (prerequisite: {
   nodeId: number;
-  nodeType: 'definition' | 'exercise';
+  nodeType: 'definition' | 'exercise' | 'meta_exercise';
   prerequisiteId: number;
-  prerequisiteType: 'definition' | 'exercise';
+  prerequisiteType: 'definition' | 'exercise' | 'meta_exercise';
   weight: number;
   isManual: boolean;
 }): Promise<NodePrerequisite> => {

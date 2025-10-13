@@ -234,6 +234,40 @@ func (h *DomainHandler) ImportToDomain(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Data imported successfully"})
 }
 
+// ExportImportData exports a domain in ImportService format (definitions + metaExercises)
+func (h *DomainHandler) ExportImportData(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+        return
+    }
+
+    // Access control: public or owner
+    domain, err := h.domainDAO.FindByID(uint(id))
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+        return
+    }
+    if domain.Privacy != "public" {
+        userID, ok := c.Get("userID")
+        if !ok || userID.(uint) != domain.OwnerID {
+            isAdmin, ok2 := c.Get("isAdmin")
+            if !ok2 || !isAdmin.(bool) {
+                c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+                return
+            }
+        }
+    }
+
+    data, err := h.importService.ExportDomain(uint(id))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export domain: " + err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, data)
+}
+
 // UpdateDomain updates a domain and returns it with stats
 func (h *DomainHandler) UpdateDomain(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)

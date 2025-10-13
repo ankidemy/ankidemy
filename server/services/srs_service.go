@@ -90,10 +90,24 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 
 	// Apply credits to all affected nodes
     updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, time.Now())
-	if err != nil {
-		tx.Rollback()
-		return nil, fmt.Errorf("failed to apply credits: %w", err)
-	}
+    if err != nil {
+        tx.Rollback()
+        return nil, fmt.Errorf("failed to apply credits: %w", err)
+    }
+
+    // For meta exercises: record version outcome stats (best-effort, outside main credit path)
+    if request.NodeType == "exercise" && request.VersionID != nil {
+        // resolve meta id equals NodeID
+        metaSvc := NewMetaExerciseService(s.db)
+        // We don't have version difficulty here reliably, but we can fetch it
+        var version models.Exercise
+        if err := s.db.Select("difficulty").First(&version, *request.VersionID).Error; err == nil {
+            d := version.Difficulty
+            go metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success, &d)
+        } else {
+            go metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success, nil)
+        }
+    }
 
 	// Record review history
 	if err := s.recordReviewHistory(tx, userID, request, progress); err != nil {
@@ -560,21 +574,21 @@ func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string) 
 func (s *SRSService) getDomainIDForNode(nodeID uint, nodeType string) (uint, error) {
 	var domainID uint
 	
-	if nodeType == "definition" {
-		var definition models.Definition
-		if err := s.db.Select("domain_id").First(&definition, nodeID).Error; err != nil {
-			return 0, err
-		}
-		domainID = definition.DomainID
-	} else if nodeType == "exercise" {
-		var exercise models.Exercise
-		if err := s.db.Select("domain_id").First(&exercise, nodeID).Error; err != nil {
-			return 0, err
-		}
-		domainID = exercise.DomainID
-	} else {
-		return 0, errors.New("invalid node type")
-	}
+    if nodeType == "definition" {
+        var definition models.Definition
+        if err := s.db.Select("domain_id").First(&definition, nodeID).Error; err != nil {
+            return 0, err
+        }
+        domainID = definition.DomainID
+    } else if nodeType == "exercise" || nodeType == "meta_exercise" {
+        var meta models.MetaExercise
+        if err := s.db.Select("domain_id").First(&meta, nodeID).Error; err != nil {
+            return 0, err
+        }
+        domainID = meta.DomainID
+    } else {
+        return 0, errors.New("invalid node type")
+    }
 	
 	return domainID, nil
 }
@@ -621,17 +635,17 @@ func (s *SRSService) recordSessionReview(tx *gorm.DB, request *models.ReviewRequ
 
 	srsDao := dao.NewSRSDao(tx)
 	
-	sessionReview := &models.SessionReview{
-		SessionID:     *request.SessionID,
-		NodeID:        request.NodeID,
-		NodeType:      request.NodeType,
-		ReviewType:    "explicit",
-		ReviewTime:    reviewTime,
-		Success:       request.Success,
-		Quality:       &request.Quality,
-		TimeTaken:     &request.TimeTaken,
-		CreditApplied: 1.0,
-	}
+    sessionReview := &models.SessionReview{
+        SessionID:     *request.SessionID,
+        NodeID:        request.NodeID,
+        NodeType:      map[string]string{"meta_exercise":"exercise"}[request.NodeType] /* normalize */,
+        ReviewType:    "explicit",
+        ReviewTime:    reviewTime,
+        Success:       request.Success,
+        Quality:       &request.Quality,
+        TimeTaken:     &request.TimeTaken,
+        CreditApplied: 1.0,
+    }
 
 	return srsDao.CreateSessionReview(sessionReview)
 }

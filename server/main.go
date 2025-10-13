@@ -65,6 +65,8 @@ func main() {
 	progressDAO := dao.NewProgressDAO(db)
 	graphDAO := dao.NewGraphDAO(db)
 	domainNetworkDAO := dao.NewDomainNetworkDAO(db)
+    metaExerciseDAO := dao.NewMetaExerciseDAO(db)
+    metaSvc := services.NewMetaExerciseService(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -91,6 +93,7 @@ func main() {
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
 	srsHandler := handlers.NewSRSHandler(db)
+    metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc)
 
 	// Initialize router
 	router := gin.Default()
@@ -171,12 +174,17 @@ func main() {
 				// Exercises
 				domains.GET("/:id/exercises", exerciseHandler.GetDomainExercises)
 				domains.POST("/:id/exercises", exerciseHandler.CreateExercise)
+				// Meta Exercises (pools)
+				domains.GET("/:id/meta-exercises", metaExerciseHandler.GetDomainMetaExercises)
+				domains.POST("/:id/meta-exercises", metaExerciseHandler.CreateMetaExercise)
 
-				// Graph operations (export only, import now handled by domain handler)
+				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)
 				domains.PUT("/:id/graph/positions", graphHandler.UpdatePositions)
 				domains.GET("/:id/export", graphHandler.ExportDomain)
-				// Note: Import is now handled by domainHandler.ImportToDomain above
+				// ImportService import/export (round-trip compatible format)
+				domains.GET("/:id/export-data", domainHandler.ExportImportData)
+				// Import is handled by domainHandler.ImportToDomain above
 			}
 
 			// Domain network routes (user-defined links between domains)
@@ -205,6 +213,16 @@ func main() {
 				exercises.GET("/code/:code", exerciseHandler.GetExerciseByCode)
 				exercises.POST("/:id/verify", exerciseHandler.VerifyAnswer)
 			}
+
+            // Meta-exercise routes
+            metas := authorized.Group("/meta-exercises")
+            {
+                metas.GET("/:id", metaExerciseHandler.GetMetaExercise)
+                metas.GET("/:id/next-version", metaExerciseHandler.GetNextVersion)
+                metas.POST("/:id/versions", metaExerciseHandler.AddVersion)
+                metas.PUT("/:id/versions/:versionId", metaExerciseHandler.UpdateVersion)
+                metas.DELETE("/:id/versions/:versionId", metaExerciseHandler.DeleteVersion)
+            }
 
 			// Progress routes
 			progress := authorized.Group("/progress")
@@ -247,6 +265,7 @@ func main() {
 				// Prerequisites endpoints
 				srs.POST("/prerequisites", srsHandler.CreatePrerequisite)
 				srs.GET("/domains/:domainId/prerequisites", srsHandler.GetPrerequisites)
+				srs.PUT("/prerequisites/:prerequisiteId", srsHandler.UpdatePrerequisite)
 				srs.DELETE("/prerequisites/:prerequisiteId", srsHandler.DeletePrerequisite)
 				
 				// Test/Debug endpoints

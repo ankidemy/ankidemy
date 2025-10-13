@@ -100,8 +100,8 @@ const DomainForm: React.FC<DomainFormProps> = ({
       setImportPreview({
         definitions: definitionKeys.length,
         exercises: exerciseKeys.length,
-        sampleDefinitions: definitionKeys.slice(0, 3).map(key => fileData.definitions[key]?.name || key),
-        sampleExercises: exerciseKeys.slice(0, 3).map(key => fileData.exercises[key]?.name || key),
+        sampleDefinitions: definitionKeys.slice(0, 3).map(key => fileData.definitions?.[key]?.name || key),
+        sampleExercises: exerciseKeys.slice(0, 3).map(key => fileData.exercises?.[key]?.name || key),
       });
 
       showToast('JSON file loaded successfully!', 'success');

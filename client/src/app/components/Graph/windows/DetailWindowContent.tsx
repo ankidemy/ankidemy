@@ -9,6 +9,8 @@ import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types'
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
 import NodeEditForm from '../details/NodeEditForm';
+import PrerequisitesPanel from '../details/PrerequisitesPanel';
+import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
@@ -18,11 +20,17 @@ import { getReviewHistory } from '@/lib/srs-api';
 import { InlineMath } from '@/app/components/core/MathJaxWrapper';
 import { 
   getDefinitionByCode, 
-  getExerciseByCode, 
   updateDefinition, 
   updateExercise,
+  getMetaExercise,
+  getNextMetaExerciseVersion,
+  addMetaExerciseVersion,
+  updateMetaExerciseVersion,
+  deleteMetaExerciseVersion,
   Definition as ApiDefinition,
-  Exercise as ApiExercise 
+  Exercise as ApiExercise,
+  MetaExercise,
+  ExerciseVersion
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
@@ -56,6 +64,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
   const [currentNode, setCurrentNode] = useState<GraphNode>(initialNodeData);
   const [nodeDetails, setNodeDetails] = useState<Definition | Exercise | null>(null);
+  const [metaDetails, setMetaDetails] = useState<MetaExercise | null>(null);
+  const [currentVersion, setCurrentVersion] = useState<ExerciseVersion | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -85,8 +95,14 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const res = await getDefinitionByCode(node.id, { domainId: domainData?.id });
         details = Array.isArray(res) ? res[0] : res;
       } else {
-        const res = await getExerciseByCode(node.id, { domainId: domainData?.id });
-        details = Array.isArray(res) ? res[0] : res;
+        // Load meta-exercise by numeric id and fetch a suggested version
+        const mid = codeToNumericIdMap.get(node.id);
+        if (!mid) throw new Error('Missing numeric id for meta exercise');
+        const meta = await getMetaExercise(mid);
+        setMetaDetails(meta);
+        const ver = await getNextMetaExerciseVersion(mid);
+        setCurrentVersion(ver as any);
+        details = { ...(ver as any), id: ver.id, code: meta.code, name: meta.name, type: 'exercise' } as Exercise;
       }
       if (details) {
         setNodeDetails({ ...details, type: node.type } as Definition | Exercise);
@@ -202,10 +218,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       quality: qualityMap[quality] as any,
       timeTaken: 0,
       sessionId: srs.state.currentSession?.id,
+      versionId: currentVersion?.id,
     });
     
     showToast(`Exercise reviewed as ${quality}`, 'success');
-  }, [numericId, srs]);
+  }, [numericId, srs, currentVersion?.id]);
 
   // Exercise verification
   const verifyAnswer = useCallback(() => {
@@ -228,6 +245,19 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     setExerciseAttemptCompleted(true);
     if (!showSolution) setShowSolution(true);
   }, [nodeDetails, currentNode.type, userAnswer, showSolution]);
+
+  // Get another version (pass)
+  const handleAnotherVersion = useCallback(async () => {
+    try {
+      if (!metaDetails) return;
+      const ver = await getNextMetaExerciseVersion(metaDetails.id);
+      setCurrentVersion(ver);
+      setNodeDetails({ ...(ver as any), id: ver.id, code: metaDetails.code, name: metaDetails.name, type: 'exercise' } as Exercise);
+      setUserAnswer(''); setAnswerFeedback(null); setShowSolution(false); setExerciseAttemptCompleted(false);
+    } catch (e) {
+      showToast('No alternative version available', 'warning');
+    }
+  }, [metaDetails]);
 
   // Status change handler
   const handleStatusChange = useCallback(async (status: NodeStatus) => {
@@ -457,28 +487,92 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           </div>
         ) : isEditMode ? (
           nodeDetails ? (
-            <form onSubmit={(e) => { e.preventDefault(); handleSubmitEdit(); }}>
-              <NodeEditForm
-                selectedNode={currentNode}
-                selectedNodeDetails={nodeDetails}
-                availableDefinitionsForEdit={availableDefinitions}
-                hasMultipleDescriptions={hasMultipleDescriptions()}
-                currentDescription={currentDescriptionText()}
-                totalDescriptions={totalDescriptionsCount()}
-                selectedDefinitionIndex={selectedDefinitionIndex}
-                onCancel={() => setIsEditMode(false)}
-                onSubmit={handleSubmitEdit}
+            currentNode.type === 'definition' ? (
+              <form onSubmit={(e) => { e.preventDefault(); handleSubmitEdit(); }}>
+                <NodeEditForm
+                  selectedNode={currentNode}
+                  selectedNodeDetails={nodeDetails}
+                  availableDefinitionsForEdit={availableDefinitions}
+                  hasMultipleDescriptions={hasMultipleDescriptions()}
+                  currentDescription={currentDescriptionText()}
+                  totalDescriptions={totalDescriptionsCount()}
+                  selectedDefinitionIndex={selectedDefinitionIndex}
+                  onCancel={() => setIsEditMode(false)}
+                  onSubmit={handleSubmitEdit}
+                />
+              </form>
+            ) : (
+              <MetaExerciseEditForm
+                meta={metaDetails as any}
+                onAddVersion={async (v)=>{ if (!metaDetails) return; await addMetaExerciseVersion(metaDetails.id, v as any); const fresh = await getMetaExercise(metaDetails.id); setMetaDetails(fresh); showToast('Version added','success'); }}
+                onUpdateVersion={async (id, v)=>{ if (!metaDetails) return; await updateMetaExerciseVersion(metaDetails.id, id, v as any); const fresh = await getMetaExercise(metaDetails.id); setMetaDetails(fresh); showToast('Version updated','success'); }}
+                onDeleteVersion={async (id)=>{ if (!metaDetails) return; await deleteMetaExerciseVersion(metaDetails.id, id); const fresh = await getMetaExercise(metaDetails.id); setMetaDetails(fresh); showToast('Version deleted','success'); }}
+                onBack={() => setIsEditMode(false)}
               />
-            </form>
+            )
           ) : (
             <div className="text-center py-5 text-gray-500">Loading details...</div>
           )
         ) : (
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 h-9">
+            <TabsList className={`grid w-full ${currentNode.type === 'exercise' ? 'grid-cols-4' : 'grid-cols-3'} h-9`}>
               <TabsTrigger value="details" className="text-sm h-8">Details</TabsTrigger>
+              {currentNode.type === 'exercise' && (
+                <TabsTrigger value="versions" className="text-sm h-8">Versions</TabsTrigger>
+              )}
               <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
+              {currentNode.type === 'exercise' && (
+                <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
+              )}
+              {currentNode.type === 'definition' && (
+                <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
+              )}
             </TabsList>
+            {currentNode.type === 'exercise' && (
+              <TabsContent value="versions" className="mt-3">
+                {metaDetails ? (
+                  <MetaExerciseEditForm
+                    meta={metaDetails}
+                    onAddVersion={isDomainOwner() ? async (v)=>{ const fresh = await addMetaExerciseVersion(metaDetails.id, v as any); const m = await getMetaExercise(metaDetails.id); setMetaDetails(m); showToast('Version added','success'); } : undefined}
+                    onUpdateVersion={isDomainOwner() ? async (id, v)=>{ await updateMetaExerciseVersion(metaDetails.id, id, v as any); const m = await getMetaExercise(metaDetails.id); setMetaDetails(m); showToast('Version updated','success'); } : undefined}
+                    onDeleteVersion={isDomainOwner() ? async (id)=>{ await deleteMetaExerciseVersion(metaDetails.id, id); const m = await getMetaExercise(metaDetails.id); setMetaDetails(m); showToast('Version deleted','success'); } : undefined}
+                  />
+                ) : (
+                  <div className="text-center py-5 text-gray-500">Loading versions…</div>
+                )}
+              </TabsContent>
+            )}
+            {currentNode.type === 'exercise' && (
+              <TabsContent value="prerequisites" className="mt-3">
+                {numericId && domainData?.id ? (
+                  <PrerequisitesPanel
+                    domainId={domainData.id}
+                    nodeId={numericId}
+                    nodeType={'meta_exercise'}
+                    availableDefinitions={availableDefinitions}
+                    onChanged={onRefresh}
+                  />
+                ) : (
+                  <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
+                )}
+              </TabsContent>
+            )}
+            {currentNode.type === 'definition' && (
+              <TabsContent value="prerequisites" className="mt-3">
+                {numericId && domainData?.id ? (
+                  <PrerequisitesPanel
+                    domainId={domainData.id}
+                    nodeId={numericId}
+                    nodeType={'definition'}
+                    availableDefinitions={availableDefinitions}
+                    allowKinds={['definition']}
+                    onChanged={onRefresh}
+                  />
+                ) : (
+                  <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
+                )}
+              </TabsContent>
+            )}
             
             <TabsContent value="details" className="mt-3 space-y-4">
               {currentNode.type === 'definition' ? (
@@ -520,6 +614,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     name: d.name
                   }))}
                   srsStatus={nodeProgress?.status}
+                  onAnotherVersion={handleAnotherVersion}
                 />
               )}
             </TabsContent>

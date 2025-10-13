@@ -81,26 +81,26 @@ type VisualGraph struct {
 func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 	// Load domain with all definitions and exercises
 	var definitions []models.Definition
-	var exercises []models.Exercise
+    var metas []models.MetaExercise
 	
 	// Get definitions
 	if err := d.db.Where("domain_id = ?", domainID).Find(&definitions).Error; err != nil {
 		return nil, err
 	}
 	
-	// Get exercises
-	if err := d.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
-		return nil, err
-	}
+    // Get meta exercises
+    if err := d.db.Where("domain_id = ?", domainID).Find(&metas).Error; err != nil {
+        return nil, err
+    }
 	
 	// Check domain exists
-	if len(definitions) == 0 && len(exercises) == 0 {
-		var count int64
-		d.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
-		if count == 0 {
-			return nil, errors.New("domain not found")
-		}
-	}
+    if len(definitions) == 0 && len(metas) == 0 {
+        var count int64
+        d.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
+        if count == 0 {
+            return nil, errors.New("domain not found")
+        }
+    }
 	
 	graph := &VisualGraph{
 		Nodes: make([]VisualNode, 0),
@@ -133,37 +133,37 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 	}
 	
 	// Add exercises to nodes with their prerequisites
-	for _, ex := range exercises {
-		nodeID := fmt.Sprintf("ex_%d", ex.ID)
+    for _, ex := range metas {
+        nodeID := fmt.Sprintf("ex_%d", ex.ID)
 		
 		// Get prerequisite codes for this exercise
-		prereqCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
+        prereqCodes, err := d.getPrerequisiteCodes(ex.ID, "meta_exercise")
 		if err != nil {
 			return nil, err
 		}
 		
 		// Add node
-		graph.Nodes = append(graph.Nodes, VisualNode{
-			ID:            nodeID,
-			Type:          "exercise",
-			Name:          ex.Name,
-			Code:          ex.Code,
-			X:             ex.XPosition,
-			Y:             ex.YPosition,
-			Prerequisites: prereqCodes,
-		})
-	}
+        graph.Nodes = append(graph.Nodes, VisualNode{
+            ID:            nodeID,
+            Type:          "exercise", // visually still called exercise
+            Name:          ex.Name,
+            Code:          ex.Code,
+            X:             ex.XPosition,
+            Y:             ex.YPosition,
+            Prerequisites: prereqCodes,
+        })
+    }
 	
 	// Build links from node_prerequisites table
-	var prerequisites []models.NodePrerequisite
-	query := `
-		SELECT np.* FROM node_prerequisites np
-		WHERE (
-			(np.node_type = 'definition' AND np.node_id IN (SELECT id FROM definitions WHERE domain_id = ?))
-			OR 
-			(np.node_type = 'exercise' AND np.node_id IN (SELECT id FROM exercises WHERE domain_id = ?))
-		)
-	`
+    var prerequisites []models.NodePrerequisite
+    query := `
+        SELECT np.* FROM node_prerequisites np
+        WHERE (
+            (np.node_type = 'definition' AND np.node_id IN (SELECT id FROM definitions WHERE domain_id = ?))
+            OR 
+            (np.node_type = 'meta_exercise' AND np.node_id IN (SELECT id FROM meta_exercises WHERE domain_id = ?))
+        )
+    `
 	
 	if err := d.db.Raw(query, domainID, domainID).Scan(&prerequisites).Error; err != nil {
 		return nil, err
@@ -179,11 +179,11 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 			sourceID = fmt.Sprintf("ex_%d", prereq.PrerequisiteID)
 		}
 		
-		if prereq.NodeType == "definition" {
-			targetID = fmt.Sprintf("def_%d", prereq.NodeID)
-		} else {
-			targetID = fmt.Sprintf("ex_%d", prereq.NodeID)
-		}
+        if prereq.NodeType == "definition" {
+            targetID = fmt.Sprintf("def_%d", prereq.NodeID)
+        } else { // meta_exercise shown as exercise visually
+            targetID = fmt.Sprintf("ex_%d", prereq.NodeID)
+        }
 		
 		graph.Links = append(graph.Links, struct {
 			Source string `json:"source"`
@@ -206,10 +206,10 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 	}
 	
 	// Get exercises
-	var exercises []models.Exercise
-	if err := d.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
-		return nil, err
-	}
+    var exercises []models.MetaExercise
+    if err := d.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
+        return nil, err
+    }
 	
 	// Check domain exists
 	if len(definitions) == 0 && len(exercises) == 0 {
@@ -256,32 +256,27 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
         }
 	}
 	
-	// Add exercises using CODE as key (FIXED)
-	for _, ex := range exercises {
+    // Add meta_exercises using CODE as key (FIXED)
+    for _, ex := range exercises {
         // Get prerequisite codes and weights
-        prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "exercise")
+        prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "meta_exercise")
         if err != nil {
             return nil, err
         }
-        prereqWeights, err := d.getPrerequisiteWeights(ex.ID, "exercise")
+        prereqWeights, err := d.getPrerequisiteWeights(ex.ID, "meta_exercise")
         if err != nil { return nil, err }
-		
-		// Use exercise CODE as key, not ID
+
+        // Use exercise CODE as key, not ID
         graphData.Exercises[ex.Code] = ExerciseNode{
             Code:          ex.Code,
             Name:          ex.Name,
-            Statement:     ex.Statement,
-            Description:   ex.Description,
-            Hints:         ex.Hints,
-            Verifiable:    ex.Verifiable,
-            Result:        ex.Result,
-            Difficulty:    ex.Difficulty,
+            // meta nodes: omit version-specific fields in export format
             Prerequisites: prerequisiteCodes,
             PrerequisiteWeights: prereqWeights,
             XPosition:     ex.XPosition,
             YPosition:     ex.YPosition,
         }
-	}
+    }
 	
 	return graphData, nil
 }
@@ -472,26 +467,26 @@ func (d *GraphDAO) UpdateGraphPositions(positionUpdates map[string]struct{ X, Y 
 				return errors.New("invalid node ID number: " + nodeIDStr)
 			}
 			
-			if nodeType == "def" {
-				// Update definition position
-				if err := tx.Model(&models.Definition{}).
-					Where("id = ?", id).
-					Updates(map[string]interface{}{
-						"x_position": pos.X,
-						"y_position": pos.Y,
-					}).Error; err != nil {
-					return err
-				}
-			} else if nodeType == "ex" {
-				// Update exercise position
-				if err := tx.Model(&models.Exercise{}).
-					Where("id = ?", id).
-					Updates(map[string]interface{}{
-						"x_position": pos.X,
-						"y_position": pos.Y,
-					}).Error; err != nil {
-					return err
-				}
+    if nodeType == "def" {
+        // Update definition position
+        if err := tx.Model(&models.Definition{}).
+            Where("id = ?", id).
+            Updates(map[string]interface{}{
+                "x_position": pos.X,
+                "y_position": pos.Y,
+            }).Error; err != nil {
+                return err
+            }
+        } else if nodeType == "ex" {
+        // Update meta_exercise position
+        if err := tx.Model(&models.MetaExercise{}).
+            Where("id = ?", id).
+            Updates(map[string]interface{}{
+                "x_position": pos.X,
+                "y_position": pos.Y,
+            }).Error; err != nil {
+                return err
+            }
 			} else {
 				return errors.New("unknown node type: " + nodeType)
 			}

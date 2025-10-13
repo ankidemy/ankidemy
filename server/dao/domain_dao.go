@@ -102,12 +102,12 @@ func (d *DomainDAO) GetDomainStats(domainID uint) (*DomainStats, error) {
 	}
 	stats.NodeCount = int(definitionCount)
 
-	// Count exercises
-	var exerciseCount int64
-	if err := d.db.Model(&models.Exercise{}).Where("domain_id = ?", domainID).Count(&exerciseCount).Error; err != nil {
-		return nil, err
-	}
-	stats.ExerciseCount = int(exerciseCount)
+    // Count meta_exercises
+    var exerciseCount int64
+    if err := d.db.Model(&models.MetaExercise{}).Where("domain_id = ?", domainID).Count(&exerciseCount).Error; err != nil {
+        return nil, err
+    }
+    stats.ExerciseCount = int(exerciseCount)
 
 	return &stats, nil
 }
@@ -287,7 +287,7 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
             return err
         }
         var exIDs []uint
-        if err := tx.Unscoped().Model(&models.Exercise{}).Where("domain_id = ?", domainID).Pluck("id", &exIDs).Error; err != nil {
+        if err := tx.Unscoped().Model(&models.MetaExercise{}).Where("domain_id = ?", domainID).Pluck("id", &exIDs).Error; err != nil {
             return err
         }
 
@@ -300,7 +300,7 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
         }
         if len(exIDs) > 0 {
             if err := tx.Where("(node_type = ? AND node_id IN ?) OR (prerequisite_type = ? AND prerequisite_id IN ?)",
-                "exercise", exIDs, "exercise", exIDs).Delete(&models.NodePrerequisite{}).Error; err != nil {
+                "meta_exercise", exIDs, "meta_exercise", exIDs).Delete(&models.NodePrerequisite{}).Error; err != nil {
                 return err
             }
         }
@@ -311,11 +311,7 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
                 return err
             }
         }
-        if len(exIDs) > 0 {
-            if err := tx.Where("exercise_id IN ?", exIDs).Delete(&models.UserExerciseProgress{}).Error; err != nil {
-                return err
-            }
-        }
+        // Note: legacy UserExerciseProgress is not used for meta_exercises; clean up versions separately below
         // UserNodeProgress and ReviewHistory store generic node references
         if len(defIDs) > 0 {
             if err := tx.Where("node_type = ? AND node_id IN ?", "definition", defIDs).Delete(&models.UserNodeProgress{}).Error; err != nil {
@@ -326,12 +322,8 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
             }
         }
         if len(exIDs) > 0 {
-            if err := tx.Where("node_type = ? AND node_id IN ?", "exercise", exIDs).Delete(&models.UserNodeProgress{}).Error; err != nil {
-                return err
-            }
-            if err := tx.Where("node_type = ? AND node_id IN ?", "exercise", exIDs).Delete(&models.ReviewHistory{}).Error; err != nil {
-                return err
-            }
+            if err := tx.Where("node_type = ? AND node_id IN ?", "exercise", exIDs).Delete(&models.UserNodeProgress{}).Error; err != nil { return err }
+            if err := tx.Where("node_type = ? AND node_id IN ?", "exercise", exIDs).Delete(&models.ReviewHistory{}).Error; err != nil { return err }
         }
 
         // Delete study sessions and their session reviews for this domain
@@ -353,16 +345,16 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
             return err
         }
 
-        // Delete definitions and exercises permanently
+        // Delete definitions and meta-exercises (and their versions) permanently
         if len(defIDs) > 0 {
             if err := tx.Unscoped().Where("id IN ?", defIDs).Delete(&models.Definition{}).Error; err != nil {
                 return err
             }
         }
         if len(exIDs) > 0 {
-            if err := tx.Unscoped().Where("id IN ?", exIDs).Delete(&models.Exercise{}).Error; err != nil {
-                return err
-            }
+            // delete versions under these meta exercises
+            if err := tx.Unscoped().Where("meta_exercise_id IN ?", exIDs).Delete(&models.Exercise{}).Error; err != nil { return err }
+            if err := tx.Unscoped().Where("id IN ?", exIDs).Delete(&models.MetaExercise{}).Error; err != nil { return err }
         }
 
         // Delete user domain progress

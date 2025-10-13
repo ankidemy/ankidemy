@@ -44,11 +44,11 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 		return
 	}
 
-	// Validate node type
-	if request.NodeType != "definition" && request.NodeType != "exercise" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition' or 'exercise'"})
-		return
-	}
+    // Validate node type
+    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise' or 'meta_exercise'"})
+        return
+    }
 
 	// Validate quality range
 	if request.Quality < 0 || request.Quality > 5 {
@@ -56,7 +56,9 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 		return
 	}
 
-	response, err := h.srsService.SubmitReview(userID.(uint), &request)
+    // Normalize 'meta_exercise' to 'exercise' internally for SRS storage compatibility
+    if request.NodeType == "meta_exercise" { request.NodeType = "exercise" }
+    response, err := h.srsService.SubmitReview(userID.(uint), &request)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -84,12 +86,14 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 		nodeType = "mixed"
 	}
 
-	if nodeType != "definition" && nodeType != "exercise" && nodeType != "mixed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Type must be 'definition', 'exercise', or 'mixed'"})
-		return
-	}
+    if nodeType != "definition" && nodeType != "exercise" && nodeType != "meta_exercise" && nodeType != "mixed" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Type must be 'definition', 'exercise', 'meta_exercise', or 'mixed'"})
+        return
+    }
 
-	dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType)
+    // Treat 'meta_exercise' same as 'exercise' for due selection
+    if nodeType == "meta_exercise" { nodeType = "exercise" }
+    dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -215,10 +219,10 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 	}
 
 	// Validate node type
-	if request.NodeType != "definition" && request.NodeType != "exercise" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition' or 'exercise'"})
-		return
-	}
+    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise' or 'meta_exercise'"})
+        return
+    }
 
 	err := h.srsService.UpdateNodeStatus(userID.(uint), request.NodeID, request.NodeType, request.Status)
 	if err != nil {
@@ -383,16 +387,16 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-	// Validate node types
-	if request.NodeType != "definition" && request.NodeType != "exercise" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition' or 'exercise'"})
-		return
-	}
+    // Validate node types
+    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise' or 'meta_exercise'"})
+        return
+    }
 
-	if request.PrerequisiteType != "definition" && request.PrerequisiteType != "exercise" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisite type must be 'definition' or 'exercise'"})
-		return
-	}
+    if request.PrerequisiteType != "definition" && request.PrerequisiteType != "exercise" && request.PrerequisiteType != "meta_exercise" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisite type must be 'definition', 'exercise' or 'meta_exercise'"})
+        return
+    }
 
 	// Validate weight
 	if request.Weight <= 0 || request.Weight > 1 {
@@ -406,24 +410,44 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-	// Check if user has permission to modify this node
-	// This would require checking domain ownership - simplified for now
+    // Upsert to avoid duplicates and improve UX
+    var existing models.NodePrerequisite
+    tx := h.db.Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
+        request.NodeID, request.NodeType, request.PrerequisiteID, request.PrerequisiteType).
+        Limit(1).Find(&existing)
+    if tx.Error != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
+        return
+    }
 
-	prerequisite := &models.NodePrerequisite{
-		NodeID:           request.NodeID,
-		NodeType:         request.NodeType,
-		PrerequisiteID:   request.PrerequisiteID,
-		PrerequisiteType: request.PrerequisiteType,
-		Weight:           request.Weight,
-		IsManual:         request.IsManual,
-	}
+    if tx.RowsAffected > 0 {
+        // Update weight / isManual
+        updates := map[string]interface{}{"weight": request.Weight, "is_manual": request.IsManual}
+        if err := h.db.Model(&models.NodePrerequisite{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        existing.Weight = request.Weight
+        existing.IsManual = request.IsManual
+        c.JSON(http.StatusOK, existing)
+        return
+    }
 
-	if err := h.srsDao.CreatePrerequisite(prerequisite); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create prerequisite"})
-		return
-	}
+    prerequisite := &models.NodePrerequisite{
+        NodeID:           request.NodeID,
+        NodeType:         request.NodeType,
+        PrerequisiteID:   request.PrerequisiteID,
+        PrerequisiteType: request.PrerequisiteType,
+        Weight:           request.Weight,
+        IsManual:         request.IsManual,
+    }
 
-	c.JSON(http.StatusCreated, prerequisite)
+    if err := h.srsDao.CreatePrerequisite(prerequisite); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusCreated, prerequisite)
 }
 
 // GetPrerequisites gets prerequisites for a domain
@@ -441,6 +465,27 @@ func (h *SRSHandler) GetPrerequisites(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"prerequisites": prerequisites})
+}
+
+// UpdatePrerequisite updates weight/isManual for a prerequisite
+func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
+    _, exists := c.Get("userID")
+    if !exists { c.JSON(http.StatusUnauthorized, gin.H{"error":"User ID not found in context"}); return }
+    pid64, err := strconv.ParseUint(c.Param("prerequisiteId"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid prerequisite ID"}); return }
+    var req struct{ Weight *float64 `json:"weight"`; IsManual *bool `json:"isManual"` }
+    if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+    updates := map[string]interface{}{}
+    if req.Weight != nil {
+        w := *req.Weight
+        if w <= 0 || w > 1 { c.JSON(http.StatusBadRequest, gin.H{"error":"Weight must be between 0 and 1"}); return }
+        updates["weight"] = w
+    }
+    if req.IsManual != nil { updates["is_manual"] = *req.IsManual }
+    if len(updates) == 0 { c.JSON(http.StatusBadRequest, gin.H{"error":"No fields to update"}); return }
+    if err := h.db.Model(&models.NodePrerequisite{}).Where("id = ?", uint(pid64)).Updates(updates).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to update prerequisite"}); return }
+    c.JSON(http.StatusOK, gin.H{"message":"Prerequisite updated"})
 }
 
 // DeletePrerequisite deletes a prerequisite relationship

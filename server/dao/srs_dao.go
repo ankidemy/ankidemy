@@ -37,13 +37,13 @@ func (d *SRSDao) GetPrerequisitesByDomain(domainID uint) ([]models.NodePrerequis
 		WHERE d.domain_id = ?
 	`
 	
-	// Get prerequisites for exercises
-	exerciseQuery := `
-		SELECT np.* FROM node_prerequisites np
-		JOIN exercises e ON (np.node_id = e.id AND np.node_type = 'exercise')
-		   OR (np.prerequisite_id = e.id AND np.prerequisite_type = 'exercise')
-		WHERE e.domain_id = ?
-	`
+    // Get prerequisites for meta_exercises
+    exerciseQuery := `
+        SELECT np.* FROM node_prerequisites np
+        JOIN meta_exercises e ON (np.node_id = e.id AND np.node_type = 'meta_exercise')
+           OR (np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise')
+        WHERE e.domain_id = ?
+    `
 	
 	var defPrereqs []models.NodePrerequisite
 	var exPrereqs []models.NodePrerequisite
@@ -147,37 +147,37 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
 		WHERE d.domain_id = ?
 	`
 	
-	// Get exercise progress
-	exQuery := `
-		SELECT 
-			e.id as node_id,
-			'exercise' as node_type,
-			e.code as node_code,
-			e.name as node_name,
-			COALESCE(unp.status, 'fresh') as status,
-			COALESCE(unp.easiness_factor, 2.5) as easiness_factor,
-			COALESCE(unp.interval_days, 0) as interval_days,
-			COALESCE(unp.repetitions, 0) as repetitions,
-			unp.last_review,
-			unp.next_review,
-			COALESCE(unp.accumulated_credit, 0) as accumulated_credit,
-			COALESCE(unp.credit_postponed, false) as credit_postponed,
-			COALESCE(unp.total_reviews, 0) as total_reviews,
-			COALESCE(unp.successful_reviews, 0) as successful_reviews,
-			CASE 
-				WHEN unp.next_review IS NULL THEN NULL
-				WHEN unp.next_review <= NOW() THEN 0
-				ELSE EXTRACT(days FROM (unp.next_review - NOW()))::INTEGER
-			END as days_until_review,
-			CASE
-				WHEN unp.status = 'grasped' AND (unp.next_review IS NULL OR unp.next_review <= NOW()) THEN true
-				ELSE false
-			END as is_due
-		FROM exercises e
-		LEFT JOIN user_node_progress unp ON e.id = unp.node_id 
-			AND unp.node_type = 'exercise' AND unp.user_id = ?
-		WHERE e.domain_id = ?
-	`
+    // Get exercise (meta) progress
+    exQuery := `
+        SELECT 
+            e.id as node_id,
+            'exercise' as node_type,
+            e.code as node_code,
+            e.name as node_name,
+            COALESCE(unp.status, 'fresh') as status,
+            COALESCE(unp.easiness_factor, 2.5) as easiness_factor,
+            COALESCE(unp.interval_days, 0) as interval_days,
+            COALESCE(unp.repetitions, 0) as repetitions,
+            unp.last_review,
+            unp.next_review,
+            COALESCE(unp.accumulated_credit, 0) as accumulated_credit,
+            COALESCE(unp.credit_postponed, false) as credit_postponed,
+            COALESCE(unp.total_reviews, 0) as total_reviews,
+            COALESCE(unp.successful_reviews, 0) as successful_reviews,
+            CASE 
+                WHEN unp.next_review IS NULL THEN NULL
+                WHEN unp.next_review <= NOW() THEN 0
+                ELSE EXTRACT(days FROM (unp.next_review - NOW()))::INTEGER
+            END as days_until_review,
+            CASE
+                WHEN unp.status = 'grasped' AND (unp.next_review IS NULL OR unp.next_review <= NOW()) THEN true
+                ELSE false
+            END as is_due
+        FROM meta_exercises e
+        LEFT JOIN user_node_progress unp ON e.id = unp.node_id 
+            AND unp.node_type = 'exercise' AND unp.user_id = ?
+        WHERE e.domain_id = ?
+    `
 	
 	var defResults []models.NodeProgress
 	var exResults []models.NodeProgress
@@ -227,32 +227,32 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
 			ORDER BY unp.next_review ASC NULLS FIRST
 		`
-	} else if nodeType == "exercise" {
-		query = `
-			SELECT 
-				e.id as node_id,
-				'exercise' as node_type,
-				e.code as node_code,
-				e.name as node_name,
-				unp.status,
-				unp.easiness_factor,
-				unp.interval_days,
-				unp.repetitions,
-				unp.last_review,
-				unp.next_review,
-				unp.accumulated_credit,
-				unp.credit_postponed,
-				unp.total_reviews,
-				unp.successful_reviews,
-				0 as days_until_review,
-				true as is_due
-			FROM exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id 
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped' 
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-			ORDER BY unp.next_review ASC NULLS FIRST
-		`
+    } else if nodeType == "exercise" || nodeType == "meta_exercise" {
+        query = `
+            SELECT 
+                e.id as node_id,
+                'exercise' as node_type,
+                e.code as node_code,
+                e.name as node_name,
+                unp.status,
+                unp.easiness_factor,
+                unp.interval_days,
+                unp.repetitions,
+                unp.last_review,
+                unp.next_review,
+                unp.accumulated_credit,
+                unp.credit_postponed,
+                unp.total_reviews,
+                unp.successful_reviews,
+                0 as days_until_review,
+                true as is_due
+            FROM meta_exercises e
+            JOIN user_node_progress unp ON e.id = unp.node_id 
+                AND unp.node_type = 'exercise' AND unp.user_id = ?
+            WHERE e.domain_id = ? AND unp.status = 'grasped' 
+                AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+            ORDER BY unp.next_review ASC NULLS FIRST
+        `
 	} else {
 		// Mixed - get both
 		defQuery := `
@@ -280,30 +280,30 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
 		`
 		
-		exQuery := `
-			SELECT 
-				e.id as node_id,
-				'exercise' as node_type,
-				e.code as node_code,
-				e.name as node_name,
-				unp.status,
-				unp.easiness_factor,
-				unp.interval_days,
-				unp.repetitions,
-				unp.last_review,
-				unp.next_review,
-				unp.accumulated_credit,
-				unp.credit_postponed,
-				unp.total_reviews,
-				unp.successful_reviews,
-				0 as days_until_review,
-				true as is_due
-			FROM exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id 
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped' 
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		`
+        exQuery := `
+            SELECT 
+                e.id as node_id,
+                'exercise' as node_type,
+                e.code as node_code,
+                e.name as node_name,
+                unp.status,
+                unp.easiness_factor,
+                unp.interval_days,
+                unp.repetitions,
+                unp.last_review,
+                unp.next_review,
+                unp.accumulated_credit,
+                unp.credit_postponed,
+                unp.total_reviews,
+                unp.successful_reviews,
+                0 as days_until_review,
+                true as is_due
+            FROM meta_exercises e
+            JOIN user_node_progress unp ON e.id = unp.node_id 
+                AND unp.node_type = 'exercise' AND unp.user_id = ?
+            WHERE e.domain_id = ? AND unp.status = 'grasped' 
+                AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+        `
 		
 		var defResults []models.NodeProgress
 		var exResults []models.NodeProgress
@@ -414,24 +414,24 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	var totalDefs int64
 	var totalExs int64
 	
-	d.db.Model(&models.Definition{}).Where("domain_id = ?", domainID).Count(&totalDefs)
-	d.db.Model(&models.Exercise{}).Where("domain_id = ?", domainID).Count(&totalExs)
+    d.db.Model(&models.Definition{}).Where("domain_id = ?", domainID).Count(&totalDefs)
+    d.db.Model(&models.MetaExercise{}).Where("domain_id = ?", domainID).Count(&totalExs)
 	stats.TotalNodes = int(totalDefs + totalExs)
 	
 	// Count by status
-	statusQuery := `
-		SELECT 
-			COALESCE(unp.status, 'fresh') as status,
-			COUNT(*) as count
-		FROM (
-			SELECT id, 'definition' as type FROM definitions WHERE domain_id = ?
-			UNION ALL
-			SELECT id, 'exercise' as type FROM exercises WHERE domain_id = ?
-		) nodes
-		LEFT JOIN user_node_progress unp ON nodes.id = unp.node_id 
-			AND nodes.type = unp.node_type AND unp.user_id = ?
-		GROUP BY COALESCE(unp.status, 'fresh')
-	`
+    statusQuery := `
+        SELECT 
+            COALESCE(unp.status, 'fresh') as status,
+            COUNT(*) as count
+        FROM (
+            SELECT id, 'definition' as type FROM definitions WHERE domain_id = ?
+            UNION ALL
+            SELECT id, 'exercise' as type FROM meta_exercises WHERE domain_id = ?
+        ) nodes
+        LEFT JOIN user_node_progress unp ON nodes.id = unp.node_id 
+            AND nodes.type = unp.node_type AND unp.user_id = ?
+        GROUP BY COALESCE(unp.status, 'fresh')
+    `
 	
 	type statusCount struct {
 		Status string
@@ -457,21 +457,21 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	}
 	
 	// Count due reviews
-	dueQuery := `
-		SELECT COUNT(*) FROM (
-			SELECT d.id FROM definitions d
-			JOIN user_node_progress unp ON d.id = unp.node_id 
-				AND unp.node_type = 'definition' AND unp.user_id = ?
-			WHERE d.domain_id = ? AND unp.status = 'grasped' 
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-			UNION ALL
-			SELECT e.id FROM exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id 
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped' 
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		) due_nodes
-	`
+    dueQuery := `
+        SELECT COUNT(*) FROM (
+            SELECT d.id FROM definitions d
+            JOIN user_node_progress unp ON d.id = unp.node_id 
+                AND unp.node_type = 'definition' AND unp.user_id = ?
+            WHERE d.domain_id = ? AND unp.status = 'grasped' 
+                AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+            UNION ALL
+            SELECT e.id FROM meta_exercises e
+            JOIN user_node_progress unp ON e.id = unp.node_id 
+                AND unp.node_type = 'exercise' AND unp.user_id = ?
+            WHERE e.domain_id = ? AND unp.status = 'grasped' 
+                AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+        ) due_nodes
+    `
 	
 	var dueCount int64
 	if err := d.db.Raw(dueQuery, userID, domainID, userID, domainID).Count(&dueCount).Error; err != nil {
@@ -480,16 +480,16 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	stats.DueReviews = int(dueCount)
 	
 	// Count completed today
-	todayQuery := `
-		SELECT COUNT(*) FROM review_history
-		WHERE user_id = ? AND DATE(review_time) = CURRENT_DATE
-			AND review_type = 'explicit'
-			AND (node_id, node_type) IN (
-				SELECT id, 'definition' FROM definitions WHERE domain_id = ?
-				UNION ALL
-				SELECT id, 'exercise' FROM exercises WHERE domain_id = ?
-			)
-	`
+    todayQuery := `
+        SELECT COUNT(*) FROM review_history
+        WHERE user_id = ? AND DATE(review_time) = CURRENT_DATE
+            AND review_type = 'explicit'
+            AND (node_id, node_type) IN (
+                SELECT id, 'definition' FROM definitions WHERE domain_id = ?
+                UNION ALL
+                SELECT id, 'exercise' FROM meta_exercises WHERE domain_id = ?
+            )
+    `
 	
 	var todayCount int64
 	if err := d.db.Raw(todayQuery, userID, domainID, domainID).Count(&todayCount).Error; err != nil {
@@ -498,18 +498,18 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	stats.CompletedToday = int(todayCount)
 	
 	// Calculate success rate
-	successQuery := `
-		SELECT 
-			COUNT(*) as total,
-			COUNT(CASE WHEN success THEN 1 END) as successful
-		FROM review_history
-		WHERE user_id = ? AND review_type = 'explicit'
-			AND (node_id, node_type) IN (
-				SELECT id, 'definition' FROM definitions WHERE domain_id = ?
-				UNION ALL
-				SELECT id, 'exercise' FROM exercises WHERE domain_id = ?
-			)
-	`
+    successQuery := `
+        SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN success THEN 1 END) as successful
+        FROM review_history
+        WHERE user_id = ? AND review_type = 'explicit'
+            AND (node_id, node_type) IN (
+                SELECT id, 'definition' FROM definitions WHERE domain_id = ?
+                UNION ALL
+                SELECT id, 'exercise' FROM meta_exercises WHERE domain_id = ?
+            )
+    `
 	
 	var successStats struct {
 		Total      int64

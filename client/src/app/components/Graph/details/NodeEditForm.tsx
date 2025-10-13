@@ -302,7 +302,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
       </div>
 
       <div className="flex justify-end space-x-2 pt-2 border-t mt-4">
-        <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button variant="outline" size="sm" onClick={onCancel}>Back to Details</Button>
         <Button
           size="sm"
           onClick={() => {

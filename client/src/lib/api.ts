@@ -96,6 +96,34 @@ export interface Exercise {
   prerequisiteWeights?: Record<string, number>; // ADDED: weights for each prerequisite
 }
 
+// New: Meta-exercise (pool) and version types
+export interface ExerciseVersion {
+  id: number;
+  statement: string;
+  description?: string;
+  notes?: string;
+  hints?: string;
+  verifiable?: boolean;
+  result?: string;
+  difficulty?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaExercise {
+  id: number;
+  code: string;
+  name: string;
+  domainId: number;
+  ownerId: number;
+  xPosition?: number;
+  yPosition?: number;
+  prerequisites?: string[];
+  prerequisiteWeights?: Record<string, number>;
+  versionCount: number;
+  versions?: ExerciseVersion[];
+}
+
 // Updated DefinitionRequest interface
 export interface DefinitionRequest {
   code: string;
@@ -202,7 +230,7 @@ export interface DomainExportData {
       yPosition?: number;
     };
   };
-  exercises: {
+  exercises?: {
     [key: string]: {
       code: string;
       name: string;
@@ -216,6 +244,25 @@ export interface DomainExportData {
       prerequisiteWeights?: Record<string, number>;
       xPosition?: number;
       yPosition?: number;
+    };
+  };
+  metaExercises?: {
+    [key: string]: {
+      code: string;
+      name: string;
+      prerequisites?: string[];
+      prerequisiteWeights?: Record<string, number>;
+      xPosition?: number;
+      yPosition?: number;
+      versions: Array<{
+        statement: string;
+        description?: string;
+        hints?: string;
+        verifiable?: boolean;
+        result?: string;
+        difficulty?: number;
+        notes?: string;
+      }>;
     };
   };
 }
@@ -705,6 +752,56 @@ export const getDomainExercises = async (domainId: number): Promise<Exercise[]> 
   return handleResponse(response);
 };
 
+// New: Meta-exercises API
+export const getDomainMetaExercises = async (domainId: number): Promise<MetaExercise[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, { headers: getAuthHeaders() });
+  return handleResponse(response);
+};
+
+export const createMetaExercise = async (domainId: number, data: {
+  code: string; name: string; xPosition?: number; yPosition?: number;
+  prerequisiteIds?: number[]; prerequisiteWeights?: Record<number, number>;
+  initialVersion?: { statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number };
+}): Promise<MetaExercise> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, {
+    method: 'POST',
+    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+export const getMetaExercise = async (id: number): Promise<MetaExercise> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${id}`, { headers: getAuthHeaders() });
+  return handleResponse(response);
+};
+
+export const addMetaExerciseVersion = async (metaId: number, version: {
+  statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number;
+}): Promise<ExerciseVersion> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions`, {
+    method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(version)
+  });
+  return handleResponse(response);
+};
+
+export const updateMetaExerciseVersion = async (metaId: number, versionId: number, version: Partial<ExerciseVersion>): Promise<ExerciseVersion> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions/${versionId}`, {
+    method: 'PUT', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(version)
+  });
+  return handleResponse(response);
+};
+
+export const deleteMetaExerciseVersion = async (metaId: number, versionId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions/${versionId}`, { method: 'DELETE', headers: getAuthHeaders() });
+  return handleResponse(response);
+};
+
+export const getNextMetaExerciseVersion = async (metaId: number): Promise<ExerciseVersion & { code?: string; name?: string }> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/next-version`, { headers: getAuthHeaders() });
+  return handleResponse(response);
+};
+
 export const createExercise = async (domainId: number, exercise: ExerciseRequest): Promise<Exercise> => {
   const exerciseData = { ...exercise };
   const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
@@ -947,7 +1044,7 @@ export const importDomain = async (domainId: number, graphData: GraphData): Prom
  * @returns Promise resolving to the export data
  */
 export const exportDomainAsJson = async (domainId: number): Promise<DomainExportData> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/export`, {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/export-data`, {
     headers: getAuthHeaders(),
   });
   
@@ -1057,17 +1154,18 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
           const text = e.target?.result as string;
           const rawData = JSON.parse(text);
           
-          // Basic validation
-          if (!rawData.definitions || !rawData.exercises) {
-            reject(new Error('Invalid JSON format: missing definitions or exercises'));
+          // Basic validation (accepts metaExercises or exercises)
+          if (!rawData.definitions || ( !rawData.exercises && !rawData.metaExercises )) {
+            reject(new Error('Invalid JSON format: missing definitions and either exercises or metaExercises'));
             return;
           }
           
           // STANDARDIZE THE DATA FORMAT
           const standardizedData: DomainExportData = {
             definitions: {},
-            exercises: {}
-          };
+            exercises: undefined,
+            metaExercises: undefined,
+          } as any;
           
           // Process definitions - ensure description is always an array and carry weights
           for (const [key, def] of Object.entries(rawData.definitions || {})) {
@@ -1101,35 +1199,53 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
             };
           }
           
-          // Process exercises - ensure difficulty is a number and carry weights
-          for (const [key, ex] of Object.entries(rawData.exercises || {})) {
-            const exercise = ex as any;
-            let difficulty: number = 3; // Default
-            
-            if (typeof exercise.difficulty === 'number') {
-              difficulty = exercise.difficulty;
-            } else if (typeof exercise.difficulty === 'string') {
-              const parsed = parseInt(exercise.difficulty, 10);
-              if (!isNaN(parsed) && parsed >= 1 && parsed <= 7) {
-                difficulty = parsed;
-              }
+          if (rawData.metaExercises && typeof rawData.metaExercises === 'object') {
+            // Prefer metaExercises if provided
+            standardizedData.metaExercises = {};
+            for (const [key, me] of Object.entries(rawData.metaExercises || {})) {
+              const node = me as any;
+              const vlist: any[] = Array.isArray(node.versions) ? node.versions : [];
+              standardizedData.metaExercises[key] = {
+                code: node.code || key,
+                name: node.name || 'Unnamed',
+                prerequisites: Array.isArray(node.prerequisites) ? node.prerequisites : [],
+                prerequisiteWeights: (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') ? node.prerequisiteWeights : undefined,
+                xPosition: Number(node.xPosition) || 0,
+                yPosition: Number(node.yPosition) || 0,
+                versions: vlist.map((vv: any) => ({
+                  statement: vv.statement || 'No statement',
+                  description: vv.description || '',
+                  hints: vv.hints || '',
+                  verifiable: Boolean(vv.verifiable),
+                  result: vv.result || '',
+                  difficulty: typeof vv.difficulty === 'number' ? vv.difficulty : (parseInt(vv.difficulty, 10) || 3),
+                  notes: vv.notes || '',
+                }))
+              };
             }
-            
-            const exWeights = (exercise.prerequisiteWeights && typeof exercise.prerequisiteWeights === 'object') ? exercise.prerequisiteWeights as Record<string, number> : undefined;
-            standardizedData.exercises[key] = {
-              code: exercise.code || key,
-              name: exercise.name || 'Unnamed',
-              statement: exercise.statement || 'No statement',
-              description: exercise.description || '',
-              hints: exercise.hints || '',
-              difficulty: difficulty, // Always number
-              verifiable: Boolean(exercise.verifiable),
-              result: exercise.result || '',
-              prerequisites: Array.isArray(exercise.prerequisites) ? exercise.prerequisites : [],
-              prerequisiteWeights: exWeights,
-              xPosition: Number(exercise.xPosition) || 0,
-              yPosition: Number(exercise.yPosition) || 0,
-            };
+          } else {
+            // Legacy flat exercises
+            standardizedData.exercises = {};
+            for (const [key, ex] of Object.entries(rawData.exercises || {})) {
+              const exercise = ex as any;
+              let difficulty: number = 3; // Default
+              if (typeof exercise.difficulty === 'number') difficulty = exercise.difficulty; else if (typeof exercise.difficulty === 'string') { const parsed = parseInt(exercise.difficulty, 10); if (!isNaN(parsed) && parsed >= 1 && parsed <= 7) difficulty = parsed; }
+              const exWeights = (exercise.prerequisiteWeights && typeof exercise.prerequisiteWeights === 'object') ? exercise.prerequisiteWeights as Record<string, number> : undefined;
+              (standardizedData.exercises as any)[key] = {
+                code: exercise.code || key,
+                name: exercise.name || 'Unnamed',
+                statement: exercise.statement || 'No statement',
+                description: exercise.description || '',
+                hints: exercise.hints || '',
+                difficulty,
+                verifiable: Boolean(exercise.verifiable),
+                result: exercise.result || '',
+                prerequisites: Array.isArray(exercise.prerequisites) ? exercise.prerequisites : [],
+                prerequisiteWeights: exWeights,
+                xPosition: Number(exercise.xPosition) || 0,
+                yPosition: Number(exercise.yPosition) || 0,
+              };
+            }
           }
           
           resolve(standardizedData);
@@ -1166,8 +1282,8 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
     errors.push('Missing or invalid definitions object');
   }
   
-  if (!data.exercises || typeof data.exercises !== 'object') {
-    errors.push('Missing or invalid exercises object');
+  if ((!data.exercises || typeof data.exercises !== 'object') && (!data.metaExercises || typeof data.metaExercises !== 'object')) {
+    errors.push('Missing exercises or metaExercises object');
   }
   
   // Validate definitions structure
@@ -1203,21 +1319,43 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
       }
     }
   }
+  // Build known code sets for cross-reference
+  const knownDefCodes = new Set<string>(Object.values<any>(data.definitions || {}).map((d: any) => d.code || ''));
+  const knownMetaCodes = new Set<string>(Object.values<any>(data.metaExercises || {}).map((m: any) => m.code || ''));
   
-  // Validate exercises structure
-  if (data.exercises) {
+  // Validate metaExercises or legacy exercises
+  if (data.metaExercises) {
+    for (const [key, node] of Object.entries<any>(data.metaExercises)) {
+      if (!node.code || !node.name) {
+        errors.push(`Meta-exercise ${key} is missing required fields (code, name)`);
+      }
+      if (!Array.isArray(node.versions) || node.versions.length === 0) {
+        errors.push(`Meta-exercise ${key} has no versions`);
+      }
+      if (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') {
+        for (const [pcode, w] of Object.entries(node.prerequisiteWeights)) {
+          const wn = Number(w);
+          if (isNaN(wn) || wn <= 0 || wn > 1) {
+            errors.push(`Meta-exercise ${key} has invalid weight for prerequisite ${pcode} (must be 0 < w <= 1)`);
+          }
+        }
+      }
+      // Cross-check prerequisite codes exist in definitions or metaExercises
+      const pre: string[] = Array.isArray(node.prerequisites) ? node.prerequisites : [];
+      pre.forEach((p) => {
+        if (!knownDefCodes.has(p) && !knownMetaCodes.has(p)) {
+          errors.push(`Meta-exercise ${key} references unknown prerequisite code: ${p}`);
+        }
+      });
+    }
+  } else if (data.exercises) {
     for (const [key, ex] of Object.entries(data.exercises)) {
       const exercise = ex as any;
       if (!exercise.code || !exercise.name || !exercise.statement) {
         errors.push(`Exercise ${key} is missing required fields (code, name, statement)`);
       }
-      
-      // Validate difficulty if present
       if (exercise.difficulty !== undefined) {
-        const difficulty = typeof exercise.difficulty === 'number' ? 
-          exercise.difficulty : 
-          parseInt(exercise.difficulty, 10);
-        
+        const difficulty = typeof exercise.difficulty === 'number' ? exercise.difficulty : parseInt(exercise.difficulty, 10);
         if (isNaN(difficulty) || difficulty < 1 || difficulty > 7) {
           errors.push(`Exercise ${key} has invalid difficulty (must be 1-7)`);
         }
@@ -1230,6 +1368,13 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
           }
         }
       }
+      // Cross-check prerequisite codes exist in definitions (legacy shape only supports defs)
+      const pre: string[] = Array.isArray((ex as any).prerequisites) ? (ex as any).prerequisites : [];
+      pre.forEach((p) => {
+        if (!knownDefCodes.has(p)) {
+          errors.push(`Exercise ${key} references unknown prerequisite code: ${p}`);
+        }
+      });
     }
   }
   

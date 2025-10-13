@@ -115,12 +115,13 @@ func (ReviewHistory) TableName() string {
 
 // Review request/response models
 type ReviewRequest struct {
-	NodeID      uint   `json:"nodeId" binding:"required"`
-	NodeType    string `json:"nodeType" binding:"required"`
-	Success     bool   `json:"success"`
-	Quality     int    `json:"quality" binding:"min=0,max=5"`
-	TimeTaken   int    `json:"timeTaken"` // in seconds
-	SessionID   *uint  `json:"sessionId"`
+    NodeID      uint   `json:"nodeId" binding:"required"`
+    NodeType    string `json:"nodeType" binding:"required"`
+    Success     bool   `json:"success"`
+    Quality     int    `json:"quality" binding:"min=0,max=5"`
+    TimeTaken   int    `json:"timeTaken"` // in seconds
+    SessionID   *uint  `json:"sessionId"`
+    VersionID   *uint  `json:"versionId,omitempty"` // For meta_exercise reviews, the concrete version used
 }
 
 type ReviewResponse struct {

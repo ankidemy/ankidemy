@@ -1,0 +1,135 @@
+package handlers
+
+import (
+    "net/http"
+    "strconv"
+    "github.com/gin-gonic/gin"
+    "myapp/server/dao"
+    "myapp/server/models"
+    "myapp/server/services"
+)
+
+type MetaExerciseHandler struct{
+    metaDAO *dao.MetaExerciseDAO
+    domainDAO *dao.DomainDAO
+    service *services.MetaExerciseService
+}
+
+func NewMetaExerciseHandler(dbDao *dao.MetaExerciseDAO, domainDAO *dao.DomainDAO, svc *services.MetaExerciseService) *MetaExerciseHandler {
+    return &MetaExerciseHandler{ metaDAO: dbDao, domainDAO: domainDAO, service: svc }
+}
+
+// POST /api/domains/:id/meta-exercises
+func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
+    domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid domain ID"}); return }
+    domain, err := h.domainDAO.FindByID(uint(domainID64))
+    if err != nil { c.JSON(http.StatusNotFound, gin.H{"error":"Domain not found"}); return }
+    userIDv, ok := c.Get("userID"); if !ok || userIDv.(uint) != domain.OwnerID { c.JSON(http.StatusForbidden, gin.H{"error":"Not allowed"}); return }
+
+    var req models.MetaExerciseRequest
+    if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+
+    meta := &models.MetaExercise{ Code: req.Code, Name: req.Name, DomainID: uint(domainID64), OwnerID: userIDv.(uint), XPosition: req.XPosition, YPosition: req.YPosition }
+    if err := h.metaDAO.Create(meta, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to create meta exercise"}); return }
+
+    // Optional initial version
+    if req.InitialVersion != nil {
+        _, _ = h.metaDAO.AddVersion(meta.ID, &models.ExerciseVersionRequest{
+            Statement: req.InitialVersion.Statement,
+            Description: req.InitialVersion.Description,
+            Notes: req.InitialVersion.Notes,
+            Hints: req.InitialVersion.Hints,
+            Verifiable: req.InitialVersion.Verifiable,
+            Result: req.InitialVersion.Result,
+            Difficulty: req.InitialVersion.Difficulty,
+        })
+    }
+
+    _, versions, _ := h.metaDAO.FindByID(meta.ID)
+    resp, _ := h.metaDAO.ConvertToResponse(meta, versions, true)
+    c.JSON(http.StatusCreated, resp)
+}
+
+// GET /api/meta-exercises/:id
+func (h *MetaExerciseHandler) GetMetaExercise(c *gin.Context) {
+    id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid ID"}); return }
+    meta, versions, err := h.metaDAO.FindByID(uint(id64))
+    if err != nil { c.JSON(http.StatusNotFound, gin.H{"error":"Not found"}); return }
+    resp, _ := h.metaDAO.ConvertToResponse(meta, versions, true)
+    c.JSON(http.StatusOK, resp)
+}
+
+// GET /api/domains/:id/meta-exercises
+func (h *MetaExerciseHandler) GetDomainMetaExercises(c *gin.Context) {
+    id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid domain ID"}); return }
+    metas, err := h.metaDAO.GetByDomainID(uint(id64))
+    if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed"}); return }
+    // return without versions for lightweight mapping
+    resps := make([]models.MetaExerciseResponse, 0, len(metas))
+    for i := range metas {
+        r, _ := h.metaDAO.ConvertToResponse(&metas[i], nil, false)
+        resps = append(resps, r)
+    }
+    c.JSON(http.StatusOK, resps)
+}
+
+// POST /api/meta-exercises/:id/versions
+func (h *MetaExerciseHandler) AddVersion(c *gin.Context) {
+    id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid ID"}); return }
+    var req models.ExerciseVersionRequest
+    if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+    v, err := h.metaDAO.AddVersion(uint(id64), &req)
+    if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to add version"}); return }
+    c.JSON(http.StatusCreated, v)
+}
+
+// PUT /api/meta-exercises/:id/versions/:versionId
+func (h *MetaExerciseHandler) UpdateVersion(c *gin.Context) {
+    vid, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid version ID"}); return }
+    var req models.ExerciseVersionRequest
+    if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+    v, err := h.metaDAO.UpdateVersion(uint(vid), &req)
+    if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to update version"}); return }
+    c.JSON(http.StatusOK, v)
+}
+
+// DELETE /api/meta-exercises/:id/versions/:versionId
+func (h *MetaExerciseHandler) DeleteVersion(c *gin.Context) {
+    vid, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid version ID"}); return }
+    if err := h.metaDAO.DeleteVersion(uint(vid)); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to delete"}); return }
+    c.JSON(http.StatusOK, gin.H{"message":"Version deleted"})
+}
+
+// GET /api/meta-exercises/:id/next-version
+func (h *MetaExerciseHandler) GetNextVersion(c *gin.Context) {
+    id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid ID"}); return }
+    uid, ok := c.Get("userID"); if !ok { c.JSON(http.StatusUnauthorized, gin.H{"error":"Unauthorized"}); return }
+    v, err := h.service.SuggestVersion(uid.(uint), uint(id64))
+    if err != nil { c.JSON(http.StatusNotFound, gin.H{"error": err.Error()}); return }
+    c.JSON(http.StatusOK, models.ExerciseResponse{
+        ID: v.ID,
+        Code: v.Code,
+        Name: v.Name,
+        Statement: v.Statement,
+        Description: v.Description,
+        Notes: v.Notes,
+        Hints: v.Hints,
+        DomainID: v.DomainID,
+        OwnerID: v.OwnerID,
+        Verifiable: v.Verifiable,
+        Result: v.Result,
+        Difficulty: v.Difficulty,
+        XPosition: v.XPosition,
+        YPosition: v.YPosition,
+        CreatedAt: v.CreatedAt,
+        UpdatedAt: v.UpdatedAt,
+    })
+}
+

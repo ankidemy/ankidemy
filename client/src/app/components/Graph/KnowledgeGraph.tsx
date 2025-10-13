@@ -18,7 +18,7 @@ import {
   Definition as ApiDefinition,
   Exercise as ApiExercise,
   getDomainDefinitions,
-  getDomainExercises,
+  getDomainMetaExercises,
   getDomain,
   enrollInDomain,
   getEnrolledDomains,
@@ -554,9 +554,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     try {
       console.log("Loading comprehensive domain data for:", domainId);
       
-      const [allDefinitions, allExercises] = await Promise.all([
+      const [allDefinitions, allMetaExercises] = await Promise.all([
         getDomainDefinitions(domainId).catch(err => { console.warn("Failed to load definitions:", err); return []; }),
-        getDomainExercises(domainId).catch(err => { console.warn("Failed to load exercises:", err); return []; })
+        // Use meta-exercises (pools) as exercise nodes in the graph
+        getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; })
       ]);
       
       const newCodeToNumericIdMap = new Map<string, number>();
@@ -569,7 +570,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         }
       });
       
-      allExercises.forEach(ex => {
+      (allMetaExercises as any[]).forEach((ex: any) => {
         if (ex?.code && typeof ex.id === 'number') {
           newCodeToNumericIdMap.set(ex.code, ex.id);
           newNodeDataCache.set(ex.code, ex);
@@ -588,13 +589,25 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         };
       });
       
-      allExercises.forEach(ex => {
-        newExercises[ex.code] = { 
-          ...ex, 
+      (allMetaExercises as any[]).forEach((ex: any) => {
+        newExercises[ex.code] = {
+          code: ex.code,
+          name: ex.name,
+          statement: '',
+          description: '',
+          notes: '',
+          hints: '',
+          difficulty: undefined,
+          domainId: ex.domainId,
+          verifiable: false,
+          result: '',
+          prerequisites: ex.prerequisites || [],
+          prerequisiteWeights: ex.prerequisiteWeights || (ex.prerequisites ? Object.fromEntries(ex.prerequisites.map((p: string) => [p, 1.0])) : {}),
+          xPosition: ex.xPosition,
+          yPosition: ex.yPosition,
           type: 'exercise',
-          prerequisiteWeights: ex.prerequisiteWeights || 
-            (ex.prerequisites ? Object.fromEntries(ex.prerequisites.map(p => [p, 1.0])) : {})
-        };
+          id: ex.id,
+        } as any;
       });
       
       setCodeToNumericIdMap(newCodeToNumericIdMap);

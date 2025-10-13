@@ -105,25 +105,36 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		return
 	}
 
-	// Create exercise
-	exercise := &models.Exercise{
-		Code:        req.Code,
-		Name:        req.Name,
-		Statement:   req.Statement,
-		Description: req.Description,
-		Notes:       req.Notes,
-		Hints:       req.Hints,
-		DomainID:    uint(domainID),
-		OwnerID:     userID.(uint),
-		Verifiable:  req.Verifiable,
-		Result:      req.Result,
-		Difficulty:  req.Difficulty,
-		XPosition:   req.XPosition,
-		YPosition:   req.YPosition,
-	}
+    // Create exercise version under an existing meta_exercise if provided
+    if req.MetaExerciseID == 0 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "metaExerciseId is required to create an exercise version"})
+        return
+    }
+    // Mirror code/name from meta (best-effort)
+    var meta models.MetaExercise
+    if err := h.domainDAO.DB().First(&meta, req.MetaExerciseID).Error; err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid metaExerciseId"})
+        return
+    }
+    exercise := &models.Exercise{
+        Code:        meta.Code,
+        Name:        meta.Name,
+        Statement:   req.Statement,
+        Description: req.Description,
+        Notes:       req.Notes,
+        Hints:       req.Hints,
+        DomainID:    meta.DomainID,
+        OwnerID:     userID.(uint),
+        MetaExerciseID: meta.ID,
+        Verifiable:  req.Verifiable,
+        Result:      req.Result,
+        Difficulty:  req.Difficulty,
+        XPosition:   meta.XPosition,
+        YPosition:   meta.YPosition,
+    }
 
-    if err := h.exerciseDAO.Create(exercise, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exercise"})
+    if err := h.domainDAO.DB().Create(exercise).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exercise version"})
         return
     }
 
@@ -233,9 +244,7 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 	if req.YPosition != 0 {
 		exercise.YPosition = req.YPosition
 	}
-	if req.Code != "" {
-		exercise.Code = req.Code
-	}
+    // Code/Name mirror meta; ignore direct changes
 	exercise.Verifiable = req.Verifiable
 
 	// Update exercise

@@ -4,9 +4,9 @@ import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import {
   createDefinition,
-  createExercise,
+  createMetaExercise,
+  addMetaExerciseVersion,
   DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
-  ExerciseRequest,
   Definition as ApiDefinition,
   Exercise as ApiExercise
 } from '@/lib/api';
@@ -46,6 +46,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [difficulty, setDifficulty] = useState('3');
   const [verifiable, setVerifiable] = useState(false);
   const [result, setResult] = useState('');
+  // Additional versions for meta-exercise creation
+  const [extraVersions, setExtraVersions] = useState<Array<{ statement: string; description?: string; hints?: string; notes?: string; difficulty?: number; verifiable?: boolean; result?: string }>>([]);
   const [selectedPrereqNumericIds, setSelectedPrereqNumericIds] = useState<number[]>([]); // Store numeric IDs
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,25 +128,29 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         const response = await createDefinition(domainId, definitionData);
         onSuccess(response.code, response);
       } else {
-        if (!statement.trim()) throw new Error('Statement is required for exercises');
-        const exerciseData: ExerciseRequest = {
+        if (!statement.trim()) throw new Error('Statement is required for the initial version');
+        const response = await createMetaExercise(domainId, {
           code: code.trim(),
           name: name.trim(),
-          statement: statement.trim(),
-          description: description.trim() || undefined, // Solution
-          notes: notes.trim() || undefined,
-          hints: hints.trim() || undefined,
-          domainId,
-          difficulty: parseInt(difficulty, 10),
-          verifiable,
-          result: verifiable ? (result.trim() || undefined) : undefined,
+          xPosition: position?.x,
+          yPosition: position?.y,
           prerequisiteIds: selectedPrereqNumericIds,
           prerequisiteWeights: prerequisiteWeightsToSend,
-          xPosition: position?.x,
-          yPosition: position?.y
-        };
-        const response = await createExercise(domainId, exerciseData);
-        onSuccess(response.code, response);
+          initialVersion: {
+            statement: statement.trim(),
+            description: description.trim() || undefined,
+            notes: notes.trim() || undefined,
+            hints: hints.trim() || undefined,
+            difficulty: parseInt(difficulty, 10) || 3,
+            verifiable,
+            result: verifiable ? (result.trim() || undefined) : undefined,
+          }
+        });
+        // Add extra versions, if any
+        for (const v of extraVersions) {
+          await addMetaExerciseVersion((response as any).id, v);
+        }
+        onSuccess(response.code, response as any);
       }
       onClose();
     } catch (err: any) {
@@ -193,6 +199,47 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Derivative Definition" required disabled={isSubmitting} className="text-sm"/>
             </div>
           </div>
+          {type === 'exercise' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Additional Versions</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => setExtraVersions(v => [...v, { statement: '' }])} disabled={isSubmitting}>Add Another Version</Button>
+              </div>
+              {extraVersions.map((v, idx) => (
+                <div key={`extra-v-${idx}`} className="p-2 border rounded">
+                  <label className="block text-xs font-medium mb-1 text-gray-600">Statement</label>
+                  <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.statement} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], statement: e.target.value }; return copy; })} />
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-gray-600">Solution</label>
+                      <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.description || ''} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], description: e.target.value }; return copy; })} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-gray-600">Hints</label>
+                      <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.hints || ''} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], hints: e.target.value }; return copy; })} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-gray-600">Difficulty</label>
+                      <Input type="number" min={1} max={7} value={String(v.difficulty ?? 3)} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], difficulty: parseInt(e.target.value,10) || 3 }; return copy; })} />
+                    </div>
+                    <div className="flex items-center mt-5">
+                      <input type="checkbox" className="mr-2" checked={!!v.verifiable} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], verifiable: e.target.checked }; return copy; })} />
+                      <span className="text-xs text-gray-600">Verifiable</span>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-gray-600">Expected Result</label>
+                      <Input value={v.result || ''} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], result: e.target.value }; return copy; })} />
+                    </div>
+                  </div>
+                  <div className="text-right mt-2">
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setExtraVersions(arr => arr.filter((_, i) => i !== idx))}>Remove</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {type === 'definition' ? (
             <>

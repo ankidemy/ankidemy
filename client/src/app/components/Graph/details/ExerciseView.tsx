@@ -24,6 +24,7 @@ interface ExerciseViewProps {
   onNavigateToNode: (nodeId: string) => void;
   availableDefinitions?: { code: string; name: string }[];
   srsStatus?: NodeStatus;
+  onAnotherVersion?: () => void;
 }
 
 const ExerciseView: React.FC<ExerciseViewProps> = ({
@@ -41,6 +42,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   onNavigateToNode,
   availableDefinitions = [],
   srsStatus,
+  onAnotherVersion,
 }) => {
   const [showNotes, setShowNotes] = useState(false);
   const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
@@ -168,6 +170,11 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
               </Button>
             ))}
           </div>
+          {onAnotherVersion && (
+            <div className="mt-2 flex justify-end">
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onAnotherVersion}>Another problem</Button>
+            </div>
+          )}
         </div>
       )}
 

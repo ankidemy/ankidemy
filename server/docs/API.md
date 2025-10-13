@@ -1225,19 +1225,19 @@ Nodes (definitions and exercises) can have the following statuses:
 - **URL**: `/srs/prerequisites`
 - **Method**: `POST`
 - **Auth Required**: Yes
-- **Description**: Create a manual prerequisite relationship
+- **Description**: Create or update a manual prerequisite relationship (upsert)
 - **Request Body**:
   ```json
   {
     "nodeId": "number (required)",
-    "nodeType": "string (required, definition|exercise)",
+    "nodeType": "string (required, definition|exercise|meta_exercise)",
     "prerequisiteId": "number (required)",
-    "prerequisiteType": "string (required, definition|exercise)",
+    "prerequisiteType": "string (required, definition|exercise|meta_exercise)",
     "weight": "number (required, 0-1)",
     "isManual": "boolean (required)"
   }
   ```
-- **Response**: `201 Created`
+- **Response**: `201 Created` (new link) or `200 OK` (existing link updated)
   ```json
   {
     "id": "number",
@@ -1286,6 +1286,23 @@ Nodes (definitions and exercises) can have the following statuses:
   ```json
   {
     "message": "Prerequisite deleted successfully"
+  }
+  ```
+
+#### Update Prerequisite
+
+- **URL**: `/srs/prerequisites/:prerequisiteId`
+- **Method**: `PUT`
+- **Auth Required**: Yes
+- **URL Parameters**: `prerequisiteId` - Prerequisite ID
+- **Request Body**:
+  ```json
+  { "weight": 0.75, "isManual": true }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "message": "Prerequisite updated"
   }
   ```
 
