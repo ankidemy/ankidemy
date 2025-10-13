@@ -1,15 +1,15 @@
 package services
 
 import (
-	"errors"
-	"fmt"
-	"time"
-  "math"
-  "log"
-  "strings"
-	"myapp/server/dao"
-	"myapp/server/models"
-	"gorm.io/gorm"
+    "errors"
+    "fmt"
+    "time"
+    "math"
+    "log"
+    "strings"
+    "myapp/server/dao"
+    "myapp/server/models"
+    "gorm.io/gorm"
 )
 
 // SRSService is the main service for spaced repetition functionality
@@ -30,6 +30,23 @@ func NewSRSService(db *gorm.DB) *SRSService {
 		creditService:       NewCreditPropagationService(),
 		optimizationService: NewReviewOptimizationService(),
 	}
+}
+
+// normalize types for different subsystems
+// Progress table stores meta-exercises under 'exercise' for legacy compatibility
+func toProgressType(t string) string {
+    if t == "meta_exercise" {
+        return "exercise"
+    }
+    return t
+}
+
+// Graph (prerequisites) uses 'meta_exercise' as the node type for exercise pools
+func toGraphType(t string) string {
+    if t == "exercise" {
+        return "meta_exercise"
+    }
+    return t
 }
 
 // SubmitReview processes an explicit review and handles credit propagation
@@ -165,8 +182,11 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
 
     for _, key := range order {
         credit := dedup[key]
+        // Normalize node type for progress table lookups/writes
+        normType := toProgressType(credit.NodeType)
+
         // Get or create progress
-        progress, err := srsDao.GetUserProgress(userID, credit.NodeID, credit.NodeType)
+        progress, err := srsDao.GetUserProgress(userID, credit.NodeID, normType)
         if err != nil {
             return nil, err
         }
@@ -181,7 +201,7 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
             progress = &models.UserNodeProgress{
                 UserID:            userID,
                 NodeID:            credit.NodeID,
-                NodeType:          credit.NodeType,
+                NodeType:          normType,
                 Status:            "grasped",
                 EasinessFactor:    2.5,
                 IntervalDays:      0,
@@ -305,7 +325,7 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
 
 // UpdateNodeStatus updates a node's status and handles propagation
 func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string, status string) error {
-	tx := s.db.Begin()
+    tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -314,30 +334,33 @@ func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string,
 
 	srsDao := dao.NewSRSDao(tx)
 
-	// Get or create progress
-	progress, err := srsDao.GetUserProgress(userID, nodeID, nodeType)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
+    // Normalize type for progress table
+    normProgressType := toProgressType(nodeType)
+
+    // Get or create progress
+    progress, err := srsDao.GetUserProgress(userID, nodeID, normProgressType)
+    if err != nil {
+        tx.Rollback()
+        return err
+    }
 
 	if progress == nil {
-		progress = &models.UserNodeProgress{
-			UserID:            userID,
-			NodeID:            nodeID,
-			NodeType:          nodeType,
-			Status:            status,
-			EasinessFactor:    2.5,
-			IntervalDays:      0,
-			Repetitions:       0,
-			AccumulatedCredit: 0,
-			CreditPostponed:   false,
-			TotalReviews:      0,
-			SuccessfulReviews: 0,
-		}
-	} else {
-		progress.Status = status
-	}
+        progress = &models.UserNodeProgress{
+            UserID:            userID,
+            NodeID:            nodeID,
+            NodeType:          normProgressType,
+            Status:            status,
+            EasinessFactor:    2.5,
+            IntervalDays:      0,
+            Repetitions:       0,
+            AccumulatedCredit: 0,
+            CreditPostponed:   false,
+            TotalReviews:      0,
+            SuccessfulReviews: 0,
+        }
+    } else {
+        progress.Status = status
+    }
 
 	// Save the target node progress
 	if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
@@ -345,11 +368,12 @@ func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string,
 		return err
 	}
 
-	// Handle status propagation
-	if err := s.propagateStatus(tx, userID, nodeID, nodeType, status); err != nil {
-		tx.Rollback()
-		return err
-	}
+    // Handle status propagation (normalize to graph type for traversal)
+    graphType := toGraphType(nodeType)
+    if err := s.propagateStatus(tx, userID, nodeID, graphType, status); err != nil {
+        tx.Rollback()
+        return err
+    }
 
 	return tx.Commit().Error
 }
@@ -381,25 +405,19 @@ func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, node
 		dependentMap[prereqKey] = append(dependentMap[prereqKey], prereq)
 	}
 
-	switch status {
-	case "grasped":
-		// Recursively mark prerequisites as grasped if they're fresh/tackling
-		if err := s.propagateGrasped(tx, userID, nodeID, nodeType, prereqMap, make(map[string]bool)); err != nil {
-			return err
-		}
+    switch status {
+    case "grasped":
+        // Recursively mark prerequisites as grasped if they're fresh/tackling
+        if err := s.propagateGrasped(tx, userID, nodeID, nodeType, prereqMap, make(map[string]bool)); err != nil {
+            return err
+        }
 
-	case "tackling":
-		// Recursively mark dependents as tackling if they're fresh/grasped
-		if err := s.propagateTackling(tx, userID, nodeID, nodeType, dependentMap, make(map[string]bool)); err != nil {
-			return err
-		}
-
-	case "fresh":
-		// Recursively mark dependents as fresh if they were grasped
-		if err := s.propagateFresh(tx, userID, nodeID, nodeType, dependentMap, make(map[string]bool)); err != nil {
-			return err
-		}
-	}
+    case "tackling":
+        // Recursively mark dependents as tackling if they're fresh/grasped
+        if err := s.propagateTackling(tx, userID, nodeID, nodeType, dependentMap, make(map[string]bool)); err != nil {
+            return err
+        }
+    }
 
 	return nil
 }
@@ -418,31 +436,34 @@ func (s *SRSService) propagateGrasped(tx *gorm.DB, userID uint, nodeID uint, nod
 		return nil
 	}
 
-	for _, prereq := range prerequisites {
-		// Get current progress
-		progress, err := srsDao.GetUserProgress(userID, prereq.PrerequisiteID, prereq.PrerequisiteType)
-		if err != nil {
-			return err
-		}
+    for _, prereq := range prerequisites {
+        // Normalize type for progress storage
+        normType := toProgressType(prereq.PrerequisiteType)
+
+        // Get current progress
+        progress, err := srsDao.GetUserProgress(userID, prereq.PrerequisiteID, normType)
+        if err != nil {
+            return err
+        }
 
 		// Update status if it's fresh or tackling
-		if progress == nil {
-			progress = &models.UserNodeProgress{
-				UserID:            userID,
-				NodeID:            prereq.PrerequisiteID,
-				NodeType:          prereq.PrerequisiteType,
-				Status:            "grasped",
-				EasinessFactor:    2.5,
-				IntervalDays:      0,
-				Repetitions:       0,
-				AccumulatedCredit: 0,
-				CreditPostponed:   false,
-				TotalReviews:      0,
-				SuccessfulReviews: 0,
-			}
-		} else if progress.Status == "fresh" || progress.Status == "tackling" {
-			progress.Status = "grasped"
-		}
+        if progress == nil {
+            progress = &models.UserNodeProgress{
+                UserID:            userID,
+                NodeID:            prereq.PrerequisiteID,
+                NodeType:          normType,
+                Status:            "grasped",
+                EasinessFactor:    2.5,
+                IntervalDays:      0,
+                Repetitions:       0,
+                AccumulatedCredit: 0,
+                CreditPostponed:   false,
+                TotalReviews:      0,
+                SuccessfulReviews: 0,
+            }
+        } else if progress.Status == "fresh" || progress.Status == "tackling" {
+            progress.Status = "grasped"
+        }
 
 		if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
 			return err
@@ -471,31 +492,34 @@ func (s *SRSService) propagateTackling(tx *gorm.DB, userID uint, nodeID uint, no
 		return nil
 	}
 
-	for _, dep := range dependents {
-		// Get current progress
-		progress, err := srsDao.GetUserProgress(userID, dep.NodeID, dep.NodeType)
-		if err != nil {
-			return err
-		}
+    for _, dep := range dependents {
+        // Normalize type for progress storage
+        normType := toProgressType(dep.NodeType)
+
+        // Get current progress
+        progress, err := srsDao.GetUserProgress(userID, dep.NodeID, normType)
+        if err != nil {
+            return err
+        }
 
 		// Update status if it's fresh or grasped
-		if progress == nil {
-			progress = &models.UserNodeProgress{
-				UserID:            userID,
-				NodeID:            dep.NodeID,
-				NodeType:          dep.NodeType,
-				Status:            "tackling",
-				EasinessFactor:    2.5,
-				IntervalDays:      0,
-				Repetitions:       0,
-				AccumulatedCredit: 0,
-				CreditPostponed:   false,
-				TotalReviews:      0,
-				SuccessfulReviews: 0,
-			}
-		} else if progress.Status == "fresh" || progress.Status == "grasped" {
-			progress.Status = "tackling"
-		}
+        if progress == nil {
+            progress = &models.UserNodeProgress{
+                UserID:            userID,
+                NodeID:            dep.NodeID,
+                NodeType:          normType,
+                Status:            "tackling",
+                EasinessFactor:    2.5,
+                IntervalDays:      0,
+                Repetitions:       0,
+                AccumulatedCredit: 0,
+                CreditPostponed:   false,
+                TotalReviews:      0,
+                SuccessfulReviews: 0,
+            }
+        } else if progress.Status == "fresh" || progress.Status == "grasped" {
+            progress.Status = "tackling"
+        }
 
 		if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
 			return err
@@ -524,19 +548,22 @@ func (s *SRSService) propagateFresh(tx *gorm.DB, userID uint, nodeID uint, nodeT
 		return nil
 	}
 
-	for _, dep := range dependents {
-		// Get current progress
-		progress, err := srsDao.GetUserProgress(userID, dep.NodeID, dep.NodeType)
-		if err != nil {
-			return err
-		}
+    for _, dep := range dependents {
+        // Normalize type for progress storage
+        normType := toProgressType(dep.NodeType)
+
+        // Get current progress
+        progress, err := srsDao.GetUserProgress(userID, dep.NodeID, normType)
+        if err != nil {
+            return err
+        }
 
 		// Only update if it was grasped
 		if progress != nil && progress.Status == "grasped" {
-			progress.Status = "fresh"
-			if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-				return err
-			}
+            progress.Status = "fresh"
+            if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
+                return err
+            }
 
 			// Recursively propagate
 			if err := s.propagateFresh(tx, userID, dep.NodeID, dep.NodeType, dependentMap, visited); err != nil {

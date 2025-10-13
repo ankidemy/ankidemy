@@ -131,10 +131,21 @@ func (c *CreditPropagationService) PropagateCredit(
         Type:     "explicit",
     })
 
-    nodeKey := c.getNodeKey(reviewedNodeID, reviewedNodeType)
+    nodeType := reviewedNodeType
+    nodeKey := c.getNodeKey(reviewedNodeID, nodeType)
     startNode, exists := graph[nodeKey]
     if !exists {
-        return credits
+        // Fallback: treat 'exercise' and 'meta_exercise' as equivalent node kinds
+        if reviewedNodeType == "exercise" {
+            nodeType = "meta_exercise"
+        } else if reviewedNodeType == "meta_exercise" {
+            nodeType = "exercise"
+        }
+        nodeKey = c.getNodeKey(reviewedNodeID, nodeType)
+        startNode, exists = graph[nodeKey]
+        if !exists {
+            return credits
+        }
     }
 
     // Perform BFS-based propagation for implicit credits

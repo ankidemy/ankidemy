@@ -6,14 +6,14 @@ import (
 
 // NodePrerequisite represents a prerequisite relationship between nodes
 type NodePrerequisite struct {
-	ID               uint      `gorm:"primaryKey" json:"id"`
-	NodeID           uint      `gorm:"column:node_id;not null" json:"nodeId"`
-	NodeType         string    `gorm:"column:node_type;not null" json:"nodeType"` // 'definition' or 'exercise'
-	PrerequisiteID   uint      `gorm:"column:prerequisite_id;not null" json:"prerequisiteId"`
-	PrerequisiteType string    `gorm:"column:prerequisite_type;not null" json:"prerequisiteType"`
-	Weight           float64   `gorm:"column:weight;default:1.0" json:"weight"`
-	IsManual         bool      `gorm:"column:is_manual;default:false" json:"isManual"`
-	CreatedAt        time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+    ID               uint      `gorm:"primaryKey" json:"id"`
+    NodeID           uint      `gorm:"column:node_id;not null" json:"nodeId"`
+    NodeType         string    `gorm:"column:node_type;not null" json:"nodeType"` // 'definition', 'meta_exercise' (graph)
+    PrerequisiteID   uint      `gorm:"column:prerequisite_id;not null" json:"prerequisiteId"`
+    PrerequisiteType string    `gorm:"column:prerequisite_type;not null" json:"prerequisiteType"`
+    Weight           float64   `gorm:"column:weight;default:1.0" json:"weight"`
+    IsManual         bool      `gorm:"column:is_manual;default:false" json:"isManual"`
+    CreatedAt        time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 }
 
 func (NodePrerequisite) TableName() string {
