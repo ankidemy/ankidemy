@@ -1044,7 +1044,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast("Switching to Practice Mode to view exercise...", "info", 1500);
       changeMode('practice');
       setTimeout(() => {
-        const exData = currentStructuralGraphData.exercises[nodeId];
+        // Use optional access to satisfy strict builds when exercises may be undefined
+        const exData = currentStructuralGraphData.exercises?.[nodeId];
         if (exData) { 
           handleNodeClick({ id: exData.code, name: exData.name, type: 'exercise' } as GraphNode, false, context); 
         } else { 

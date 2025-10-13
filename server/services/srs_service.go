@@ -629,16 +629,24 @@ func (s *SRSService) updateSessionStats(tx *gorm.DB, sessionID uint, success boo
 }
 
 func (s *SRSService) recordSessionReview(tx *gorm.DB, request *models.ReviewRequest, reviewTime time.Time) error {
-	if request.SessionID == nil {
-		return nil
-	}
+    if request.SessionID == nil {
+        return nil
+    }
 
-	srsDao := dao.NewSRSDao(tx)
-	
+    srsDao := dao.NewSRSDao(tx)
+
+    // Normalize node type for session rows: treat meta_exercise as exercise,
+    // keep definition/exercise unchanged. This avoids CHECK constraint issues
+    // in environments where session_reviews still restricts node_type.
+    normalizedType := request.NodeType
+    if normalizedType == "meta_exercise" {
+        normalizedType = "exercise"
+    }
+
     sessionReview := &models.SessionReview{
         SessionID:     *request.SessionID,
         NodeID:        request.NodeID,
-        NodeType:      map[string]string{"meta_exercise":"exercise"}[request.NodeType] /* normalize */,
+        NodeType:      normalizedType,
         ReviewType:    "explicit",
         ReviewTime:    reviewTime,
         Success:       request.Success,
@@ -647,5 +655,5 @@ func (s *SRSService) recordSessionReview(tx *gorm.DB, request *models.ReviewRequ
         CreditApplied: 1.0,
     }
 
-	return srsDao.CreateSessionReview(sessionReview)
+    return srsDao.CreateSessionReview(sessionReview)
 }
