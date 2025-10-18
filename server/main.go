@@ -181,10 +181,12 @@ func main() {
 				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)
 				domains.PUT("/:id/graph/positions", graphHandler.UpdatePositions)
-				domains.GET("/:id/export", graphHandler.ExportDomain)
-				// ImportService import/export (round-trip compatible format)
-				domains.GET("/:id/export-data", domainHandler.ExportImportData)
-				// Import is handled by domainHandler.ImportToDomain above
+            domains.GET("/:id/export", graphHandler.ExportDomain)
+            // Optional: import GraphData (graph-only format) via a dedicated route
+            domains.POST("/:id/import-graph", graphHandler.ImportDomain)
+            // ImportService import/export (round-trip compatible format)
+            domains.GET("/:id/export-data", domainHandler.ExportImportData)
+            // Import is handled by domainHandler.ImportToDomain above
 			}
 
 			// Domain network routes (user-defined links between domains)
@@ -313,8 +315,17 @@ func runTestImportWithService(importService *services.ImportService, jsonFilePat
 		log.Fatalf("Failed to read import file: %v", err)
 	}
 
-	log.Printf("Successfully read import data with %d definitions and %d exercises", 
-		len(importData.Definitions), len(importData.Exercises))
+    // Report definitions, meta-exercises and total versions for clarity
+    metaCount := 0
+    versionCount := 0
+    if importData.MetaExercises != nil {
+        metaCount = len(importData.MetaExercises)
+        for _, me := range importData.MetaExercises {
+            versionCount += len(me.Versions)
+        }
+    }
+    log.Printf("Successfully read import data: definitions=%d, metaExercises=%d, versions=%d, legacyExercises=%d",
+        len(importData.Definitions), metaCount, versionCount, len(importData.Exercises))
 
 	// Get admin user
 	userDAO := dao.NewUserDAO(db)

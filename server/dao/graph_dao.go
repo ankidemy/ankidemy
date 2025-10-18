@@ -320,36 +320,39 @@ func (d *GraphDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[str
 
 // ImportDomain imports a domain from the graph format using clean DAOs
 func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		// Verify domain exists
-		var domain models.Domain
-		if err := tx.First(&domain, domainID).Error; err != nil {
-			return err
-		}
+    return d.db.Transaction(func(tx *gorm.DB) error {
+        // Verify domain exists
+        var domain models.Domain
+        if err := tx.First(&domain, domainID).Error; err != nil {
+            return err
+        }
+        
+        // Clear existing data for this domain
+        // Delete prerequisites first (definitions and meta_exercises)
+        if err := tx.Exec(`
+            DELETE FROM node_prerequisites 
+            WHERE (node_type = 'definition' AND node_id IN (SELECT id FROM definitions WHERE domain_id = ?))
+               OR (node_type = 'meta_exercise' AND node_id IN (SELECT id FROM meta_exercises WHERE domain_id = ?))
+        `, domainID, domainID).Error; err != nil {
+            return err
+        }
+
+        // Delete exercise versions then meta exercises
+        if err := tx.Where("domain_id = ?", domainID).Delete(&models.Exercise{}).Error; err != nil {
+            return err
+        }
+        if err := tx.Where("domain_id = ?", domainID).Delete(&models.MetaExercise{}).Error; err != nil {
+            return err
+        }
+
+        // Delete definitions (this will cascade delete references)
+        if err := tx.Where("domain_id = ?", domainID).Delete(&models.Definition{}).Error; err != nil {
+            return err
+        }
 		
-		// Clear existing data for this domain
-		// Delete prerequisites first
-		if err := tx.Exec(`
-			DELETE FROM node_prerequisites 
-			WHERE (node_type = 'definition' AND node_id IN (SELECT id FROM definitions WHERE domain_id = ?))
-			   OR (node_type = 'exercise' AND node_id IN (SELECT id FROM exercises WHERE domain_id = ?))
-		`, domainID, domainID).Error; err != nil {
-			return err
-		}
-		
-		// Delete exercises
-		if err := tx.Where("domain_id = ?", domainID).Delete(&models.Exercise{}).Error; err != nil {
-			return err
-		}
-		
-		// Delete definitions (this will cascade delete references)
-		if err := tx.Where("domain_id = ?", domainID).Delete(&models.Definition{}).Error; err != nil {
-			return err
-		}
-		
-		// Create DAOs for the transaction
-		definitionDAO := NewDefinitionDAO(tx)
-		exerciseDAO := NewExerciseDAO(tx)
+        // Create DAOs for the transaction
+        definitionDAO := NewDefinitionDAO(tx)
+        metaDAO := NewMetaExerciseDAO(tx)
 		
 		// Create definitions first - now working with code-based keys
 		definitions := make(map[string]*models.Definition)
@@ -405,31 +408,27 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			}
 		}
 		
-		// Create exercises - now working with code-based keys
-		for _, exNode := range data.Exercises {
-			ex := &models.Exercise{
-				Code:        exNode.Code,
-				Name:        exNode.Name,
-				Statement:   exNode.Statement,
-				Description: exNode.Description,
-				Hints:       exNode.Hints,
-				DomainID:    domainID,
-				OwnerID:     domain.OwnerID,
-				Verifiable:  exNode.Verifiable,
-				Result:      exNode.Result,
-				Difficulty:  exNode.Difficulty,
-				XPosition:   exNode.XPosition,
-				YPosition:   exNode.YPosition,
-			}
-			
-			// Add prerequisites using code matching
-			var prerequisiteIDs []uint
-			for _, prereqCode := range exNode.Prerequisites {
-				if prereqDef, exists := definitions[prereqCode]; exists {
-					prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
-				}
-			}
-			
+        // Create meta-exercise nodes from the exported "exercises" entries
+        // Note: Graph export uses meta_exercises as "exercises" without version details.
+        for _, exNode := range data.Exercises {
+            meta := &models.MetaExercise{
+                Code:      exNode.Code,
+                Name:      exNode.Name,
+                DomainID:  domainID,
+                OwnerID:   domain.OwnerID,
+                XPosition: exNode.XPosition,
+                YPosition: exNode.YPosition,
+            }
+
+            // Resolve prerequisites by code
+            var prerequisiteIDs []uint
+            for _, prereqCode := range exNode.Prerequisites {
+                if prereqDef, exists := definitions[prereqCode]; exists {
+                    prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
+                }
+            }
+
+            // Map code->weight to id->weight
             var idWeights map[uint]float64
             if len(exNode.PrerequisiteWeights) > 0 {
                 idWeights = make(map[uint]float64, len(exNode.PrerequisiteWeights))
@@ -440,10 +439,11 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
                     }
                 }
             }
-            if err := exerciseDAO.Create(ex, prerequisiteIDs, idWeights); err != nil {
+
+            if err := metaDAO.Create(meta, prerequisiteIDs, idWeights); err != nil {
                 return err
             }
-		}
+        }
 		
 		return nil
 	})

@@ -48,7 +48,8 @@ const DomainForm: React.FC<DomainFormProps> = ({
   const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<{
     definitions: number;
-    exercises: number;
+    exercises: number; // counts metaExercises if present, otherwise legacy exercises
+    versions?: number; // total versions across metaExercises (if present)
     sampleDefinitions: string[];
     sampleExercises: string[];
   } | null>(null);
@@ -93,15 +94,26 @@ const DomainForm: React.FC<DomainFormProps> = ({
       setImportData(fileData);
       setImportFileName('imported-domain.json'); // We don't have access to the actual filename
 
-      // Generate preview
+      // Generate preview (support metaExercises preferred path)
       const definitionKeys = Object.keys(fileData.definitions || {});
+      const metaKeys = Object.keys(fileData.metaExercises || {});
       const exerciseKeys = Object.keys(fileData.exercises || {});
-      
+
+      const usingMeta = metaKeys.length > 0;
+      const exCount = usingMeta ? metaKeys.length : exerciseKeys.length;
+      const sampleExNames = usingMeta
+        ? metaKeys.slice(0, 3).map(key => (fileData.metaExercises as any)?.[key]?.name || key)
+        : exerciseKeys.slice(0, 3).map(key => (fileData.exercises as any)?.[key]?.name || key);
+      const versionCount = usingMeta
+        ? metaKeys.reduce((acc, k) => acc + (((fileData.metaExercises as any)?.[k]?.versions || []).length), 0)
+        : undefined;
+
       setImportPreview({
         definitions: definitionKeys.length,
-        exercises: exerciseKeys.length,
+        exercises: exCount,
+        versions: versionCount,
         sampleDefinitions: definitionKeys.slice(0, 3).map(key => fileData.definitions?.[key]?.name || key),
-        sampleExercises: exerciseKeys.slice(0, 3).map(key => fileData.exercises?.[key]?.name || key),
+        sampleExercises: sampleExNames,
       });
 
       showToast('JSON file loaded successfully!', 'success');
@@ -296,7 +308,12 @@ const DomainForm: React.FC<DomainFormProps> = ({
                       </div>
                       <div className="bg-white p-3 rounded border">
                         <div className="font-medium text-blue-900">Exercises</div>
-                        <div className="text-lg font-bold text-blue-700">{importPreview.exercises}</div>
+                        <div className="text-lg font-bold text-blue-700 flex items-baseline gap-2">
+                          <span>{importPreview.exercises}</span>
+                          {typeof importPreview.versions === 'number' && (
+                            <span className="text-xs font-medium text-gray-500">({importPreview.versions} versions)</span>
+                          )}
+                        </div>
                         {importPreview.sampleExercises.length > 0 && (
                           <div className="text-xs text-gray-600 mt-1">
                             {importPreview.sampleExercises.join(', ')}
