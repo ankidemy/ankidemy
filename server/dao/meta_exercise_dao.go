@@ -147,23 +147,40 @@ func (d *MetaExerciseDAO) GetByDomainID(domainID uint) ([]models.MetaExercise, e
 
 // ConvertToResponse builds a response including prerequisite codes/weights and optionally versions
 func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions []models.Exercise, includeVersions bool) (models.MetaExerciseResponse, error) {
-    // prerequisites
-    var codes []string
+    // prerequisites: include both definition and meta_exercise prerequisites
+    // Collect definition prerequisite codes
+    var defCodes []string
     if err := d.db.Raw(`
         SELECT d.code FROM node_prerequisites np
         JOIN definitions d ON d.id = np.prerequisite_id
         WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
-        ORDER BY d.code`, meta.ID).Scan(&codes).Error; err != nil { return models.MetaExerciseResponse{}, err }
-    // weights
+        ORDER BY d.code`, meta.ID).Scan(&defCodes).Error; err != nil { return models.MetaExerciseResponse{}, err }
+    // Collect meta_exercise prerequisite codes
+    var exCodes []string
+    if err := d.db.Raw(`
+        SELECT e.code FROM node_prerequisites np
+        JOIN meta_exercises e ON e.id = np.prerequisite_id
+        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+        ORDER BY e.code`, meta.ID).Scan(&exCodes).Error; err != nil { return models.MetaExerciseResponse{}, err }
+
+    // weights: definitions
     type row struct{ Code string; Weight float64 }
-    var rows []row
+    var defRows []row
     if err := d.db.Raw(`
         SELECT d.code, np.weight FROM node_prerequisites np
         JOIN definitions d ON d.id = np.prerequisite_id
         WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
-        ORDER BY d.code`, meta.ID).Scan(&rows).Error; err != nil { return models.MetaExerciseResponse{}, err }
-    weights := make(map[string]float64, len(rows))
-    for _, r := range rows { weights[r.Code] = r.Weight }
+        ORDER BY d.code`, meta.ID).Scan(&defRows).Error; err != nil { return models.MetaExerciseResponse{}, err }
+    // weights: meta_exercises
+    var exRows []row
+    if err := d.db.Raw(`
+        SELECT e.code, np.weight FROM node_prerequisites np
+        JOIN meta_exercises e ON e.id = np.prerequisite_id
+        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+        ORDER BY e.code`, meta.ID).Scan(&exRows).Error; err != nil { return models.MetaExerciseResponse{}, err }
+    weights := make(map[string]float64, len(defRows)+len(exRows))
+    for _, r := range defRows { weights[r.Code] = r.Weight }
+    for _, r := range exRows { weights[r.Code] = r.Weight }
 
     resp := models.MetaExerciseResponse{
         ID: meta.ID,
@@ -175,7 +192,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
         YPosition: meta.YPosition,
         CreatedAt: meta.CreatedAt,
         UpdatedAt: meta.UpdatedAt,
-        Prerequisites: codes,
+        Prerequisites: append(defCodes, exCodes...),
         PrerequisiteWeights: weights,
         VersionCount: len(versions),
     }

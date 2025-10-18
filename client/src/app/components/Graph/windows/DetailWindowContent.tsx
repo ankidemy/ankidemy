@@ -636,7 +636,25 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     nodeId={numericId}
                     nodeType={'meta_exercise'}
                     availableDefinitions={availableDefinitions}
-                    onChanged={onRefresh}
+                    onChanged={async () => {
+                      // Surgical update: fetch fresh meta-exercise and update only this node
+                      try {
+                        const fresh = await getMetaExercise(numericId);
+                        onUpdateNodeData?.(fresh.code, {
+                          code: fresh.code,
+                          name: fresh.name,
+                          prerequisites: fresh.prerequisites || [],
+                          prerequisiteWeights: fresh.prerequisiteWeights || {},
+                          xPosition: fresh.xPosition,
+                          yPosition: fresh.yPosition,
+                          id: fresh.id,
+                          type: 'exercise',
+                        } as any);
+                      } catch (e) {
+                        console.warn('Failed to fetch updated meta exercise; falling back to refresh.', e);
+                        onRefresh?.();
+                      }
+                    }}
                   />
                 ) : (
                   <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
@@ -652,7 +670,20 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     nodeType={'definition'}
                     availableDefinitions={availableDefinitions}
                     allowKinds={['definition']}
-                    onChanged={onRefresh}
+                    onChanged={async () => {
+                      // Surgical update: fetch fresh definition and update only this node
+                      try {
+                        const raw = await getDefinitionByCode(currentNode.id, { domainId: domainData.id });
+                        const fresh = Array.isArray(raw) ? raw[0] : raw;
+                        onUpdateNodeData?.(fresh.code, {
+                          ...fresh,
+                          type: 'definition',
+                        } as any);
+                      } catch (e) {
+                        console.warn('Failed to fetch updated definition; falling back to refresh.', e);
+                        onRefresh?.();
+                      }
+                    }}
                   />
                 ) : (
                   <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>

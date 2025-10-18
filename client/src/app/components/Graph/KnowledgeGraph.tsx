@@ -187,11 +187,11 @@ const useGraphStructure = (
       });
     });
 
-    // Build nodes from exercises (only in practice mode)
+    // Build exercise nodes (pass 1) and links (pass 2) in practice mode
     if (mode === 'practice') {
+      // PASS 1: create all exercise nodes first so cross-exercise links can attach regardless of iteration order
       Object.values(exercises).forEach(ex => {
         if (!ex?.code) return;
-        
         nodes.set(ex.code, {
           id: ex.code,
           type: 'exercise',
@@ -200,8 +200,11 @@ const useGraphStructure = (
           xPosition: ex.xPosition,
           yPosition: ex.yPosition,
         });
+      });
 
-        // Create links from prerequisites to exercises
+      // PASS 2: add links from prerequisites (definitions or other exercises) to each exercise
+      Object.values(exercises).forEach(ex => {
+        if (!ex?.code) return;
         (ex.prerequisites || []).forEach(prereqCode => {
           if (nodes.has(prereqCode) && nodes.has(ex.code)) {
             const linkId = `${prereqCode}-${ex.code}`;
