@@ -104,7 +104,15 @@ func (h *MetaExerciseHandler) UpdateVersion(c *gin.Context) {
 func (h *MetaExerciseHandler) DeleteVersion(c *gin.Context) {
     vid, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
     if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid version ID"}); return }
-    if err := h.metaDAO.DeleteVersion(uint(vid)); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to delete"}); return }
+    if err := h.metaDAO.DeleteVersion(uint(vid)); err != nil {
+        // If attempting to delete the last version, return a 400 with helpful message
+        if err.Error() == "cannot delete the last version; a meta-exercise must have at least one version" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()});
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to delete"});
+        return
+    }
     c.JSON(http.StatusOK, gin.H{"message":"Version deleted"})
 }
 

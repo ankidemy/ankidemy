@@ -13,14 +13,36 @@ interface Props {
 }
 
 const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVersion, onDeleteVersion, onBack }) => {
-  const [active, setActive] = useState<number>(0);
+  // active can be a version index or the special string 'new' for an unsaved draft
+  const [active, setActive] = useState<number | 'new'>(() => (meta.versions && meta.versions.length > 0 ? 0 : 'new'));
   const versions = meta.versions || [];
-  const cur = versions[active];
+  const hasVersions = versions.length > 0;
+  const cur = typeof active === 'number' ? versions[active] : undefined;
 
   const [draft, setDraft] = useState<Partial<ExerciseVersion>>({});
 
+  // When a new version is added (parent refreshes meta), jump to the last version if we were on draft
+  const [prevLen, setPrevLen] = useState<number>(versions.length);
+  React.useEffect(() => {
+    if (active === 'new' && versions.length > prevLen) {
+      setActive(versions.length - 1);
+      setDraft({});
+    }
+    if (typeof active === 'number' && versions.length > 0 && active >= versions.length) {
+      setActive(versions.length - 1);
+      setDraft({});
+    }
+    setPrevLen(versions.length);
+  }, [versions.length]);
+
+  const isDraft = active === 'new';
+
   // Helper to read current field value (controlled inputs)
   const val = <K extends keyof ExerciseVersion>(key: K, fallback: any = ''): any => {
+    if (isDraft) {
+      const d: any = draft as any;
+      return (d[key] !== undefined && d[key] !== null) ? d[key] : fallback;
+    }
     const d: any = draft as any;
     if (d[key] !== undefined && d[key] !== null) return d[key];
     const c: any = cur as any;
@@ -28,6 +50,23 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
   };
 
   const handleSave = async () => {
+    if (isDraft) {
+      if (!onAddVersion) return;
+      const statement = (draft.statement || '').toString().trim();
+      if (statement.length === 0) return;
+      const difficulty = typeof draft.difficulty === 'number' && draft.difficulty >= 1 && draft.difficulty <= 7 ? draft.difficulty : 3;
+      await onAddVersion({
+        statement,
+        description: draft.description,
+        hints: draft.hints,
+        notes: draft.notes,
+        difficulty,
+        verifiable: !!draft.verifiable,
+        result: draft.result,
+      });
+      // Parent will refresh meta; effect above will switch to the new last version
+      return;
+    }
     if (!cur || !onUpdateVersion) return;
     // Send merged payload to avoid server wiping fields on missing JSON keys
     const payload: Partial<ExerciseVersion> = {
@@ -43,19 +82,13 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
     setDraft({});
   };
 
-  const handleAdd = async () => {
-    if (!onAddVersion || !draft.statement || draft.statement.trim().length === 0) return;
-    const difficulty = typeof draft.difficulty === 'number' && draft.difficulty >= 1 && draft.difficulty <= 7 ? draft.difficulty : 3;
-    await onAddVersion({
-      statement: draft.statement,
-      description: draft.description,
-      hints: draft.hints,
-      notes: draft.notes,
-      difficulty,
-      verifiable: !!draft.verifiable,
-      result: draft.result,
-    });
+  const startDraft = () => {
+    setDraft({ statement: '', description: '', hints: '', notes: '', result: '', difficulty: 3, verifiable: false });
+    setActive('new');
+  };
+  const discardDraft = () => {
     setDraft({});
+    setActive(hasVersions ? 0 : 'new');
   };
 
   const handleDelete = async () => {
@@ -71,6 +104,9 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
           {(versions).map((v, idx) => (
             <Button key={v.id} size="sm" variant={idx===active? 'default':'outline'} onClick={()=>{ setActive(idx); setDraft({}); }}>V{idx+1}</Button>
           ))}
+          {onAddVersion && (
+            <Button size="sm" variant={active==='new' ? 'default':'outline'} onClick={startDraft}>+ New</Button>
+          )}
           <span className="text-xs text-gray-500 ml-2">{versions.length} version(s)</span>
         </div>
         {onBack && (
@@ -78,13 +114,13 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
         )}
       </div>
 
-      <div className="p-2 border rounded" key={cur?.id ?? 'no-version'}>
+      <div className="p-2 border rounded" key={isDraft ? 'draft' : (cur?.id ?? 'no-version')}>
         <label className="block text-xs font-medium mb-1 text-gray-600">Statement</label>
         <textarea
           rows={4}
           value={val('statement','')}
           onChange={(e)=> setDraft(d=> ({...d, statement: e.target.value}))}
-          disabled={!onUpdateVersion}
+          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
           className="w-full border rounded px-2 py-1 text-sm"
         />
         <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Solution</label>
@@ -92,7 +128,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
           rows={4}
           value={val('description','')}
           onChange={(e)=> setDraft(d=> ({...d, description: e.target.value}))}
-          disabled={!onUpdateVersion}
+          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
           className="w-full border rounded px-2 py-1 text-sm"
         />
         <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Hints</label>
@@ -100,7 +136,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
           rows={3}
           value={val('hints','')}
           onChange={(e)=> setDraft(d=> ({...d, hints: e.target.value}))}
-          disabled={!onUpdateVersion}
+          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
           className="w-full border rounded px-2 py-1 text-sm"
         />
         <div className="grid grid-cols-3 gap-2 mt-2">
@@ -116,7 +152,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
                 const clamped = isNaN(n) ? 3 : Math.max(1, Math.min(7, n));
                 setDraft(d=> ({...d, difficulty: clamped}))
               }}
-              disabled={!onUpdateVersion}
+              disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
             />
           </div>
           <div className="flex items-center mt-5">
@@ -128,7 +164,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
                   checked={!!val('verifiable', false)}
                   onChange={(e)=> setDraft(d=> ({...d, verifiable: e.target.checked}))}
                   className="mr-2"
-                  disabled={!onUpdateVersion}
+                  disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
                 />
                 <label htmlFor={chkId} className="text-xs text-gray-600">Verifiable</label>
               </>
@@ -139,25 +175,28 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
             <Input
               value={val('result','')}
               onChange={(e)=> setDraft(d=> ({...d, result: e.target.value}))}
-              disabled={!onUpdateVersion}
+              disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
             />
           </div>
         </div>
 
-        {onUpdateVersion && (
-          <div className="flex justify-between mt-3">
-            <div className="space-x-2">
-              <Button size="sm" variant="default" onClick={handleSave}>Save Version</Button>
-              {onDeleteVersion && <Button size="sm" variant="destructive" onClick={handleDelete}>Delete Version</Button>}
-            </div>
-            {onAddVersion && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Add new:</span>
-                <Button size="sm" variant="outline" onClick={handleAdd}>Add Version</Button>
-              </div>
+        <div className="flex justify-between mt-3">
+          <div className="space-x-2">
+            {(isDraft ? onAddVersion : onUpdateVersion) && (
+              <Button size="sm" variant="default" onClick={handleSave}>{isDraft ? 'Save New Version' : 'Save Version'}</Button>
+            )}
+            {!isDraft && onDeleteVersion && (
+              <Button size="sm" variant="destructive" onClick={handleDelete} disabled={versions.length <= 1}>Delete Version</Button>
             )}
           </div>
-        )}
+          {isDraft ? (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={discardDraft}>Discard</Button>
+            </div>
+          ) : (
+            onAddVersion && <div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={startDraft}>Add Version</Button></div>
+          )}
+        </div>
       </div>
     </div>
   );

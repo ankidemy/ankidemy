@@ -533,7 +533,12 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 }}
                 onDeleteVersion={async (id)=>{
                   if (!metaDetails) return;
-                  await deleteMetaExerciseVersion(metaDetails.id, id);
+                  try {
+                    await deleteMetaExerciseVersion(metaDetails.id, id);
+                  } catch (e: any) {
+                    showToast(e?.message || 'Cannot delete version', 'error');
+                    return;
+                  }
                   const fresh = await getMetaExercise(metaDetails.id);
                   setMetaDetails(fresh);
                   if (currentVersion && currentVersion.id === id) {
@@ -598,7 +603,12 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       showToast('Version updated','success');
                     } : undefined}
                     onDeleteVersion={isDomainOwner() ? async (id)=>{
-                      await deleteMetaExerciseVersion(metaDetails.id, id);
+                      try {
+                        await deleteMetaExerciseVersion(metaDetails.id, id);
+                      } catch (e: any) {
+                        showToast(e?.message || 'Cannot delete version', 'error');
+                        return;
+                      }
                       const m = await getMetaExercise(metaDetails.id);
                       setMetaDetails(m);
                       if (currentVersion && currentVersion.id === id) {

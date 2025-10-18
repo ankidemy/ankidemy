@@ -99,7 +99,23 @@ func (d *MetaExerciseDAO) UpdateVersion(versionID uint, req *models.ExerciseVers
 
 // DeleteVersion removes an Exercise version
 func (d *MetaExerciseDAO) DeleteVersion(versionID uint) error {
-    return d.db.Delete(&models.Exercise{}, versionID).Error
+    return d.db.Transaction(func(tx *gorm.DB) error {
+        // Load the version to find its meta_exercise_id
+        var ex models.Exercise
+        if err := tx.First(&ex, versionID).Error; err != nil { return err }
+
+        // Count how many versions exist under this meta exercise
+        var count int64
+        if err := tx.Model(&models.Exercise{}).Where("meta_exercise_id = ?", ex.MetaExerciseID).Count(&count).Error; err != nil {
+            return err
+        }
+        if count <= 1 {
+            return errors.New("cannot delete the last version; a meta-exercise must have at least one version")
+        }
+
+        // Safe to delete
+        return tx.Delete(&models.Exercise{}, versionID).Error
+    })
 }
 
 // FindByID returns meta and versions
