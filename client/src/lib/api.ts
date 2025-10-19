@@ -62,6 +62,9 @@ export interface Domain {
   description: string;
   createdAt: string;
   updatedAt: string;
+  // Optional aggregate counts used by graph UIs
+  nodeCount?: number;
+  exerciseCount?: number;
   definitions?: Definition[];
   exercises?: Exercise[];
 }

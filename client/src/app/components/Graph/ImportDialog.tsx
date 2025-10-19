@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { X, Upload, AlertCircle, CheckCircle2, Info } from 'lucide-react';
-import { importToDomain } from '@/lib/api';
+import { importToDomain, DomainExportData } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
 interface ImportDialogProps {
@@ -14,11 +14,8 @@ interface ImportDialogProps {
   onSuccess?: () => void;
 }
 
-interface ImportData {
-  definitions?: Record<string, any>;
-  exercises?: Record<string, any>;
-  metaExercises?: Record<string, any>;
-}
+// Use the standardized export/import shape used by the API
+type ImportData = DomainExportData;
 
 interface ValidationResult {
   isValid: boolean;
@@ -173,10 +170,15 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
     try {
       const text = await file.text();
-      const data = JSON.parse(text) as ImportData;
-      setImportData(data);
-
-      const validationResult = validateImportData(data);
+      const raw = JSON.parse(text) as any;
+      // Minimal standardization to match DomainExportData shape
+      const standardized: ImportData = {
+        definitions: raw.definitions || {},
+        exercises: raw.exercises,
+        metaExercises: raw.metaExercises,
+      };
+      setImportData(standardized);
+      const validationResult = validateImportData(standardized);
       setValidation(validationResult);
     } catch (error) {
       setValidation({
