@@ -619,6 +619,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setCodeToNumericIdMap(newCodeToNumericIdMap);
       setNodeDataCache(newNodeDataCache);
       setCurrentStructuralGraphData({ definitions: newDefinitions, exercises: newExercises });
+
+      // If the domain loads successfully but has no nodes,
+      // stop showing the processing spinner so we can render an empty state.
+      const isEmptyDomain = Object.keys(newDefinitions).length === 0 && Object.keys(newExercises).length === 0;
+      if (isEmptyDomain) {
+        setIsProcessingData(false);
+      }
       
     } catch (error) {
       console.error("Error loading comprehensive domain data:", error);
@@ -1254,7 +1261,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
           {/* Graph Area */}
           <div className="flex-1 bg-gray-50 overflow-hidden relative">
-            {(isProcessingData || isRefreshing) ? (
+            {isRefreshing ? (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
+              </div>
+            ) : (isProcessingData && stableGraph.nodes.length === 0) ? (
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
+                <p className="text-lg">This domain is empty.</p>
+                <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
+                <div className="mt-4 flex items-center gap-2">
+                  <Button onClick={() => createNewNode('definition')} size="sm">Create Definition</Button>
+                  <Button onClick={() => createNewNode('exercise')} variant="outline" size="sm">Create Exercise</Button>
+                </div>
+              </div>
+            ) : isProcessingData ? (
               <div className="flex items-center justify-center h-full text-gray-500">
                 Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
               </div>
@@ -1277,10 +1297,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 structureVersion={stableGraph.structureVersion}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <p>No graph data to display for this domain.</p>
-                <Button onClick={refreshGraphAndSRSData} variant="outline" size="sm" className="mt-4">
-                  <RefreshCw size={14} className="mr-1.5" /> Refresh Graph
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
+                <p className="text-lg">No graph data to display for this domain.</p>
+                <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
+                <div className="mt-4 flex items-center gap-2">
+                  <Button onClick={() => createNewNode('definition')} size="sm">Create Definition</Button>
+                  <Button onClick={() => createNewNode('exercise')} variant="outline" size="sm">Create Exercise</Button>
+                </div>
+                <Button onClick={refreshGraphAndSRSData} variant="ghost" size="sm" className="mt-3">
+                  <RefreshCw size={14} className="mr-1.5" /> Refresh
                 </Button>
               </div>
             )}
