@@ -1,11 +1,11 @@
 // src/app/(page)/main/page.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
@@ -19,7 +19,9 @@ import {
   getEnrolledDomains,
   enrollInDomain,
   getCurrentUser,
-  User
+  User,
+  exportDomainAsJson,
+  downloadJsonFile
 } from '@/lib/api';
 import { archiveDomain } from '@/lib/api';
 
@@ -27,14 +29,13 @@ export default function MainPage() {
   // State
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'my' | 'enrolled'>('all');
+  const [activeTab, setActiveTab] = useState<'my' | 'enrolled' | 'community'>('community');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Domain data
   const [publicDomains, setPublicDomains] = useState<Domain[]>([]);
   const [myDomains, setMyDomains] = useState<Domain[]>([]);
   const [enrolledDomains, setEnrolledDomains] = useState<Domain[]>([]);
-  const [enrolledDomainIds, setEnrolledDomainIds] = useState<Set<number>>(new Set());
   const [displayDomains, setDisplayDomains] = useState<Domain[]>([]);
   
   // UI state
@@ -56,9 +57,11 @@ export default function MainPage() {
       try {
         const userData = await getCurrentUser();
         setCurrentUser(userData);
+        // Set default tab to 'my' for logged-in users
+        setActiveTab('my');
       } catch (error) {
         console.error("Error loading user:", error);
-        // Continue without user data - might be on public page
+        // Continue without user data - initial state is already 'community'
       }
     };
     fetchUser();
@@ -95,11 +98,7 @@ export default function MainPage() {
         
         setMyDomains(myDomainsResponse);
         setEnrolledDomains(enrolledDomainsResponse);
-        
-        // Create set of enrolled domain IDs for quick lookup
-        const enrolledIds = new Set(enrolledDomainsResponse.map(d => d.id));
-        setEnrolledDomainIds(enrolledIds);
-        
+
       } catch (error) {
         console.error("Failed to load domains:", error);
         setError("Failed to load domains. Please try again.");
@@ -111,27 +110,39 @@ export default function MainPage() {
     fetchDomains();
   }, [currentUser]);
 
+  // Compute enrolledNonOwned (defensive client-side filter until server is deployed)
+  const enrolledNonOwned = useMemo(() =>
+    enrolledDomains.filter(d => d.ownerId !== currentUser?.id),
+    [enrolledDomains, currentUser]
+  );
+
+  // Compute enrolledNonOwnedIds for quick lookup
+  const enrolledNonOwnedIds = useMemo(() =>
+    new Set(enrolledNonOwned.map(d => d.id)),
+    [enrolledNonOwned]
+  );
+
+  // Compute communityDomains (public domains that user doesn't own and isn't enrolled in)
+  const communityDomains = useMemo(() =>
+    publicDomains.filter(d =>
+      d.ownerId !== currentUser?.id && !enrolledNonOwnedIds.has(d.id)
+    ),
+    [publicDomains, currentUser, enrolledNonOwnedIds]
+  );
+
   // Update display domains when data changes or tab changes
   useEffect(() => {
-    if (activeTab === 'all') {
-      // Combine public domains and user's domains for "all"
-      const allDomains = [...publicDomains, ...myDomains];
-      // Remove duplicates by id
-      const uniqueDomains = allDomains.filter((domain, index, self) => 
-        index === self.findIndex(d => d.id === domain.id)
-      );
-      setDisplayDomains(uniqueDomains);
-    } else if (activeTab === 'my') {
+    if (activeTab === 'my') {
       setDisplayDomains(myDomains);
     } else if (activeTab === 'enrolled') {
-      setDisplayDomains(enrolledDomains);
+      setDisplayDomains(enrolledNonOwned);
+    } else if (activeTab === 'community') {
+      setDisplayDomains(communityDomains);
     }
-  }, [activeTab, publicDomains, myDomains, enrolledDomains]);
-
-  const uniqueAllDomainsCount = new Set([...publicDomains.map(d => d.id), ...myDomains.map(d => d.id)]).size;
+  }, [activeTab, myDomains, enrolledNonOwned, communityDomains]);
 
   // Handle tab change
-  const handleTabChange = (tab: 'all' | 'my' | 'enrolled') => {
+  const handleTabChange = (tab: 'my' | 'enrolled' | 'community') => {
     setActiveTab(tab);
   };
 
@@ -144,16 +155,15 @@ export default function MainPage() {
     }
 
     setEnrolling(prev => new Set(prev).add(domain.id));
-    
+
     try {
       await enrollInDomain(domain.id);
-      
+
       // Update local state
       setEnrolledDomains(prev => [...prev, domain]);
-      setEnrolledDomainIds(prev => new Set(prev).add(domain.id));
-      
+
       showToast(`Successfully enrolled in "${domain.name}"`, 'success');
-      
+
       // Navigate to the domain
       router.push(`/main/domains/${domain.id}/study`);
     } catch (error) {
@@ -168,13 +178,27 @@ export default function MainPage() {
     }
   };
 
+  // Handle export
+  const handleExport = async (domain: Domain) => {
+    try {
+      const data = await exportDomainAsJson(domain.id);
+      const safeBase = `${domain.name.replace(/[^a-z0-9-]+/gi, '_')}_export`;
+      downloadJsonFile(data, safeBase);
+      showToast('Export created', 'success');
+    } catch (e: any) {
+      console.error('Failed to export domain:', e);
+      const errorMessage = e?.message || 'Failed to export domain';
+      showToast(errorMessage, 'error');
+    }
+  };
+
   // Handle domain access
   const handleDomainAccess = async (domain: Domain) => {
     // Check if user owns the domain
     const currentUserId = currentUser?.id;
     const isOwned = !!currentUserId && domain.ownerId === currentUserId;
-    const isEnrolled = enrolledDomainIds.has(domain.id);
-    
+    const isEnrolled = enrolledNonOwnedIds.has(domain.id);
+
     if (isOwned || isEnrolled) {
       // Direct access for owned or enrolled domains
       router.push(`/main/domains/${domain.id}/study`);
@@ -183,7 +207,7 @@ export default function MainPage() {
       const shouldEnroll = window.confirm(
         `You are not enrolled in "${domain.name}". Would you like to enroll to access all features including progress tracking?\n\nNote: You can still browse the domain without enrolling, but won't have access to study features.`
       );
-      
+
       if (shouldEnroll) {
         await handleEnrollment(domain);
       } else {
@@ -217,11 +241,11 @@ export default function MainPage() {
   const getDomainStatus = (domain: Domain) => {
     const currentUserId = currentUser?.id;
     const isOwned = !!currentUserId && domain.ownerId === currentUserId;
-    const isEnrolled = enrolledDomainIds.has(domain.id);
-    
+    const isEnrolled = enrolledNonOwnedIds.has(domain.id);
+
     if (isOwned) {
       return {
-        icon: <Lock size={14} className="text-purple-600" />,
+        icon: <UserCheck size={14} className="text-purple-600" />,
         label: 'Owned',
         className: 'bg-purple-100 text-purple-700'
       };
@@ -288,32 +312,40 @@ export default function MainPage() {
           <div className="mb-8">
             <h2 className="text-xl font-bold mb-6 text-gray-800">Domain Network</h2>
             <div className="border rounded-xl h-96 overflow-hidden bg-gray-50 relative">
-              <SubjectMatterGraph 
-                subjectMatters={displayDomains.map(domain => ({
-                  id: domain.id.toString(),
-                  name: domain.name,
-                  nodeCount: 0,
-                  exerciseCount: 0
-                }))}
-                onSelectSubjectMatter={(id) => {
-                  const domain = displayDomains.find(d => d.id.toString() === id);
-                  if (domain) {
-                    handleDomainAccess(domain);
-                  }
-                }}
-                onCreateSubjectMatter={currentUser ? () => router.push('/main/domains/create') : undefined}
-              />
+              {displayDomains.length > 0 ? (
+                <SubjectMatterGraph
+                  key={`${activeTab}-${displayDomains.length}`}
+                  subjectMatters={displayDomains.map(domain => ({
+                    id: domain.id.toString(),
+                    name: domain.name,
+                    nodeCount: domain.nodeCount || 0,
+                    exerciseCount: domain.exerciseCount || 0
+                  }))}
+                  onSelectSubjectMatter={(id) => {
+                    const domain = displayDomains.find(d => d.id.toString() === id);
+                    if (domain) {
+                      handleDomainAccess(domain);
+                    }
+                  }}
+                  onCreateSubjectMatter={currentUser ? () => router.push('/main/domains/create') : undefined}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-400">
+                  <div className="text-center">
+                    <p className="text-4xl mb-2">📚</p>
+                    <p className="text-sm">
+                      {activeTab === 'my' && "No domains created yet"}
+                      {activeTab === 'enrolled' && "No enrolled domains yet"}
+                      {activeTab === 'community' && "No community domains available"}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Tabs */}
           <div className="flex border-b mb-6">
-            <button
-              className={`px-4 py-2 font-medium ${activeTab === 'all' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
-              onClick={() => handleTabChange('all')}
-            >
-              All Domains ({uniqueAllDomainsCount})
-            </button>
             <button
               className={`px-4 py-2 font-medium ${activeTab === 'my' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
               onClick={() => handleTabChange('my')}
@@ -324,7 +356,13 @@ export default function MainPage() {
               className={`px-4 py-2 font-medium ${activeTab === 'enrolled' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
               onClick={() => handleTabChange('enrolled')}
             >
-              Enrolled Domains ({enrolledDomains.length})
+              Enrolled Domains ({enrolledNonOwned.length})
+            </button>
+            <button
+              className={`px-4 py-2 font-medium ${activeTab === 'community' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
+              onClick={() => handleTabChange('community')}
+            >
+              Community Domains ({communityDomains.length})
             </button>
           </div>
 
@@ -371,14 +409,14 @@ export default function MainPage() {
             <div className="text-center py-12">
               <h3 className="text-lg font-medium text-gray-600 mb-2">No domains found</h3>
               <p className="text-gray-500">
-                {activeTab === 'all'
-                  ? "There are no domains available."
-                  : activeTab === 'my'
+                {activeTab === 'my'
                   ? "You haven't created any domains yet."
-                  : "You haven't enrolled in any domains yet."
+                  : activeTab === 'enrolled'
+                  ? "You haven't enrolled in any domains yet."
+                  : "There are no community domains available."
                 }
               </p>
-              
+
               {activeTab === 'my' && currentUser && (
                 <div className="flex justify-center gap-3 mt-4">
                   <Link href="/main/domains/create">
@@ -391,8 +429,8 @@ export default function MainPage() {
                       Archived Domains
                     </Button>
                   </Link>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => setShowImportDialog(true)}
                   >
                     <Upload size={16} className="mr-1" />
@@ -408,8 +446,8 @@ export default function MainPage() {
                 const isEnrolling = enrolling.has(domain.id);
                 const currentUserId = currentUser?.id;
                 const isOwned = !!currentUserId && domain.ownerId === currentUserId;
-                const isEnrolled = enrolledDomainIds.has(domain.id);
-                
+                const isEnrolled = enrolledNonOwnedIds.has(domain.id);
+
                 return (
                   <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm relative">
                     {/* Card actions: 3-dot menu in upper-right */}
@@ -437,6 +475,12 @@ export default function MainPage() {
                           >
                             Open
                           </button>
+                          <button
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => { setMenuOpenId(null); handleExport(domain); }}
+                          >
+                            Export
+                          </button>
                         </div>
                       )}
                     </div>
@@ -452,6 +496,16 @@ export default function MainPage() {
                       </div>
                       
                       <div className="flex items-center space-x-2">
+                        {/* Export button */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => { e.stopPropagation(); handleExport(domain); }}
+                          className="text-xs"
+                        >
+                          <Download size={14} className="mr-1" />
+                          Export
+                        </Button>
                         {/* Enrollment button for public domains */}
                         {domain.privacy === 'public' && !isOwned && !isEnrolled && currentUser && (
                           <Button

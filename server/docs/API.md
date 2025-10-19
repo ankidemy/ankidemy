@@ -259,7 +259,7 @@ Note on archiving:
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **Response**: `200 OK`
-  - Returns only unarchived domains you are enrolled in.
+  - Returns only unarchived domains you are enrolled in, excluding domains you own.
   ```json
   [
     {

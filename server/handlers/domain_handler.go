@@ -98,7 +98,15 @@ func (h *DomainHandler) GetEnrolledDomains(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, domains)
+	// Filter out domains owned by the user
+	filtered := make([]dao.DomainWithStats, 0, len(domains))
+	for _, d := range domains {
+		if d.OwnerID != userID.(uint) {
+			filtered = append(filtered, d)
+		}
+	}
+
+	c.JSON(http.StatusOK, filtered)
 }
 
 // GetDomain returns a domain by ID with stats

@@ -490,7 +490,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [domainName, setDomainName] = useState<string>(subjectMatterId);
   const [domainData, setDomainData] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isEnrolled, setIsEnrolled] = useState<boolean | null>(null);
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
 
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
@@ -719,15 +719,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const userOwnsThisDomain = domain.ownerId === user.id;
 
       if (userOwnsThisDomain) {
-        setIsEnrolled(true);
+        // Owner has access
+        setHasAccess(true);
         if (!isInitializedRef.current) {
           srs.setCurrentDomain(domainId);
           isInitializedRef.current = true;
         }
       } else {
+        // Check if enrolled
         const enrolledDomains = await getEnrolledDomains();
         const isUserEnrolled = enrolledDomains.some((d: any) => d.id === domainId);
-        setIsEnrolled(isUserEnrolled);
+        setHasAccess(isUserEnrolled);
 
         if (isUserEnrolled) {
           if (!isInitializedRef.current) {
@@ -736,14 +738,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           }
         } else if (domain.privacy === 'public') {
           setTimeout(() => {
-            if (!isEnrolled) setShowEnrollmentModal(true);
+            if (!hasAccess) setShowEnrollmentModal(true);
           }, 1500);
         }
       }
     } catch (error) {
       console.error("Error checking enrollment status:", error);
     }
-  }, [srs, isEnrolled]);
+  }, [srs, hasAccess]);
 
   // Handle node drag end with position manager
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
@@ -836,7 +838,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
-    if (!isEnrolled) {
+    if (!hasAccess) {
       if (domainData && domainData.privacy === 'public') {
         setShowEnrollmentModal(true);
       }
@@ -862,7 +864,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, [isEnrolled, domainData]);
+  }, [hasAccess, domainData]);
 
   // SURGICAL INSERT ON CREATE (no full refresh)
   const handleNodeCreationSuccess = useCallback(async (nodeCode: string, created?: any) => {
@@ -952,10 +954,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
 
       await loadComprehensiveDomainData(domainIdNum);
-      if (isEnrolled) {
+      if (hasAccess) {
         await srs.refreshDomainData();
       }
-      
+
       showToast("Graph data refreshed!", "success");
 
     } catch (error) {
@@ -964,7 +966,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setIsRefreshing(false);
     }
-  }, [subjectMatterId, loadComprehensiveDomainData, isEnrolled, srs, stableGraph.nodes]);
+  }, [subjectMatterId, loadComprehensiveDomainData, hasAccess, srs, stableGraph.nodes]);
   
   // Mode change with position preservation
   const changeMode = useCallback((newMode: AppMode) => {
@@ -1007,18 +1009,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast("Please log in to enroll in domains", "error");
       return;
     }
-    
+
     try {
       await enrollInDomain(domainData.id);
-      setIsEnrolled(true);
+      setHasAccess(true);
       setShowEnrollmentModal(false);
-      
+
       const domainId = parseInt(subjectMatterId);
       if (!isInitializedRef.current) {
         srs.setCurrentDomain(domainId);
         isInitializedRef.current = true;
       }
-      
+
       showToast(`Successfully enrolled in "${domainData.name}"`, "success");
     } catch (error) {
       console.error("Error enrolling in domain:", error);
@@ -1032,14 +1034,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, []);
 
   const handleStartStudy = useCallback(() => {
-    if (!isEnrolled) {
+    if (!hasAccess) {
       if (domainData && domainData.privacy === 'public') {
         setShowEnrollmentModal(true);
       }
       return;
     }
     ui.openReviewWindow();
-  }, [isEnrolled, domainData, ui]);
+  }, [hasAccess, domainData, ui]);
 
   // Navigation helpers
   const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
@@ -1172,7 +1174,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     stableGraphNodes: stableGraph.nodes,
     isProcessingData,
     enhancedCreditFlowAnimationsLength: enhancedCreditFlowAnimations.length,
-    isEnrolled,
+    isEnrolled: hasAccess,
   });
 
   return (
@@ -1222,7 +1224,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           currentDomainId={parseInt(subjectMatterId, 10)}
           currentDomainName={domainName}
           isOwner={currentUser && domainData && domainData.ownerId === currentUser.id}
-          isEnrolled={isEnrolled ?? undefined}
+          isEnrolled={hasAccess ?? undefined}
           onDataImported={refreshGraphAndSRSData}
         />
 
