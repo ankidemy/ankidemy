@@ -16,7 +16,7 @@ import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
-import { getReviewHistory } from '@/lib/srs-api';
+import { getReviewHistory, getDomainPrerequisites } from '@/lib/srs-api';
 import { InlineMath } from '@/app/components/core/MathJaxWrapper';
 import { 
   getDefinitionByCode, 
@@ -671,17 +671,47 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     availableDefinitions={availableDefinitions}
                     allowKinds={['definition']}
                     onChanged={async () => {
-                      // Surgical update: fetch fresh definition and update only this node
+                      // Surgical update for definition prerequisites:
+                      // 1) Fetch fresh definition (for name/positions)
+                      // 2) Fetch domain prerequisites, filter this node's definition prereqs
+                      // 3) Map numeric IDs -> codes and build weights map
+                      // 4) Emit onUpdateNodeData with updated prerequisites only (no full refresh)
                       try {
-                        const raw = await getDefinitionByCode(currentNode.id, { domainId: domainData.id });
-                        const fresh = Array.isArray(raw) ? raw[0] : raw;
-                        if (fresh) {
-                          const enriched = { ...fresh, type: 'definition' } as Definition;
-                          setNodeDetails(enriched);
-                          onUpdateNodeData?.(fresh.code, enriched as any);
-                        }
+                        const [rawDef, prereqRows] = await Promise.all([
+                          getDefinitionByCode(currentNode.id, { domainId: domainData.id }),
+                          getDomainPrerequisites(domainData.id),
+                        ]);
+
+                        const fresh = Array.isArray(rawDef) ? rawDef[0] : rawDef;
+                        if (!fresh) return;
+
+                        // Build numericId -> code map from availableDefinitions (authoritative in UI)
+                        const idToCode = new Map<number, string>();
+                        availableDefinitions.forEach(d => { if (typeof d.numericId === 'number') idToCode.set(d.numericId, d.code); });
+
+                        // Filter rows for this definition node and prerequisiteType 'definition'
+                        const myRows = prereqRows.filter(r => r.nodeId === numericId && r.nodeType === 'definition' && r.prerequisiteType === 'definition');
+                        const prerequisiteCodes: string[] = [];
+                        const prerequisiteWeights: Record<string, number> = {};
+                        myRows.forEach(r => {
+                          const code = idToCode.get(r.prerequisiteId);
+                          if (code) {
+                            prerequisiteCodes.push(code);
+                            prerequisiteWeights[code] = r.weight || 1.0;
+                          }
+                        });
+
+                        const enriched = {
+                          ...fresh,
+                          type: 'definition',
+                          prerequisites: prerequisiteCodes,
+                          prerequisiteWeights,
+                        } as Definition;
+
+                        setNodeDetails(enriched);
+                        onUpdateNodeData?.(fresh.code, enriched as any);
                       } catch (e) {
-                        console.warn('Failed to fetch updated definition; falling back to refresh.', e);
+                        console.warn('Failed to surgically update definition prerequisites; falling back to refresh.', e);
                         onRefresh?.();
                       }
                     }}
