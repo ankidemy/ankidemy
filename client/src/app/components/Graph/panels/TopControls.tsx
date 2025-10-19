@@ -168,11 +168,21 @@ const TopControls: React.FC<TopControlsProps> = ({
         throw new Error(`Invalid import data: ${validation.errors.join(', ')}`);
       }
 
-      // Confirm import action
+      // Confirm import action (support metaExercises-first format)
       const definitionCount = Object.keys(importData.definitions || {}).length;
-      const exerciseCount = Object.keys(importData.exercises || {}).length;
-      
-      const confirmMessage = `Import ${definitionCount} definitions and ${exerciseCount} exercises to "${currentDomainName}"?\n\nThis will add to existing content (not replace).`;
+      const usingMeta = importData.metaExercises && Object.keys(importData.metaExercises).length > 0;
+      const exerciseCount = usingMeta
+        ? Object.keys(importData.metaExercises || {}).length
+        : Object.keys(importData.exercises || {}).length;
+      const versionsCount = usingMeta
+        ? Object.values(importData.metaExercises || {}).reduce((acc, anyMe: any) => acc + ((anyMe?.versions || []).length), 0)
+        : undefined;
+
+      const exercisesLabel = usingMeta && typeof versionsCount === 'number'
+        ? `${exerciseCount} exercises (${versionsCount} versions)`
+        : `${exerciseCount} exercises`;
+
+      const confirmMessage = `Import ${definitionCount} definitions and ${exercisesLabel} to "${currentDomainName}"?\n\nThis will add to existing content (not replace).`;
       
       if (!window.confirm(confirmMessage)) {
         setIsImporting(false);
@@ -182,7 +192,7 @@ const TopControls: React.FC<TopControlsProps> = ({
       showToast('Importing data...', 'info', 3000);
       await importToDomain(currentDomainId, importData);
       
-      showToast(`Successfully imported ${definitionCount} definitions and ${exerciseCount} exercises!`, 'success');
+      showToast(`Successfully imported ${definitionCount} definitions and ${exercisesLabel}!`, 'success');
       
       // Trigger refresh callback
       if (onDataImported) {
