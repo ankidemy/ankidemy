@@ -4,7 +4,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Minus, Maximize2 } from 'lucide-react';
 import { Button } from './button';
-import { InlineMath } from './MathJaxWrapper';
+import { InlineMarkdownKatex } from './MarkdownKatex';
 import { cn } from '@/lib/utils';
 
 interface DraggableWindowProps {
@@ -194,7 +194,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
 
   const renderTitle = (node: React.ReactNode, className?: string) => {
     if (typeof node === 'string' || typeof node === 'number') {
-      return <InlineMath text={String(node)} className={className} />;
+      return <InlineMarkdownKatex className={className}>{String(node)}</InlineMarkdownKatex>;
     }
     return node;
   };

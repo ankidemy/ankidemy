@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
-import { MathText, InlineMath } from '@/app/components/core/MathJaxWrapper';
+import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { Exercise, AnswerFeedback } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
@@ -66,7 +66,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         <Card className="bg-gray-50 border shadow-sm">
           <CardContent className="p-3 text-sm">
             {exercise.statement && exercise.statement.trim().length > 0 ? (
-              <MathText className="whitespace-pre-wrap" text={exercise.statement} />
+              <MarkdownKatex className="whitespace-pre-wrap">{exercise.statement}</MarkdownKatex>
             ) : (
               <span className="text-gray-400 italic">N/A</span>
             )}
@@ -85,7 +85,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
           {showHints && (
             <Card className="bg-yellow-50 border border-yellow-200 shadow-sm">
               <CardContent className="p-3 text-sm">
-                <MathText className="whitespace-pre-wrap" text={exercise.hints} />
+                <MarkdownKatex className="whitespace-pre-wrap">{exercise.hints}</MarkdownKatex>
               </CardContent>
             </Card>
           )}
@@ -103,7 +103,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
           <Card className="bg-green-50 border border-green-200 shadow-sm">
             <CardContent className="p-3 text-sm">
               {exercise.description && exercise.description.trim().length > 0 ? (
-                <MathText className="whitespace-pre-wrap" text={exercise.description} />
+                <MarkdownKatex className="whitespace-pre-wrap">{exercise.description}</MarkdownKatex>
               ) : (
                 <span className="text-gray-400 italic">N/A</span>
               )}
@@ -124,7 +124,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
           {showNotes && (
             <Card className="bg-blue-50 border border-blue-200 shadow-sm">
               <CardContent className="p-3 text-sm">
-                <MathText className="whitespace-pre-wrap" text={exercise.notes} />
+                <MarkdownKatex className="whitespace-pre-wrap">{exercise.notes}</MarkdownKatex>
               </CardContent>
             </Card>
           )}
@@ -192,7 +192,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
                 title={`Navigate to ${prereqCode}`}
               >
                 <span className="truncate max-w-[220px] inline-block align-middle">
-                  <InlineMath text={getPrerequisiteDisplayText(prereqCode)} />
+                  <InlineMarkdownKatex>{getPrerequisiteDisplayText(prereqCode)}</InlineMarkdownKatex>
                 </span>
               </Button>
             ))}

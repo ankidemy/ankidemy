@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
-import { MathJaxProvider, MathText, InlineMath } from '@/app/components/core/MathJaxWrapper';
+import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { useSRS } from '@/contexts/SRSContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType, StudySession } from '@/types/srs';
 import { ArrowLeft, ArrowRight, CheckCircle, Eye, Loader2, XCircle, Target, MapPin } from 'lucide-react';
@@ -208,17 +208,17 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
 
         {currentReviewItem.nodeType === 'definition' ? (
           <div>
-            <h3 className="text-lg font-semibold mb-2">Define: <InlineMath text={itemDetails.name} /></h3>
+            <h3 className="text-lg font-semibold mb-2">Define: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex></h3>
             {showAnswer && (
-              <MathText className="p-3 bg-gray-50 rounded-md border text-sm" text={itemDetails.description?.split('|||')[0] || "N/A"} />
+              <MarkdownKatex className="p-3 bg-gray-50 rounded-md border text-sm">{itemDetails.description?.split('|||')[0] || "N/A"}</MarkdownKatex>
             )}
           </div>
         ) : (
           <div>
-            <h3 className="text-lg font-semibold mb-2">Exercise: <InlineMath text={itemDetails.name} /></h3>
-            <MathText className="p-3 bg-gray-50 rounded-md border text-sm mb-2" text={itemDetails.statement || "N/A"} />
+            <h3 className="text-lg font-semibold mb-2">Exercise: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex></h3>
+            <MarkdownKatex className="p-3 bg-gray-50 rounded-md border text-sm mb-2">{itemDetails.statement || "N/A"}</MarkdownKatex>
             {showAnswer && (
-              <MathText className="p-3 bg-green-50 rounded-md border border-green-200 text-sm" text={`Solution: ${itemDetails.description || "N/A"}`} />
+              <MarkdownKatex className="p-3 bg-green-50 rounded-md border border-green-200 text-sm">{`Solution: ${itemDetails.description || "N/A"}`}</MarkdownKatex>
             )}
           </div>
         )}
@@ -234,7 +234,7 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
   ];
 
   return (
-    <MathJaxProvider>
+    {/* MathJaxProvider removed; KaTeX is used via MarkdownKatex */}
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col">
         <CardHeader className="border-b">
@@ -320,7 +320,7 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
         )}
       </Card>
     </div>
-    </MathJaxProvider>
+    
   );
 };
 

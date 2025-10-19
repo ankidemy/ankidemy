@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
-import { MathText, InlineMath } from '@/app/components/core/MathJaxWrapper';
+import { InlineMarkdownKatex, MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { Definition } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
@@ -74,7 +74,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
               )}
 
               {currentDescription && currentDescription.trim().length > 0 ? (
-                <MathText key={selectedDefinitionIndex} text={currentDescription} className="whitespace-pre-wrap" />
+                <MarkdownKatex key={selectedDefinitionIndex} className="whitespace-pre-wrap" >{currentDescription}</MarkdownKatex>
               ) : (
                 <span className="text-gray-400 italic">N/A</span>
               )}
@@ -95,7 +95,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
           {showNotes && (
             <Card className="bg-yellow-50 border border-yellow-200 shadow-sm">
               <CardContent className="p-3 text-sm">
-                <MathText text={definition.notes} className="whitespace-pre-wrap" />
+                <MarkdownKatex className="whitespace-pre-wrap">{definition.notes}</MarkdownKatex>
               </CardContent>
             </Card>
           )}
@@ -119,8 +119,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 <span className="truncate max-w-[220px] inline-block align-middle">
                   {/* Using InlineMath to typeset within a button */}
                   {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                  {/* @ts-ignore - InlineMath provided by MathJaxWrapper */}
-                  <InlineMath text={getPrerequisiteDisplayText(prereqCode)} />
+                  <InlineMarkdownKatex>{getPrerequisiteDisplayText(prereqCode)}</InlineMarkdownKatex>
                 </span>
               </Button>
             ))}
