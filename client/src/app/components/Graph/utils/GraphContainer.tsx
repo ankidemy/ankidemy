@@ -117,16 +117,25 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   }, [graphNodes]);
 
   // Detect structural changes for physics reset
+  // IMPORTANT: We only reheat physics if there are nodes without known positions.
+  // This preserves "no drift" behavior described in KNOWLEDGE_GRAPH.md when switching modes.
   const structuralChange = useMemo(() => {
-    // Only trigger physics reset when explicitly requested by caller
-    const changed = !!requiresPhysicsReset;
+    const callerRequested = !!requiresPhysicsReset;
     lastNodeCountRef.current = graphNodes.length;
-    if (changed) {
-      console.log(`GraphContainer: Physics reset requested. Nodes: ${graphNodes.length}`);
+
+    // Check if all nodes have x/y coordinates
+    const allHavePositions = graphNodes.every(n => typeof n.x === 'number' && typeof n.y === 'number');
+
+    // Reheat only when requested AND we have unpositioned nodes
+    const shouldReset = callerRequested && !allHavePositions;
+    if (shouldReset) {
+      console.log(`GraphContainer: Physics reset (unpositioned nodes present). Nodes: ${graphNodes.length}`);
       simulationStableRef.current = false;
+    } else if (callerRequested && allHavePositions) {
+      console.log('GraphContainer: Suppressing physics reset — all nodes have positions.');
     }
-    return changed;
-  }, [requiresPhysicsReset, graphNodes.length]);
+    return shouldReset;
+  }, [requiresPhysicsReset, graphNodes.length, graphNodes]);
 
   // Memoized node renderer for better performance
   // Per-node persistent label cache to avoid transient cache misses on hover
@@ -581,7 +590,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         onEngineStop={handleEngineStop}
         
         // Physics simulation parameters
-        d3AlphaDecay={0.015}
+        // If we didn't trigger a structural reset (or all nodes are positioned),
+        // keep alpha decay aggressive to avoid any drift.
+        d3AlphaDecay={structuralChange ? 0.015 : 1}
         d3VelocityDecay={0.75}
         
         // Conditional simulation control based on structural changes
