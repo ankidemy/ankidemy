@@ -35,6 +35,25 @@ export interface User {
   deletedAt?: string;
 }
 
+// Normalize server user payloads to consistent casing (id, createdAt, ...)
+const normalizeUser = (u: any): User => {
+  if (!u) return u as any;
+  const id = typeof u.id !== 'undefined' ? u.id : u.ID;
+  return {
+    id: Number(id),
+    username: u.username,
+    email: u.email,
+    level: u.level,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    isActive: Boolean(u.isActive),
+    isAdmin: Boolean(u.isAdmin),
+    createdAt: u.createdAt ?? u.CreatedAt ?? u.created_at ?? '',
+    updatedAt: u.updatedAt ?? u.UpdatedAt ?? u.updated_at ?? '',
+    deletedAt: u.deletedAt ?? u.DeletedAt ?? u.deleted_at,
+  };
+};
+
 export interface Domain {
   id: number;
   name: string;
@@ -346,6 +365,10 @@ export const loginUser = async (credentials: { identifier: string; password: str
   });
   
   const data = await handleResponse(response);
+  // Normalize user casing if present
+  if ((data as any)?.user) {
+    (data as any).user = normalizeUser((data as any).user);
+  }
   
   if (data.token) {
     localStorage.setItem('token', data.token);
@@ -368,6 +391,9 @@ export const registerUser = async (userDetails: {
   });
 
   const data = await handleResponse(response);
+  if ((data as any)?.user) {
+    (data as any).user = normalizeUser((data as any).user);
+  }
   
   if (data.token) {
     localStorage.setItem('token', data.token);
@@ -384,6 +410,9 @@ export const refreshToken = async (token: string): Promise<AuthResponse> => {
   });
 
   const data = await handleResponse(response);
+  if ((data as any)?.user) {
+    (data as any).user = normalizeUser((data as any).user);
+  }
   
   if (data.token) {
     localStorage.setItem('token', data.token);
@@ -426,8 +455,8 @@ export const getCurrentUser = async (): Promise<User> => {
       'Content-Type': 'application/json',
     },
   });
-  
-  return handleResponse(response);
+  const raw = await handleResponse(response);
+  return normalizeUser(raw);
 };
 
 export const updateCurrentUser = async (userData: {

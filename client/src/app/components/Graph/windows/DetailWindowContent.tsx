@@ -291,13 +291,13 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   // Robust domain ownership check (handles type mismatches and missing data)
   const isDomainOwner = useCallback(() => {
     const ownerId = domainData?.ownerId;
-    const userId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+    const userId = currentUser?.id;
     if (ownerId == null || userId == null) {
       // If we cannot determine yet, don't block UI; server will enforce auth
       return true;
     }
     return Number(ownerId) === Number(userId);
-  }, [domainData?.ownerId, (currentUser as any)?.id]);
+  }, [domainData?.ownerId, currentUser?.id]);
 
   // Edit mode toggle
   const toggleEditMode = useCallback(() => {

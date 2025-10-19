@@ -171,7 +171,7 @@ export default function MainPage() {
   // Handle domain access
   const handleDomainAccess = async (domain: Domain) => {
     // Check if user owns the domain
-    const currentUserId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+    const currentUserId = currentUser?.id;
     const isOwned = !!currentUserId && domain.ownerId === currentUserId;
     const isEnrolled = enrolledDomainIds.has(domain.id);
     
@@ -215,7 +215,7 @@ export default function MainPage() {
 
   // Get domain status info
   const getDomainStatus = (domain: Domain) => {
-    const currentUserId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+    const currentUserId = currentUser?.id;
     const isOwned = !!currentUserId && domain.ownerId === currentUserId;
     const isEnrolled = enrolledDomainIds.has(domain.id);
     
@@ -406,7 +406,7 @@ export default function MainPage() {
               {displayDomains.map((domain) => {
                 const statusInfo = getDomainStatus(domain);
                 const isEnrolling = enrolling.has(domain.id);
-                const currentUserId = (currentUser as any)?.id ?? (currentUser as any)?.ID;
+                const currentUserId = currentUser?.id;
                 const isOwned = !!currentUserId && domain.ownerId === currentUserId;
                 const isEnrolled = enrolledDomainIds.has(domain.id);
                 
