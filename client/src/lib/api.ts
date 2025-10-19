@@ -1084,18 +1084,27 @@ export const exportDomainAsJson = async (domainId: number): Promise<DomainExport
  * Imports data into an existing domain
  * @param domainId The ID of the domain to import into
  * @param data The import data
+ * @param opts Options for the import, including duplicate handling strategy
  * @returns Promise resolving when import is complete
  */
-export const importToDomain = async (domainId: number, data: DomainExportData): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/import`, {
+export const importToDomain = async (
+  domainId: number,
+  data: DomainExportData,
+  opts?: { onDuplicate?: 'rename' | 'update' }
+): Promise<void> => {
+  const url = opts?.onDuplicate
+    ? `${API_URL}/api/domains/${domainId}/import?onDuplicate=${opts.onDuplicate}`
+    : `${API_URL}/api/domains/${domainId}/import`;
+
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { 
+    headers: {
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(data),
   });
-  
+
   return handleResponse(response);
 };
 
