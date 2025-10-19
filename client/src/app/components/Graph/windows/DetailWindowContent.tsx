@@ -565,13 +565,13 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               {currentNode.type === 'exercise' && (
                 <TabsTrigger value="versions" className="text-sm h-8">Versions</TabsTrigger>
               )}
-              <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
               {currentNode.type === 'exercise' && (
                 <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
               )}
               {currentNode.type === 'definition' && (
                 <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
               )}
+              <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
             </TabsList>
             {currentNode.type === 'exercise' && (
               <TabsContent value="versions" className="mt-3">
