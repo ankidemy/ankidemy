@@ -675,10 +675,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       try {
                         const raw = await getDefinitionByCode(currentNode.id, { domainId: domainData.id });
                         const fresh = Array.isArray(raw) ? raw[0] : raw;
-                        onUpdateNodeData?.(fresh.code, {
-                          ...fresh,
-                          type: 'definition',
-                        } as any);
+                        if (fresh) {
+                          const enriched = { ...fresh, type: 'definition' } as Definition;
+                          setNodeDetails(enriched);
+                          onUpdateNodeData?.(fresh.code, enriched as any);
+                        }
                       } catch (e) {
                         console.warn('Failed to fetch updated definition; falling back to refresh.', e);
                         onRefresh?.();

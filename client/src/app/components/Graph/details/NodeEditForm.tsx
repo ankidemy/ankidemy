@@ -41,6 +41,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
 }) => {
   // Store weights by **numeric ID** (matches API update payload)
   const [prerequisiteWeights, setPrerequisiteWeights] = useState<Record<number, number>>({});
+  const [definitionSearch, setDefinitionSearch] = useState('');
 
   // Initialize from props ONLY when the edited node changes to avoid losing selection on window clicks
   useEffect(() => {
@@ -56,6 +57,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
     } else {
       setPrerequisiteWeights({});
     }
+    setDefinitionSearch('');
     // NOTE: we intentionally only depend on selectedNode.id to prevent resets while editing
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNode.id]);
@@ -107,6 +109,16 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
 
   const domainId = (selectedNodeDetails as any)?.domainId as number | undefined;
   const numericId = (selectedNodeDetails as any)?.id as number | undefined;
+
+  const filteredDefinitionsForSelect = availableDefinitionsForEdit
+    .filter((def) => def.code !== selectedNode.id)
+    .filter((def) => {
+      const query = definitionSearch.trim().toLowerCase();
+      if (!query) return true;
+      if (selectedPrereqIds.includes(def.numericId)) return true; // Always show already-selected items
+      return (`${def.code} ${def.name}`).toLowerCase().includes(query);
+    })
+    .sort((a, b) => a.code.localeCompare(b.code));
 
   return (
     <div className="space-y-4 text-sm">
@@ -248,11 +260,20 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
       {isDefinition ? (
         <div>
           <label htmlFor="prerequisites" className="block text-xs font-medium mb-1 text-gray-600">Prerequisites (Definitions)</label>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-500">Search definitions</span>
+            <Input
+              value={definitionSearch}
+              onChange={(e) => setDefinitionSearch(e.target.value)}
+              placeholder="Filter definitions..."
+              className="h-7 text-xs w-48"
+            />
+          </div>
           <select
             id="prerequisites"
             name="prerequisiteIds"  /* API expects numeric prerequisiteIds */
             multiple
-            size={Math.min(12, Math.max(6, availableDefinitionsForEdit.length))}
+            size={Math.min(12, Math.max(6, Math.max(filteredDefinitionsForSelect.length, selectedPrereqIds.length)))}
             className="w-full border border-gray-300 rounded p-2 h-24 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
             value={selectedPrereqIds.map(String)}
             onChange={handlePrereqSelectionChange}
@@ -260,14 +281,11 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
             onMouseDownCapture={(e) => e.stopPropagation()}
             onKeyDownCapture={(e) => e.stopPropagation()}
           >
-            {availableDefinitionsForEdit
-              .filter((def) => def.code !== selectedNode.id)
-              .sort((a, b) => a.code.localeCompare(b.code))
-              .map((def) => (
-                <option key={def.numericId} value={String(def.numericId)}>
-                  {def.code}: {def.name}
-                </option>
-              ))}
+            {filteredDefinitionsForSelect.map((def) => (
+              <option key={def.numericId} value={String(def.numericId)}>
+                {def.code}: {def.name}
+              </option>
+            ))}
           </select>
           <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
 
