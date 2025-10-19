@@ -14,7 +14,7 @@ import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/s
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory } from '@/lib/srs-api';
-import { InlineMath } from '@/app/components/core/MathJaxWrapper';
+import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 
 interface AvailableDefinitionOptionForEdit {
   code: string;
@@ -201,7 +201,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
               </Button>
             )}
             <h3 className="font-semibold text-base truncate flex-grow" title={`${selectedNode.id}: ${selectedNode.name}`}>
-              <InlineMath text={`${selectedNode.id}: ${selectedNode.name}`} />
+              <InlineMarkdownKatex>{`${selectedNode.id}: ${selectedNode.name}`}</InlineMarkdownKatex>
             </h3>
           </div>
           <div className="flex flex-shrink-0">

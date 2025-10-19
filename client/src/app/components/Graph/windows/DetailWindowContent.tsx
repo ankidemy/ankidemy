@@ -17,7 +17,7 @@ import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/s
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory, getDomainPrerequisites } from '@/lib/srs-api';
-import { InlineMath } from '@/app/components/core/MathJaxWrapper';
+import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { 
   getDefinitionByCode, 
   updateDefinition, 
@@ -462,7 +462,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           </Button>
         )}
         <h3 className="flex-1 font-semibold text-base truncate">
-          <InlineMath text={`${currentNode.id}: ${currentNode.name}`} />
+          <InlineMarkdownKatex>{`${currentNode.id}: ${currentNode.name}`}</InlineMarkdownKatex>
         </h3>
         <Button
           variant="ghost"

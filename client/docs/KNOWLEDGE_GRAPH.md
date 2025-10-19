@@ -192,9 +192,41 @@ Test Checklist (Manual QA)
 
 Rendering & Labels (Crisp, No Flicker)
 --------------------------------------
-- All labels render via MathJax → SVG → Image at device pixel ratio.
+- Graph node/canvas labels continue to render via MathJax → SVG → Image at device pixel ratio. This path remains authoritative for label quality and zoom behavior.
 - Rendering is concurrency‑limited to prevent blocking; completed labels trigger a single RAF refresh.
 - Per‑node label bitmap cache avoids flicker when the canvas redraws (e.g., during hover).
+
+Markdown + KaTeX Rendering (Windows, Panels)
+--------------------------------------------
+- User‑authored rich text fields (definition descriptions, exercise statements/solutions/hints/notes, review views, panel and window titles) now render as GitHub‑style Markdown with math via KaTeX.
+- Implementation:
+  - react-markdown + remark-gfm + remark-math + rehype-katex
+  - Raw HTML is disabled (safe by default). Code/pre blocks are not math‑processed.
+  - External links open in a new tab and use rel="noopener noreferrer".
+  - Entry points: `MarkdownKatex` (block) and `InlineMarkdownKatex` (inline) in `src/app/components/core/MarkdownKatex.tsx`.
+- Scope of this change: windows and panels. The graph label pipeline remains MathJax→SVG, unchanged.
+
+TeX Macros (Cross‑engine Behavior)
+----------------------------------
+- “Macros” are TeX command shortcuts (e.g., `\RR` → `\mathbb{R}`). We must keep KaTeX (text) and MathJax (graph labels) in agreement so the same source renders identically.
+- Where to configure:
+  - KaTeX: pass a `macros` map to rehype-katex (e.g., `{ \\RR: "\\mathbb{R}", \\vect: "\\mathbf{#1}" }`).
+  - MathJax: define the same macros in the MathJax config under `tex.macros`.
+- Recommendation:
+  - Define a single shared macro object in a small module (e.g., `core/texMacros.ts`) and import it in both KaTeX and MathJax setups to avoid drift.
+  - Start with common set: `\\NN, \\ZZ, \\QQ, \\RR, \\CC, \\vect{#1} → \\mathbf{#1}, \\abs{#1} → \\left|#1\\right|, \\norm{#1} → \\left\\lVert #1 \\right\\rVert, \\set{#1} → \\left\\{ #1 \\right\\}, \\ceil{#1}, \\floor{#1}`.
+  - Prefer KaTeX‑compatible commands where possible; if a macro uses a MathJax‑only package, provide a KaTeX equivalent or avoid it in user content.
+
+Typography (Prose) Theming
+--------------------------
+- We can enable Tailwind Typography (`@tailwindcss/typography`) to get GitHub‑like defaults and then theme them.
+- Controls you can tune:
+  - Size variants: `prose-sm`, `prose`, `prose-lg` per container.
+  - Colors: `prose-zinc`, `prose-slate`, custom via CSS variables or Tailwind theme extension.
+  - Element spacing: override specific selectors (e.g., `.prose p`, `.prose h1`, `.prose pre code`).
+  - Code blocks: background, border, font via utility classes on `pre code` wrapper in `MarkdownKatex`.
+  - Tables: wrap in `overflow-x-auto`, tune borders/cell padding.
+- Current state: prose is optional in `MarkdownKatex` (`prose` prop). We kept minimal styling; enabling typography is a non‑breaking toggle per view.
 
 Interactions With Other Components
 ----------------------------------

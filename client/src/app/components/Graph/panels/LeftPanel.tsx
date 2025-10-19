@@ -7,7 +7,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { Search, Filter, X, CheckSquare, Square, Trash2, Eye, MousePointer, Users } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
-import { InlineMath } from '@/app/components/core/MathJaxWrapper';
+import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { useSRS } from '@/contexts/SRSContext';
 import { GraphNode, FilteredNodeType } from '../utils/types';
 import { getStatusColor, getStatusIcon } from '@/lib/srs-api';
@@ -198,7 +198,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
           {/* Node Content with enhanced typography */}
           <div className="flex-1 min-w-0">
             <div className={`font-medium truncate ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-              <InlineMath text={`${node.id}: ${node.name}`} />
+              <InlineMarkdownKatex>{`${node.id}: ${node.name}`}</InlineMarkdownKatex>
             </div>
             
             {/* Enhanced metadata display */}
