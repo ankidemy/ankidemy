@@ -32,6 +32,7 @@ type UserNodeProgress struct {
 	Repetitions       int       `gorm:"column:repetitions;default:0" json:"repetitions"`
 	LastReview        *time.Time `gorm:"column:last_review" json:"lastReview"`
 	NextReview        *time.Time `gorm:"column:next_review" json:"nextReview"`
+	BlockNegativeUntil *time.Time `gorm:"column:block_negative_until" json:"blockNegativeUntil,omitempty"`
 	AccumulatedCredit float64   `gorm:"column:accumulated_credit;default:0" json:"accumulatedCredit"`
 	CreditPostponed   bool      `gorm:"column:credit_postponed;default:false" json:"creditPostponed"`
 	TotalReviews      int       `gorm:"column:total_reviews;default:0" json:"totalReviews"`

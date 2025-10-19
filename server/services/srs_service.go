@@ -236,12 +236,29 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
             progress.TotalReviews++
             if quality >= 3 {
                 progress.SuccessfulReviews++
+                // Set block to prevent negative implicit credit from anticipating until NextReview
+                progress.BlockNegativeUntil = progress.NextReview
+            } else {
+                // Clear block on explicit failure to allow anticipation
+                progress.BlockNegativeUntil = nil
             }
             progress.AccumulatedCredit = 0
             progress.CreditPostponed = false
 
         } else {
             // Implicit review - handle credit accumulation with enhanced bounds checking
+
+            // Check if negative credit is blocked before processing
+            if credit.Credit < 0 && progress.BlockNegativeUntil != nil && currentTime.Before(*progress.BlockNegativeUntil) {
+                // Block is active - skip this negative credit entirely
+                log.Printf("[SRS] Negative implicit credit blocked for node %d (type: %s). Block active until %s (current: %s)",
+                    credit.NodeID, credit.NodeType,
+                    progress.BlockNegativeUntil.Format(time.RFC3339),
+                    currentTime.Format(time.RFC3339))
+                // Skip updating this node - continue to next credit
+                continue
+            }
+
             // Reset implicit credits if more than 12 hours have passed since last update.
             // This prevents long-term farming while avoiding calendar/day-boundary pitfalls.
             if progress.UpdatedAt.Before(currentTime.Add(-12 * time.Hour)) {
@@ -255,10 +272,10 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
 
             // Apply strict bounds checking to prevent database constraint violations
             boundedCredit := math.Max(-1.0, math.Min(1.0, newCredit))
-            
+
             // Check if we hit the bounds and log a warning
             if newCredit != boundedCredit {
-                warningMsg := fmt.Sprintf("Credit limit reached for node %d (type: %s). Original: %.3f, Attempted: %.3f, Applied: %.3f", 
+                warningMsg := fmt.Sprintf("Credit limit reached for node %d (type: %s). Original: %.3f, Attempted: %.3f, Applied: %.3f",
                     credit.NodeID, credit.NodeType, originalCredit, newCredit, boundedCredit)
                 warnings = append(warnings, warningMsg)
                 // Log for debugging
@@ -279,6 +296,7 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
                     progress.NextReview = &srResult.NextReview
                     progress.Repetitions = srResult.Repetitions
                     progress.IntervalDays = srResult.IntervalDays
+                    // Note: Do not extend BlockNegativeUntil when positive credit postpones
                 }
             }
 
