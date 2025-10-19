@@ -6,6 +6,7 @@ import {
   createDefinition,
   createMetaExercise,
   addMetaExerciseVersion,
+  getMetaExercise,
   DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
   Definition as ApiDefinition,
   Exercise as ApiExercise
@@ -24,7 +25,8 @@ interface NodeCreationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (nodeCode: string, created?: ApiDefinition | ApiExercise) => void; // Return code and payload for surgical insert
-  availablePrerequisites: PrerequisiteOption[]; // Updated type
+  availableDefinitionPrerequisites: PrerequisiteOption[];
+  availableExercisePrerequisites?: PrerequisiteOption[];
   position?: {x: number, y: number};
 }
 
@@ -34,7 +36,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  availablePrerequisites,
+  availableDefinitionPrerequisites,
+  availableExercisePrerequisites = [],
   position
 }) => {
   const [code, setCode] = useState('');
@@ -48,10 +51,14 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [result, setResult] = useState('');
   // Additional versions for meta-exercise creation
   const [extraVersions, setExtraVersions] = useState<Array<{ statement: string; description?: string; hints?: string; notes?: string; difficulty?: number; verifiable?: boolean; result?: string }>>([]);
-  const [selectedPrereqNumericIds, setSelectedPrereqNumericIds] = useState<number[]>([]); // Store numeric IDs
+  const [selectedDefPrereqIds, setSelectedDefPrereqIds] = useState<number[]>([]);
+  const [selectedExPrereqIds, setSelectedExPrereqIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [prerequisiteWeights, setPrerequisiteWeights] = useState<Record<number, number>>({}); // NEW: weights for prerequisites
+  const [defPrereqWeights, setDefPrereqWeights] = useState<Record<number, number>>({});
+  const [exPrereqWeights, setExPrereqWeights] = useState<Record<number, number>>({});
+  const [searchDef, setSearchDef] = useState('');
+  const [searchEx, setSearchEx] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -64,38 +71,59 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       setDifficulty('3');
       setVerifiable(false);
       setResult('');
-      setSelectedPrereqNumericIds([]); // Reset to numeric IDs array
+      setSelectedDefPrereqIds([]);
+      setSelectedExPrereqIds([]);
       setError(null);
       setIsSubmitting(false);
-      setPrerequisiteWeights({}); // Reset weights
+      setDefPrereqWeights({});
+      setExPrereqWeights({});
+      setSearchDef('');
+      setSearchEx('');
     }
   }, [isOpen, type]);
 
   // fix for the handlePrereqChange function to prevent duplicates:
-  const handlePrereqChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleDefPrereqChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedOptions = Array.from(e.target.selectedOptions)
       .map(option => parseInt(option.value, 10)) // Values are now numeric IDs
       .filter(id => !isNaN(id));
     
     // FIX: Remove duplicates using Set
     const uniqueSelectedOptions = [...new Set(selectedOptions)];
-    setSelectedPrereqNumericIds(uniqueSelectedOptions);
+    setSelectedDefPrereqIds(uniqueSelectedOptions);
     
     // Initialize weights for newly selected prerequisites
     const newWeights: Record<number, number> = {};
     uniqueSelectedOptions.forEach(id => {
-      newWeights[id] = prerequisiteWeights[id] || 1.0; // Default to 1.0
+      newWeights[id] = defPrereqWeights[id] || 1.0; // Default to 1.0
     });
-    setPrerequisiteWeights(newWeights);
+    setDefPrereqWeights(newWeights);
   };
 
-  const handleWeightChange = (prereqId: number, weight: string) => {
+  const handleDefWeightChange = (prereqId: number, weight: string) => {
     const numWeight = parseFloat(weight) || 1.0;
     const clampedWeight = Math.max(0.01, Math.min(1.0, numWeight)); // Clamp between 0.01 and 1.0
-    setPrerequisiteWeights(prev => ({
+    setDefPrereqWeights(prev => ({
       ...prev,
       [prereqId]: clampedWeight
     }));
+  };
+
+  const handleExPrereqChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedOptions = Array.from(e.target.selectedOptions)
+      .map(option => parseInt(option.value, 10))
+      .filter(id => !isNaN(id));
+    const unique = [...new Set(selectedOptions)];
+    setSelectedExPrereqIds(unique);
+    const newW: Record<number, number> = {};
+    unique.forEach(id => { newW[id] = exPrereqWeights[id] || 1.0; });
+    setExPrereqWeights(newW);
+  };
+
+  const handleExWeightChange = (prereqId: number, weight: string) => {
+    const numWeight = parseFloat(weight) || 1.0;
+    const clampedWeight = Math.max(0.01, Math.min(1.0, numWeight));
+    setExPrereqWeights(prev => ({ ...prev, [prereqId]: clampedWeight }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -108,9 +136,9 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         throw new Error('Code and Name are required');
       }
 
-      // Prepare prerequisite data with weights
-      const prerequisiteIdsToSend = selectedPrereqNumericIds.length > 0 ? selectedPrereqNumericIds : undefined;
-      const prerequisiteWeightsToSend = selectedPrereqNumericIds.length > 0 ? prerequisiteWeights : undefined;
+      // Prepare prerequisite data with weights (definitions only for initial create)
+      const prerequisiteIdsToSend = selectedDefPrereqIds.length > 0 ? selectedDefPrereqIds : undefined;
+      const prerequisiteWeightsToSend = selectedDefPrereqIds.length > 0 ? defPrereqWeights : undefined;
 
       if (type === 'definition') {
         if (!description.trim()) throw new Error('Description is required for definitions');
@@ -134,7 +162,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           name: name.trim(),
           xPosition: position?.x,
           yPosition: position?.y,
-          prerequisiteIds: selectedPrereqNumericIds,
+          prerequisiteIds: prerequisiteIdsToSend,
           prerequisiteWeights: prerequisiteWeightsToSend,
           initialVersion: {
             statement: statement.trim(),
@@ -146,6 +174,20 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             result: verifiable ? (result.trim() || undefined) : undefined,
           }
         });
+        // Attach exercise prerequisites (meta_exercise -> meta_exercise)
+        if (selectedExPrereqIds.length > 0) {
+          const { createPrerequisite } = await import('@/lib/srs-api');
+          for (const exId of selectedExPrereqIds) {
+            await createPrerequisite({
+              nodeId: (response as any).id,
+              nodeType: 'meta_exercise',
+              prerequisiteId: exId,
+              prerequisiteType: 'meta_exercise',
+              weight: exPrereqWeights[exId] ?? 1.0,
+              isManual: true,
+            });
+          }
+        }
         // Add extra versions, if any
         for (const v of extraVersions) {
           const payload = {
@@ -154,7 +196,15 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           };
           await addMetaExerciseVersion((response as any).id, payload);
         }
-        onSuccess(response.code, response as any);
+        // Fetch the fresh meta-exercise including new exercise prerequisites for surgical insert
+        let enriched = response as any;
+        try {
+          enriched = await getMetaExercise((response as any).id);
+        } catch (e) {
+          // fallback to original response if fetch fails
+          console.warn('Could not fetch fresh meta after creating prerequisites; using original response.');
+        }
+        onSuccess(enriched.code, enriched);
       }
       onClose();
     } catch (err: any) {
@@ -315,62 +365,88 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             </>
           )}
 
+          {/* Prerequisites with search */}
           <div>
-            <label htmlFor="prerequisites" className="block text-sm font-medium text-gray-700 mb-1">Prerequisites (Optional Definitions)</label>
-            <select
-              id="prerequisites"
-              multiple
-              className="w-full border border-gray-300 rounded-md px-3 py-2 h-32 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 bg-white"
-              value={selectedPrereqNumericIds.map(String)} // Select expects string values
-              onChange={handlePrereqChange}
-              disabled={isSubmitting || availablePrerequisites.length === 0}
-            >
-              {availablePrerequisites.length === 0 && <option disabled>No definitions available</option>}
-              {availablePrerequisites.map((prereq) => (
-                <option key={prereq.code} value={String(prereq.numericId)}>
-                  {prereq.code}: {prereq.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple.</p>
-
-          {/* NEW: Weight inputs for selected prerequisites */}
-          {selectedPrereqNumericIds.length > 0 && (
-            <div className="mt-3 p-3 border rounded-md bg-gray-50">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Prerequisite Weights (0.01 - 1.00)</h4>
-              <div className="space-y-2 max-h-32 overflow-y-auto">
-                {/* FIX: Remove duplicates and ensure unique keys */}
-                {[...new Set(selectedPrereqNumericIds)]
-                  .map(prereqId => {
-                    const prereq = availablePrerequisites.find(p => p.numericId === prereqId);
-                    if (!prereq) return null;
-                    
-                    return (
-                      <div key={`prereq-weight-${prereq.code}`} className="flex items-center justify-between text-xs">
-                        <span className="truncate flex-1 mr-2" title={`${prereq.code}: ${prereq.name}`}>
-                          {prereq.code}
-                        </span>
-                        <input
-                          type="number"
-                          min="0.01"
-                          max="1.00"
-                          step="0.01"
-                          value={prerequisiteWeights[prereqId] || 1.0}
-                          onChange={(e) => handleWeightChange(prereqId, e.target.value)}
-                          disabled={isSubmitting}
-                          className="w-16 px-1 py-0.5 border border-gray-300 rounded text-xs"
-                          title="Weight for credit propagation (1.0 = full, 0.01 = minimal)"
-                        />
-                      </div>
-                    );
-                  })
-                  .filter(Boolean)} {/* Remove null entries */}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Prerequisites</label>
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-600">Definitions</span>
+                <Input placeholder="Search definitions..." value={searchDef} onChange={(e)=> setSearchDef(e.target.value)} className="h-8 text-sm w-48" />
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                1.0 = Full prerequisite (solid line), &lt; 1.0 = Partial prerequisite (dotted line)
-              </p>
+              <select
+                id="prerequisites_defs"
+                multiple
+                className="w-full border border-gray-300 rounded-md px-3 py-2 h-28 text-sm bg-white"
+                value={selectedDefPrereqIds.map(String)}
+                onChange={handleDefPrereqChange}
+                disabled={isSubmitting || availableDefinitionPrerequisites.length === 0}
+              >
+                {availableDefinitionPrerequisites
+                  .filter(p => (p.code + ' ' + p.name).toLowerCase().includes(searchDef.toLowerCase()))
+                  .map((prereq) => (
+                    <option key={`def-${prereq.code}`} value={String(prereq.numericId)}>
+                      {prereq.code}: {prereq.name}
+                    </option>
+                  ))}
+              </select>
+              {selectedDefPrereqIds.length > 0 && (
+                <div className="mt-2 p-2 border rounded bg-gray-50">
+                  <div className="space-y-2 max-h-28 overflow-y-auto">
+                    {[...new Set(selectedDefPrereqIds)].map(id => {
+                      const item = availableDefinitionPrerequisites.find(p => p.numericId === id);
+                      if (!item) return null;
+                      return (
+                        <div key={`defw-${item.code}`} className="flex items-center justify-between text-xs">
+                          <span className="truncate mr-2">{item.code}</span>
+                          <input type="number" min="0.01" max="1.00" step="0.01" value={defPrereqWeights[id] || 1.0} onChange={(e)=> handleDefWeightChange(id, e.target.value)} className="w-16 px-1 py-0.5 border rounded" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+            {type === 'exercise' && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-gray-600">Exercises</span>
+                  <Input placeholder="Search exercises..." value={searchEx} onChange={(e)=> setSearchEx(e.target.value)} className="h-8 text-sm w-48" />
+                </div>
+                <select
+                  id="prerequisites_exercises"
+                  multiple
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 h-28 text-sm bg-white"
+                  value={selectedExPrereqIds.map(String)}
+                  onChange={handleExPrereqChange}
+                  disabled={isSubmitting || (availableExercisePrerequisites?.length || 0) === 0}
+                >
+                  {(availableExercisePrerequisites || [])
+                    .filter(p => (p.code + ' ' + p.name).toLowerCase().includes(searchEx.toLowerCase()))
+                    .map((prereq) => (
+                      <option key={`ex-${prereq.code}`} value={String(prereq.numericId)}>
+                        {prereq.code}: {prereq.name}
+                      </option>
+                    ))}
+                </select>
+                {selectedExPrereqIds.length > 0 && (
+                  <div className="mt-2 p-2 border rounded bg-gray-50">
+                    <div className="space-y-2 max-h-28 overflow-y-auto">
+                      {[...new Set(selectedExPrereqIds)].map(id => {
+                        const item = (availableExercisePrerequisites || []).find(p => p.numericId === id);
+                        if (!item) return null;
+                        return (
+                          <div key={`exw-${item.code}`} className="flex items-center justify-between text-xs">
+                            <span className="truncate mr-2">{item.code}</span>
+                            <input type="number" min="0.01" max="1.00" step="0.01" value={exPrereqWeights[id] || 1.0} onChange={(e)=> handleExWeightChange(id, e.target.value)} className="w-16 px-1 py-0.5 border rounded" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Exercise prerequisites are linked after creation.</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end space-x-3 pt-4 border-t mt-6">

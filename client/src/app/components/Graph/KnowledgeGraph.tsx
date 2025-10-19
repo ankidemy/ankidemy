@@ -1063,7 +1063,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode]);
 
-  // Available definitions for modals
+  // Available definitions for modals (as prerequisite candidates)
   const availableDefinitionsForModals = useMemo(() => {
     return stableGraph.nodes
       .filter(node => node.type === 'definition')
@@ -1075,6 +1075,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       .filter(node => node.numericId != null)
       .sort((a, b) => a.code.localeCompare(b.code)) as { code: string; name: string; numericId: number; }[];
   }, [stableGraph.nodes, codeToNumericIdMap]);
+
+  // Available meta-exercises for modals (as prerequisite candidates for exercises)
+  // IMPORTANT: build exercise prerequisites list from loaded domain data,
+  // not from the visible graph nodes (which hide exercises in 'study' mode).
+  const availableMetaExercisesForModals = useMemo(() => {
+    return Object.values(currentStructuralGraphData.exercises || {})
+      .map(ex => ({
+        code: ex.code,
+        name: ex.name,
+        numericId: codeToNumericIdMap.get(ex.code)
+      }))
+      .filter(item => item.numericId != null)
+      .sort((a, b) => a.code.localeCompare(b.code)) as { code: string; name: string; numericId: number; }[];
+  }, [currentStructuralGraphData.exercises, codeToNumericIdMap]);
 
   // Position saving
   const savePositions = useCallback(async () => {
@@ -1162,7 +1176,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           isOpen={showNodeCreationModal}
           onClose={() => setShowNodeCreationModal(false)}
           onSuccess={handleNodeCreationSuccess}
-          availablePrerequisites={availableDefinitionsForModals}
+          availableDefinitionPrerequisites={availableDefinitionsForModals}
+          availableExercisePrerequisites={availableMetaExercisesForModals}
           position={nodeCreationPosition}
         />
 
