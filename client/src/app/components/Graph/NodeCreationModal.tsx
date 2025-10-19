@@ -27,6 +27,7 @@ interface NodeCreationModalProps {
   onSuccess: (nodeCode: string, created?: ApiDefinition | ApiExercise) => void; // Return code and payload for surgical insert
   availableDefinitionPrerequisites: PrerequisiteOption[];
   availableExercisePrerequisites?: PrerequisiteOption[];
+  existingCodes: Set<string>;
   position?: {x: number, y: number};
 }
 
@@ -38,6 +39,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   onSuccess,
   availableDefinitionPrerequisites,
   availableExercisePrerequisites = [],
+  existingCodes,
   position
 }) => {
   const [code, setCode] = useState('');
@@ -55,6 +57,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [selectedExPrereqIds, setSelectedExPrereqIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [defPrereqWeights, setDefPrereqWeights] = useState<Record<number, number>>({});
   const [exPrereqWeights, setExPrereqWeights] = useState<Record<number, number>>({});
   const [searchDef, setSearchDef] = useState('');
@@ -74,6 +77,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       setSelectedDefPrereqIds([]);
       setSelectedExPrereqIds([]);
       setError(null);
+      setCodeError(null);
       setIsSubmitting(false);
       setDefPrereqWeights({});
       setExPrereqWeights({});
@@ -81,6 +85,20 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       setSearchEx('');
     }
   }, [isOpen, type]);
+
+  // Check for duplicate code
+  useEffect(() => {
+    if (!code.trim()) {
+      setCodeError(null);
+      return;
+    }
+
+    if (existingCodes.has(code.trim())) {
+      setCodeError('Code already exists in this domain. Please choose a different code.');
+    } else {
+      setCodeError(null);
+    }
+  }, [code, existingCodes]);
 
   // fix for the handlePrereqChange function to prevent duplicates:
   const handleDefPrereqChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -134,6 +152,11 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
     try {
       if (!code.trim() || !name.trim()) {
         throw new Error('Code and Name are required');
+      }
+
+      // Check for duplicate code before submitting
+      if (existingCodes.has(code.trim())) {
+        throw new Error('Code already exists in this domain. Please choose a different code.');
       }
 
       // Prepare prerequisite data with weights (definitions only for initial create)
@@ -245,8 +268,21 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label htmlFor="code" className="block text-sm font-medium text-gray-700 mb-1">Code *</label>
-              <Input id="code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g., CALC_DERIV" required disabled={isSubmitting} className="text-sm"/>
-              <p className="text-xs text-gray-500 mt-1">Unique identifier (no spaces recommended).</p>
+              <Input
+                id="code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="e.g., CALC_DERIV"
+                required
+                disabled={isSubmitting}
+                className={`text-sm ${codeError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                aria-invalid={!!codeError}
+              />
+              {codeError ? (
+                <p className="text-xs text-red-600 mt-1">{codeError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">Unique identifier (no spaces recommended).</p>
+              )}
             </div>
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
@@ -451,7 +487,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
 
           <div className="flex justify-end space-x-3 pt-4 border-t mt-6">
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting} variant={isSubmitting ? "secondary" : "default"}>
+            <Button type="submit" disabled={isSubmitting || !!codeError} variant={isSubmitting ? "secondary" : "default"}>
               {isSubmitting ? 'Creating...' : `Create ${type === 'definition' ? 'Definition' : 'Exercise'}`}
             </Button>
           </div>

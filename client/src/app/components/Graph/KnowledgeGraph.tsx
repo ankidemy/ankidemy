@@ -1090,6 +1090,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       .sort((a, b) => a.code.localeCompare(b.code)) as { code: string; name: string; numericId: number; }[];
   }, [currentStructuralGraphData.exercises, codeToNumericIdMap]);
 
+  // Existing codes for duplicate checking in node creation modal
+  const existingCodes = useMemo(() => {
+    const codes = new Set<string>();
+    Object.keys(currentStructuralGraphData.definitions || {}).forEach(code => codes.add(code));
+    Object.keys(currentStructuralGraphData.exercises || {}).forEach(code => codes.add(code));
+    return codes;
+  }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises]);
+
   // Position saving
   const savePositions = useCallback(async () => {
     if (!onPositionUpdate || !positionsChanged) return;
@@ -1178,6 +1186,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onSuccess={handleNodeCreationSuccess}
           availableDefinitionPrerequisites={availableDefinitionsForModals}
           availableExercisePrerequisites={availableMetaExercisesForModals}
+          existingCodes={existingCodes}
           position={nodeCreationPosition}
         />
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+    "fmt"
     "net/http"
     "strconv"
     "github.com/gin-gonic/gin"
@@ -29,6 +30,18 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
 
     var req models.MetaExerciseRequest
     if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+
+    // Check for cross-type code uniqueness (definitions + meta-exercises in the same domain)
+    codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, uint(domainID64))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
+        return
+    }
+
+    if codeExists {
+        c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
+        return
+    }
 
     meta := &models.MetaExercise{ Code: req.Code, Name: req.Name, DomainID: uint(domainID64), OwnerID: userIDv.(uint), XPosition: req.XPosition, YPosition: req.YPosition }
     if err := h.metaDAO.Create(meta, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to create meta exercise"}); return }

@@ -3,6 +3,7 @@
 package handlers
 
 import (
+    "fmt"
     "net/http"
     "strconv"
 
@@ -96,6 +97,18 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 	var req models.DefinitionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check for cross-type code uniqueness (definitions + meta-exercises in the same domain)
+	codeExists, err := h.definitionDAO.CheckCodeExistsInDomain(req.Code, uint(domainID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
+		return
+	}
+
+	if codeExists {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
 		return
 	}
 

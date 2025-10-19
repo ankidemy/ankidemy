@@ -221,3 +221,26 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
     }
     return resp, nil
 }
+
+// CheckCodeExistsInDomain checks if a code already exists in a domain (across both definitions and meta-exercises)
+func (d *MetaExerciseDAO) CheckCodeExistsInDomain(code string, domainID uint) (bool, error) {
+	var defCount int64
+	if err := d.db.Model(&models.Definition{}).
+		Where("domain_id = ? AND code = ?", domainID, code).
+		Count(&defCount).Error; err != nil {
+		return false, err
+	}
+
+	if defCount > 0 {
+		return true, nil
+	}
+
+	var metaCount int64
+	if err := d.db.Model(&models.MetaExercise{}).
+		Where("domain_id = ? AND code = ?", domainID, code).
+		Count(&metaCount).Error; err != nil {
+		return false, err
+	}
+
+	return metaCount > 0, nil
+}
