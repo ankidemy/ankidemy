@@ -57,6 +57,25 @@ func (d *MetaExerciseDAO) UpdateFields(meta *models.MetaExercise) error {
     return d.db.Save(meta).Error
 }
 
+// UpdateFieldsAndCascade updates the meta-exercise and cascades selected fields
+// (code/name) into all related exercise versions within a single transaction.
+func (d *MetaExerciseDAO) UpdateFieldsAndCascade(meta *models.MetaExercise, cascadeCode bool, cascadeName bool) error {
+    return d.db.Transaction(func(tx *gorm.DB) error {
+        if err := tx.Save(meta).Error; err != nil { return err }
+        if cascadeCode {
+            if err := tx.Model(&models.Exercise{}).
+                Where("meta_exercise_id = ?", meta.ID).
+                Update("code", meta.Code).Error; err != nil { return err }
+        }
+        if cascadeName {
+            if err := tx.Model(&models.Exercise{}).
+                Where("meta_exercise_id = ?", meta.ID).
+                Update("name", meta.Name).Error; err != nil { return err }
+        }
+        return nil
+    })
+}
+
 // AddVersion creates a new Exercise row under a MetaExercise
 func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionRequest) (*models.Exercise, error) {
     // Load meta for mirroring fields

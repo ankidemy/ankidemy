@@ -336,7 +336,15 @@ const handleResponse = async (response: Response) => {
         errorMessage = 'The requested resource was not found.';
         break;
       case 409:
-        errorMessage = 'This operation could not be completed due to a conflict (resource may already exist).';
+        // Prefer server-provided message if present to surface duplicate code errors
+        // (Many endpoints return { error: "..." })
+        try {
+          const data = await response.clone().json();
+          if (data?.error) errorMessage = data.error;
+        } catch {}
+        if (!errorMessage || errorMessage.toLowerCase().includes('response body')) {
+          errorMessage = 'Conflict: the resource already exists or cannot be updated due to a conflict.';
+        }
         break;
     }
     

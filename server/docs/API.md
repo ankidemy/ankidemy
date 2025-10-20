@@ -944,7 +944,7 @@ Meta-exercises are containers for multiple versions of an exercise that share th
 
 ### Get Meta-Exercise
 
-- **URL**: `/meta-exercises/:id`
+- **URL**: `/api/meta-exercises/:id`
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **URL Parameters**: `id` - Meta-Exercise ID
@@ -990,7 +990,7 @@ Meta-exercises are containers for multiple versions of an exercise that share th
 
 Updates meta-exercise fields (name, code, position) without affecting prerequisites or versions.
 
-- **URL**: `/meta-exercises/:id`
+- **URL**: `/api/meta-exercises/:id`
 - **Method**: `PUT`
 - **Auth Required**: Yes (owner only)
 - **URL Parameters**: `id` - Meta-Exercise ID
@@ -1030,7 +1030,7 @@ Updates meta-exercise fields (name, code, position) without affecting prerequisi
 
 ### Get Domain Meta-Exercises
 
-- **URL**: `/domains/:id/meta-exercises`
+- **URL**: `/api/domains/:id/meta-exercises`
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **URL Parameters**: `id` - Domain ID
@@ -1061,7 +1061,7 @@ Updates meta-exercise fields (name, code, position) without affecting prerequisi
 
 ### Create Meta-Exercise
 
-- **URL**: `/domains/:id/meta-exercises`
+- **URL**: `/api/domains/:id/meta-exercises`
 - **Method**: `POST`
 - **Auth Required**: Yes (domain owner only)
 - **URL Parameters**: `id` - Domain ID
@@ -1128,7 +1128,7 @@ Updates meta-exercise fields (name, code, position) without affecting prerequisi
 
 ### Add Version
 
-- **URL**: `/meta-exercises/:id/versions`
+- **URL**: `/api/meta-exercises/:id/versions`
 - **Method**: `POST`
 - **Auth Required**: Yes (owner only)
 - **URL Parameters**: `id` - Meta-Exercise ID
@@ -1171,7 +1171,7 @@ Updates meta-exercise fields (name, code, position) without affecting prerequisi
 
 ### Update Version
 
-- **URL**: `/meta-exercises/:id/versions/:versionId`
+- **URL**: `/api/meta-exercises/:id/versions/:versionId`
 - **Method**: `PUT`
 - **Auth Required**: Yes (owner only)
 - **URL Parameters**:
@@ -1216,7 +1216,7 @@ Updates meta-exercise fields (name, code, position) without affecting prerequisi
 
 ### Delete Version
 
-- **URL**: `/meta-exercises/:id/versions/:versionId`
+- **URL**: `/api/meta-exercises/:id/versions/:versionId`
 - **Method**: `DELETE`
 - **Auth Required**: Yes (owner only)
 - **URL Parameters**:
@@ -1236,7 +1236,7 @@ Updates meta-exercise fields (name, code, position) without affecting prerequisi
 
 Returns the next appropriate version for a user to practice, using SRS algorithm.
 
-- **URL**: `/meta-exercises/:id/next-version`
+- **URL**: `/api/meta-exercises/:id/next-version`
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **URL Parameters**: `id` - Meta-Exercise ID

@@ -49,7 +49,7 @@ const MetaExerciseVersionsViewer: React.FC<MetaExerciseVersionsViewerProps> = ({
   }
 
   // Clamp activeIndex to valid range
-  const safeIndex = Math.max(0, Math.min(activeIndex, versions.length - 1));
+  const safeIndex = Math.max(0, Math.min(activeIndex || 0, Math.max(versions.length - 1, 0)));
   const currentVersion = versions[safeIndex];
 
   const handlePrev = () => {
@@ -124,17 +124,7 @@ const MetaExerciseVersionsViewer: React.FC<MetaExerciseVersionsViewerProps> = ({
           ))}
         </div>
 
-        {/* Edit this version button for owners */}
-        {isOwner && onEditVersion && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onEditVersion(safeIndex)}
-            className="w-full"
-          >
-            Edit this version
-          </Button>
-        )}
+        {/* Intentionally no per-version edit button; use the window's top-right Edit */}
       </div>
 
       {/* Statement */}

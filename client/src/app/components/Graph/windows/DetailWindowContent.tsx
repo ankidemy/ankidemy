@@ -453,16 +453,28 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     <div className="h-full flex flex-col">
       {/* Header with navigation */}
       <div className="border-b p-3 flex items-center gap-2">
-        {nodeHistory.length > 0 && (
+        {isEditMode ? (
           <Button
             variant="ghost"
             size="icon"
-            onClick={navigateBack}
+            onClick={() => setIsEditMode(false)}
             className="h-8 w-8"
-            title="Go back"
+            title="Back to details"
           >
             <ArrowLeft size={16} />
           </Button>
+        ) : (
+          nodeHistory.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={navigateBack}
+              className="h-8 w-8"
+              title="Go back"
+            >
+              <ArrowLeft size={16} />
+            </Button>
+          )
         )}
         <h3 className="flex-1 font-semibold text-base truncate">
           <InlineMarkdownKatex>{`${currentNode.id}: ${currentNode.name}`}</InlineMarkdownKatex>
@@ -559,21 +571,26 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 onUpdateMeta={async (payload) => {
                   if (!metaDetails) return;
                   const updated = await updateMetaExercise(metaDetails.id, payload);
-                  setMetaDetails(updated);
-                  // Update window title and node details
-                  setNodeDetails(prev => prev ? { ...prev, code: updated.code, name: updated.name } : prev);
-                  ui.updateWindow(windowId, {
-                    title: `${updated.code}: ${updated.name}`,
-                  });
-                  // Surgical update for graph
-                  onUpdateNodeData?.(updated.code, {
-                    code: updated.code,
-                    name: updated.name,
-                    prerequisites: updated.prerequisites || [],
-                    prerequisiteWeights: updated.prerequisiteWeights || {},
-                    xPosition: updated.xPosition,
-                    yPosition: updated.yPosition,
-                  } as any);
+
+                  // Re-fetch full meta with versions to avoid losing versions in state
+                  const fresh = await getMetaExercise(metaDetails.id);
+                  setMetaDetails(fresh);
+
+                  // Update current node identity (code/name) so header and future loads are correct
+                  setCurrentNode(prev => ({ ...prev, id: updated.code, name: updated.name }));
+
+                  // Update window title immediately
+                  ui.updateWindow(windowId, { title: `${updated.code}: ${updated.name}` });
+
+                  // Keep nodeDetails in sync for current view
+                  setNodeDetails(prev => prev ? { ...prev, code: updated.code, name: updated.name } as any : prev);
+
+                  // Clamp selected version index to available range
+                  const maxIndex = Math.max(0, (fresh.versions?.length || 1) - 1);
+                  setSelectedVersionIndex(i => Math.max(0, Math.min(i, maxIndex)));
+
+                  // Full graph refresh to rebuild maps and keys after potential code rename
+                  onRefresh?.();
                 }}
                 onBack={() => setIsEditMode(false)}
               />

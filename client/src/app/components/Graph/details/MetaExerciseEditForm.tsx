@@ -118,7 +118,20 @@ const MetaExerciseEditForm: React.FC<Props> = ({
   // Meta-level editing
   const [metaDraft, setMetaDraft] = useState({ name: meta.name, code: meta.code });
   const [showCodeConfirm, setShowCodeConfirm] = useState(false);
-  const [pendingCode, setPendingCode] = useState('');
+  const [pendingSavePayload, setPendingSavePayload] = useState<{ name?: string; code?: string } | null>(null);
+
+  const performMetaSave = async (payload: { name?: string; code?: string }) => {
+    if (!onUpdateMeta) return;
+    try {
+      await onUpdateMeta(payload);
+      showToast('Meta updated', 'success');
+    } catch (error: any) {
+      showToast(error.message || 'Failed to update meta', 'error');
+    } finally {
+      setPendingSavePayload(null);
+      setShowCodeConfirm(false);
+    }
+  };
 
   const handleMetaSave = async () => {
     if (!onUpdateMeta) return;
@@ -142,30 +155,31 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       return;
     }
 
-    try {
-      await onUpdateMeta(payload);
-      showToast('Meta updated', 'success');
-    } catch (error: any) {
-      showToast(error.message || 'Failed to update meta', 'error');
+    // If code changed, confirm before saving
+    if (payload.code && payload.code !== meta.code) {
+      setPendingSavePayload(payload);
+      setShowCodeConfirm(true);
+      return;
     }
+
+    await performMetaSave(payload);
   };
 
   const handleCodeChange = (newCode: string) => {
-    if (newCode !== meta.code) {
-      setPendingCode(newCode);
-      setShowCodeConfirm(true);
+    // Allow free editing; confirmation will happen on Save
+    setMetaDraft(d => ({ ...d, code: newCode }));
+  };
+
+  const confirmCodeChange = async () => {
+    if (pendingSavePayload) {
+      await performMetaSave(pendingSavePayload);
     } else {
-      setMetaDraft(d => ({ ...d, code: newCode }));
+      setShowCodeConfirm(false);
     }
   };
 
-  const confirmCodeChange = () => {
-    setMetaDraft(d => ({ ...d, code: pendingCode }));
-    setShowCodeConfirm(false);
-  };
-
   const cancelCodeChange = () => {
-    setPendingCode('');
+    setPendingSavePayload(null);
     setShowCodeConfirm(false);
   };
 
@@ -257,9 +271,6 @@ const MetaExerciseEditForm: React.FC<Props> = ({
           )}
           <span className="text-xs text-gray-500 ml-2">{versions.length} version(s)</span>
         </div>
-        {onBack && (
-          <Button size="sm" variant="outline" onClick={onBack}>Back to Details</Button>
-        )}
       </div>
 
       <div className="p-2 border rounded" key={isDraft ? 'draft' : (cur?.id ?? 'no-version')}>
@@ -284,6 +295,14 @@ const MetaExerciseEditForm: React.FC<Props> = ({
           rows={3}
           value={val('hints','')}
           onChange={(e)=> setDraft(d=> ({...d, hints: e.target.value}))}
+          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
+          className="w-full border rounded px-2 py-1 text-sm"
+        />
+        <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Notes</label>
+        <textarea
+          rows={3}
+          value={val('notes','')}
+          onChange={(e)=> setDraft(d=> ({...d, notes: e.target.value}))}
           disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
           className="w-full border rounded px-2 py-1 text-sm"
         />

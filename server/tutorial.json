@@ -263,7 +263,7 @@
   "metaExercises": {
     "MATH_EX_001": {
       "code": "MATH_EX_001",
-      "name": "Irrationality of sqrt(2) + sqrt(3)",
+      "name": "Irrationality of $\\sqrt{2} + \\sqrt{3}$",
       "prerequisites": ["MATH_016", "MATH_017"],
       "prerequisiteWeights": {
         "MATH_016": 1,
@@ -300,7 +300,7 @@
     },
     "MATH_EX_002": {
       "code": "MATH_EX_002",
-      "name": "Irrationality of log_2(3)",
+      "name": "Irrationality of $log_2 (3)$",
       "prerequisites": ["MATH_016", "MATH_017"],
       "prerequisiteWeights": {
         "MATH_016": 1,

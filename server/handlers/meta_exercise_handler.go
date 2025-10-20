@@ -4,6 +4,7 @@ import (
     "fmt"
     "net/http"
     "strconv"
+    "strings"
     "github.com/gin-gonic/gin"
     "myapp/server/dao"
     "myapp/server/models"
@@ -185,28 +186,41 @@ func (h *MetaExerciseHandler) UpdateMetaExercise(c *gin.Context) {
     }
 
     // Apply updates
+    changedName := false
     if req.Name != nil {
-        if *req.Name == "" {
+        name := strings.TrimSpace(*req.Name)
+        if name == "" {
             c.JSON(http.StatusBadRequest, gin.H{"error":"Name cannot be empty"})
             return
         }
-        meta.Name = *req.Name
+        if name != meta.Name {
+            meta.Name = name
+            changedName = true
+        }
     }
 
-    if req.Code != nil && *req.Code != meta.Code {
+    changedCode := false
+    if req.Code != nil {
+        newCode := strings.TrimSpace(*req.Code)
+        if newCode == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error":"Code cannot be empty"})
+            return
+        }
+        if newCode != meta.Code {
         // Check for code uniqueness in domain
-        codeExists, err := h.metaDAO.CheckCodeExistsInDomain(*req.Code, meta.DomainID)
+        codeExists, err := h.metaDAO.CheckCodeExistsInDomain(newCode, meta.DomainID)
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to check for duplicate code"})
             return
         }
 
         if codeExists {
-            c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", *req.Code)})
+            c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", newCode)})
             return
         }
-
-        meta.Code = *req.Code
+            meta.Code = newCode
+            changedCode = true
+        }
     }
 
     if req.XPosition != nil {
@@ -217,14 +231,13 @@ func (h *MetaExerciseHandler) UpdateMetaExercise(c *gin.Context) {
         meta.YPosition = *req.YPosition
     }
 
-    // Save without touching prerequisites
-    if err := h.metaDAO.UpdateFields(meta); err != nil {
+    // Save and cascade code/name changes atomically
+    if err := h.metaDAO.UpdateFieldsAndCascade(meta, changedCode, changedName); err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to update meta exercise"})
         return
     }
 
-    // Return updated response
-    _, versions, _ := h.metaDAO.FindByID(meta.ID)
-    resp, _ := h.metaDAO.ConvertToResponse(meta, versions, false)
+    // Return updated response (without versions for lightweight response)
+    resp, _ := h.metaDAO.ConvertToResponse(meta, nil, false)
     c.JSON(http.StatusOK, resp)
 }
