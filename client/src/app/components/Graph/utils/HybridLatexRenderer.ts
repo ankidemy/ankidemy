@@ -197,7 +197,7 @@ export function smartTruncateTeXGfm(
  * NOTE: Does NOT include remark-math - raw TeX delimiters ($...$) are preserved in HTML
  * text nodes so MathJax can typeset them after the HTML is rendered.
  */
-function buildLabelMarkdownProcessor(): Processor {
+function buildLabelMarkdownProcessor() {
   // Custom sanitize schema: allow inline-safe content only (no <p> to prevent extra spacing)
   const customSchema = {
     ...defaultSchema,
@@ -214,7 +214,7 @@ function buildLabelMarkdownProcessor(): Processor {
     .use(remarkParse)
     .use(remarkGfm)
     // Do NOT use remark-math here - we want raw $...$ delimiters preserved for MathJax
-    .use(remarkRehype, { unwrapDisallowed: true }) // Unwrap <p> tags, keeping their content
+    .use(remarkRehype)
     .use(rehypeSanitize, customSchema)
     .use(rehypeStringify);
 }
@@ -230,7 +230,7 @@ export class LabelRenderer {
   private readonly maxConcurrent = 3;
   private readonly maxCacheSize = 1500;
   // Markdown processor instance (built once and reused for all labels)
-  private mdProcessor: Processor;
+  private mdProcessor: ReturnType<typeof buildLabelMarkdownProcessor>;
 
   constructor() {
     this.mdProcessor = buildLabelMarkdownProcessor();
