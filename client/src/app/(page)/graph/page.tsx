@@ -3,30 +3,18 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { MathJaxContext } from 'better-react-mathjax';
 import GraphLayout from '@/app/components/Layout/GraphLayout';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import KnowledgeGraph from '@/app/components/Graph/KnowledgeGraph';
-import {
-  getMyDomains,
-  getEnrolledDomains,
+import { 
+  getMyDomains, 
+  getEnrolledDomains, 
   getPublicDomains,
   exportDomain,
   updateGraphPositions,
   Domain
 } from '@/lib/api';
-import { latexMacrosMathJax } from '@/app/components/core/latexMacros';
-
-// MathJax configuration
-const config = {
-  loader: { load: ["input/tex", "output/svg"] },
-  tex: {
-    inlineMath: [['$', '$'], ['\\(', '\\)']],
-    displayMath: [['$$', '$$'], ['\\[', '\\]']],
-    processEscapes: true,
-    macros: latexMacrosMathJax,
-  }
-};
+// Note: MathJaxProvider is applied inside KnowledgeGraph wrapper.
 
 function GraphPageContent() {
   const router = useRouter();
@@ -156,7 +144,6 @@ function GraphPageContent() {
   const selectedDomain = domains.find(d => d.id.toString() === selectedDomainId);
   
   return (
-    <MathJaxContext config={config}>
       <GraphLayout>
         <div className="h-full w-full flex flex-col">
           {error && (
@@ -205,7 +192,6 @@ function GraphPageContent() {
           )}
         </div>
       </GraphLayout>
-    </MathJaxContext>
   );
 }
 

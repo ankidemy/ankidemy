@@ -45,6 +45,8 @@ export function smartTruncateTeXGfm(
   let insideMath = false;
   let insideCode = false;
   let mathDelimiter = '';
+  let mathStart = -1;
+  let codeStart = -1;
   let result = '';
   let i = 0;
 
@@ -62,12 +64,14 @@ export function smartTruncateTeXGfm(
       if (twoChar === '$$' && !insideMath) {
         insideMath = true;
         mathDelimiter = '$$';
+        mathStart = result.length; // mark where this math token would start in result
         result += twoChar;
         i += 2;
         continue;
       } else if (twoChar === '$$' && insideMath && mathDelimiter === '$$') {
         insideMath = false;
         mathDelimiter = '';
+        mathStart = -1;
         result += twoChar;
         i += 2;
         continue;
@@ -77,12 +81,14 @@ export function smartTruncateTeXGfm(
       if (twoChar === '\\[' && !insideMath) {
         insideMath = true;
         mathDelimiter = '\\[';
+        mathStart = result.length;
         result += twoChar;
         i += 2;
         continue;
       } else if (twoChar === '\\]' && insideMath && mathDelimiter === '\\[') {
         insideMath = false;
         mathDelimiter = '';
+        mathStart = -1;
         result += twoChar;
         i += 2;
         continue;
@@ -92,12 +98,14 @@ export function smartTruncateTeXGfm(
       if (twoChar === '\\(' && !insideMath) {
         insideMath = true;
         mathDelimiter = '\\(';
+        mathStart = result.length;
         result += twoChar;
         i += 2;
         continue;
       } else if (twoChar === '\\)' && insideMath && mathDelimiter === '\\(') {
         insideMath = false;
         mathDelimiter = '';
+        mathStart = -1;
         result += twoChar;
         i += 2;
         continue;
@@ -107,12 +115,14 @@ export function smartTruncateTeXGfm(
       if (char === '$' && !insideMath) {
         insideMath = true;
         mathDelimiter = '$';
+        mathStart = result.length;
         result += char;
         i++;
         continue;
       } else if (char === '$' && insideMath && mathDelimiter === '$') {
         insideMath = false;
         mathDelimiter = '';
+        mathStart = -1;
         result += char;
         i++;
         // Safe break point after closing math
@@ -125,7 +135,13 @@ export function smartTruncateTeXGfm(
 
     // Track inline code (`...`)
     if (!insideMath && char === '`') {
-      insideCode = !insideCode;
+      if (!insideCode) {
+        insideCode = true;
+        codeStart = result.length;
+      } else {
+        insideCode = false;
+        codeStart = -1;
+      }
       result += char;
       i++;
       if (!insideCode && result.length <= maxChars) {
@@ -157,11 +173,16 @@ export function smartTruncateTeXGfm(
           wasTruncated: true
         };
       } else {
-        // No safe break points found; truncate at maxChars-1 to leave room for ellipsis
-        return {
-          text: input.substring(0, Math.max(1, maxChars - 1)) + '…',
-          wasTruncated: true
-        };
+        // No safe break points found; avoid cutting inside a token
+        let cutIndex = Math.max(0, maxChars - 1);
+        if (insideMath && mathStart >= 0 && mathStart < cutIndex) {
+          cutIndex = Math.max(0, mathStart);
+        }
+        if (insideCode && codeStart >= 0 && codeStart < cutIndex) {
+          cutIndex = Math.max(0, codeStart);
+        }
+        const trimmed = result.substring(0, cutIndex).trim();
+        return { text: (trimmed ? trimmed + '…' : '…'), wasTruncated: true };
       }
     }
   }
@@ -180,7 +201,8 @@ function buildLabelMarkdownProcessor(): Processor {
   // Custom sanitize schema: allow inline-safe content only (no <p> to prevent extra spacing)
   const customSchema = {
     ...defaultSchema,
-    tagNames: ['a', 'span', 'b', 'strong', 'i', 'em', 's', 'code', 'br', 'sub', 'sup'],
+    // Allow paragraphs; we will remove their default margins in post-processing
+    tagNames: ['a', 'span', 'b', 'strong', 'i', 'em', 's', 'code', 'br', 'sub', 'sup', 'p'],
     attributes: {
       ...defaultSchema.attributes,
       a: ['href', 'target', 'rel'],
@@ -352,7 +374,30 @@ export class LabelRenderer {
     const { text: truncatedText } = smartTruncateTeXGfm(text, MAX_LABEL_CHARS);
 
     // 2. Convert Markdown (with GFM) to sanitized HTML, preserving TeX delimiters for MathJax
-    const html = String(this.mdProcessor.processSync(truncatedText));
+    let html = String(this.mdProcessor.processSync(truncatedText));
+
+    // Post-process HTML: ensure paragraph margins don't introduce extra spacing
+    // Add inline style margin:0 to all <p> elements (sanitizer stripped styles earlier)
+    if (html.includes('<p')) {
+      html = html.replace(/<p(?![^>]*style=)/g, '<p style="margin:0"');
+    }
+
+    // Harden <a> tags: enforce target/rel and reject unsafe protocols
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    tmp.querySelectorAll('a').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      const isExternal = /^(https?:)?\/\//i.test(href);
+      // Drop obviously unsafe protocols if somehow present
+      if (/^\s*javascript:/i.test(href)) {
+        a.removeAttribute('href');
+      }
+      if (isExternal) {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+    html = tmp.innerHTML;
 
     // 3. Create a temporary off-screen div to render the content with styles.
     const container = document.createElement('div');
