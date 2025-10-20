@@ -155,3 +155,76 @@ func (h *MetaExerciseHandler) GetNextVersion(c *gin.Context) {
         UpdatedAt: v.UpdatedAt,
     })
 }
+
+// PUT /api/meta-exercises/:id
+func (h *MetaExerciseHandler) UpdateMetaExercise(c *gin.Context) {
+    id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid ID"}); return }
+
+    // Load existing meta-exercise
+    meta, _, err := h.metaDAO.FindByID(uint(id64))
+    if err != nil { c.JSON(http.StatusNotFound, gin.H{"error":"Meta exercise not found"}); return }
+
+    // Check ownership
+    userIDv, ok := c.Get("userID")
+    if !ok || userIDv.(uint) != meta.OwnerID {
+        c.JSON(http.StatusForbidden, gin.H{"error":"Not allowed"})
+        return
+    }
+
+    // Parse request
+    var req struct {
+        Name      *string  `json:"name"`
+        Code      *string  `json:"code"`
+        XPosition *float64 `json:"xPosition"`
+        YPosition *float64 `json:"yPosition"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Apply updates
+    if req.Name != nil {
+        if *req.Name == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error":"Name cannot be empty"})
+            return
+        }
+        meta.Name = *req.Name
+    }
+
+    if req.Code != nil && *req.Code != meta.Code {
+        // Check for code uniqueness in domain
+        codeExists, err := h.metaDAO.CheckCodeExistsInDomain(*req.Code, meta.DomainID)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to check for duplicate code"})
+            return
+        }
+
+        if codeExists {
+            c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", *req.Code)})
+            return
+        }
+
+        meta.Code = *req.Code
+    }
+
+    if req.XPosition != nil {
+        meta.XPosition = *req.XPosition
+    }
+
+    if req.YPosition != nil {
+        meta.YPosition = *req.YPosition
+    }
+
+    // Save without touching prerequisites
+    if err := h.metaDAO.UpdateFields(meta); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to update meta exercise"})
+        return
+    }
+
+    // Return updated response
+    _, versions, _ := h.metaDAO.FindByID(meta.ID)
+    resp, _ := h.metaDAO.ConvertToResponse(meta, versions, false)
+    c.JSON(http.StatusOK, resp)
+}

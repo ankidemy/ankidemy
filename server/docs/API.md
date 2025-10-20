@@ -938,6 +938,334 @@ Exercises represent practice problems related to definitions.
   - `400 Bad Request`: This exercise is not automatically verifiable
   - `404 Not Found`: Exercise not found
 
+## Meta-Exercise Endpoints
+
+Meta-exercises are containers for multiple versions of an exercise that share the same code, name, and prerequisites. They allow for variation in problem statements while maintaining a single node in the knowledge graph.
+
+### Get Meta-Exercise
+
+- **URL**: `/meta-exercises/:id`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `id` - Meta-Exercise ID
+- **Response**: `200 OK`
+  ```json
+  {
+    "id": "number",
+    "code": "string",
+    "name": "string",
+    "domainId": "number",
+    "ownerId": "number",
+    "xPosition": "number",
+    "yPosition": "number",
+    "prerequisites": ["string"],
+    "prerequisiteWeights": {
+      "code": "number (0.01-1.0)"
+    },
+    "versionCount": "number",
+    "versions": [
+      {
+        "id": "number",
+        "code": "string",
+        "name": "string",
+        "statement": "string",
+        "description": "string",
+        "notes": "string",
+        "hints": "string",
+        "verifiable": "boolean",
+        "result": "string",
+        "difficulty": "number (1-7)",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
+    ],
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp"
+  }
+  ```
+- **Error Responses**:
+  - `404 Not Found`: Meta-exercise not found
+
+### Update Meta-Exercise
+
+Updates meta-exercise fields (name, code, position) without affecting prerequisites or versions.
+
+- **URL**: `/meta-exercises/:id`
+- **Method**: `PUT`
+- **Auth Required**: Yes (owner only)
+- **URL Parameters**: `id` - Meta-Exercise ID
+- **Request Body** (all fields optional):
+  ```json
+  {
+    "name": "string (optional)",
+    "code": "string (optional)",
+    "xPosition": "number (optional)",
+    "yPosition": "number (optional)"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "id": "number",
+    "code": "string",
+    "name": "string",
+    "domainId": "number",
+    "ownerId": "number",
+    "xPosition": "number",
+    "yPosition": "number",
+    "prerequisites": ["string"],
+    "prerequisiteWeights": {
+      "code": "number (0.01-1.0)"
+    },
+    "versionCount": "number",
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid input data (e.g., empty name)
+  - `403 Forbidden`: Not the owner of this meta-exercise
+  - `404 Not Found`: Meta-exercise not found
+  - `409 Conflict`: Code already exists in this domain
+
+### Get Domain Meta-Exercises
+
+- **URL**: `/domains/:id/meta-exercises`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `id` - Domain ID
+- **Response**: `200 OK`
+  ```json
+  [
+    {
+      "id": "number",
+      "code": "string",
+      "name": "string",
+      "domainId": "number",
+      "ownerId": "number",
+      "xPosition": "number",
+      "yPosition": "number",
+      "prerequisites": ["string"],
+      "prerequisiteWeights": {
+        "code": "number (0.01-1.0)"
+      },
+      "versionCount": "number",
+      "createdAt": "timestamp",
+      "updatedAt": "timestamp"
+    }
+  ]
+  ```
+- **Error Responses**:
+  - `403 Forbidden`: Not authorized to access this domain
+  - `404 Not Found`: Domain not found
+
+### Create Meta-Exercise
+
+- **URL**: `/domains/:id/meta-exercises`
+- **Method**: `POST`
+- **Auth Required**: Yes (domain owner only)
+- **URL Parameters**: `id` - Domain ID
+- **Request Body**:
+  ```json
+  {
+    "code": "string (required)",
+    "name": "string (required)",
+    "xPosition": "number (optional)",
+    "yPosition": "number (optional)",
+    "prerequisiteIds": ["number (optional)"],
+    "prerequisiteWeights": {
+      "prerequisiteId": "number (optional, 0.01-1.0)"
+    },
+    "initialVersion": {
+      "statement": "string (required)",
+      "description": "string (optional)",
+      "notes": "string (optional)",
+      "hints": "string (optional)",
+      "verifiable": "boolean (optional)",
+      "result": "string (optional)",
+      "difficulty": "number (optional, 1-7)"
+    }
+  }
+  ```
+- **Response**: `201 Created`
+  ```json
+  {
+    "id": "number",
+    "code": "string",
+    "name": "string",
+    "domainId": "number",
+    "ownerId": "number",
+    "xPosition": "number",
+    "yPosition": "number",
+    "prerequisites": ["string"],
+    "prerequisiteWeights": {
+      "code": "number (0.01-1.0)"
+    },
+    "versionCount": "number",
+    "versions": [
+      {
+        "id": "number",
+        "statement": "string",
+        "description": "string",
+        "notes": "string",
+        "hints": "string",
+        "verifiable": "boolean",
+        "result": "string",
+        "difficulty": "number (1-7)",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
+    ],
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid input data
+  - `403 Forbidden`: Not the domain owner
+  - `404 Not Found`: Domain not found
+  - `409 Conflict`: Code already exists in this domain
+
+### Add Version
+
+- **URL**: `/meta-exercises/:id/versions`
+- **Method**: `POST`
+- **Auth Required**: Yes (owner only)
+- **URL Parameters**: `id` - Meta-Exercise ID
+- **Request Body**:
+  ```json
+  {
+    "statement": "string (required)",
+    "description": "string (optional)",
+    "notes": "string (optional)",
+    "hints": "string (optional)",
+    "verifiable": "boolean (optional)",
+    "result": "string (optional)",
+    "difficulty": "number (optional, 1-7, defaults to 3)"
+  }
+  ```
+- **Response**: `201 Created`
+  ```json
+  {
+    "id": "number",
+    "code": "string",
+    "name": "string",
+    "statement": "string",
+    "description": "string",
+    "notes": "string",
+    "hints": "string",
+    "domainId": "number",
+    "ownerId": "number",
+    "verifiable": "boolean",
+    "result": "string",
+    "difficulty": "number (1-7)",
+    "xPosition": "number",
+    "yPosition": "number",
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid input data
+  - `500 Internal Server Error`: Failed to add version
+
+### Update Version
+
+- **URL**: `/meta-exercises/:id/versions/:versionId`
+- **Method**: `PUT`
+- **Auth Required**: Yes (owner only)
+- **URL Parameters**:
+  - `id` - Meta-Exercise ID
+  - `versionId` - Version ID
+- **Request Body** (all fields optional):
+  ```json
+  {
+    "statement": "string (optional)",
+    "description": "string (optional)",
+    "notes": "string (optional)",
+    "hints": "string (optional)",
+    "verifiable": "boolean (optional)",
+    "result": "string (optional)",
+    "difficulty": "number (optional, 1-7)"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "id": "number",
+    "code": "string",
+    "name": "string",
+    "statement": "string",
+    "description": "string",
+    "notes": "string",
+    "hints": "string",
+    "domainId": "number",
+    "ownerId": "number",
+    "verifiable": "boolean",
+    "result": "string",
+    "difficulty": "number (1-7)",
+    "xPosition": "number",
+    "yPosition": "number",
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid input data
+  - `500 Internal Server Error`: Failed to update version
+
+### Delete Version
+
+- **URL**: `/meta-exercises/:id/versions/:versionId`
+- **Method**: `DELETE`
+- **Auth Required**: Yes (owner only)
+- **URL Parameters**:
+  - `id` - Meta-Exercise ID
+  - `versionId` - Version ID
+- **Response**: `200 OK`
+  ```json
+  {
+    "message": "Version deleted"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Cannot delete the last version; a meta-exercise must have at least one version
+  - `500 Internal Server Error`: Failed to delete version
+
+### Get Next Version
+
+Returns the next appropriate version for a user to practice, using SRS algorithm.
+
+- **URL**: `/meta-exercises/:id/next-version`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `id` - Meta-Exercise ID
+- **Response**: `200 OK`
+  ```json
+  {
+    "id": "number",
+    "code": "string",
+    "name": "string",
+    "statement": "string",
+    "description": "string",
+    "notes": "string",
+    "hints": "string",
+    "domainId": "number",
+    "ownerId": "number",
+    "verifiable": "boolean",
+    "result": "string",
+    "difficulty": "number (1-7)",
+    "xPosition": "number",
+    "yPosition": "number",
+    "createdAt": "timestamp",
+    "updatedAt": "timestamp"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid ID
+  - `401 Unauthorized`: Not authenticated
+  - `404 Not Found`: Meta-exercise not found or no suitable version available
+
 ## Advanced SRS (Spaced Repetition System) Endpoints
 
 The SRS system provides sophisticated learning features including credit propagation, status management, and optimized review scheduling.

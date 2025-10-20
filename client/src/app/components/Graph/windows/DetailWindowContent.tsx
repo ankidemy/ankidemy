@@ -11,6 +11,7 @@ import ExerciseView from '../details/ExerciseView';
 import NodeEditForm from '../details/NodeEditForm';
 import PrerequisitesPanel from '../details/PrerequisitesPanel';
 import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
+import MetaExerciseVersionsViewer from '../details/MetaExerciseVersionsViewer';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
@@ -18,15 +19,16 @@ import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory, getDomainPrerequisites } from '@/lib/srs-api';
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
-import { 
-  getDefinitionByCode, 
-  updateDefinition, 
+import {
+  getDefinitionByCode,
+  updateDefinition,
   updateExercise,
   getMetaExercise,
   getNextMetaExerciseVersion,
   addMetaExerciseVersion,
   updateMetaExerciseVersion,
   deleteMetaExerciseVersion,
+  updateMetaExercise,
   Definition as ApiDefinition,
   Exercise as ApiExercise,
   MetaExercise,
@@ -80,7 +82,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [userAnswer, setUserAnswer] = useState('');
   const [answerFeedback, setAnswerFeedback] = useState<AnswerFeedback | null>(null);
   const [exerciseAttemptCompleted, setExerciseAttemptCompleted] = useState(false);
-  
+  const [selectedVersionIndex, setSelectedVersionIndex] = useState(0);
+
   // Review history state
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
@@ -504,6 +507,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             ) : (
               <MetaExerciseEditForm
                 meta={metaDetails as any}
+                initialActiveIndex={selectedVersionIndex}
                 onAddVersion={async (v)=>{
                   if (!metaDetails) return;
                   await addMetaExerciseVersion(metaDetails.id, v as any);
@@ -552,6 +556,25 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   }
                   showToast('Version deleted','success');
                 }}
+                onUpdateMeta={async (payload) => {
+                  if (!metaDetails) return;
+                  const updated = await updateMetaExercise(metaDetails.id, payload);
+                  setMetaDetails(updated);
+                  // Update window title and node details
+                  setNodeDetails(prev => prev ? { ...prev, code: updated.code, name: updated.name } : prev);
+                  ui.updateWindow(windowId, {
+                    title: `${updated.code}: ${updated.name}`,
+                  });
+                  // Surgical update for graph
+                  onUpdateNodeData?.(updated.code, {
+                    code: updated.code,
+                    name: updated.name,
+                    prerequisites: updated.prerequisites || [],
+                    prerequisiteWeights: updated.prerequisiteWeights || {},
+                    xPosition: updated.xPosition,
+                    yPosition: updated.yPosition,
+                  } as any);
+                }}
                 onBack={() => setIsEditMode(false)}
               />
             )
@@ -576,51 +599,14 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             {currentNode.type === 'exercise' && (
               <TabsContent value="versions" className="mt-3">
                 {metaDetails ? (
-                  <MetaExerciseEditForm
+                  <MetaExerciseVersionsViewer
                     meta={metaDetails}
-                    onAddVersion={isDomainOwner() ? async (v)=>{
-                      await addMetaExerciseVersion(metaDetails.id, v as any);
-                      const m = await getMetaExercise(metaDetails.id);
-                      setMetaDetails(m);
-                      if (!currentVersion && m.versions && m.versions.length > 0) {
-                        const ver = m.versions[0];
-                        setCurrentVersion(ver);
-                        setNodeDetails({ ...(ver as any), id: ver.id, code: m.code, name: m.name, type: 'exercise' } as Exercise);
-                      }
-                      showToast('Version added','success');
-                    } : undefined}
-                    onUpdateVersion={isDomainOwner() ? async (id, v)=>{
-                      await updateMetaExerciseVersion(metaDetails.id, id, v as any);
-                      const m = await getMetaExercise(metaDetails.id);
-                      setMetaDetails(m);
-                      if (currentVersion && currentVersion.id === id) {
-                        const updated = (m.versions || []).find(x => x.id === id);
-                        if (updated) {
-                          setCurrentVersion(updated);
-                          setNodeDetails({ ...(updated as any), id: updated.id, code: m.code, name: m.name, type: 'exercise' } as Exercise);
-                        }
-                      }
-                      showToast('Version updated','success');
-                    } : undefined}
-                    onDeleteVersion={isDomainOwner() ? async (id)=>{
-                      try {
-                        await deleteMetaExerciseVersion(metaDetails.id, id);
-                      } catch (e: any) {
-                        showToast(e?.message || 'Cannot delete version', 'error');
-                        return;
-                      }
-                      const m = await getMetaExercise(metaDetails.id);
-                      setMetaDetails(m);
-                      if (currentVersion && currentVersion.id === id) {
-                        const fallback = (m.versions || [])[0] || null;
-                        setCurrentVersion(fallback as any);
-                        if (fallback) {
-                          setNodeDetails({ ...(fallback as any), id: fallback.id, code: m.code, name: m.name, type: 'exercise' } as Exercise);
-                        } else {
-                          setNodeDetails({ id: 0, code: m.code, name: m.name, statement: '', description: '', notes: '', hints: '', verifiable: false, type: 'exercise' } as any);
-                        }
-                      }
-                      showToast('Version deleted','success');
+                    activeIndex={selectedVersionIndex}
+                    setActiveIndex={setSelectedVersionIndex}
+                    isOwner={isDomainOwner()}
+                    onEditVersion={isDomainOwner() ? (index) => {
+                      setSelectedVersionIndex(index);
+                      setIsEditMode(true);
                     } : undefined}
                   />
                 ) : (

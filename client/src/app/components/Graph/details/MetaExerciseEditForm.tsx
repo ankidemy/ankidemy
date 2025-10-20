@@ -3,18 +3,36 @@ import React, { useMemo, useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import type { MetaExercise, ExerciseVersion } from '@/lib/api';
+import { showToast } from '@/app/components/core/ToastNotification';
 
 interface Props {
   meta: MetaExercise;
   onAddVersion?: (v: Partial<ExerciseVersion> & { statement: string }) => Promise<void>;
   onUpdateVersion?: (id: number, v: Partial<ExerciseVersion>) => Promise<void>;
   onDeleteVersion?: (id: number) => Promise<void>;
+  onUpdateMeta?: (payload: { name?: string; code?: string; xPosition?: number; yPosition?: number }) => Promise<void>;
   onBack?: () => void;
+  initialActiveIndex?: number;
 }
 
-const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVersion, onDeleteVersion, onBack }) => {
+const MetaExerciseEditForm: React.FC<Props> = ({
+  meta,
+  onAddVersion,
+  onUpdateVersion,
+  onDeleteVersion,
+  onUpdateMeta,
+  onBack,
+  initialActiveIndex,
+}) => {
   // active can be a version index or the special string 'new' for an unsaved draft
-  const [active, setActive] = useState<number | 'new'>(() => (meta.versions && meta.versions.length > 0 ? 0 : 'new'));
+  const [active, setActive] = useState<number | 'new'>(() => {
+    // Use initialActiveIndex if provided and valid
+    if (initialActiveIndex !== undefined && meta.versions && meta.versions.length > 0) {
+      const safeIndex = Math.max(0, Math.min(initialActiveIndex, meta.versions.length - 1));
+      return safeIndex;
+    }
+    return (meta.versions && meta.versions.length > 0 ? 0 : 'new');
+  });
   const versions = meta.versions || [];
   const hasVersions = versions.length > 0;
   const cur = typeof active === 'number' ? versions[active] : undefined;
@@ -97,8 +115,138 @@ const MetaExerciseEditForm: React.FC<Props> = ({ meta, onAddVersion, onUpdateVer
     setActive(0);
   };
 
+  // Meta-level editing
+  const [metaDraft, setMetaDraft] = useState({ name: meta.name, code: meta.code });
+  const [showCodeConfirm, setShowCodeConfirm] = useState(false);
+  const [pendingCode, setPendingCode] = useState('');
+
+  const handleMetaSave = async () => {
+    if (!onUpdateMeta) return;
+
+    const payload: { name?: string; code?: string } = {};
+
+    if (metaDraft.name.trim() !== meta.name) {
+      if (metaDraft.name.trim() === '') {
+        showToast('Name cannot be empty', 'error');
+        return;
+      }
+      payload.name = metaDraft.name.trim();
+    }
+
+    if (metaDraft.code.trim() !== meta.code) {
+      payload.code = metaDraft.code.trim();
+    }
+
+    if (Object.keys(payload).length === 0) {
+      showToast('No changes to save', 'info');
+      return;
+    }
+
+    try {
+      await onUpdateMeta(payload);
+      showToast('Meta updated', 'success');
+    } catch (error: any) {
+      showToast(error.message || 'Failed to update meta', 'error');
+    }
+  };
+
+  const handleCodeChange = (newCode: string) => {
+    if (newCode !== meta.code) {
+      setPendingCode(newCode);
+      setShowCodeConfirm(true);
+    } else {
+      setMetaDraft(d => ({ ...d, code: newCode }));
+    }
+  };
+
+  const confirmCodeChange = () => {
+    setMetaDraft(d => ({ ...d, code: pendingCode }));
+    setShowCodeConfirm(false);
+  };
+
+  const cancelCodeChange = () => {
+    setPendingCode('');
+    setShowCodeConfirm(false);
+  };
+
+  // Update metaDraft when meta changes (e.g., after successful save)
+  React.useEffect(() => {
+    setMetaDraft({ name: meta.name, code: meta.code });
+  }, [meta.name, meta.code]);
+
+  // Apply initialActiveIndex when it changes
+  React.useEffect(() => {
+    if (initialActiveIndex !== undefined && versions.length > 0) {
+      const safeIndex = Math.max(0, Math.min(initialActiveIndex, versions.length - 1));
+      setActive(safeIndex);
+      setDraft({});
+    }
+  }, [initialActiveIndex]);
+
   return (
     <div className="space-y-3">
+      {/* Meta Section */}
+      {onUpdateMeta && (
+        <div className="p-3 border border-blue-200 rounded bg-blue-50">
+          <h3 className="text-sm font-semibold mb-2 text-blue-900">Meta-Exercise Details</h3>
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium mb-1 text-gray-700">Name (required)</label>
+              <Input
+                value={metaDraft.name}
+                onChange={(e) => setMetaDraft(d => ({ ...d, name: e.target.value }))}
+                placeholder="Exercise name"
+                className="text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1 text-gray-700">
+                Code (optional, changes affect references)
+              </label>
+              <Input
+                value={metaDraft.code}
+                onChange={(e) => handleCodeChange(e.target.value)}
+                placeholder="Exercise code"
+                className="text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="default" onClick={handleMetaSave}>
+                Save Meta
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setMetaDraft({ name: meta.name, code: meta.code })}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Code Change Confirmation Modal */}
+      {showCodeConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-4 rounded shadow-lg max-w-md">
+            <h3 className="font-semibold mb-2">Confirm Code Change</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Changing the code affects references and prerequisites. Are you sure you want to proceed?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button size="sm" variant="outline" onClick={cancelCodeChange}>
+                Cancel
+              </Button>
+              <Button size="sm" variant="default" onClick={confirmCodeChange}>
+                Proceed
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Versions Section */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {(versions).map((v, idx) => (

@@ -52,6 +52,11 @@ func (d *MetaExerciseDAO) Update(meta *models.MetaExercise, prerequisiteIDs []ui
     })
 }
 
+// UpdateFields updates meta-exercise fields without touching prerequisites
+func (d *MetaExerciseDAO) UpdateFields(meta *models.MetaExercise) error {
+    return d.db.Save(meta).Error
+}
+
 // AddVersion creates a new Exercise row under a MetaExercise
 func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionRequest) (*models.Exercise, error) {
     // Load meta for mirroring fields

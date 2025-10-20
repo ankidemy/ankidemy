@@ -220,6 +220,7 @@ func main() {
             metas := authorized.Group("/meta-exercises")
             {
                 metas.GET("/:id", metaExerciseHandler.GetMetaExercise)
+                metas.PUT("/:id", metaExerciseHandler.UpdateMetaExercise)
                 metas.GET("/:id/next-version", metaExerciseHandler.GetNextVersion)
                 metas.POST("/:id/versions", metaExerciseHandler.AddVersion)
                 metas.PUT("/:id/versions/:versionId", metaExerciseHandler.UpdateVersion)

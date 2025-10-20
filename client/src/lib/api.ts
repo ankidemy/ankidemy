@@ -808,6 +808,20 @@ export const getMetaExercise = async (id: number): Promise<MetaExercise> => {
   return handleResponse(response);
 };
 
+export const updateMetaExercise = async (metaId: number, payload: {
+  name?: string;
+  code?: string;
+  xPosition?: number;
+  yPosition?: number;
+}): Promise<MetaExercise> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}`, {
+    method: 'PUT',
+    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
 export const addMetaExerciseVersion = async (metaId: number, version: {
   statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number;
 }): Promise<ExerciseVersion> => {
