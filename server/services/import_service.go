@@ -564,37 +564,86 @@ func (s *ImportService) getPrerequisiteWeights(nodeID uint, nodeType string) (ma
 
 // importDataToDomain handles the core import logic for definitions and exercises
 func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, ownerID uint, data *ImportData) error {
-	// Load existing codes in the target domain
-	codesInUse, err := s.loadExistingCodes(domain.ID)
-	if err != nil {
-		return fmt.Errorf("failed to load existing codes: %v", err)
-	}
+    // Load existing codes in the target domain
+    codesInUse, err := s.loadExistingCodes(domain.ID)
+    if err != nil {
+        return fmt.Errorf("failed to load existing codes: %v", err)
+    }
 
-	// Build code assignment maps for collision-safe renaming
-	defAssigned := make(map[string]string)  // original -> assigned
-	metaAssigned := make(map[string]string) // original -> assigned
+    // Build code assignment maps for collision-safe renaming
+    defAssigned := make(map[string]string)  // original -> assigned
+    metaAssigned := make(map[string]string) // original -> assigned
 
-	// Assign unique codes for definitions
-	for code, defNode := range data.Definitions {
-		baseCode := defNode.Code
-		if baseCode == "" {
-			baseCode = code // Fallback to map key
+    // IMPORTANT: Convert legacy exercises to metaExercises BEFORE assigning meta codes
+    // so that metaAssigned gets populated for the generated meta entries.
+    if len(data.MetaExercises) == 0 && len(data.Exercises) > 0 {
+        grouped := make(map[string][]ImportExerciseNode)
+        for _, ex := range data.Exercises {
+            grouped[ex.Code] = append(grouped[ex.Code], ex)
+        }
+        data.MetaExercises = make(map[string]ImportMetaExerciseNode)
+        for k, list := range grouped {
+            if len(list) == 0 {
+                continue
+            }
+            base := list[0]
+            // Union prerequisites + weights (dedup by code)
+            pre := map[string]float64{}
+            for _, e := range list {
+                for _, p := range e.Prerequisites {
+                    if _, ok := pre[p]; !ok {
+                        pre[p] = 1.0
+                    }
+                }
+                for p, w := range e.PrerequisiteWeights {
+                    pre[p] = w
+                }
+            }
+            versions := make([]ImportExerciseVersion, 0, len(list))
+            for _, e := range list {
+                diff, _ := s.parseDifficulty(e.Difficulty)
+                versions = append(versions, ImportExerciseVersion{
+                    Statement:   e.Statement,
+                    Description: e.Description,
+                    Hints:       e.Hints,
+                    Verifiable:  e.Verifiable,
+                    Result:      e.Result,
+                    Difficulty:  diff,
+                })
+            }
+            data.MetaExercises[k] = ImportMetaExerciseNode{
+                Code:                 base.Code,
+                Name:                 base.Name,
+                Prerequisites:        keys(pre),
+                PrerequisiteWeights:  pre,
+                XPosition:            base.XPosition,
+                YPosition:            base.YPosition,
+                Versions:             versions,
+            }
+        }
+    }
+
+    // Assign unique codes for definitions
+    for code, defNode := range data.Definitions {
+        baseCode := defNode.Code
+        if baseCode == "" {
+            baseCode = code // Fallback to map key
 		}
 		assignedCode := uniqueCodeFor(baseCode, codesInUse)
 		defAssigned[code] = assignedCode
 		codesInUse[assignedCode] = true
 	}
 
-	// Assign unique codes for meta-exercises
-	for code, me := range data.MetaExercises {
-		baseCode := me.Code
-		if baseCode == "" {
-			baseCode = code
-		}
-		assignedCode := uniqueCodeFor(baseCode, codesInUse)
-		metaAssigned[code] = assignedCode
-		codesInUse[assignedCode] = true
-	}
+    // Assign unique codes for meta-exercises (after legacy conversion above)
+    for code, me := range data.MetaExercises {
+        baseCode := me.Code
+        if baseCode == "" {
+            baseCode = code
+        }
+        assignedCode := uniqueCodeFor(baseCode, codesInUse)
+        metaAssigned[code] = assignedCode
+        codesInUse[assignedCode] = true
+    }
 
 	// Create DAOs for the transaction
 	definitionDAO := dao.NewDefinitionDAO(tx)
@@ -684,28 +733,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}
 	}
 
-    // Backward compatibility: if no metaExercises present, group legacy exercises by code -> meta
-    if len(data.MetaExercises) == 0 && len(data.Exercises) > 0 {
-        grouped := make(map[string][]ImportExerciseNode)
-        for _, ex := range data.Exercises { grouped[ex.Code] = append(grouped[ex.Code], ex) }
-        data.MetaExercises = make(map[string]ImportMetaExerciseNode)
-        for k, list := range grouped {
-            if len(list) == 0 { continue }
-            base := list[0]
-            // Union prerequisites + weights
-            pre := map[string]float64{}
-            for _, e := range list {
-                for _, p := range e.Prerequisites { if _, ok := pre[p]; !ok { pre[p] = 1.0 } }
-                for p, w := range e.PrerequisiteWeights { pre[p] = w }
-            }
-            versions := make([]ImportExerciseVersion, 0, len(list))
-            for _, e := range list {
-                diff, _ := s.parseDifficulty(e.Difficulty)
-                versions = append(versions, ImportExerciseVersion{ Statement: e.Statement, Description: e.Description, Hints: e.Hints, Verifiable: e.Verifiable, Result: e.Result, Difficulty: diff })
-            }
-            data.MetaExercises[k] = ImportMetaExerciseNode{ Code: base.Code, Name: base.Name, Prerequisites: keys(pre), PrerequisiteWeights: pre, XPosition: base.XPosition, YPosition: base.YPosition, Versions: versions }
-        }
-    }
+    // (legacy conversion moved earlier)
 
     // Create meta-exercises and then attach prerequisites + versions
     metas := make(map[string]*models.MetaExercise) // map by assigned code
@@ -721,9 +749,18 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
     // Attach meta prerequisites (can reference definitions or other metas) after all metas exist
     for code, me := range data.MetaExercises {
-        if len(me.Prerequisites) == 0 { continue }
+        if len(me.Prerequisites) == 0 {
+            continue
+        }
         assignedCode := metaAssigned[code]
+        // Deduplicate in case input contains duplicates
+        seen := map[string]struct{}{}
         for _, pcode := range me.Prerequisites {
+            if _, ok := seen[pcode]; ok {
+                continue
+            }
+            seen[pcode] = struct{}{}
+
             // Resolve prerequisite through assignment maps
             resolvedDefCode := defAssigned[pcode]
             resolvedMetaCode := metaAssigned[pcode]
@@ -732,8 +769,26 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
             if resolvedDefCode != "" {
                 if def, ok := definitions[resolvedDefCode]; ok {
                     w := clamp01(me.PrerequisiteWeights[pcode])
-                    np := &models.NodePrerequisite{ NodeID: metas[assignedCode].ID, NodeType: "meta_exercise", PrerequisiteID: def.ID, PrerequisiteType: "definition", Weight: w, IsManual: true }
-                    _ = tx.Create(np).Error
+                    // Skip if duplicate already exists in DB
+                    var count int64
+                    if err := tx.Model(&models.NodePrerequisite{}).
+                        Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
+                            metas[assignedCode].ID, "meta_exercise", def.ID, "definition").
+                        Count(&count).Error; err != nil {
+                        return fmt.Errorf("failed to check existing prerequisite: %v", err)
+                    }
+                    if count == 0 {
+                        if err := tx.Create(&models.NodePrerequisite{
+                            NodeID:           metas[assignedCode].ID,
+                            NodeType:         "meta_exercise",
+                            PrerequisiteID:   def.ID,
+                            PrerequisiteType: "definition",
+                            Weight:           w,
+                            IsManual:         true,
+                        }).Error; err != nil {
+                            return fmt.Errorf("failed to attach prerequisite %s to %s: %v", pcode, assignedCode, err)
+                        }
+                    }
                     continue
                 }
             }
@@ -742,8 +797,25 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
             if resolvedMetaCode != "" {
                 if meta, ok := metas[resolvedMetaCode]; ok {
                     w := clamp01(me.PrerequisiteWeights[pcode])
-                    np := &models.NodePrerequisite{ NodeID: metas[assignedCode].ID, NodeType: "meta_exercise", PrerequisiteID: meta.ID, PrerequisiteType: "meta_exercise", Weight: w, IsManual: true }
-                    _ = tx.Create(np).Error
+                    var count int64
+                    if err := tx.Model(&models.NodePrerequisite{}).
+                        Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
+                            metas[assignedCode].ID, "meta_exercise", meta.ID, "meta_exercise").
+                        Count(&count).Error; err != nil {
+                        return fmt.Errorf("failed to check existing prerequisite: %v", err)
+                    }
+                    if count == 0 {
+                        if err := tx.Create(&models.NodePrerequisite{
+                            NodeID:           metas[assignedCode].ID,
+                            NodeType:         "meta_exercise",
+                            PrerequisiteID:   meta.ID,
+                            PrerequisiteType: "meta_exercise",
+                            Weight:           w,
+                            IsManual:         true,
+                        }).Error; err != nil {
+                            return fmt.Errorf("failed to attach prerequisite %s to %s: %v", pcode, assignedCode, err)
+                        }
+                    }
                     continue
                 }
             }

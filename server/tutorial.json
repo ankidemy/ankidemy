@@ -260,45 +260,57 @@
       "yPosition": 850
     }
   },
-  "exercises": {
+  "metaExercises": {
     "MATH_EX_001": {
       "code": "MATH_EX_001",
       "name": "Irrationality of sqrt(2) + sqrt(3)",
-      "statement": "Prove that \\(\\sqrt{2} + \\sqrt{3}\\) is irrational.",
-      "description": "This exercise tests your ability to combine algebraic manipulation with a proof by contradiction.",
-      "hints": "Assume the expression equals a rational number 'r'. Square both sides and try to isolate a single square root term.",
-      "difficulty": 3,
-      "verifiable": true,
-      "result": "Assume \\(\\sqrt{2} + \\sqrt{3} = r\\) (rational). Squaring gives \\(5 + 2\\sqrt{6} = r^2\\), which means \\(\\sqrt{6} = (r^2 - 5)/2\\). Since r is rational, the right side is rational, implying \\(\\sqrt{6}\\) is rational. This is a known contradiction. Thus, the original assumption is false.",
       "prerequisites": ["MATH_016", "MATH_017"],
       "xPosition": 350,
-      "yPosition": 700
+      "yPosition": 700,
+      "versions": [
+        {
+          "statement": "Prove that \\(\\sqrt{2} + \\sqrt{3}\\) is irrational.",
+          "description": "This exercise tests your ability to combine algebraic manipulation with a proof by contradiction.",
+          "hints": "Assume the expression equals a rational number 'r'. Square both sides and try to isolate a single square root term.",
+          "verifiable": true,
+          "result": "Assume \\(\\sqrt{2} + \\sqrt{3} = r\\) (rational). Squaring gives \\(5 + 2\\sqrt{6} = r^2\\), which means \\(\\sqrt{6} = (r^2 - 5)/2\\). Since r is rational, the right side is rational, implying \\(\\sqrt{6}\\) is rational. This is a known contradiction. Thus, the original assumption is false.",
+          "difficulty": 3
+        }
+      ]
     },
     "MATH_EX_002": {
       "code": "MATH_EX_002",
       "name": "Irrationality of log_2(3)",
-      "statement": "Prove that \\(\\log_2 3\\) is irrational.",
-      "description": "This classic proof uses the definition of logarithms and the fundamental theorem of arithmetic.",
-      "hints": "Assume \\(\\log_2 3 = p/q\\). Rewrite this in exponential form and look for a contradiction related to prime factors.",
-      "difficulty": 4,
-      "verifiable": true,
-      "result": "Assume \\(\\log_2 3 = p/q\\). This means \\(2^{p/q} = 3\\), so \\(2^p = 3^q\\). By the unique prime factorization theorem, an integer power of 2 cannot equal an integer power of 3 (unless both exponents are 0, which is not the case). This is a contradiction.",
       "prerequisites": ["MATH_016", "MATH_017"],
       "xPosition": 350,
-      "yPosition": 850
+      "yPosition": 850,
+      "versions": [
+        {
+          "statement": "Prove that \\(\\log_2 3\\) is irrational.",
+          "description": "This classic proof uses the definition of logarithms and the fundamental theorem of arithmetic.",
+          "hints": "Assume \\(\\log_2 3 = p/q\\). Rewrite this in exponential form and look for a contradiction related to prime factors.",
+          "verifiable": true,
+          "result": "Assume \\(\\log_2 3 = p/q\\). This means \\(2^{p/q} = 3\\), so \\(2^p = 3^q\\). By the unique prime factorization theorem, an integer power of 2 cannot equal an integer power of 3 (unless both exponents are 0, which is not the case). This is a contradiction.",
+          "difficulty": 4
+        }
+      ]
     },
     "MATH_EX_003": {
       "code": "MATH_EX_003",
       "name": "Proof of Pythagorean Theorem",
-      "statement": "Prove the Pythagorean theorem: \\(a^2 + b^2 = c^2\\).",
-      "description": "This exercise requires a geometric proof to demonstrate the famous relationship in a right-angled triangle.",
-      "hints": "Consider a large square with side length (a+b). Arrange four copies of the triangle inside it. What shape is left in the middle?",
-      "difficulty": 2,
-      "verifiable": true,
-      "result": "Arrange four right triangles (sides a, b, c) inside a square of side (a+b). The total area is \\((a+b)^2\\). The area is also the sum of the four triangles \\(4 \\times \\frac{1}{2}ab\\) plus the area of the inner square, \\(c^2\\). Equating them: \\(a^2 + 2ab + b^2 = 2ab + c^2\\), which simplifies to \\(a^2 + b^2 = c^2\\).",
       "prerequisites": ["MATH_018"],
       "xPosition": 350,
-      "yPosition": 1000
+      "yPosition": 1000,
+      "versions": [
+        {
+          "statement": "Prove the Pythagorean theorem: \\(a^2 + b^2 = c^2\\).",
+          "description": "This exercise requires a geometric proof to demonstrate the famous relationship in a right-angled triangle.",
+          "hints": "Consider a large square with side length (a+b). Arrange four copies of the triangle inside it. What shape is left in the middle?",
+          "verifiable": true,
+          "result": "Arrange four right triangles (sides a, b, c) inside a square of side (a+b). The total area is \\((a+b)^2\\). The area is also the sum of the four triangles \\(4 \\times \\frac{1}{2}ab\\) plus the area of the inner square, \\(c^2\\). Equating them: \\(a^2 + 2ab + b^2 = 2ab + c^2\\), which simplifies to \\(a^2 + b^2 = c^2\\).",
+          "difficulty": 2
+        }
+      ]
     }
   }
 }
