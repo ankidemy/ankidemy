@@ -234,8 +234,9 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
   ];
 
   return (
-    {/* MathJaxProvider removed; KaTeX is used via MarkdownKatex */}
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+    <>
+      {/* MathJaxProvider removed; KaTeX is used via MarkdownKatex */}
+      <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col">
         <CardHeader className="border-b">
           <CardTitle className="flex justify-between items-center">
@@ -319,7 +320,8 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
           </>
         )}
       </Card>
-    </div>
+      </div>
+    </>
     
   );
 };

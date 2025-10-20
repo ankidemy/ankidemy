@@ -2,6 +2,7 @@
 
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import type { ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -29,7 +30,7 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
         components={{
           // Keep paragraphs and lists compact for our cards
           p: ({ node, ...props }) => <p {...props} />,
-          code: ({ inline, className, children, ...props }) => {
+          code: ({ inline, className, children, ...props }: React.ComponentProps<"code"> & ExtraProps & { inline?: boolean }) => {
             const c = String(children).replace(/\n$/, "");
             if (inline) return <code className={className}>{c}</code>;
             return (
@@ -90,7 +91,7 @@ export const InlineMarkdownKatex: React.FC<CommonProps> = ({ children, className
           ul: ({ node, ...props }) => <span {...props} />,
           ol: ({ node, ...props }) => <span {...props} />,
           table: ({ node, ...props }) => <span {...props} />,
-          code: ({ inline, className, children, ...props }) => (
+          code: ({ inline, className, children, ...props }: React.ComponentProps<"code"> & ExtraProps & { inline?: boolean }) => (
             <code className={className} {...props}>{String(children).replace(/\n$/, "")}</code>
           ),
         }}
