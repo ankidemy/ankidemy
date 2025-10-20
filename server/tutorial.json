@@ -4,11 +4,11 @@
       "code": "MATH_001",
       "name": "Set",
       "description": [
-        "A set is a well-defined collection of distinct objects, known as elements.",
-        "Sets are usually denoted by capital letters with elements inside curly braces, e.g., \\( A = \\{a, b, c\\} \\).",
-        "The order of elements does not matter, and duplicate elements are ignored."
+        "A **set** is a _well-defined_ collection of **distinct objects**, known as **elements**.",
+        "Sets are usually denoted by **capital letters** with elements inside curly braces, e.g., $A = \\{a, b, c\\}$.",
+        "The **order** of elements does _not_ matter, and **duplicate elements** are ignored."
       ],
-      "notes": "Think of a set as a bag of unique items. It's the fundamental building block for nearly all of mathematics! 🧱",
+      "notes": "Think of a set as a bag of unique items. It's the **fundamental building block** for nearly all of mathematics!",
       "references": [
         "Halmos, P. R. (1960). Naive Set Theory",
         "Zermelo-Fraenkel Set Theory (ZFC)"
@@ -21,11 +21,11 @@
       "code": "MATH_002",
       "name": "Subset",
       "description": [
-        "A set \\(A\\) is a subset of a set \\(B\\) if every element of \\(A\\) is also an element of \\(B\\).",
-        "This relationship is denoted as \\(A \\subseteq B\\).",
-        "Every set is a subset of itself."
+        "A set $A$ is a **subset** of a set $B$ if _every element_ of $A$ is also an element of $B$.",
+        "This relationship is denoted as $A \\subseteq B$.",
+        "**Every set is a subset of itself.**"
       ],
-      "notes": "If set B contains all the items of set A (and possibly more), then A is a subset of B. Easy peasy!",
+      "notes": "If set $B$ contains _all_ the items of set $A$ (and possibly more), then $A$ is a **subset** of $B$. Easy peasy!",
       "references": [],
       "prerequisites": ["MATH_001"],
       "xPosition": 350,
@@ -35,11 +35,11 @@
       "code": "MATH_003",
       "name": "Empty Set",
       "description": [
-        "The empty set is the unique set that contains no elements.",
-        "It is denoted by \\(\\emptyset\\) or \\(\\{\\}\\).",
-        "The empty set is a subset of every set."
+        "The **empty set** is the _unique_ set that contains **no elements**.",
+        "It is denoted by $\\emptyset$ or $\\{\\}$.",
+        "The empty set is a **subset of every set**."
       ],
-      "notes": "It might seem strange, but the concept of 'nothing' is incredibly important for defining everything else.",
+      "notes": "It might seem strange, but the concept of _'nothing'_ is **incredibly important** for defining everything else.",
       "references": [],
       "prerequisites": ["MATH_002"],
       "xPosition": 350,
@@ -49,11 +49,11 @@
       "code": "MATH_004",
       "name": "Cartesian Product",
       "description": [
-        "The Cartesian product of two sets \\(A\\) and \\(B\\) is the set of all ordered pairs \\((a, b)\\) where \\(a \\in A\\) and \\(b \\in B\\).",
-        "It is denoted by \\(A \\times B\\).",
-        "This concept extends to more than two sets, forming n-tuples."
+        "The **Cartesian product** of two sets $A$ and $B$ is the set of all **ordered pairs** $(a, b)$ where $a \\in A$ and $b \\in B$.",
+        "It is denoted by $A \\times B$.",
+        "This concept extends to _more than two sets_, forming **n-tuples**."
       ],
-      "notes": "If you have a set of shirts and a set of pants, the Cartesian product is all possible outfits! 👕👖",
+      "notes": "If you have a set of shirts and a set of pants, the Cartesian product is **all possible outfits**!",
       "references": [],
       "prerequisites": ["MATH_001"],
       "xPosition": 350,
@@ -63,11 +63,11 @@
       "code": "MATH_005",
       "name": "Power Set",
       "description": [
-        "The power set of a set \\(S\\) is the set of all possible subsets of \\(S\\), including the empty set and \\(S\\) itself.",
-        "It is denoted by \\(P(S)\\) or \\(2^S\\).",
-        "If \\(S\\) has \\(n\\) elements, its power set \\(P(S)\\) has \\(2^n\\) elements."
+        "The **power set** of a set $S$ is the set of _all possible subsets_ of $S$, including the empty set and $S$ itself.",
+        "It is denoted by $P(S)$ or $2^S$.",
+        "If $S$ has $n$ elements, its power set $P(S)$ has **$2^n$ elements**."
       ],
-      "notes": "The power set reveals the complete substructure of a set. It's a 'set of sets'!",
+      "notes": "The power set reveals the **complete substructure** of a set. It's a _'set of sets'_!",
       "references": [],
       "prerequisites": ["MATH_002"],
       "xPosition": 350,
@@ -77,11 +77,11 @@
       "code": "MATH_006",
       "name": "Mapping (Function)",
       "description": [
-        "A mapping (or function) \\(f\\) from a set \\(A\\) to a set \\(B\\) is a rule that assigns to each element \\(x \\in A\\) exactly one element \\(y \\in B\\).",
-        "\\(A\\) is called the domain, and \\(B\\) is the codomain.",
-        "This is denoted as \\(f: A \\to B\\)."
+        "A **mapping** (or **function**) $f$ from a set $A$ to a set $B$ is a _rule_ that assigns to each element $x \\in A$ **exactly one** element $y \\in B$.",
+        "$A$ is called the **domain**, and $B$ is the **codomain**.",
+        "This is denoted as $f: A \\to B$."
       ],
-      "notes": "Mappings are the action heroes of math, describing relationships and transformations between sets. ⚙️",
+      "notes": "Mappings are the **action heroes** of math, describing _relationships_ and _transformations_ between sets.",
       "references": [],
       "prerequisites": ["MATH_001"],
       "xPosition": 600,
@@ -91,11 +91,11 @@
       "code": "MATH_007",
       "name": "Injective Mapping",
       "description": [
-        "An injective (or one-to-one) mapping ensures that no two elements in the domain map to the same element in the codomain.",
-        "If \\(f(x_1) = f(x_2)\\), then \\(x_1 = x_2\\).",
-        "Think of it as a 'no sharing outputs' rule."
+        "An **injective** (or **one-to-one**) mapping ensures that _no two elements_ in the domain map to the same element in the codomain.",
+        "If $f(x_1) = f(x_2)$, then $x_1 = x_2$.",
+        "Think of it as a **'no sharing outputs'** rule."
       ],
-      "notes": "Injective functions preserve distinctness. They don't merge or lose information.",
+      "notes": "Injective functions **preserve distinctness**. They don't _merge_ or _lose_ information.",
       "references": [],
       "prerequisites": ["MATH_006"],
       "xPosition": 850,
@@ -105,11 +105,11 @@
       "code": "MATH_008",
       "name": "Surjective Mapping",
       "description": [
-        "A surjective (or onto) mapping ensures that every element in the codomain \\(B\\) has at least one corresponding element in the domain \\(A\\).",
-        "The range of the function is equal to its codomain.",
-        "Think of it as 'covering all the targets'."
+        "A **surjective** (or **onto**) mapping ensures that _every element_ in the codomain $B$ has **at least one** corresponding element in the domain $A$.",
+        "The **range** of the function is _equal to_ its **codomain**.",
+        "Think of it as **'covering all the targets'**."
       ],
-      "notes": "Surjective functions hit every possible output value. Nothing in the codomain is left out.",
+      "notes": "Surjective functions **hit every possible output value**. _Nothing_ in the codomain is left out.",
       "references": [],
       "prerequisites": ["MATH_006"],
       "xPosition": 850,
@@ -119,11 +119,11 @@
       "code": "MATH_009",
       "name": "Bijective Mapping",
       "description": [
-        "A bijective mapping is both injective and surjective.",
-        "It creates a perfect one-to-one correspondence between the elements of the domain and the codomain.",
-        "Bijective functions have a unique inverse function."
+        "A **bijective** mapping is _both_ **injective** _and_ **surjective**.",
+        "It creates a **perfect one-to-one correspondence** between the elements of the domain and the codomain.",
+        "Bijective functions have a **unique inverse function**."
       ],
-      "notes": "Bijections are the gold standard of mappings, showing that two sets are structurally identical in size. 🤝",
+      "notes": "Bijections are the **gold standard** of mappings, showing that two sets are _structurally identical_ in size.",
       "references": [],
       "prerequisites": ["MATH_007", "MATH_008"],
       "xPosition": 850,
@@ -133,11 +133,11 @@
       "code": "MATH_010",
       "name": "Category",
       "description": [
-        "A category is a collection of 'objects' and 'morphisms' (arrows) between them.",
-        "It includes an associative composition of morphisms and an identity morphism for each object.",
-        "Category theory is a high-level abstraction that studies mathematical structures and their relationships."
+        "A **category** is a collection of **'objects'** and **'morphisms'** (arrows) between them.",
+        "It includes an _associative_ **composition** of morphisms and an **identity morphism** for each object.",
+        "**Category theory** is a _high-level abstraction_ that studies mathematical structures and their relationships."
       ],
-      "notes": "This is math about math! It unifies concepts from different fields by focusing on structure and transformations. 🌌",
+      "notes": "This is **math about math**! It unifies concepts from different fields by focusing on _structure_ and _transformations_.",
       "references": [
         "Mac Lane, S. (1998). Categories for the Working Mathematician"
       ],
@@ -149,11 +149,11 @@
       "code": "MATH_011",
       "name": "Isomorphism",
       "description": [
-        "In category theory, an isomorphism is a morphism \\(f: A \\to B\\) that has a two-sided inverse \\(g: B \\to A\\).",
-        "This means \\(f \\circ g = 1_B\\) and \\(g \\circ f = 1_A\\).",
-        "Isomorphic objects are structurally identical from the perspective of the category."
+        "In category theory, an **isomorphism** is a morphism $f: A \\to B$ that has a **two-sided inverse** $g: B \\to A$.",
+        "This means $f \\circ g = 1_B$ and $g \\circ f = 1_A$.",
+        "**Isomorphic objects** are _structurally identical_ from the perspective of the category."
       ],
-      "notes": "This is the categorical generalization of a bijection. It's the ultimate 'sameness' detector.",
+      "notes": "This is the **categorical generalization** of a bijection. It's the _ultimate_ **'sameness' detector**.",
       "references": [],
       "prerequisites": ["MATH_010", "MATH_009"],
       "xPosition": 1100,
@@ -163,11 +163,11 @@
       "code": "MATH_012",
       "name": "Monomorphism",
       "description": [
-        "A monomorphism (or mono) is the categorical generalization of an injective mapping.",
-        "It is a 'left-cancelable' morphism: if \\(f \\circ g_1 = f \\circ g_2\\), then \\(g_1 = g_2\\).",
-        "In the category of sets, monomorphisms are exactly the injective functions."
+        "A **monomorphism** (or **mono**) is the _categorical generalization_ of an **injective mapping**.",
+        "It is a **'left-cancelable'** morphism: if $f \\circ g_1 = f \\circ g_2$, then $g_1 = g_2$.",
+        "In the category of sets, monomorphisms are _exactly_ the **injective functions**."
       ],
-      "notes": "While it feels like injectivity, this definition works in contexts where 'elements' don't exist!",
+      "notes": "While it feels like injectivity, this definition works in contexts where _'elements' don't exist_!",
       "references": [],
       "prerequisites": ["MATH_010", "MATH_007"],
       "xPosition": 1350,
@@ -177,11 +177,11 @@
       "code": "MATH_013",
       "name": "Epimorphism",
       "description": [
-        "An epimorphism (or epi) is the categorical generalization of a surjective mapping.",
-        "It is a 'right-cancelable' morphism: if \\(g_1 \\circ f = g_2 \\circ f\\), then \\(g_1 = g_2\\).",
-        "In the category of sets, epimorphisms are exactly the surjective functions."
+        "An **epimorphism** (or **epi**) is the _categorical generalization_ of a **surjective mapping**.",
+        "It is a **'right-cancelable'** morphism: if $g_1 \\circ f = g_2 \\circ f$, then $g_1 = g_2$.",
+        "In the category of sets, epimorphisms are _exactly_ the **surjective functions**."
       ],
-      "notes": "Beware! In some categories (like Rings), an epimorphism is not always surjective. Abstraction is tricky!",
+      "notes": "**Beware!** In some categories (like **Rings**), an epimorphism is _not always_ surjective. Abstraction is tricky!",
       "references": [],
       "prerequisites": ["MATH_010", "MATH_008"],
       "xPosition": 1350,
@@ -191,11 +191,11 @@
       "code": "MATH_014",
       "name": "Functor",
       "description": [
-        "A functor is a mapping between categories.",
-        "It maps objects to objects and morphisms to morphisms in a way that preserves composition and identity.",
-        "Functors are the 'morphisms' of categories, allowing us to compare them."
+        "A **functor** is a _mapping between categories_.",
+        "It maps **objects** to **objects** and **morphisms** to **morphisms** in a way that _preserves_ **composition** and **identity**.",
+        "Functors are the **'morphisms' of categories**, allowing us to compare them."
       ],
-      "notes": "If categories are worlds of mathematical structures, functors are the portals between them. ✨",
+      "notes": "If categories are _worlds_ of mathematical structures, functors are the **portals** between them.",
       "references": [],
       "prerequisites": ["MATH_010"],
       "xPosition": 1350,
@@ -205,10 +205,10 @@
       "code": "MATH_015",
       "name": "Number Theory",
       "description": [
-        "Number theory is a branch of pure mathematics devoted primarily to the study of the integers and integer-valued functions.",
-        "It explores properties like divisibility, prime numbers, and solutions to equations in integers."
+        "**Number theory** is a branch of _pure mathematics_ devoted primarily to the study of the **integers** and **integer-valued functions**.",
+        "It explores properties like **divisibility**, **prime numbers**, and solutions to **equations in integers**."
       ],
-      "notes": "The 'Queen of Mathematics'! It's full of simple-to-state problems that are incredibly hard to solve.",
+      "notes": "The **'Queen of Mathematics'**! It's full of _simple-to-state_ problems that are **incredibly hard** to solve.",
       "references": [
         "Hardy, G. H., & Wright, E. M. (1938). An Introduction to the Theory of Numbers"
       ],
@@ -220,11 +220,11 @@
       "code": "MATH_016",
       "name": "Rational & Irrational Numbers",
       "description": [
-        "A rational number can be expressed as a fraction \\(p/q\\) of two integers, where \\(q \\neq 0\\).",
-        "An irrational number cannot be expressed as such a fraction. Its decimal representation never terminates and never repeats.",
-        "Examples of irrationals include \\(\\sqrt{2}\\), \\(\\pi\\), and \\(e\\)."
+        "A **rational number** can be expressed as a fraction $\\frac{p}{q}$ of two integers, where $q \\neq 0$.",
+        "An **irrational number** _cannot_ be expressed as such a fraction. Its decimal representation _never terminates_ and _never repeats_.",
+        "Examples of irrationals include $\\sqrt{2}$, $\\pi$, and $e$."
       ],
-      "notes": "The discovery of irrational numbers was a major shock to the ancient Greeks, who believed all numbers were rational!",
+      "notes": "The discovery of **irrational numbers** was a _major shock_ to the ancient Greeks, who believed _all numbers_ were rational!",
       "references": [],
       "prerequisites": ["MATH_015"],
       "xPosition": 100,
@@ -234,11 +234,11 @@
       "code": "MATH_017",
       "name": "Proof by Contradiction",
       "description": [
-        "A method of indirect proof where one assumes the opposite of what they want to prove.",
-        "You then follow a series of logical steps until you arrive at a logically impossible conclusion (a contradiction).",
-        "This proves that the initial assumption must have been false."
+        "A method of **indirect proof** where one assumes the _opposite_ of what they want to prove.",
+        "You then follow a series of **logical steps** until you arrive at a _logically impossible_ conclusion (a **contradiction**).",
+        "This proves that the **initial assumption** must have been _false_."
       ],
-      "notes": "A powerful and sometimes sneaky way to prove something is true by showing its opposite is absurd. 🕵️‍♂️",
+      "notes": "A **powerful** and sometimes _sneaky_ way to prove something is true by showing its opposite is **absurd**.",
       "references": [],
       "prerequisites": [],
       "xPosition": 100,
@@ -248,10 +248,10 @@
       "code": "MATH_018",
       "name": "Pythagorean Theorem",
       "description": [
-        "In a right-angled triangle, the square of the length of the hypotenuse (the side opposite the right angle) is equal to the sum of the squares of the other two sides.",
-        "The formula is \\(a^2 + b^2 = c^2\\)."
+        "In a **right-angled triangle**, the _square of the length_ of the **hypotenuse** (the side opposite the right angle) is equal to the **sum of the squares** of the other two sides.",
+        "The formula is $a^2 + b^2 = c^2$."
       ],
-      "notes": "One of the most famous and useful theorems in all of geometry!",
+      "notes": "One of the **most famous** and **most useful** theorems in all of geometry!",
       "references": [
         "Euclid's Elements, Book I, Proposition 47"
       ],
@@ -265,15 +265,35 @@
       "code": "MATH_EX_001",
       "name": "Irrationality of sqrt(2) + sqrt(3)",
       "prerequisites": ["MATH_016", "MATH_017"],
+      "prerequisiteWeights": {
+        "MATH_016": 1,
+        "MATH_017": 1
+      },
       "xPosition": 350,
       "yPosition": 700,
       "versions": [
         {
-          "statement": "Prove that \\(\\sqrt{2} + \\sqrt{3}\\) is irrational.",
-          "description": "This exercise tests your ability to combine algebraic manipulation with a proof by contradiction.",
-          "hints": "Assume the expression equals a rational number 'r'. Square both sides and try to isolate a single square root term.",
+          "statement": "Prove that $\\sqrt{2} + \\sqrt{3}$ is **irrational**.",
+          "description": "This exercise tests your ability to combine _algebraic manipulation_ with a **proof by contradiction**.",
+          "hints": "Assume the expression equals a rational number $r$. **Square both sides** and try to isolate a single square root term.",
           "verifiable": true,
-          "result": "Assume \\(\\sqrt{2} + \\sqrt{3} = r\\) (rational). Squaring gives \\(5 + 2\\sqrt{6} = r^2\\), which means \\(\\sqrt{6} = (r^2 - 5)/2\\). Since r is rational, the right side is rational, implying \\(\\sqrt{6}\\) is rational. This is a known contradiction. Thus, the original assumption is false.",
+          "result": "Assume $\\sqrt{2} + \\sqrt{3} = r$ (rational). Squaring gives $5 + 2\\sqrt{6} = r^2$, which means $\\sqrt{6} = \\frac{r^2 - 5}{2}$. Since $r$ is rational, the right side is rational, implying $\\sqrt{6}$ is rational. This is a **known contradiction**. Thus, the original assumption is _false_.",
+          "difficulty": 3
+        },
+        {
+          "statement": "Prove that $\\sqrt{5} + \\sqrt{7}$ is **irrational**.",
+          "description": "Similar to the previous version, but with different numbers. This reinforces the _general technique_ for proving irrationality of sums of radicals.",
+          "hints": "Follow the same approach: assume $\\sqrt{5} + \\sqrt{7} = r$ (rational), then **square both sides**.",
+          "verifiable": true,
+          "result": "Assume $\\sqrt{5} + \\sqrt{7} = r$ (rational). Squaring: $(\\sqrt{5} + \\sqrt{7})^2 = r^2$ gives $5 + 2\\sqrt{35} + 7 = r^2$, so $12 + 2\\sqrt{35} = r^2$. Thus $\\sqrt{35} = \\frac{r^2 - 12}{2}$. Since $r$ is rational, this implies $\\sqrt{35}$ is rational, a **contradiction**.",
+          "difficulty": 3
+        },
+        {
+          "statement": "Prove that $\\sqrt{3} - \\sqrt{2}$ is **irrational**.",
+          "description": "A _variation_ with **subtraction** instead of addition. The technique remains similar.",
+          "hints": "Assume $\\sqrt{3} - \\sqrt{2} = r$ (rational). Square both sides and isolate the radical term.",
+          "verifiable": true,
+          "result": "Assume $\\sqrt{3} - \\sqrt{2} = r$ (rational). Squaring: $(\\sqrt{3} - \\sqrt{2})^2 = r^2$ gives $3 - 2\\sqrt{6} + 2 = r^2$, so $5 - 2\\sqrt{6} = r^2$. Thus $\\sqrt{6} = \\frac{5 - r^2}{2}$. Since $r$ is rational, this implies $\\sqrt{6}$ is rational, a **contradiction**.",
           "difficulty": 3
         }
       ]
@@ -282,15 +302,35 @@
       "code": "MATH_EX_002",
       "name": "Irrationality of log_2(3)",
       "prerequisites": ["MATH_016", "MATH_017"],
+      "prerequisiteWeights": {
+        "MATH_016": 1,
+        "MATH_017": 1
+      },
       "xPosition": 350,
       "yPosition": 850,
       "versions": [
         {
-          "statement": "Prove that \\(\\log_2 3\\) is irrational.",
-          "description": "This classic proof uses the definition of logarithms and the fundamental theorem of arithmetic.",
-          "hints": "Assume \\(\\log_2 3 = p/q\\). Rewrite this in exponential form and look for a contradiction related to prime factors.",
+          "statement": "Prove that $\\log_2 3$ is **irrational**.",
+          "description": "This **classic proof** uses the _definition of logarithms_ and the **fundamental theorem of arithmetic**.",
+          "hints": "Assume $\\log_2 3 = \\frac{p}{q}$. Rewrite this in **exponential form** and look for a contradiction related to _prime factors_.",
           "verifiable": true,
-          "result": "Assume \\(\\log_2 3 = p/q\\). This means \\(2^{p/q} = 3\\), so \\(2^p = 3^q\\). By the unique prime factorization theorem, an integer power of 2 cannot equal an integer power of 3 (unless both exponents are 0, which is not the case). This is a contradiction.",
+          "result": "Assume $\\log_2 3 = \\frac{p}{q}$. This means $2^{p/q} = 3$, so $2^p = 3^q$. By the **unique prime factorization theorem**, an integer power of $2$ cannot equal an integer power of $3$ (unless both exponents are $0$, which is _not_ the case). This is a **contradiction**.",
+          "difficulty": 4
+        },
+        {
+          "statement": "Prove that $\\log_3 5$ is **irrational**.",
+          "description": "A similar problem with _different bases_. This reinforces understanding of the **fundamental theorem of arithmetic**.",
+          "hints": "Assume $\\log_3 5 = \\frac{p}{q}$, which means $3^{p/q} = 5$. Convert to integer powers.",
+          "verifiable": true,
+          "result": "Assume $\\log_3 5 = \\frac{p}{q}$. This means $3^{p/q} = 5$, so $3^p = 5^q$. By **unique prime factorization**, an integer power of $3$ cannot equal an integer power of $5$. This is a **contradiction**.",
+          "difficulty": 4
+        },
+        {
+          "statement": "Prove that $\\log_{10} 2$ is **irrational**.",
+          "description": "Another variation using _base 10_, which many students find more intuitive.",
+          "hints": "Assume $\\log_{10} 2 = \\frac{p}{q}$. This means $10^{p/q} = 2$. What does this imply about prime factorizations?",
+          "verifiable": true,
+          "result": "Assume $\\log_{10} 2 = \\frac{p}{q}$. This means $10^{p/q} = 2$, so $10^p = 2^q$. Since $10 = 2 \\times 5$, we have $(2 \\times 5)^p = 2^q$, which gives $2^p \\times 5^p = 2^q$. This would require $5^p = 2^{q-p}$, but by **unique prime factorization**, a power of $5$ cannot equal a power of $2$. **Contradiction**.",
           "difficulty": 4
         }
       ]
@@ -299,16 +339,35 @@
       "code": "MATH_EX_003",
       "name": "Proof of Pythagorean Theorem",
       "prerequisites": ["MATH_018"],
+      "prerequisiteWeights": {
+        "MATH_018": 1
+      },
       "xPosition": 350,
       "yPosition": 1000,
       "versions": [
         {
-          "statement": "Prove the Pythagorean theorem: \\(a^2 + b^2 = c^2\\).",
-          "description": "This exercise requires a geometric proof to demonstrate the famous relationship in a right-angled triangle.",
-          "hints": "Consider a large square with side length (a+b). Arrange four copies of the triangle inside it. What shape is left in the middle?",
+          "statement": "Prove the **Pythagorean theorem**: $a^2 + b^2 = c^2$.",
+          "description": "This exercise requires a **geometric proof** to demonstrate the famous relationship in a _right-angled triangle_.",
+          "hints": "Consider a large square with side length $(a+b)$. Arrange **four copies** of the triangle inside it. What shape is left in the _middle_?",
           "verifiable": true,
-          "result": "Arrange four right triangles (sides a, b, c) inside a square of side (a+b). The total area is \\((a+b)^2\\). The area is also the sum of the four triangles \\(4 \\times \\frac{1}{2}ab\\) plus the area of the inner square, \\(c^2\\). Equating them: \\(a^2 + 2ab + b^2 = 2ab + c^2\\), which simplifies to \\(a^2 + b^2 = c^2\\).",
+          "result": "Arrange four right triangles (sides $a$, $b$, $c$) inside a square of side $(a+b)$. The **total area** is $(a+b)^2$. The area is also the sum of the four triangles $4 \\times \\frac{1}{2}ab$ plus the area of the inner square, $c^2$. Equating them: $a^2 + 2ab + b^2 = 2ab + c^2$, which simplifies to $a^2 + b^2 = c^2$.",
           "difficulty": 2
+        },
+        {
+          "statement": "Prove the Pythagorean theorem using **similar triangles**.",
+          "description": "An _alternative proof_ using the concept of **similarity** in geometry.",
+          "hints": "Drop a perpendicular from the right angle to the hypotenuse. This creates **three similar triangles**.",
+          "verifiable": true,
+          "result": "In a right triangle with sides $a$, $b$, and hypotenuse $c$, drop a perpendicular from the right angle to the hypotenuse, creating segments $p$ and $q$ where $p + q = c$. The three triangles (original and two smaller ones) are **similar**. From similarity ratios: $\\frac{a}{c} = \\frac{p}{a}$ and $\\frac{b}{c} = \\frac{q}{b}$. This gives $a^2 = cp$ and $b^2 = cq$. Adding: $a^2 + b^2 = cp + cq = c(p+q) = c^2$.",
+          "difficulty": 3
+        },
+        {
+          "statement": "Verify the Pythagorean theorem for a **3-4-5 triangle** by calculation.",
+          "description": "A _concrete numerical example_ that demonstrates the theorem with specific values.",
+          "hints": "Simply substitute $a = 3$, $b = 4$, $c = 5$ into the formula $a^2 + b^2 = c^2$.",
+          "verifiable": true,
+          "result": "For a triangle with sides $a = 3$, $b = 4$, and $c = 5$: Calculate $a^2 + b^2 = 3^2 + 4^2 = 9 + 16 = 25$. Calculate $c^2 = 5^2 = 25$. Since $a^2 + b^2 = c^2$, the **Pythagorean theorem holds** for this triangle.",
+          "difficulty": 1
         }
       ]
     }
