@@ -3,6 +3,7 @@
 
 import React, { ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { MathJaxContext } from 'better-react-mathjax';
+import { latexMacrosMathJax } from './latexMacros';
 
 // ---- Types ----
 interface MathJaxConfig {
@@ -13,6 +14,7 @@ interface MathJaxConfig {
     displayMath?: [string, string][];
     processEscapes?: boolean;
     processEnvironments?: boolean;
+    macros?: Record<string, string | [string, number]>;
   };
   svg?: { fontCache?: 'local' | 'global' | 'none' };
   startup?: { typeset?: boolean };
@@ -28,6 +30,7 @@ const defaultConfig: MathJaxConfig = {
     displayMath: [["$$", "$$"], ["\\[", "\\]"]],
     processEscapes: true,
     processEnvironments: true,
+    macros: latexMacrosMathJax,
   },
   svg: { fontCache: 'global' },
   startup: { typeset: true },

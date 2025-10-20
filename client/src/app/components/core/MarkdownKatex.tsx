@@ -6,12 +6,42 @@ import type { ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import { latexMacrosKatex } from "./latexMacros";
 
 type CommonProps = {
   className?: string;
   children: string;
   prose?: boolean; // toggles typography wrapper easily later
 };
+
+/**
+ * Normalizes display math delimiters to inline math for title rendering.
+ * Converts $...$ to $...$ and \[...\] to \(...\), preserving content.
+ * Collapses multiple newlines and whitespace to single spaces.
+ */
+export function normalizeToInlineMath(text: string): string {
+  if (!text) return '';
+
+  let result = text;
+
+  // Replace display math delimiters $$...$$ with inline $...$
+  // Handle multi-line display math by replacing internal newlines with spaces
+  result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, content) => {
+    const normalized = content.replace(/\s+/g, ' ').trim();
+    return `$${normalized}$`;
+  });
+
+  // Replace \[...\] with \(...\)
+  result = result.replace(/\\\[([\s\S]*?)\\\]/g, (_match, content) => {
+    const normalized = content.replace(/\s+/g, ' ').trim();
+    return `\\(${normalized}\\)`;
+  });
+
+  // Collapse runs of whitespace/newlines to single spaces
+  result = result.replace(/\s+/g, ' ').trim();
+
+  return result;
+}
 
 /**
  * Block Markdown renderer with KaTeX for math and GFM enabled.
@@ -25,7 +55,7 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
         // Security: do not allow raw HTML from user input
         skipHtml
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex as any]}
+        rehypePlugins={[[rehypeKatex as any, { macros: latexMacrosKatex }]]}
         // Keep styling lean; typography can be adjusted later globally
         components={{
           // Keep paragraphs and lists compact for our cards
@@ -66,13 +96,19 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
  * Inline renderer suitable for short text (titles/labels) that may include $...$.
  * Renders markdown paragraphs as spans to stay inline.
  */
-export const InlineMarkdownKatex: React.FC<CommonProps> = ({ children, className = "" }) => {
+export const InlineMarkdownKatex: React.FC<CommonProps & { enforceInlineMath?: boolean }> = ({
+  children,
+  className = "",
+  enforceInlineMath = true
+}) => {
+  const processedChildren = enforceInlineMath ? normalizeToInlineMath(children) : children;
+
   return (
     <span className={className}>
       <ReactMarkdown
         skipHtml
-        remarkPlugins={[remarkMath]}
-        rehypePlugins={[rehypeKatex as any]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex as any, { macros: latexMacrosKatex }]]}
         components={{
           p: ({ node, ...props }) => <span {...props} />,
           a: ({ node, href, ...props }) => {
@@ -96,7 +132,7 @@ export const InlineMarkdownKatex: React.FC<CommonProps> = ({ children, className
           ),
         }}
       >
-        {children || ""}
+        {processedChildren || ""}
       </ReactMarkdown>
     </span>
   );

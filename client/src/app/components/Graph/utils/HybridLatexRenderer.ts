@@ -1,6 +1,16 @@
 // client/src/app/components/Graph/utils/HybridLatexRenderer.ts
 // A robust, state-decoupled, high-quality label renderer using an SVG-to-Image pipeline.
 
+import { unified, type Processor } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+
+// Maximum characters for graph label truncation
+const MAX_LABEL_CHARS = 140;
+
 export interface RenderedLabel {
   image: HTMLImageElement;
   width: number;
@@ -18,6 +28,175 @@ interface RenderOptions {
 
 type RenderCallback = () => void;
 
+/**
+ * Smart truncation that preserves TeX and inline code spans as atomic tokens.
+ * Never breaks inside math delimiters ($...$, $$...$$, \(...\), \[...\]) or inline code (`...`).
+ * Truncates only at whitespace/punctuation outside atomic tokens.
+ */
+export function smartTruncateTeXGfm(
+  input: string,
+  maxChars = MAX_LABEL_CHARS
+): { text: string; wasTruncated: boolean } {
+  if (!input || input.length <= maxChars) {
+    return { text: input, wasTruncated: false };
+  }
+
+  // State machine to track atomic tokens
+  let insideMath = false;
+  let insideCode = false;
+  let mathDelimiter = '';
+  let result = '';
+  let i = 0;
+
+  // Track token boundaries
+  const safeBreakPoints: number[] = [];
+
+  while (i < input.length) {
+    const char = input[i];
+    const next = input[i + 1] || '';
+    const twoChar = char + next;
+
+    // Track math delimiters
+    if (!insideCode) {
+      // Check for $$
+      if (twoChar === '$$' && !insideMath) {
+        insideMath = true;
+        mathDelimiter = '$$';
+        result += twoChar;
+        i += 2;
+        continue;
+      } else if (twoChar === '$$' && insideMath && mathDelimiter === '$$') {
+        insideMath = false;
+        mathDelimiter = '';
+        result += twoChar;
+        i += 2;
+        continue;
+      }
+
+      // Check for \[
+      if (twoChar === '\\[' && !insideMath) {
+        insideMath = true;
+        mathDelimiter = '\\[';
+        result += twoChar;
+        i += 2;
+        continue;
+      } else if (twoChar === '\\]' && insideMath && mathDelimiter === '\\[') {
+        insideMath = false;
+        mathDelimiter = '';
+        result += twoChar;
+        i += 2;
+        continue;
+      }
+
+      // Check for \(
+      if (twoChar === '\\(' && !insideMath) {
+        insideMath = true;
+        mathDelimiter = '\\(';
+        result += twoChar;
+        i += 2;
+        continue;
+      } else if (twoChar === '\\)' && insideMath && mathDelimiter === '\\(') {
+        insideMath = false;
+        mathDelimiter = '';
+        result += twoChar;
+        i += 2;
+        continue;
+      }
+
+      // Check for single $
+      if (char === '$' && !insideMath) {
+        insideMath = true;
+        mathDelimiter = '$';
+        result += char;
+        i++;
+        continue;
+      } else if (char === '$' && insideMath && mathDelimiter === '$') {
+        insideMath = false;
+        mathDelimiter = '';
+        result += char;
+        i++;
+        // Safe break point after closing math
+        if (result.length <= maxChars) {
+          safeBreakPoints.push(result.length);
+        }
+        continue;
+      }
+    }
+
+    // Track inline code (`...`)
+    if (!insideMath && char === '`') {
+      insideCode = !insideCode;
+      result += char;
+      i++;
+      if (!insideCode && result.length <= maxChars) {
+        safeBreakPoints.push(result.length);
+      }
+      continue;
+    }
+
+    // Add character
+    result += char;
+
+    // Track safe break points (whitespace/punctuation outside tokens)
+    if (!insideMath && !insideCode) {
+      if (char === ' ' || char === ',' || char === '.' || char === ';' || char === '\n') {
+        if (result.length <= maxChars) {
+          safeBreakPoints.push(result.length);
+        }
+      }
+    }
+
+    i++;
+
+    // If we've exceeded maxChars, try to break at last safe point
+    if (result.length > maxChars) {
+      if (safeBreakPoints.length > 0) {
+        const breakPoint = safeBreakPoints[safeBreakPoints.length - 1];
+        return {
+          text: result.substring(0, breakPoint).trim() + '…',
+          wasTruncated: true
+        };
+      } else {
+        // No safe break points found; truncate at maxChars-1 to leave room for ellipsis
+        return {
+          text: input.substring(0, Math.max(1, maxChars - 1)) + '…',
+          wasTruncated: true
+        };
+      }
+    }
+  }
+
+  return { text: result, wasTruncated: false };
+}
+
+/**
+ * Builds a unified processor for converting Markdown (with GFM) to sanitized HTML.
+ * This processor is reused across all label renders for efficiency.
+ * Allows inline formatting only (no <p> tags to avoid extra vertical spacing in labels).
+ * NOTE: Does NOT include remark-math - raw TeX delimiters ($...$) are preserved in HTML
+ * text nodes so MathJax can typeset them after the HTML is rendered.
+ */
+function buildLabelMarkdownProcessor(): Processor {
+  // Custom sanitize schema: allow inline-safe content only (no <p> to prevent extra spacing)
+  const customSchema = {
+    ...defaultSchema,
+    tagNames: ['a', 'span', 'b', 'strong', 'i', 'em', 's', 'code', 'br', 'sub', 'sup'],
+    attributes: {
+      ...defaultSchema.attributes,
+      a: ['href', 'target', 'rel'],
+      span: ['class'],
+    },
+  };
+
+  return unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    // Do NOT use remark-math here - we want raw $...$ delimiters preserved for MathJax
+    .use(remarkRehype, { unwrapDisallowed: true }) // Unwrap <p> tags, keeping their content
+    .use(rehypeSanitize, customSchema)
+    .use(rehypeStringify);
+}
+
 export class LabelRenderer {
   // The cache now stores the final RenderedLabel object directly.
   private cache: Map<string, RenderedLabel> = new Map();
@@ -28,6 +207,12 @@ export class LabelRenderer {
   private activeCount = 0;
   private readonly maxConcurrent = 3;
   private readonly maxCacheSize = 1500;
+  // Markdown processor instance (built once and reused for all labels)
+  private mdProcessor: Processor;
+
+  constructor() {
+    this.mdProcessor = buildLabelMarkdownProcessor();
+  }
 
   /**
    * Requests a label to be rendered. If not in cache, it starts the async rendering process.
@@ -163,18 +348,19 @@ export class LabelRenderer {
       maxWidth = 250,
     } = options;
 
-    // Truncate very long text to prevent performance issues and oversized labels.
-    const truncatedText = text.length > 80 ? text.substring(0, 77) + '...' : text;
+    // 1. Smart truncation that preserves TeX delimiters and code spans
+    const { text: truncatedText } = smartTruncateTeXGfm(text, MAX_LABEL_CHARS);
 
-    // 1. Create a temporary off-screen div to render the content with styles.
+    // 2. Convert Markdown (with GFM) to sanitized HTML, preserving TeX delimiters for MathJax
+    const html = String(this.mdProcessor.processSync(truncatedText));
+
+    // 3. Create a temporary off-screen div to render the content with styles.
     const container = document.createElement('div');
     container.style.cssText = `
       position: absolute;
       left: -9999px;
       top: -9999px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: inline-block;
       padding: ${padding}px;
       font-family: ${fontFamily};
       font-size: ${fontSize}px;
@@ -182,22 +368,22 @@ export class LabelRenderer {
       background-color: ${backgroundColor};
       border-radius: 2px;
       border: 1px solid rgba(0,0,0,0.1);
-      line-height: 1.05;
+      line-height: 1.2;
       max-width: ${maxWidth}px;
       word-wrap: break-word;
       visibility: visible;
     `;
-    // Set text safely; MathJax can parse TeX delimiters in text nodes
-    container.textContent = truncatedText;
+    // Set sanitized HTML from Markdown processor (MathJax will parse TeX delimiters in the HTML)
+    container.innerHTML = html;
     document.body.appendChild(container);
 
     try {
-      // 2. Typeset LaTeX with MathJax.
+      // 4. Typeset LaTeX with MathJax.
       if ((window as any).MathJax?.typesetPromise) {
         await (window as any).MathJax.typesetPromise([container]);
       }
 
-      // 3. Measure the final dimensions of the rendered div.
+      // 5. Measure the final dimensions of the rendered div.
       const rect = container.getBoundingClientRect();
       const width = Math.max(20, Math.ceil(rect.width)) + 10;
       const height = Math.max(16, Math.ceil(rect.height)) + 10;
@@ -205,7 +391,7 @@ export class LabelRenderer {
       // Render at device-pixel ratio for crisp results while keeping CSS size
       const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
 
-      // 4. Create an SVG with <foreignObject> to capture the styled HTML.
+      // 6. Create an SVG with <foreignObject> to capture the styled HTML.
       // This is the magic step that leverages the browser's high-quality rendering engine.
       const svgString = `
         <svg xmlns="http://www.w3.org/2000/svg" width="${width * dpr}" height="${height * dpr}" viewBox="0 0 ${width} ${height}">
@@ -216,7 +402,7 @@ export class LabelRenderer {
           </foreignObject>
         </svg>`;
 
-      // 5. Convert the SVG string into a usable Image object via a Blob.
+      // 7. Convert the SVG string into a usable Image object via a Blob.
       return new Promise((resolve, reject) => {
         const image = new Image();
         const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
@@ -233,7 +419,7 @@ export class LabelRenderer {
         image.src = url;
       });
     } finally {
-      // 6. Always clean up the temporary div.
+      // 8. Always clean up the temporary div.
       if (document.body.contains(container)) {
         document.body.removeChild(container);
       }
