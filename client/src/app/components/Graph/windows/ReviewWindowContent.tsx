@@ -11,7 +11,7 @@ import { useUI } from '@/contexts/UIContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
 import { Eye, Loader2, CheckCircle, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { getDefinition, getExercise, getNextMetaExerciseVersion } from '@/lib/api';
+import { getDefinition, getExercise, getNextMetaExerciseVersion, getNextMetaDefinitionVersion } from '@/lib/api';
 
 interface ReviewWindowContentProps {
   domainId: number;
@@ -60,7 +60,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         try {
           let details;
           if (currentReviewItem.nodeType === 'definition') {
-            details = await getDefinition(currentReviewItem.nodeId);
+            // For definitions, nodeId refers to meta_definition id. Fetch next version to review.
+            details = await getNextMetaDefinitionVersion(currentReviewItem.nodeId);
           } else {
             // For exercises, nodeId refers to meta_exercise id. Fetch next version to review.
             details = await getNextMetaExerciseVersion(currentReviewItem.nodeId);
@@ -167,7 +168,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     try {
       let details;
       if (review.nodeType === 'definition') {
-        details = await getDefinition(review.nodeId);
+        // For definitions, nodeId is a meta_definition id. Retrieve the next version to review.
+        details = await getNextMetaDefinitionVersion(review.nodeId);
       } else {
         // For exercises, nodeId is a meta_exercise id. Retrieve the selected version.
         details = await getNextMetaExerciseVersion(review.nodeId);
@@ -210,13 +212,13 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     const reviewData: ReviewRequest = {
       nodeId: currentReviewItem.nodeId,
-      nodeType: currentReviewItem.nodeType,
+      nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
       success: quality >= 3,
       quality: quality,
       timeTaken: timeTaken,
       sessionId: srs.state.currentSession.id,
-      // If we reviewed a meta-exercise, include the concrete version id for analytics
-      versionId: currentReviewItem.nodeType === 'exercise' && itemDetails?.id ? itemDetails.id : undefined,
+      // Include the concrete version id for both definitions and exercises
+      versionId: itemDetails?.id ? itemDetails.id : undefined,
     };
 
     try {
@@ -311,12 +313,42 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         {/* Content */}
         {currentReviewItem.nodeType === 'definition' ? (
           <div>
-            {/* Render math-enabled inline title (KaTeX) */}
+            {/* Display the prompt from the definition version */}
             <h3 className="text-lg font-semibold mb-2">
-              Define: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex>
+              <InlineMarkdownKatex>{currentReviewItem.nodeName}</InlineMarkdownKatex>
             </h3>
-            {showAnswer && (
-              <MarkdownKatex className="p-4 bg-gray-50 rounded-md border text-base whitespace-pre-wrap">{itemDetails.description?.split('|||')[0] || "N/A"}</MarkdownKatex>
+            <MarkdownKatex className="p-4 bg-blue-50 rounded-md border text-base mb-2 whitespace-pre-wrap">
+              {itemDetails.prompt || "N/A"}
+            </MarkdownKatex>
+            {showAnswer && itemDetails.description && (
+              <div className="mt-3">
+                <p className="text-sm font-medium text-gray-700 mb-1">Additional Information:</p>
+                <MarkdownKatex className="p-4 bg-gray-50 rounded-md border text-base whitespace-pre-wrap">
+                  {itemDetails.description}
+                </MarkdownKatex>
+              </div>
+            )}
+            {showAnswer && itemDetails.notes && (
+              <div className="mt-2">
+                <p className="text-sm font-medium text-gray-700 mb-1">Notes:</p>
+                <MarkdownKatex className="p-3 bg-yellow-50 rounded-md border border-yellow-200 text-sm whitespace-pre-wrap">
+                  {itemDetails.notes}
+                </MarkdownKatex>
+              </div>
+            )}
+            {showAnswer && itemDetails.references && itemDetails.references.length > 0 && (
+              <div className="mt-2">
+                <p className="text-sm font-medium text-gray-700 mb-1">References:</p>
+                <ul className="list-disc list-inside text-sm text-blue-600">
+                  {itemDetails.references.map((ref: string, idx: number) => (
+                    <li key={idx}>
+                      <a href={ref} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        {ref}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         ) : (

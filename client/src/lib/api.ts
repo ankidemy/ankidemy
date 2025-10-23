@@ -146,6 +146,35 @@ export interface MetaExercise {
   versions?: ExerciseVersion[];
 }
 
+// NEW: Meta-definition (concept pool) and version types
+export interface DefinitionVersion {
+  id: number;
+  metaDefinitionId: number;
+  code: string;
+  name: string;
+  prompt: string;
+  type: 'open_ended' | string;
+  description?: string;
+  notes?: string;
+  references?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaDefinition {
+  id: number;
+  code: string;
+  name: string;
+  domainId: number;
+  ownerId: number;
+  xPosition?: number;
+  yPosition?: number;
+  prerequisites?: string[];
+  prerequisiteWeights?: Record<string, number>;
+  versionCount: number;
+  versions?: DefinitionVersion[];
+}
+
 // Updated DefinitionRequest interface
 export interface DefinitionRequest {
   code: string;
@@ -239,7 +268,8 @@ export interface GraphData {
 
 // UPDATED: Standardized Import/Export Data Types
 export interface DomainExportData {
-  definitions: {
+  // LEGACY: definitions will be deprecated in favor of metaDefinitions
+  definitions?: {
     [key: string]: {
       code: string;
       name: string;
@@ -252,6 +282,25 @@ export interface DomainExportData {
       yPosition?: number;
     };
   };
+  // NEW: metaDefinitions (concept pools with versions)
+  metaDefinitions?: {
+    [key: string]: {
+      code: string;
+      name: string;
+      prerequisites?: string[];
+      prerequisiteWeights?: Record<string, number>;
+      xPosition?: number;
+      yPosition?: number;
+      versions: Array<{
+        prompt: string;
+        type?: string;
+        description?: string;
+        notes?: string;
+        references?: string[];
+      }>;
+    };
+  };
+  // LEGACY: exercises will be deprecated in favor of metaExercises
   exercises?: {
     [key: string]: {
       code: string;
@@ -783,6 +832,142 @@ export const getExerciseIdByCode = async (code: string): Promise<number> => {
   }
 };
 
+// =============================================================================
+// META DEFINITION API (NEW)
+// =============================================================================
+
+/**
+ * Get all meta-definitions for a domain
+ */
+export const getDomainMetaDefinitions = async (domainId: number): Promise<MetaDefinition[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Create a new meta-definition (concept pool) with optional initial version
+ */
+export const createMetaDefinition = async (domainId: number, data: {
+  code: string;
+  name: string;
+  xPosition?: number;
+  yPosition?: number;
+  prerequisiteIds?: number[];
+  prerequisiteWeights?: Record<number, number>;
+  initialVersion?: {
+    prompt: string;
+    type?: string;
+    description?: string;
+    notes?: string;
+    references?: string[];
+  };
+}): Promise<MetaDefinition> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Get a single meta-definition with all its versions
+ */
+export const getMetaDefinition = async (id: number): Promise<MetaDefinition> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Update meta-definition pool metadata
+ */
+export const updateMetaDefinition = async (id: number, data: {
+  code?: string;
+  name?: string;
+  xPosition?: number;
+  yPosition?: number;
+  cascadeCode?: boolean;
+  cascadeName?: boolean;
+}): Promise<MetaDefinition> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Add a new version to a meta-definition
+ */
+export const addMetaDefinitionVersion = async (id: number, version: {
+  prompt: string;
+  type?: string;
+  description?: string;
+  notes?: string;
+  references?: string[];
+}): Promise<DefinitionVersion> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(version),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Update a specific definition version
+ */
+export const updateMetaDefinitionVersion = async (
+  id: number,
+  versionId: number,
+  version: Partial<DefinitionVersion>
+): Promise<DefinitionVersion> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions/${versionId}`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(version),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Delete a definition version (returns 400 if it's the last version)
+ */
+export const deleteMetaDefinitionVersion = async (id: number, versionId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions/${versionId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Get next version for review (used by review UI)
+ */
+export const getNextMetaDefinitionVersion = async (id: number): Promise<DefinitionVersion> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/next-version`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
 // Exercise API
 export const getDomainExercises = async (domainId: number): Promise<Exercise[]> => {
   const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
@@ -1217,49 +1402,75 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
           const text = e.target?.result as string;
           const rawData = JSON.parse(text);
           
-          // Basic validation (accepts metaExercises or exercises)
-          if (!rawData.definitions || ( !rawData.exercises && !rawData.metaExercises )) {
-            reject(new Error('Invalid JSON format: missing definitions and either exercises or metaExercises'));
+          // Basic validation (accepts metaDefinitions or definitions, and metaExercises or exercises)
+          if ((!rawData.definitions && !rawData.metaDefinitions) || (!rawData.exercises && !rawData.metaExercises)) {
+            reject(new Error('Invalid JSON format: missing definitions/metaDefinitions and either exercises/metaExercises'));
             return;
           }
           
           // STANDARDIZE THE DATA FORMAT
           const standardizedData: DomainExportData = {
-            definitions: {},
+            definitions: undefined,
+            metaDefinitions: undefined,
             exercises: undefined,
             metaExercises: undefined,
           } as any;
-          
-          // Process definitions - ensure description is always an array and carry weights
-          for (const [key, def] of Object.entries(rawData.definitions || {})) {
-            const definition = def as any;
-            let descriptions: string[] = [];
-            
-            if (Array.isArray(definition.description)) {
-              descriptions = definition.description;
-            } else if (typeof definition.description === 'string') {
-              // Check if it contains the ||| delimiter
-              if (definition.description.includes('|||')) {
-                descriptions = definition.description.split('|||');
-              } else {
-                descriptions = [definition.description];
-              }
-            } else {
-              descriptions = ['No description'];
+
+          // Process metaDefinitions (preferred) or legacy definitions
+          if (rawData.metaDefinitions && typeof rawData.metaDefinitions === 'object') {
+            standardizedData.metaDefinitions = {};
+            for (const [key, md] of Object.entries(rawData.metaDefinitions)) {
+              const node = md as any;
+              const vlist: any[] = Array.isArray(node.versions) ? node.versions : [];
+              standardizedData.metaDefinitions[key] = {
+                code: node.code || key,
+                name: node.name || 'Unnamed',
+                prerequisites: Array.isArray(node.prerequisites) ? node.prerequisites : [],
+                prerequisiteWeights: (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') ? node.prerequisiteWeights : undefined,
+                xPosition: Number(node.xPosition) || 0,
+                yPosition: Number(node.yPosition) || 0,
+                versions: vlist.map((v: any) => ({
+                  prompt: v.prompt || 'No prompt',
+                  type: v.type || 'open_ended',
+                  description: v.description || '',
+                  notes: v.notes || '',
+                  references: Array.isArray(v.references) ? v.references : [],
+                }))
+              };
             }
-            
-            const defWeights = (definition.prerequisiteWeights && typeof definition.prerequisiteWeights === 'object') ? definition.prerequisiteWeights as Record<string, number> : undefined;
-            standardizedData.definitions[key] = {
-              code: definition.code || key,
-              name: definition.name || 'Unnamed',
-              description: descriptions, // Always array
-              notes: definition.notes || '',
-              references: Array.isArray(definition.references) ? definition.references : [],
-              prerequisites: Array.isArray(definition.prerequisites) ? definition.prerequisites : [],
-              prerequisiteWeights: defWeights,
-              xPosition: Number(definition.xPosition) || 0,
-              yPosition: Number(definition.yPosition) || 0,
-            };
+          } else if (rawData.definitions && typeof rawData.definitions === 'object') {
+            // Legacy definitions - keep for backward compatibility
+            standardizedData.definitions = {};
+            for (const [key, def] of Object.entries(rawData.definitions || {})) {
+              const definition = def as any;
+              let descriptions: string[] = [];
+
+              if (Array.isArray(definition.description)) {
+                descriptions = definition.description;
+              } else if (typeof definition.description === 'string') {
+                // Check if it contains the ||| delimiter
+                if (definition.description.includes('|||')) {
+                  descriptions = definition.description.split('|||');
+                } else {
+                  descriptions = [definition.description];
+                }
+              } else {
+                descriptions = ['No description'];
+              }
+
+              const defWeights = (definition.prerequisiteWeights && typeof definition.prerequisiteWeights === 'object') ? definition.prerequisiteWeights as Record<string, number> : undefined;
+              standardizedData.definitions[key] = {
+                code: definition.code || key,
+                name: definition.name || 'Unnamed',
+                description: descriptions, // Always array
+                notes: definition.notes || '',
+                references: Array.isArray(definition.references) ? definition.references : [],
+                prerequisites: Array.isArray(definition.prerequisites) ? definition.prerequisites : [],
+                prerequisiteWeights: defWeights,
+                xPosition: Number(definition.xPosition) || 0,
+                yPosition: Number(definition.yPosition) || 0,
+              };
+            }
           }
           
           if (rawData.metaExercises && typeof rawData.metaExercises === 'object') {
@@ -1340,11 +1551,11 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
     errors.push('Data must be an object');
     return { isValid: false, errors };
   }
-  
-  if (!data.definitions || typeof data.definitions !== 'object') {
-    errors.push('Missing or invalid definitions object');
+
+  if ((!data.definitions || typeof data.definitions !== 'object') && (!data.metaDefinitions || typeof data.metaDefinitions !== 'object')) {
+    errors.push('Missing or invalid definitions/metaDefinitions object');
   }
-  
+
   if ((!data.exercises || typeof data.exercises !== 'object') && (!data.metaExercises || typeof data.metaExercises !== 'object')) {
     errors.push('Missing exercises or metaExercises object');
   }
@@ -1382,8 +1593,37 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
       }
     }
   }
+  // Validate metaDefinitions structure
+  if (data.metaDefinitions) {
+    for (const [key, md] of Object.entries(data.metaDefinitions)) {
+      const metaDef = md as any;
+      if (!metaDef.code || !metaDef.name) {
+        errors.push(`Meta-definition ${key} is missing required fields (code, name)`);
+      }
+      if (!Array.isArray(metaDef.versions) || metaDef.versions.length === 0) {
+        errors.push(`Meta-definition ${key} has no versions`);
+      } else {
+        // Validate each version
+        metaDef.versions.forEach((v: any, idx: number) => {
+          if (!v.prompt) {
+            errors.push(`Meta-definition ${key} version ${idx} is missing prompt`);
+          }
+        });
+      }
+      if (metaDef.prerequisiteWeights && typeof metaDef.prerequisiteWeights === 'object') {
+        for (const [pcode, w] of Object.entries(metaDef.prerequisiteWeights)) {
+          const wn = Number(w);
+          if (isNaN(wn) || wn <= 0 || wn > 1) {
+            errors.push(`Meta-definition ${key} has invalid weight for prerequisite ${pcode} (must be 0 < w <= 1)`);
+          }
+        }
+      }
+    }
+  }
+
   // Build known code sets for cross-reference
   const knownDefCodes = new Set<string>(Object.values<any>(data.definitions || {}).map((d: any) => d.code || ''));
+  const knownMetaDefCodes = new Set<string>(Object.values<any>(data.metaDefinitions || {}).map((d: any) => d.code || ''));
   const knownMetaCodes = new Set<string>(Object.values<any>(data.metaExercises || {}).map((m: any) => m.code || ''));
   
   // Validate metaExercises or legacy exercises
@@ -1403,10 +1643,10 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
           }
         }
       }
-      // Cross-check prerequisite codes exist in definitions or metaExercises
+      // Cross-check prerequisite codes exist in definitions, metaDefinitions, or metaExercises
       const pre: string[] = Array.isArray(node.prerequisites) ? node.prerequisites : [];
       pre.forEach((p) => {
-        if (!knownDefCodes.has(p) && !knownMetaCodes.has(p)) {
+        if (!knownDefCodes.has(p) && !knownMetaDefCodes.has(p) && !knownMetaCodes.has(p)) {
           errors.push(`Meta-exercise ${key} references unknown prerequisite code: ${p}`);
         }
       });

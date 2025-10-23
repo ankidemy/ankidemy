@@ -21,9 +21,11 @@ interface ValidationResult {
   isValid: boolean;
   errors: string[];
   definitionCount: number;
+  metaDefinitionCount: number;
   exerciseCount: number;
   metaExerciseCount: number;
   versionCount: number;
+  definitionVersionCount: number;
 }
 
 const STORAGE_KEY = 'ankidemy.import.onDuplicate';
@@ -71,15 +73,46 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
   const validateImportData = (data: ImportData): ValidationResult => {
     const errors: string[] = [];
     let definitionCount = 0;
+    let metaDefinitionCount = 0;
     let exerciseCount = 0;
     let metaExerciseCount = 0;
     let versionCount = 0;
+    let definitionVersionCount = 0;
 
     // Collect all codes to check for duplicates within the import
     const allCodes = new Map<string, string>();
 
-    // Validate definitions
-    if (data.definitions) {
+    // Validate metaDefinitions (preferred) or legacy definitions
+    if (data.metaDefinitions && Object.keys(data.metaDefinitions).length > 0) {
+      metaDefinitionCount = Object.keys(data.metaDefinitions).length;
+      for (const [code, md] of Object.entries(data.metaDefinitions)) {
+        if (!md.code) {
+          errors.push(`MetaDefinition ${code} has empty code`);
+        }
+        if (!md.name) {
+          errors.push(`MetaDefinition ${code} has empty name`);
+        }
+        if (!md.versions || md.versions.length === 0) {
+          errors.push(`MetaDefinition ${code} has no versions`);
+        } else {
+          definitionVersionCount += md.versions.length;
+          // Validate each version has a prompt
+          md.versions.forEach((v, idx) => {
+            if (!v.prompt) {
+              errors.push(`MetaDefinition ${code} version ${idx} has empty prompt`);
+            }
+          });
+        }
+
+        const existingType = allCodes.get(md.code || code);
+        if (existingType) {
+          errors.push(`Duplicate code found: ${md.code || code} (${existingType} and metaDefinition)`);
+        } else {
+          allCodes.set(md.code || code, 'metaDefinition');
+        }
+      }
+    } else if (data.definitions) {
+      // Legacy definitions validation
       definitionCount = Object.keys(data.definitions).length;
       for (const [code, def] of Object.entries(data.definitions)) {
         if (!def.code) {
@@ -150,9 +183,11 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       isValid: errors.length === 0,
       errors,
       definitionCount,
+      metaDefinitionCount,
       exerciseCount,
       metaExerciseCount,
-      versionCount
+      versionCount,
+      definitionVersionCount
     };
   };
 
@@ -173,7 +208,8 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       const raw = JSON.parse(text) as any;
       // Minimal standardization to match DomainExportData shape
       const standardized: ImportData = {
-        definitions: raw.definitions || {},
+        definitions: raw.definitions,
+        metaDefinitions: raw.metaDefinitions,
         exercises: raw.exercises,
         metaExercises: raw.metaExercises,
       };
@@ -185,9 +221,11 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         isValid: false,
         errors: [`Failed to parse JSON: ${error instanceof Error ? error.message : 'Unknown error'}`],
         definitionCount: 0,
+        metaDefinitionCount: 0,
         exerciseCount: 0,
         metaExerciseCount: 0,
-        versionCount: 0
+        versionCount: 0,
+        definitionVersionCount: 0
       });
       setImportData(null);
     } finally {
@@ -276,14 +314,21 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                     <div>
                       <p className="text-sm font-medium text-green-800 mb-2">File is valid and ready to import</p>
                       <div className="text-xs text-green-700 space-y-1">
-                        <p>• {validation.definitionCount} definition{validation.definitionCount !== 1 ? 's' : ''}</p>
+                        {validation.metaDefinitionCount > 0 ? (
+                          <>
+                            <p>• {validation.metaDefinitionCount} concept pool{validation.metaDefinitionCount !== 1 ? 's' : ''} (meta-definitions)</p>
+                            <p>• {validation.definitionVersionCount} definition version{validation.definitionVersionCount !== 1 ? 's' : ''}</p>
+                          </>
+                        ) : validation.definitionCount > 0 ? (
+                          <p>• {validation.definitionCount} definition{validation.definitionCount !== 1 ? 's' : ''} (legacy format)</p>
+                        ) : null}
                         {validation.metaExerciseCount > 0 ? (
                           <>
-                            <p>• {validation.metaExerciseCount} meta-exercise{validation.metaExerciseCount !== 1 ? 's' : ''}</p>
-                            <p>• {validation.versionCount} total version{validation.versionCount !== 1 ? 's' : ''}</p>
+                            <p>• {validation.metaExerciseCount} exercise pool{validation.metaExerciseCount !== 1 ? 's' : ''} (meta-exercises)</p>
+                            <p>• {validation.versionCount} exercise version{validation.versionCount !== 1 ? 's' : ''}</p>
                           </>
                         ) : validation.exerciseCount > 0 ? (
-                          <p>• {validation.exerciseCount} exercise{validation.exerciseCount !== 1 ? 's' : ''}</p>
+                          <p>• {validation.exerciseCount} exercise{validation.exerciseCount !== 1 ? 's' : ''} (legacy format)</p>
                         ) : null}
                       </div>
                     </div>

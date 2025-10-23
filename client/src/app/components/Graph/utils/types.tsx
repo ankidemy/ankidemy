@@ -19,6 +19,28 @@ export interface Definition {
   type?: 'definition';
 }
 
+// NEW: MetaDefinition types for versioned concepts
+export interface MetaDefinitionPreview {
+  id: number;
+  code: string;
+  name: string;
+  domainId: number;
+  xPosition?: number;
+  yPosition?: number;
+  prerequisites?: string[];
+  prerequisiteWeights?: Record<string, number>;
+  versionCount: number;
+}
+
+export interface DefinitionVersionPreview {
+  id: number;
+  prompt: string;
+  type: string;
+  description?: string;
+  notes?: string;
+  references?: string[];
+}
+
 export interface Exercise {
   // Numeric database id may be absent in export payloads; treat as optional
   id?: number;

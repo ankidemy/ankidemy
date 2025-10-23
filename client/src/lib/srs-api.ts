@@ -259,15 +259,15 @@ export const getDomainPrerequisites = async (domainId: number): Promise<NodePrer
 // Create a prerequisite relationship
 export const createPrerequisite = async (prerequisite: {
   nodeId: number;
-  nodeType: 'definition' | 'exercise' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise' | 'meta_definition' | 'meta_exercise';
   prerequisiteId: number;
-  prerequisiteType: 'definition' | 'exercise' | 'meta_exercise';
+  prerequisiteType: 'definition' | 'exercise' | 'meta_definition' | 'meta_exercise';
   weight: number;
   isManual: boolean;
 }): Promise<NodePrerequisite> => {
   const response = await fetch(`${API_URL}/api/srs/prerequisites`, {
     method: 'POST',
-    headers: { 
+    headers: {
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },

@@ -4,12 +4,14 @@ import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import {
   createDefinition,
+  createMetaDefinition,
   createMetaExercise,
   addMetaExerciseVersion,
   getMetaExercise,
   DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
   Definition as ApiDefinition,
-  Exercise as ApiExercise
+  Exercise as ApiExercise,
+  MetaDefinition
 } from '@/lib/api';
 import { X } from 'lucide-react';
 
@@ -51,6 +53,10 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [difficulty, setDifficulty] = useState('3');
   const [verifiable, setVerifiable] = useState(false);
   const [result, setResult] = useState('');
+  // For meta-definition initial version
+  const [prompt, setPrompt] = useState('');
+  const [versionType, setVersionType] = useState('open_ended');
+  const [references, setReferences] = useState('');
   // Additional versions for meta-exercise creation
   const [extraVersions, setExtraVersions] = useState<Array<{ statement: string; description?: string; hints?: string; notes?: string; difficulty?: number; verifiable?: boolean; result?: string }>>([]);
   const [selectedDefPrereqIds, setSelectedDefPrereqIds] = useState<number[]>([]);
@@ -74,6 +80,9 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       setDifficulty('3');
       setVerifiable(false);
       setResult('');
+      setPrompt('');
+      setVersionType('open_ended');
+      setReferences('');
       setSelectedDefPrereqIds([]);
       setSelectedExPrereqIds([]);
       setError(null);
@@ -164,20 +173,29 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       const prerequisiteWeightsToSend = selectedDefPrereqIds.length > 0 ? defPrereqWeights : undefined;
 
       if (type === 'definition') {
-        if (!description.trim()) throw new Error('Description is required for definitions');
-        const definitionData: DefinitionRequest = {
+        // Use createMetaDefinition instead of legacy createDefinition
+        const metaDefData: any = {
           code: code.trim(),
           name: name.trim(),
-          description: description.trim(),
-          notes: notes.trim() || undefined,
-          domainId,
-          prerequisiteIds: prerequisiteIdsToSend,
-          prerequisiteWeights: prerequisiteWeightsToSend, // NEW: include weights
           xPosition: position?.x,
-          yPosition: position?.y
+          yPosition: position?.y,
+          prerequisiteIds: prerequisiteIdsToSend,
+          prerequisiteWeights: prerequisiteWeightsToSend,
         };
-        const response = await createDefinition(domainId, definitionData);
-        onSuccess(response.code, response);
+        // Include initial version only if user provided any fields; default prompt to "Define <Name>" if needed
+        const anyVersionField = [prompt, description, notes, references].some(v => (v || '').trim().length > 0);
+        if (anyVersionField) {
+          const effectivePrompt = (prompt || '').trim() || (name.trim() ? `Define ${name.trim()}` : 'Define the concept');
+          metaDefData.initialVersion = {
+            prompt: effectivePrompt,
+            type: versionType,
+            description: description.trim() || undefined,
+            notes: notes.trim() || undefined,
+            references: references.trim() ? references.split(',').map(r => r.trim()).filter(r => r) : undefined,
+          };
+        }
+        const response = await createMetaDefinition(domainId, metaDefData);
+        onSuccess(response.code, response as any);
       } else {
         if (!statement.trim()) throw new Error('Statement is required for the initial version');
         const response = await createMetaExercise(domainId, {
@@ -342,13 +360,66 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           {type === 'definition' ? (
             <>
               <div>
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
-                <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Definition content..." required disabled={isSubmitting}/>
+                <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 mb-1">Prompt</label>
+                <textarea
+                  id="prompt"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+                  placeholder={`Define ${name || 'the concept'}`}
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-gray-500 mt-1">The question/prompt to display during reviews</p>
+              </div>
+              <div>
+                <label htmlFor="versionType" className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select
+                  id="versionType"
+                  value={versionType}
+                  onChange={(e) => setVersionType(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+                  disabled={isSubmitting}
+                >
+                  <option value="open_ended">Open Ended</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
+                <textarea
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+                  placeholder="Additional context or explanation..."
+                  disabled={isSubmitting}
+                />
                 <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}</p>
               </div>
               <div>
                 <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
-                <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Additional notes..." disabled={isSubmitting}/>
+                <textarea
+                  id="notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+                  placeholder="Internal notes..."
+                  disabled={isSubmitting}
+                />
+              </div>
+              <div>
+                <label htmlFor="references" className="block text-sm font-medium text-gray-700 mb-1">References (Optional)</label>
+                <Input
+                  id="references"
+                  value={references}
+                  onChange={(e) => setReferences(e.target.value)}
+                  placeholder="URL1, URL2, URL3"
+                  disabled={isSubmitting}
+                  className="text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">Comma-separated URLs or references</p>
               </div>
             </>
           ) : (

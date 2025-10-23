@@ -18,7 +18,9 @@ import {
   Definition as ApiDefinition,
   Exercise as ApiExercise,
   getDomainDefinitions,
+  getDomainMetaDefinitions,
   getDomainMetaExercises,
+  MetaDefinition,
   getDomain,
   enrollInDomain,
   getEnrolledDomains,
@@ -559,39 +561,50 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
     try {
       console.log("Loading comprehensive domain data for:", domainId);
-      
-      const [allDefinitions, allMetaExercises] = await Promise.all([
-        getDomainDefinitions(domainId).catch(err => { console.warn("Failed to load definitions:", err); return []; }),
+
+      const [allMetaDefinitions, allMetaExercises] = await Promise.all([
+        // Use meta-definitions (concept pools) as definition nodes in the graph
+        getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return []; }),
         // Use meta-exercises (pools) as exercise nodes in the graph
         getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; })
       ]);
-      
+
       const newCodeToNumericIdMap = new Map<string, number>();
-      const newNodeDataCache = new Map<string, ApiDefinition | ApiExercise>();
-      
-      allDefinitions.forEach(def => {
-        if (def?.code && typeof def.id === 'number') {
-          newCodeToNumericIdMap.set(def.code, def.id);
-          newNodeDataCache.set(def.code, def);
+      const newNodeDataCache = new Map<string, MetaDefinition | any>();
+
+      allMetaDefinitions.forEach(metaDef => {
+        if (metaDef?.code && typeof metaDef.id === 'number') {
+          newCodeToNumericIdMap.set(metaDef.code, metaDef.id);
+          newNodeDataCache.set(metaDef.code, metaDef);
         }
       });
-      
+
       (allMetaExercises as any[]).forEach((ex: any) => {
         if (ex?.code && typeof ex.id === 'number') {
           newCodeToNumericIdMap.set(ex.code, ex.id);
           newNodeDataCache.set(ex.code, ex);
         }
       });
-      
+
       const newDefinitions: Record<string, Definition> = {};
       const newExercises: Record<string, Exercise> = {};
-      
-      allDefinitions.forEach(def => {
-        newDefinitions[def.code] = { 
-          ...def, 
+
+      // Convert MetaDefinitions to Definition format for graph display
+      allMetaDefinitions.forEach(metaDef => {
+        newDefinitions[metaDef.code] = {
+          code: metaDef.code,
+          name: metaDef.name,
+          description: '', // MetaDefinitions don't have a single description, versions do
+          notes: '',
+          references: [],
+          prerequisites: metaDef.prerequisites || [],
+          prerequisiteWeights: metaDef.prerequisiteWeights ||
+            (metaDef.prerequisites ? Object.fromEntries(metaDef.prerequisites.map(p => [p, 1.0])) : {}),
+          xPosition: metaDef.xPosition,
+          yPosition: metaDef.yPosition,
+          domainId: metaDef.domainId,
           type: 'definition',
-          prerequisiteWeights: def.prerequisiteWeights || 
-            (def.prerequisites ? Object.fromEntries(def.prerequisites.map(p => [p, 1.0])) : {})
+          id: metaDef.id,
         };
       });
       

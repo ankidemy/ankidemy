@@ -12,6 +12,7 @@ import NodeEditForm from '../details/NodeEditForm';
 import PrerequisitesPanel from '../details/PrerequisitesPanel';
 import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
 import MetaExerciseVersionsViewer from '../details/MetaExerciseVersionsViewer';
+import MetaDefinitionEditForm from '../details/MetaDefinitionEditForm';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
@@ -24,15 +25,23 @@ import {
   updateDefinition,
   updateExercise,
   getMetaExercise,
+  getMetaDefinition,
   getNextMetaExerciseVersion,
+  getNextMetaDefinitionVersion,
   addMetaExerciseVersion,
+  addMetaDefinitionVersion,
   updateMetaExerciseVersion,
+  updateMetaDefinitionVersion,
   deleteMetaExerciseVersion,
+  deleteMetaDefinitionVersion,
   updateMetaExercise,
+  updateMetaDefinition,
   Definition as ApiDefinition,
   Exercise as ApiExercise,
   MetaExercise,
-  ExerciseVersion
+  MetaDefinition,
+  ExerciseVersion,
+  DefinitionVersion
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
@@ -66,8 +75,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
   const [currentNode, setCurrentNode] = useState<GraphNode>(initialNodeData);
   const [nodeDetails, setNodeDetails] = useState<Definition | Exercise | null>(null);
-  const [metaDetails, setMetaDetails] = useState<MetaExercise | null>(null);
-  const [currentVersion, setCurrentVersion] = useState<ExerciseVersion | null>(null);
+  const [metaDetails, setMetaDetails] = useState<MetaExercise | MetaDefinition | null>(null);
+  const [currentVersion, setCurrentVersion] = useState<ExerciseVersion | DefinitionVersion | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -95,8 +104,19 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     try {
       let details;
       if (node.type === 'definition') {
-        const res = await getDefinitionByCode(node.id, { domainId: domainData?.id });
-        details = Array.isArray(res) ? res[0] : res;
+        // Load meta-definition by numeric id and fetch a suggested version
+        const mid = codeToNumericIdMap.get(node.id);
+        if (!mid) throw new Error('Missing numeric id for meta definition');
+        const meta = await getMetaDefinition(mid);
+        setMetaDetails(meta);
+        const ver = await getNextMetaDefinitionVersion(mid);
+        setCurrentVersion(ver as any);
+        details = {
+          code: meta.code,
+          name: meta.name,
+          description: ver.description || '',
+          type: 'definition'
+        } as Definition;
       } else {
         // Load meta-exercise by numeric id and fetch a suggested version
         const mid = codeToNumericIdMap.get(node.id);
@@ -109,7 +129,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       }
       if (details) {
         setNodeDetails({ ...details, type: node.type } as Definition | Exercise);
-        
+
         // Set related exercises for definitions
         if (node.type === 'definition' && graphData?.exercises) {
           const related = Object.values(graphData.exercises)
@@ -124,7 +144,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [graphData, domainData?.id]);
+  }, [graphData, domainData?.id, codeToNumericIdMap]);
 
   // Initialize with first node
   useEffect(() => {
@@ -197,18 +217,20 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const handleReviewDefinition = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
     if (!numericId) return;
     
-    const qualityMap = { again: 0, hard: 1, good: 4, easy: 5 };
+    const qualityMap = { again: 0, hard: 1, good: 4, easy: 5 } as const;
     await srs.submitReview({
       nodeId: numericId,
-      nodeType: 'definition',
+      nodeType: 'meta_definition',
       success: qualityMap[quality] >= 3,
       quality: qualityMap[quality] as any,
       timeTaken: 0,
       sessionId: srs.state.currentSession?.id,
+      // Include chosen version id when available
+      versionId: currentVersion?.id,
     });
     
     showToast(`Definition reviewed as ${quality}`, 'success');
-  }, [numericId, srs]);
+  }, [numericId, srs, currentVersion?.id]);
 
   const handleRateExercise = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
     if (!numericId) return;
@@ -503,19 +525,117 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         ) : isEditMode ? (
           nodeDetails ? (
             currentNode.type === 'definition' ? (
-              <form onSubmit={(e) => { e.preventDefault(); handleSubmitEdit(); }}>
-                <NodeEditForm
-                  selectedNode={currentNode}
-                  selectedNodeDetails={nodeDetails}
-                  availableDefinitionsForEdit={availableDefinitions}
-                  hasMultipleDescriptions={hasMultipleDescriptions()}
-                  currentDescription={currentDescriptionText()}
-                  totalDescriptions={totalDescriptionsCount()}
-                  selectedDefinitionIndex={selectedDefinitionIndex}
-                  onCancel={() => setIsEditMode(false)}
-                  onSubmit={handleSubmitEdit}
-                />
-              </form>
+              <MetaDefinitionEditForm
+                meta={metaDetails as MetaDefinition}
+                initialActiveIndex={selectedDefinitionIndex}
+                onAddVersion={async (v) => {
+                  if (!metaDetails) return;
+                  await addMetaDefinitionVersion(metaDetails.id, v as any);
+                  const fresh = await getMetaDefinition(metaDetails.id);
+                  setMetaDetails(fresh);
+                  // Initialize Details with the first version if none selected yet
+                  if (!currentVersion && fresh.versions && fresh.versions.length > 0) {
+                    const ver = fresh.versions[0];
+                    setCurrentVersion(ver);
+                    setNodeDetails({
+                      code: fresh.code,
+                      name: fresh.name,
+                      description: ver.description || '',
+                      type: 'definition'
+                    } as Definition);
+                  }
+                  showToast('Version added', 'success');
+                }}
+                onUpdateVersion={async (id, v) => {
+                  if (!metaDetails) return;
+                  await updateMetaDefinitionVersion(metaDetails.id, id, v as any);
+                  const fresh = await getMetaDefinition(metaDetails.id);
+                  setMetaDetails(fresh);
+                  if (currentVersion && currentVersion.id === id) {
+                    const updated = (fresh.versions || []).find(x => x.id === id);
+                    if (updated) {
+                      setCurrentVersion(updated);
+                      setNodeDetails({
+                        code: fresh.code,
+                        name: fresh.name,
+                        description: updated.description || '',
+                        type: 'definition'
+                      } as Definition);
+                    }
+                  }
+                  showToast('Version updated', 'success');
+                }}
+                onDeleteVersion={async (id) => {
+                  if (!metaDetails) return;
+                  try {
+                    await deleteMetaDefinitionVersion(metaDetails.id, id);
+                  } catch (e: any) {
+                    showToast(e?.message || 'Cannot delete version', 'error');
+                    return;
+                  }
+                  const fresh = await getMetaDefinition(metaDetails.id);
+                  setMetaDetails(fresh);
+                  if (currentVersion && currentVersion.id === id) {
+                    const fallback = (fresh.versions || [])[0] || null;
+                    setCurrentVersion(fallback as any);
+                    if (fallback) {
+                      setNodeDetails({
+                        code: fresh.code,
+                        name: fresh.name,
+                        description: fallback.description || '',
+                        type: 'definition'
+                      } as Definition);
+                    } else {
+                      setNodeDetails({
+                        code: fresh.code,
+                        name: fresh.name,
+                        description: '',
+                        type: 'definition'
+                      } as Definition);
+                    }
+                  }
+                  showToast('Version deleted', 'success');
+                }}
+                onUpdateMeta={async (payload) => {
+                  if (!metaDetails) return;
+                  const prevCode = metaDetails.code;
+                  const updated = await updateMetaDefinition(metaDetails.id, payload);
+
+                  // Re-fetch full meta with versions to avoid losing versions in state
+                  const fresh = await getMetaDefinition(metaDetails.id);
+                  setMetaDetails(fresh);
+
+                  // Update current node identity (code/name) so header and future loads are correct
+                  setCurrentNode(prev => ({ ...prev, id: updated.code, name: updated.name }));
+                  // Update window title immediately
+                  ui.updateWindow(windowId, { title: `${updated.code}: ${updated.name}` });
+
+                  // If code changed, force a full graph refresh to rebuild code-indexed maps and links
+                  if (updated.code !== prevCode) {
+                    showToast('Concept code updated. Refreshing graph…', 'success');
+                    onRefresh?.();
+                    return;
+                  }
+
+                  // Keep nodeDetails in sync for current view (surgical)
+                  setNodeDetails(prev => prev ? { ...prev, code: updated.code, name: updated.name } as any : prev);
+
+                  // Notify parent for surgical update if callback exists
+                  onUpdateNodeData?.(updated.code, {
+                    code: updated.code,
+                    name: updated.name,
+                    prerequisites: fresh.prerequisites || [],
+                    prerequisiteWeights: fresh.prerequisiteWeights || {},
+                    xPosition: fresh.xPosition,
+                    yPosition: fresh.yPosition,
+                    id: fresh.id,
+                    type: 'definition',
+                  } as any);
+
+                  showToast('Concept pool updated', 'success');
+                }}
+                onBack={() => setIsEditMode(false)}
+              />
             ) : (
               <MetaExerciseEditForm
                 meta={metaDetails as any}
@@ -670,51 +790,28 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   <PrerequisitesPanel
                     domainId={domainData.id}
                     nodeId={numericId}
-                    nodeType={'definition'}
+                    nodeType={'meta_definition'}
                     availableDefinitions={availableDefinitions}
-                    allowKinds={['definition']}
+                    allowKinds={['meta_definition']}
                     onChanged={async () => {
-                      // Surgical update for definition prerequisites:
-                      // 1) Fetch fresh definition (for name/positions)
-                      // 2) Fetch domain prerequisites, filter this node's definition prereqs
-                      // 3) Map numeric IDs -> codes and build weights map
-                      // 4) Emit onUpdateNodeData with updated prerequisites only (no full refresh)
+                      // Surgical update for concept prerequisites: reload meta-definition and apply its codes/weights
                       try {
-                        const [rawDef, prereqRows] = await Promise.all([
-                          getDefinitionByCode(currentNode.id, { domainId: domainData.id }),
-                          getDomainPrerequisites(domainData.id),
-                        ]);
-
-                        const fresh = Array.isArray(rawDef) ? rawDef[0] : rawDef;
-                        if (!fresh) return;
-
-                        // Build numericId -> code map from availableDefinitions (authoritative in UI)
-                        const idToCode = new Map<number, string>();
-                        availableDefinitions.forEach(d => { if (typeof d.numericId === 'number') idToCode.set(d.numericId, d.code); });
-
-                        // Filter rows for this definition node and prerequisiteType 'definition'
-                        const myRows = prereqRows.filter(r => r.nodeId === numericId && r.nodeType === 'definition' && r.prerequisiteType === 'definition');
-                        const prerequisiteCodes: string[] = [];
-                        const prerequisiteWeights: Record<string, number> = {};
-                        myRows.forEach(r => {
-                          const code = idToCode.get(r.prerequisiteId);
-                          if (code) {
-                            prerequisiteCodes.push(code);
-                            prerequisiteWeights[code] = r.weight || 1.0;
-                          }
-                        });
-
+                        const fresh = await getMetaDefinition(numericId);
                         const enriched = {
-                          ...fresh,
+                          code: fresh.code,
+                          name: fresh.name,
                           type: 'definition',
-                          prerequisites: prerequisiteCodes,
-                          prerequisiteWeights,
+                          prerequisites: fresh.prerequisites || [],
+                          prerequisiteWeights: fresh.prerequisiteWeights || {},
+                          xPosition: fresh.xPosition,
+                          yPosition: fresh.yPosition,
+                          domainId: fresh.domainId,
+                          id: fresh.id,
                         } as Definition;
-
                         setNodeDetails(enriched);
                         onUpdateNodeData?.(fresh.code, enriched as any);
                       } catch (e) {
-                        console.warn('Failed to surgically update definition prerequisites; falling back to refresh.', e);
+                        console.warn('Failed to surgically update concept prerequisites; falling back to refresh.', e);
                         onRefresh?.();
                       }
                     }}

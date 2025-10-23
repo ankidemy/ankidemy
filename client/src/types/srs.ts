@@ -34,9 +34,9 @@ export interface NodeProgress {
 export interface NodePrerequisite {
   id: number;
   nodeId: number;
-  nodeType: 'definition' | 'exercise' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise' | 'meta_definition' | 'meta_exercise';
   prerequisiteId: number;
-  prerequisiteType: 'definition' | 'exercise' | 'meta_exercise';
+  prerequisiteType: 'definition' | 'exercise' | 'meta_definition' | 'meta_exercise';
   weight: number; // 0.01 to 1.0
   isManual: boolean;
   createdAt: string;
@@ -58,12 +58,12 @@ export interface StudySession {
 // Review submission
 export interface ReviewRequest {
   nodeId: number;
-  nodeType: 'definition' | 'exercise';
+  nodeType: 'meta_definition' | 'exercise';
   success: boolean;
   quality: ReviewQuality;
   timeTaken: number; // in seconds
   sessionId?: number;
-  versionId?: number; // for meta-exercise reviews
+  versionId?: number; // for meta-exercise and meta-definition reviews
 }
 
 // Credit flow for animations

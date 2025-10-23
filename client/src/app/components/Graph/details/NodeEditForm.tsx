@@ -332,7 +332,7 @@ const NodeEditForm: React.FC<NodeEditFormProps> = ({
               nodeId={numericId}
               nodeType={'meta_exercise'}
               availableDefinitions={availableDefinitionsForEdit}
-              allowKinds={['definition','meta_exercise']}
+              allowKinds={['meta_definition','meta_exercise']}
             />
           ) : (
             <div className="text-xs text-gray-500">Prerequisites unavailable (missing IDs)</div>
