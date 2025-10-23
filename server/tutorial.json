@@ -1,273 +1,15 @@
 {
-  "definitions": {
-    "MATH_001": {
-      "code": "MATH_001",
-      "name": "Set",
-      "description": [
-        "A **set** is a _well-defined_ collection of **distinct objects**, known as **elements**.",
-        "Sets are usually denoted by **capital letters** with elements inside curly braces, e.g., $A = \\{a, b, c\\}$.",
-        "The **order** of elements does _not_ matter, and **duplicate elements** are ignored."
-      ],
-      "notes": "Think of a set as a bag of unique items. It's the **fundamental building block** for nearly all of mathematics!",
-      "references": [
-        "Halmos, P. R. (1960). Naive Set Theory",
-        "Zermelo-Fraenkel Set Theory (ZFC)"
-      ],
-      "prerequisites": [],
-      "xPosition": 100,
-      "yPosition": 100
-    },
-    "MATH_002": {
-      "code": "MATH_002",
-      "name": "Subset",
-      "description": [
-        "A set $A$ is a **subset** of a set $B$ if _every element_ of $A$ is also an element of $B$.",
-        "This relationship is denoted as $A \\subseteq B$.",
-        "**Every set is a subset of itself.**"
-      ],
-      "notes": "If set $B$ contains _all_ the items of set $A$ (and possibly more), then $A$ is a **subset** of $B$. Easy peasy!",
-      "references": [],
-      "prerequisites": ["MATH_001"],
-      "xPosition": 350,
-      "yPosition": 100
-    },
-    "MATH_003": {
-      "code": "MATH_003",
-      "name": "Empty Set",
-      "description": [
-        "The **empty set** is the _unique_ set that contains **no elements**.",
-        "It is denoted by $\\emptyset$ or $\\{\\}$.",
-        "The empty set is a **subset of every set**."
-      ],
-      "notes": "It might seem strange, but the concept of _'nothing'_ is **incredibly important** for defining everything else.",
-      "references": [],
-      "prerequisites": ["MATH_002"],
-      "xPosition": 350,
-      "yPosition": 250
-    },
-    "MATH_004": {
-      "code": "MATH_004",
-      "name": "Cartesian Product",
-      "description": [
-        "The **Cartesian product** of two sets $A$ and $B$ is the set of all **ordered pairs** $(a, b)$ where $a \\in A$ and $b \\in B$.",
-        "It is denoted by $A \\times B$.",
-        "This concept extends to _more than two sets_, forming **n-tuples**."
-      ],
-      "notes": "If you have a set of shirts and a set of pants, the Cartesian product is **all possible outfits**!",
-      "references": [],
-      "prerequisites": ["MATH_001"],
-      "xPosition": 350,
-      "yPosition": 400
-    },
-    "MATH_005": {
-      "code": "MATH_005",
-      "name": "Power Set",
-      "description": [
-        "The **power set** of a set $S$ is the set of _all possible subsets_ of $S$, including the empty set and $S$ itself.",
-        "It is denoted by $P(S)$ or $2^S$.",
-        "If $S$ has $n$ elements, its power set $P(S)$ has **$2^n$ elements**."
-      ],
-      "notes": "The power set reveals the **complete substructure** of a set. It's a _'set of sets'_!",
-      "references": [],
-      "prerequisites": ["MATH_002"],
-      "xPosition": 350,
-      "yPosition": 550
-    },
-    "MATH_006": {
-      "code": "MATH_006",
-      "name": "Mapping (Function)",
-      "description": [
-        "A **mapping** (or **function**) $f$ from a set $A$ to a set $B$ is a _rule_ that assigns to each element $x \\in A$ **exactly one** element $y \\in B$.",
-        "$A$ is called the **domain**, and $B$ is the **codomain**.",
-        "This is denoted as $f: A \\to B$."
-      ],
-      "notes": "Mappings are the **action heroes** of math, describing _relationships_ and _transformations_ between sets.",
-      "references": [],
-      "prerequisites": ["MATH_001"],
-      "xPosition": 600,
-      "yPosition": 100
-    },
-    "MATH_007": {
-      "code": "MATH_007",
-      "name": "Injective Mapping",
-      "description": [
-        "An **injective** (or **one-to-one**) mapping ensures that _no two elements_ in the domain map to the same element in the codomain.",
-        "If $f(x_1) = f(x_2)$, then $x_1 = x_2$.",
-        "Think of it as a **'no sharing outputs'** rule."
-      ],
-      "notes": "Injective functions **preserve distinctness**. They don't _merge_ or _lose_ information.",
-      "references": [],
-      "prerequisites": ["MATH_006"],
-      "xPosition": 850,
-      "yPosition": 100
-    },
-    "MATH_008": {
-      "code": "MATH_008",
-      "name": "Surjective Mapping",
-      "description": [
-        "A **surjective** (or **onto**) mapping ensures that _every element_ in the codomain $B$ has **at least one** corresponding element in the domain $A$.",
-        "The **range** of the function is _equal to_ its **codomain**.",
-        "Think of it as **'covering all the targets'**."
-      ],
-      "notes": "Surjective functions **hit every possible output value**. _Nothing_ in the codomain is left out.",
-      "references": [],
-      "prerequisites": ["MATH_006"],
-      "xPosition": 850,
-      "yPosition": 250
-    },
-    "MATH_009": {
-      "code": "MATH_009",
-      "name": "Bijective Mapping",
-      "description": [
-        "A **bijective** mapping is _both_ **injective** _and_ **surjective**.",
-        "It creates a **perfect one-to-one correspondence** between the elements of the domain and the codomain.",
-        "Bijective functions have a **unique inverse function**."
-      ],
-      "notes": "Bijections are the **gold standard** of mappings, showing that two sets are _structurally identical_ in size.",
-      "references": [],
-      "prerequisites": ["MATH_007", "MATH_008"],
-      "xPosition": 850,
-      "yPosition": 400
-    },
-    "MATH_010": {
-      "code": "MATH_010",
-      "name": "Category",
-      "description": [
-        "A **category** is a collection of **'objects'** and **'morphisms'** (arrows) between them.",
-        "It includes an _associative_ **composition** of morphisms and an **identity morphism** for each object.",
-        "**Category theory** is a _high-level abstraction_ that studies mathematical structures and their relationships."
-      ],
-      "notes": "This is **math about math**! It unifies concepts from different fields by focusing on _structure_ and _transformations_.",
-      "references": [
-        "Mac Lane, S. (1998). Categories for the Working Mathematician"
-      ],
-      "prerequisites": ["MATH_006"],
-      "xPosition": 1100,
-      "yPosition": 100
-    },
-    "MATH_011": {
-      "code": "MATH_011",
-      "name": "Isomorphism",
-      "description": [
-        "In category theory, an **isomorphism** is a morphism $f: A \\to B$ that has a **two-sided inverse** $g: B \\to A$.",
-        "This means $f \\circ g = 1_B$ and $g \\circ f = 1_A$.",
-        "**Isomorphic objects** are _structurally identical_ from the perspective of the category."
-      ],
-      "notes": "This is the **categorical generalization** of a bijection. It's the _ultimate_ **'sameness' detector**.",
-      "references": [],
-      "prerequisites": ["MATH_010", "MATH_009"],
-      "xPosition": 1100,
-      "yPosition": 250
-    },
-    "MATH_012": {
-      "code": "MATH_012",
-      "name": "Monomorphism",
-      "description": [
-        "A **monomorphism** (or **mono**) is the _categorical generalization_ of an **injective mapping**.",
-        "It is a **'left-cancelable'** morphism: if $f \\circ g_1 = f \\circ g_2$, then $g_1 = g_2$.",
-        "In the category of sets, monomorphisms are _exactly_ the **injective functions**."
-      ],
-      "notes": "While it feels like injectivity, this definition works in contexts where _'elements' don't exist_!",
-      "references": [],
-      "prerequisites": ["MATH_010", "MATH_007"],
-      "xPosition": 1350,
-      "yPosition": 100
-    },
-    "MATH_013": {
-      "code": "MATH_013",
-      "name": "Epimorphism",
-      "description": [
-        "An **epimorphism** (or **epi**) is the _categorical generalization_ of a **surjective mapping**.",
-        "It is a **'right-cancelable'** morphism: if $g_1 \\circ f = g_2 \\circ f$, then $g_1 = g_2$.",
-        "In the category of sets, epimorphisms are _exactly_ the **surjective functions**."
-      ],
-      "notes": "**Beware!** In some categories (like **Rings**), an epimorphism is _not always_ surjective. Abstraction is tricky!",
-      "references": [],
-      "prerequisites": ["MATH_010", "MATH_008"],
-      "xPosition": 1350,
-      "yPosition": 250
-    },
-    "MATH_014": {
-      "code": "MATH_014",
-      "name": "Functor",
-      "description": [
-        "A **functor** is a _mapping between categories_.",
-        "It maps **objects** to **objects** and **morphisms** to **morphisms** in a way that _preserves_ **composition** and **identity**.",
-        "Functors are the **'morphisms' of categories**, allowing us to compare them."
-      ],
-      "notes": "If categories are _worlds_ of mathematical structures, functors are the **portals** between them.",
-      "references": [],
-      "prerequisites": ["MATH_010"],
-      "xPosition": 1350,
-      "yPosition": 400
-    },
-    "MATH_015": {
-      "code": "MATH_015",
-      "name": "Number Theory",
-      "description": [
-        "**Number theory** is a branch of _pure mathematics_ devoted primarily to the study of the **integers** and **integer-valued functions**.",
-        "It explores properties like **divisibility**, **prime numbers**, and solutions to **equations in integers**."
-      ],
-      "notes": "The **'Queen of Mathematics'**! It's full of _simple-to-state_ problems that are **incredibly hard** to solve.",
-      "references": [
-        "Hardy, G. H., & Wright, E. M. (1938). An Introduction to the Theory of Numbers"
-      ],
-      "prerequisites": ["MATH_001"],
-      "xPosition": 100,
-      "yPosition": 400
-    },
-    "MATH_016": {
-      "code": "MATH_016",
-      "name": "Rational & Irrational Numbers",
-      "description": [
-        "A **rational number** can be expressed as a fraction $\\frac{p}{q}$ of two integers, where $q \\neq 0$.",
-        "An **irrational number** _cannot_ be expressed as such a fraction. Its decimal representation _never terminates_ and _never repeats_.",
-        "Examples of irrationals include $\\sqrt{2}$, $\\pi$, and $e$."
-      ],
-      "notes": "The discovery of **irrational numbers** was a _major shock_ to the ancient Greeks, who believed _all numbers_ were rational!",
-      "references": [],
-      "prerequisites": ["MATH_015"],
-      "xPosition": 100,
-      "yPosition": 550
-    },
-    "MATH_017": {
-      "code": "MATH_017",
-      "name": "Proof by Contradiction",
-      "description": [
-        "A method of **indirect proof** where one assumes the _opposite_ of what they want to prove.",
-        "You then follow a series of **logical steps** until you arrive at a _logically impossible_ conclusion (a **contradiction**).",
-        "This proves that the **initial assumption** must have been _false_."
-      ],
-      "notes": "A **powerful** and sometimes _sneaky_ way to prove something is true by showing its opposite is **absurd**.",
-      "references": [],
-      "prerequisites": [],
-      "xPosition": 100,
-      "yPosition": 700
-    },
-    "MATH_018": {
-      "code": "MATH_018",
-      "name": "Pythagorean Theorem",
-      "description": [
-        "In a **right-angled triangle**, the _square of the length_ of the **hypotenuse** (the side opposite the right angle) is equal to the **sum of the squares** of the other two sides.",
-        "The formula is $a^2 + b^2 = c^2$."
-      ],
-      "notes": "One of the **most famous** and **most useful** theorems in all of geometry!",
-      "references": [
-        "Euclid's Elements, Book I, Proposition 47"
-      ],
-      "prerequisites": ["MATH_001"],
-      "xPosition": 100,
-      "yPosition": 850
-    }
-  },
   "metaExercises": {
     "MATH_EX_001": {
       "code": "MATH_EX_001",
       "name": "Irrationality of $\\sqrt{2} + \\sqrt{3}$",
-      "prerequisites": ["MATH_016", "MATH_017"],
+      "prerequisites": [
+        "MATH_016",
+        "MATH_017"
+      ],
       "prerequisiteWeights": {
-        "MATH_016": 1,
-        "MATH_017": 1
+        "MATH_016": 1.0,
+        "MATH_017": 1.0
       },
       "xPosition": 350,
       "yPosition": 700,
@@ -300,11 +42,14 @@
     },
     "MATH_EX_002": {
       "code": "MATH_EX_002",
-      "name": "Irrationality of $log_2 (3)$",
-      "prerequisites": ["MATH_016", "MATH_017"],
+      "name": "Irrationality of $\\log_2 (3)$",
+      "prerequisites": [
+        "MATH_016",
+        "MATH_017"
+      ],
       "prerequisiteWeights": {
-        "MATH_016": 1,
-        "MATH_017": 1
+        "MATH_016": 1.0,
+        "MATH_017": 1.0
       },
       "xPosition": 350,
       "yPosition": 850,
@@ -338,9 +83,11 @@
     "MATH_EX_003": {
       "code": "MATH_EX_003",
       "name": "Proof of Pythagorean Theorem",
-      "prerequisites": ["MATH_018"],
+      "prerequisites": [
+        "MATH_018"
+      ],
       "prerequisiteWeights": {
-        "MATH_018": 1
+        "MATH_018": 1.0
       },
       "xPosition": 350,
       "yPosition": 1000,
@@ -368,6 +115,366 @@
           "verifiable": true,
           "result": "For a triangle with sides $a = 3$, $b = 4$, and $c = 5$: Calculate $a^2 + b^2 = 3^2 + 4^2 = 9 + 16 = 25$. Calculate $c^2 = 5^2 = 25$. Since $a^2 + b^2 = c^2$, the **Pythagorean theorem holds** for this triangle.",
           "difficulty": 1
+        }
+      ]
+    }
+  },
+  "metaDefinitions": {
+    "MATH_001": {
+      "code": "MATH_001",
+      "name": "Set",
+      "xPosition": 100,
+      "yPosition": 100,
+      "prerequisites": [],
+      "versions": [
+        {
+          "prompt": "Define a **Set** and state its key properties.",
+          "type": "open_ended",
+          "description": "A **set** is a _well-defined_ collection of **distinct objects**, known as **elements**. Sets are usually denoted by **capital letters** with elements inside curly braces, e.g., $A = \\{a, b, c\\}$. The **order** of elements does _not_ matter, and **duplicate elements** are ignored.",
+          "notes": "Think of a set as a bag of unique items. It's the **fundamental building block** for nearly all of mathematics!"
+        }
+      ]
+    },
+    "MATH_002": {
+      "code": "MATH_002",
+      "name": "Subset",
+      "xPosition": 350,
+      "yPosition": 100,
+      "prerequisites": [
+        "MATH_001"
+      ],
+      "prerequisiteWeights": {
+        "MATH_001": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define **Subset** and give the standard notation.",
+          "type": "open_ended",
+          "description": "A set $A$ is a **subset** of a set $B$ if _every element_ of $A$ is also an element of $B$. This relationship is denoted as $A \\subseteq B$. **Every set is a subset of itself.**",
+          "notes": "If set $B$ contains _all_ the items of set $A$ (and possibly more), then $A$ is a **subset** of $B. Easy peasy!"
+        }
+      ]
+    },
+    "MATH_003": {
+      "code": "MATH_003",
+      "name": "Empty Set",
+      "xPosition": 350,
+      "yPosition": 250,
+      "prerequisites": [
+        "MATH_002"
+      ],
+      "prerequisiteWeights": {
+        "MATH_002": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define the **Empty Set** and its notation. What is its relationship to any other set?",
+          "type": "open_ended",
+          "description": "The **empty set** is the _unique_ set that contains **no elements**. It is denoted by $\\emptyset$ or $\\{\\}$. The empty set is a **subset of every set**.",
+          "notes": "It might seem strange, but the concept of _'nothing'_ is **incredibly important** for defining everything else."
+        }
+      ]
+    },
+    "MATH_004": {
+      "code": "MATH_004",
+      "name": "Cartesian Product",
+      "xPosition": 350,
+      "yPosition": 400,
+      "prerequisites": [
+        "MATH_001"
+      ],
+      "prerequisiteWeights": {
+        "MATH_001": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define the **Cartesian Product** of two sets $A$ and $B$.",
+          "type": "open_ended",
+          "description": "The **Cartesian product** of two sets $A$ and $B$ is the set of all **ordered pairs** $(a, b)$ where $a \\in A$ and $b \\in B$. It is denoted by $A \\times B$. This concept extends to _more than two sets_, forming **n-tuples**.",
+          "notes": "If you have a set of shirts and a set of pants, the Cartesian product is **all possible outfits**!"
+        }
+      ]
+    },
+    "MATH_005": {
+      "code": "MATH_005",
+      "name": "Power Set",
+      "xPosition": 350,
+      "yPosition": 550,
+      "prerequisites": [
+        "MATH_002"
+      ],
+      "prerequisiteWeights": {
+        "MATH_002": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define the **Power Set** of a set $S$. How many elements does it have if $S$ has $n$ elements?",
+          "type": "open_ended",
+          "description": "The **power set** of a set $S$ is the set of _all possible subsets_ of $S$, including the empty set and $S$ itself. It is denoted by $P(S)$ or $2^S$. If $S$ has $n$ elements, its power set $P(S)$ has **$2^n$ elements**.",
+          "notes": "The power set reveals the **complete substructure** of a set. It's a _'set of sets'_!"
+        }
+      ]
+    },
+    "MATH_006": {
+      "code": "MATH_006",
+      "name": "Mapping (Function)",
+      "xPosition": 600,
+      "yPosition": 100,
+      "prerequisites": [
+        "MATH_001"
+      ],
+      "prerequisiteWeights": {
+        "MATH_001": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define a **Mapping (Function)** from a set $A$ to a set $B$. What are the domain and codomain?",
+          "type": "open_ended",
+          "description": "A **mapping** (or **function**) $f$ from a set $A$ to a set $B$ is a _rule_ that assigns to each element $x \\in A$ **exactly one** element $y \\in B$. $A$ is called the **domain**, and $B$ is the **codomain**. This is denoted as $f: A \\to B$.",
+          "notes": "Mappings are the **action heroes** of math, describing _relationships_ and _transformations_ between sets."
+        }
+      ]
+    },
+    "MATH_007": {
+      "code": "MATH_007",
+      "name": "Injective Mapping",
+      "xPosition": 850,
+      "yPosition": 100,
+      "prerequisites": [
+        "MATH_006"
+      ],
+      "prerequisiteWeights": {
+        "MATH_006": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define an **Injective Mapping**.",
+          "type": "open_ended",
+          "description": "An **injective** (or **one-to-one**) mapping ensures that _no two elements_ in the domain map to the same element in the codomain. If $f(x_1) = f(x_2)$, then $x_1 = x_2$. Think of it as a **'no sharing outputs'** rule.",
+          "notes": "Injective functions **preserve distinctness**. They don't _merge_ or _lose_ information."
+        }
+      ]
+    },
+    "MATH_008": {
+      "code": "MATH_008",
+      "name": "Surjective Mapping",
+      "xPosition": 850,
+      "yPosition": 250,
+      "prerequisites": [
+        "MATH_006"
+      ],
+      "prerequisiteWeights": {
+        "MATH_006": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define a **Surjective Mapping**.",
+          "type": "open_ended",
+          "description": "A **surjective** (or **onto**) mapping ensures that _every element_ in the codomain $B$ has **at least one** corresponding element in the domain $A$. The **range** of the function is _equal to_ its **codomain**. Think of it as **'covering all the targets'**.",
+          "notes": "Surjective functions **hit every possible output value**. _Nothing_ in the codomain is left out."
+        }
+      ]
+    },
+    "MATH_009": {
+      "code": "MATH_009",
+      "name": "Bijective Mapping",
+      "xPosition": 850,
+      "yPosition": 400,
+      "prerequisites": [
+        "MATH_007",
+        "MATH_008"
+      ],
+      "prerequisiteWeights": {
+        "MATH_007": 1.0,
+        "MATH_008": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define a **Bijective Mapping**.",
+          "type": "open_ended",
+          "description": "A **bijective** mapping is _both_ **injective** _and_ **surjective**. It creates a **perfect one-to-one correspondence** between the elements of the domain and the codomain. Bijective functions have a **unique inverse function**.",
+          "notes": "Bijections are the **gold standard** of mappings, showing that two sets are _structurally identical_ in size."
+        }
+      ]
+    },
+    "MATH_010": {
+      "code": "MATH_010",
+      "name": "Category",
+      "xPosition": 1100,
+      "yPosition": 100,
+      "prerequisites": [
+        "MATH_006"
+      ],
+      "prerequisiteWeights": {
+        "MATH_006": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "What is a **Category** in mathematics?",
+          "type": "open_ended",
+          "description": "A **category** is a collection of **'objects'** and **'morphisms'** (arrows) between them. It includes an _associative_ **composition** of morphisms and an **identity morphism** for each object. **Category theory** is a _high-level abstraction_ that studies mathematical structures and their relationships.",
+          "notes": "This is **math about math**! It unifies concepts from different fields by focusing on _structure_ and _transformations_."
+        }
+      ]
+    },
+    "MATH_011": {
+      "code": "MATH_011",
+      "name": "Isomorphism",
+      "xPosition": 1100,
+      "yPosition": 250,
+      "prerequisites": [
+        "MATH_010",
+        "MATH_009"
+      ],
+      "prerequisiteWeights": {
+        "MATH_010": 1.0,
+        "MATH_009": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define an **Isomorphism** in category theory.",
+          "type": "open_ended",
+          "description": "In category theory, an **isomorphism** is a morphism $f: A \\to B$ that has a **two-sided inverse** $g: B \\to A$. This means $f \\circ g = 1_B$ and $g \\circ f = 1_A$. **Isomorphic objects** are _structurally identical_ from the perspective of the category.",
+          "notes": "This is the **categorical generalization** of a bijection. It's the _ultimate_ **'sameness' detector**."
+        }
+      ]
+    },
+    "MATH_012": {
+      "code": "MATH_012",
+      "name": "Monomorphism",
+      "xPosition": 1350,
+      "yPosition": 100,
+      "prerequisites": [
+        "MATH_010",
+        "MATH_007"
+      ],
+      "prerequisiteWeights": {
+        "MATH_010": 1.0,
+        "MATH_007": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define a **Monomorphism** in category theory.",
+          "type": "open_ended",
+          "description": "A **monomorphism** (or **mono**) is the _categorical generalization_ of an **injective mapping**. It is a **'left-cancelable'** morphism: if $f \\circ g_1 = f \\circ g_2$, then $g_1 = g_2$. In the category of sets, monomorphisms are _exactly_ the **injective functions**.",
+          "notes": "While it feels like injectivity, this definition works in contexts where _'elements' don't exist_!"
+        }
+      ]
+    },
+    "MATH_013": {
+      "code": "MATH_013",
+      "name": "Epimorphism",
+      "xPosition": 1350,
+      "yPosition": 250,
+      "prerequisites": [
+        "MATH_010",
+        "MATH_008"
+      ],
+      "prerequisiteWeights": {
+        "MATH_010": 1.0,
+        "MATH_008": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define an **Epimorphism** in category theory.",
+          "type": "open_ended",
+          "description": "An **epimorphism** (or **epi**) is the _categorical generalization_ of a **surjective mapping**. It is a **'right-cancelable'** morphism: if $g_1 \\circ f = g_2 \\circ f$, then $g_1 = g_2$. In the category of sets, epimorphisms are _exactly_ the **surjective functions**.",
+          "notes": "**Beware!** In some categories (like **Rings**), an epimorphism is _not always_ surjective. Abstraction is tricky!"
+        }
+      ]
+    },
+    "MATH_014": {
+      "code": "MATH_014",
+      "name": "Functor",
+      "xPosition": 1350,
+      "yPosition": 400,
+      "prerequisites": [
+        "MATH_010"
+      ],
+      "prerequisiteWeights": {
+        "MATH_010": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define a **Functor**.",
+          "type": "open_ended",
+          "description": "A **functor** is a _mapping between categories_. It maps **objects** to **objects** and **morphisms** to **morphisms** in a way that _preserves_ **composition** and **identity**. Functors are the **'morphisms' of categories**, allowing us to compare them.",
+          "notes": "If categories are _worlds_ of mathematical structures, functors are the **portals** between them."
+        }
+      ]
+    },
+    "MATH_015": {
+      "code": "MATH_015",
+      "name": "Number Theory",
+      "xPosition": 100,
+      "yPosition": 400,
+      "prerequisites": [
+        "MATH_001"
+      ],
+      "prerequisiteWeights": {
+        "MATH_001": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "What is **Number Theory** and what does it study?",
+          "type": "open_ended",
+          "description": "**Number theory** is a branch of _pure mathematics_ devoted primarily to the study of the **integers** and **integer-valued functions**. It explores properties like **divisibility**, **prime numbers**, and solutions to **equations in integers**.",
+          "notes": "The **'Queen of Mathematics'**! It's full of _simple-to-state_ problems that are **incredibly hard** to solve."
+        }
+      ]
+    },
+    "MATH_016": {
+      "code": "MATH_016",
+      "name": "Rational & Irrational Numbers",
+      "xPosition": 100,
+      "yPosition": 550,
+      "prerequisites": [
+        "MATH_015"
+      ],
+      "prerequisiteWeights": {
+        "MATH_015": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "Define **rational** and **irrational numbers**.",
+          "type": "open_ended",
+          "description": "A **rational number** can be expressed as a fraction $\\frac{p}{q}$ of two integers, where $q \\neq 0$. An **irrational number** _cannot_ be expressed as such a fraction. Its decimal representation _never terminates_ and _never repeats_. Examples of irrationals include $\\sqrt{2}$, $\\pi$, and $e$.",
+          "notes": "The discovery of **irrational numbers** was a _major shock_ to the ancient Greeks, who believed _all numbers_ were rational!"
+        }
+      ]
+    },
+    "MATH_017": {
+      "code": "MATH_017",
+      "name": "Proof by Contradiction",
+      "xPosition": 100,
+      "yPosition": 700,
+      "prerequisites": [],
+      "versions": [
+        {
+          "prompt": "Describe the method of **Proof by Contradiction**.",
+          "type": "open_ended",
+          "description": "A method of **indirect proof** where one assumes the _opposite_ of what they want to prove. You then follow a series of **logical steps** until you arrive at a _logically impossible_ conclusion (a **contradiction**). This proves that the **initial assumption** must have been _false_.",
+          "notes": "A **powerful** and sometimes _sneaky_ way to prove something is true by showing its opposite is **absurd**."
+        }
+      ]
+    },
+    "MATH_018": {
+      "code": "MATH_018",
+      "name": "Pythagorean Theorem",
+      "xPosition": 100,
+      "yPosition": 850,
+      "prerequisites": [
+        "MATH_001"
+      ],
+      "prerequisiteWeights": {
+        "MATH_001": 1.0
+      },
+      "versions": [
+        {
+          "prompt": "State the **Pythagorean Theorem**.",
+          "type": "open_ended",
+          "description": "In a **right-angled triangle**, the _square of the length_ of the **hypotenuse** (the side opposite the right angle) is equal to the **sum of the squares** of the other two sides. The formula is $a^2 + b^2 = c^2$.",
+          "notes": "One of the **most famous** and **most useful** theorems in all of geometry!"
         }
       ]
     }

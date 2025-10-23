@@ -675,7 +675,6 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
     }
 
     // Create DAOs for the transaction
-    definitionDAO := dao.NewDefinitionDAO(tx)
     exerciseDAO := dao.NewExerciseDAO(tx)
     metaDefDAO := dao.NewMetaDefinitionDAO(tx)
 
@@ -778,12 +777,17 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
             seen[pcode] = struct{}{}
 
             // Resolve prerequisite through assignment maps
-            resolvedDefCode := defAssigned[pcode]
-            resolvedMetaCode := metaAssigned[pcode]
+        // Prefer resolving against imported metaDefinitions (concept codes) to attach ex -> (first) definition version
+        resolvedDefCode := metaDefAssigned[pcode]
+        if resolvedDefCode == "" {
+            // Fallbacks: legacy defAssigned mapping or raw code if already assigned
+            if v, ok := defAssigned[pcode]; ok { resolvedDefCode = v } else { resolvedDefCode = pcode }
+        }
+        resolvedMetaCode := metaAssigned[pcode]
 
             // Try to find in imported definitions first
             if resolvedDefCode != "" {
-                if def, ok := definitions[resolvedDefCode]; ok {
+                if def, ok := firstDefByCode[resolvedDefCode]; ok {
                     w := clamp01(me.PrerequisiteWeights[pcode])
                     // Skip if duplicate already exists in DB
                     var count int64
@@ -879,20 +883,20 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 		// Collect prerequisite IDs
 		var prerequisiteIDs []uint
-		for _, prereqCode := range exNode.Prerequisites {
-			if prereqDef, exists := definitions[prereqCode]; exists {
-				prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
-			} else {
-				log.Printf("Warning: Prerequisite %s not found for exercise %s", prereqCode, code)
-			}
-		}
+        for _, prereqCode := range exNode.Prerequisites {
+            if prereqDef, exists := firstDefByCode[prereqCode]; exists {
+                prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
+            } else {
+                log.Printf("Warning: Prerequisite %s not found for exercise %s", prereqCode, code)
+            }
+        }
 
         // Build weights map by ID if provided
         var idWeights map[uint]float64
         if len(exNode.PrerequisiteWeights) > 0 {
             idWeights = make(map[uint]float64, len(exNode.PrerequisiteWeights))
             for pcode, w := range exNode.PrerequisiteWeights {
-                if prereqDef, ok := definitions[pcode]; ok {
+                if prereqDef, ok := firstDefByCode[pcode]; ok {
                     if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
                     idWeights[prereqDef.ID] = w
                 }

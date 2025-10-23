@@ -94,12 +94,14 @@ const DomainForm: React.FC<DomainFormProps> = ({
       setImportData(fileData);
       setImportFileName('imported-domain.json'); // We don't have access to the actual filename
 
-      // Generate preview (support metaExercises preferred path)
+      // Generate preview (support metaDefinitions and metaExercises preferred path)
+      const metaDefKeys = Object.keys(fileData.metaDefinitions || {});
       const definitionKeys = Object.keys(fileData.definitions || {});
       const metaKeys = Object.keys(fileData.metaExercises || {});
       const exerciseKeys = Object.keys(fileData.exercises || {});
 
       const usingMeta = metaKeys.length > 0;
+      const usingMetaDefs = metaDefKeys.length > 0;
       const exCount = usingMeta ? metaKeys.length : exerciseKeys.length;
       const sampleExNames = usingMeta
         ? metaKeys.slice(0, 3).map(key => (fileData.metaExercises as any)?.[key]?.name || key)
@@ -109,10 +111,12 @@ const DomainForm: React.FC<DomainFormProps> = ({
         : undefined;
 
       setImportPreview({
-        definitions: definitionKeys.length,
+        definitions: usingMetaDefs ? metaDefKeys.length : definitionKeys.length,
         exercises: exCount,
         versions: versionCount,
-        sampleDefinitions: definitionKeys.slice(0, 3).map(key => fileData.definitions?.[key]?.name || key),
+        sampleDefinitions: usingMetaDefs
+          ? metaDefKeys.slice(0, 3).map(key => (fileData.metaDefinitions as any)?.[key]?.name || key)
+          : definitionKeys.slice(0, 3).map(key => fileData.definitions?.[key]?.name || key),
         sampleExercises: sampleExNames,
       });
 
