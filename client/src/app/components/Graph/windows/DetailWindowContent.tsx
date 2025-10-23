@@ -472,6 +472,25 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     return String(detail.description).split('|||')[selectedDefinitionIndex] || '';
   };
 
+  const currentPromptText = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      const versions = (metaDetails as MetaDefinition).versions || [];
+      const idx = Math.max(0, Math.min(selectedDefinitionIndex, Math.max(0, versions.length - 1)));
+      return (versions[idx] as any)?.prompt || '';
+    }
+    return '';
+  };
+
+  const currentNotesText = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      const versions = (metaDetails as MetaDefinition).versions || [];
+      const idx = Math.max(0, Math.min(selectedDefinitionIndex, Math.max(0, versions.length - 1)));
+      return (versions[idx] as any)?.notes || '';
+    }
+    const detail = nodeDetails as Definition;
+    return (detail as any)?.notes || '';
+  };
+
   // Keep currentVersion and nodeDetails in sync with selected definition version
   useEffect(() => {
     if (currentNode.type !== 'definition') return;
@@ -886,6 +905,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   selectedDefinitionIndex={selectedDefinitionIndex}
                   totalDescriptions={totalDescriptionsCount()}
                   currentDescription={currentDescriptionText()}
+                  currentPrompt={currentPromptText()}
+                  currentNotes={currentNotesText()}
                   onNavigatePrev={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
                   onNavigateNext={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
                   relatedExercises={relatedExercises}

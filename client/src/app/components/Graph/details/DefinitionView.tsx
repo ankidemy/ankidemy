@@ -17,6 +17,8 @@ interface DefinitionViewProps {
   selectedDefinitionIndex: number;
   totalDescriptions: number;
   currentDescription: string;
+  currentPrompt?: string;
+  currentNotes?: string;
   onNavigatePrev: () => void;
   onNavigateNext: () => void;
   relatedExercises: string[];
@@ -34,6 +36,8 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   selectedDefinitionIndex,
   totalDescriptions,
   currentDescription,
+  currentPrompt,
+  currentNotes,
   onNavigatePrev,
   onNavigateNext,
   relatedExercises,
@@ -44,6 +48,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
 }) => {
   const hasMultipleDescriptions = totalDescriptions > 1;
   const [showNotes, setShowNotes] = useState(false);
+  const [showDescription, setShowDescription] = useState(false);
   const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
@@ -51,11 +56,17 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
     return prereqDef ? `${prereqCode}: ${prereqDef.name}` : prereqCode;
   };
 
+  // Reset collapsibles when version index changes (hide by default)
+  React.useEffect(() => {
+    setShowDescription(false);
+    setShowNotes(false);
+  }, [selectedDefinitionIndex]);
+
   return (
     <>
       <div>
         <div className="flex justify-between items-center mb-1">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Definition</h4>
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Prompt</h4>
           {mode === 'study' && (
             <Button variant="ghost" size="sm" onClick={onToggleDefinition} className="h-6 text-xs px-1">
               {showDefinition ? 'Hide' : 'Show'}
@@ -73,8 +84,8 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 </div>
               )}
 
-              {currentDescription && currentDescription.trim().length > 0 ? (
-                <MarkdownKatex key={selectedDefinitionIndex} className="whitespace-pre-wrap" >{currentDescription}</MarkdownKatex>
+              {currentPrompt && currentPrompt.trim().length > 0 ? (
+                <MarkdownKatex key={`prompt-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentPrompt}</MarkdownKatex>
               ) : (
                 <span className="text-gray-400 italic">N/A</span>
               )}
@@ -82,6 +93,31 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
           </Card>
         )}
       </div>
+
+      {/* Collapsible Description (hidden by default) */}
+      {currentDescription && currentDescription.trim().length > 0 && (
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Description</h4>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDescription(!showDescription)}
+              className="h-6 text-xs px-1 flex items-center"
+            >
+              {showDescription ? <ChevronUp size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
+              {showDescription ? 'Hide' : 'Show'}
+            </Button>
+          </div>
+          {showDescription && (
+            <Card className="bg-white border shadow-sm">
+              <CardContent className="p-3 text-sm">
+                <MarkdownKatex key={`desc-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentDescription}</MarkdownKatex>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       {definition.notes && (
         <div>
@@ -96,6 +132,26 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
             <Card className="bg-yellow-50 border border-yellow-200 shadow-sm">
               <CardContent className="p-3 text-sm">
                 <MarkdownKatex className="whitespace-pre-wrap">{definition.notes}</MarkdownKatex>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Collapsible Version Notes (preferred if provided via props) */}
+      {(!definition.notes && currentNotes && currentNotes.trim().length > 0) && (
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Notes</h4>
+            <Button variant="ghost" size="sm" onClick={() => setShowNotes(!showNotes)} className="h-6 text-xs px-1 flex items-center">
+              {showNotes ? <ChevronUp size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
+              {showNotes ? 'Hide' : 'Show'}
+            </Button>
+          </div>
+          {showNotes && (
+            <Card className="bg-yellow-50 border border-yellow-200 shadow-sm">
+              <CardContent className="p-3 text-sm">
+                <MarkdownKatex className="whitespace-pre-wrap">{currentNotes}</MarkdownKatex>
               </CardContent>
             </Card>
           )}
