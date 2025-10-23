@@ -14,15 +14,17 @@ import (
 
 // DefinitionHandler handles definition-related HTTP requests
 type DefinitionHandler struct {
-	definitionDAO *dao.DefinitionDAO
-	domainDAO     *dao.DomainDAO
+	definitionDAO     *dao.DefinitionDAO
+	domainDAO         *dao.DomainDAO
+	metaDefinitionDAO *dao.MetaDefinitionDAO
 }
 
 // NewDefinitionHandler creates a new DefinitionHandler
-func NewDefinitionHandler(definitionDAO *dao.DefinitionDAO, domainDAO *dao.DomainDAO) *DefinitionHandler {
+func NewDefinitionHandler(definitionDAO *dao.DefinitionDAO, domainDAO *dao.DomainDAO, metaDefinitionDAO *dao.MetaDefinitionDAO) *DefinitionHandler {
 	return &DefinitionHandler{
-		definitionDAO: definitionDAO,
-		domainDAO:     domainDAO,
+		definitionDAO:     definitionDAO,
+		domainDAO:         domainDAO,
+		metaDefinitionDAO: metaDefinitionDAO,
 	}
 }
 
@@ -100,34 +102,69 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		return
 	}
 
-	// Check for cross-type code uniqueness (definitions + meta-exercises in the same domain)
-	codeExists, err := h.definitionDAO.CheckCodeExistsInDomain(req.Code, uint(domainID))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
-		return
+	// Check if MetaDefinitionID is provided
+	var metaDefID uint
+	if req.MetaDefinitionID != 0 {
+		// Use existing meta_definition
+		metaDefID = req.MetaDefinitionID
+
+		// Verify the meta_definition exists and belongs to this domain
+		metaDef, _, err := h.metaDefinitionDAO.FindByID(metaDefID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
+			return
+		}
+		if metaDef.DomainID != uint(domainID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Meta definition does not belong to this domain"})
+			return
+		}
+	} else {
+		// Auto-create a meta_definition pool
+		// Check for cross-type code uniqueness (meta_definitions + meta_exercises in the same domain)
+		codeExists, err := h.definitionDAO.CheckCodeExistsInDomain(req.Code, uint(domainID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
+			return
+		}
+
+		if codeExists {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
+			return
+		}
+
+		// Create the meta_definition pool
+		metaDef := &models.MetaDefinition{
+			Code:      req.Code,
+			Name:      req.Name,
+			DomainID:  uint(domainID),
+			OwnerID:   userID.(uint),
+			XPosition: req.XPosition,
+			YPosition: req.YPosition,
+		}
+
+		// Create with prerequisites if provided
+		if err := h.metaDefinitionDAO.Create(metaDef, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create meta definition pool"})
+			return
+		}
+
+		metaDefID = metaDef.ID
 	}
 
-	if codeExists {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
-		return
-	}
-
-	// Create definition
-	definition := &models.Definition{
-		Code:        req.Code,
-		Name:        req.Name,
+	// Create the definition version
+	versionReq := &models.DefinitionVersionRequest{
+		Prompt:      req.Prompt,
+		Type:        req.Type,
 		Description: req.Description,
 		Notes:       req.Notes,
-		DomainID:    uint(domainID),
-		OwnerID:     userID.(uint),
-		XPosition:   req.XPosition,
-		YPosition:   req.YPosition,
+		References:  req.References,
 	}
 
-    if err := h.definitionDAO.Create(definition, req.References, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create definition"})
-        return
-    }
+	definition, err := h.metaDefinitionDAO.AddVersion(metaDefID, versionReq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create definition version"})
+		return
+	}
 
 	// Get the created definition with prerequisites
 	createdDef, err := h.definitionDAO.FindByIDWithPrerequisites(definition.ID)

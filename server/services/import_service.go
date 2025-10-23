@@ -64,9 +64,12 @@ func (fsa FlexibleStringArray) ToStringSlice() []string {
 
 // ImportData represents the unified structure for import/export operations
 type ImportData struct {
-    Definitions map[string]ImportDefinitionNode `json:"definitions"`
-    Exercises   map[string]ImportExerciseNode   `json:"exercises"`
-    MetaExercises map[string]ImportMetaExerciseNode `json:"metaExercises,omitempty"`
+    // Legacy content (kept optional): raw definition nodes and single-version exercises
+    Definitions     map[string]ImportDefinitionNode      `json:"definitions,omitempty"`
+    Exercises       map[string]ImportExerciseNode        `json:"exercises,omitempty"`
+    // Pooled content
+    MetaExercises   map[string]ImportMetaExerciseNode    `json:"metaExercises,omitempty"`
+    MetaDefinitions map[string]ImportMetaDefinitionNode  `json:"metaDefinitions,omitempty"`
 }
 
 // ImportDefinitionNode represents a definition in the import/export format
@@ -120,6 +123,26 @@ type ImportMetaExerciseNode struct {
     XPosition   float64  `json:"xPosition,omitempty"`
     YPosition   float64  `json:"yPosition,omitempty"`
     Versions    []ImportExerciseVersion `json:"versions"`
+}
+
+// ImportMetaDefinitionVersion represents a single definition version in a meta-definition pool
+type ImportMetaDefinitionVersion struct {
+    Prompt      string   `json:"prompt"`
+    Type        string   `json:"type,omitempty"`
+    Description string   `json:"description,omitempty"`
+    Notes       string   `json:"notes,omitempty"`
+    References  []string `json:"references,omitempty"`
+}
+
+// ImportMetaDefinitionNode represents a concept pool of definition versions
+type ImportMetaDefinitionNode struct {
+    Code                string                           `json:"code"`
+    Name                string                           `json:"name"`
+    Prerequisites       []string                         `json:"prerequisites,omitempty"`
+    PrerequisiteWeights map[string]float64               `json:"prerequisiteWeights,omitempty"`
+    XPosition           float64                          `json:"xPosition,omitempty"`
+    YPosition           float64                          `json:"yPosition,omitempty"`
+    Versions            []ImportMetaDefinitionVersion    `json:"versions"`
 }
 
 // NewImportService creates a new ImportService instance
@@ -202,20 +225,18 @@ func (s *ImportService) ImportToDomain(domainID uint, data *ImportData) error {
 
 // ExportDomain exports a domain to ImportData format
 func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
-	// Get definitions with prerequisites
-	var definitions []models.Definition
-	if err := s.db.Preload("References").Where("domain_id = ?", domainID).Find(&definitions).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch definitions: %v", err)
-	}
-
-    // Get pools (meta_exercises)
+    // Get pools (meta_definitions & meta_exercises)
+    var metaDefs []models.MetaDefinition
+    if err := s.db.Where("domain_id = ?", domainID).Find(&metaDefs).Error; err != nil {
+        return nil, fmt.Errorf("failed to fetch meta definitions: %v", err)
+    }
     var metas []models.MetaExercise
     if err := s.db.Where("domain_id = ?", domainID).Find(&metas).Error; err != nil {
         return nil, fmt.Errorf("failed to fetch meta exercises: %v", err)
     }
 
-	// Check domain exists
-    if len(definitions) == 0 && len(metas) == 0 {
+    // Check domain exists
+    if len(metaDefs) == 0 && len(metas) == 0 {
         var count int64
         s.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
         if count == 0 {
@@ -223,49 +244,51 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
         }
     }
 
-	// Prepare export data
+    // Prepare export data
     exportData := &ImportData{
-        Definitions: make(map[string]ImportDefinitionNode),
-        Exercises:   make(map[string]ImportExerciseNode),
-        MetaExercises: make(map[string]ImportMetaExerciseNode),
+        MetaDefinitions: make(map[string]ImportMetaDefinitionNode),
+        MetaExercises:   make(map[string]ImportMetaExerciseNode),
     }
 
-    // Export definitions (with weights)
-    for _, def := range definitions {
-		// Extract references
-		references := make([]string, 0, len(def.References))
-		for _, ref := range def.References {
-			references = append(references, ref.Reference)
-		}
+    // Export meta-definitions (pools with versions)
+    for _, md := range metaDefs {
+        // Get concept prerequisites and weights
+        prerequisiteCodes, err := s.getPrerequisiteCodes(md.ID, "meta_definition")
+        if err != nil { return nil, fmt.Errorf("failed to get prerequisites for meta definition %s: %v", md.Code, err) }
+        prereqWeights, err := s.getPrerequisiteWeights(md.ID, "meta_definition")
+        if err != nil { return nil, fmt.Errorf("failed to get prerequisite weights for meta definition %s: %v", md.Code, err) }
 
-        // Get prerequisite codes and weights
-        prerequisiteCodes, err := s.getPrerequisiteCodes(def.ID, "definition")
-        if err != nil {
-            return nil, fmt.Errorf("failed to get prerequisites for definition %s: %v", def.Code, err)
+        // Get definition versions under this pool
+        var versions []models.Definition
+        if err := s.db.Where("meta_definition_id = ?", md.ID).Order("id ASC").Find(&versions).Error; err != nil {
+            return nil, fmt.Errorf("failed to fetch versions for %s: %v", md.Code, err)
         }
-        prereqWeights, err := s.getPrerequisiteWeights(def.ID, "definition")
-        if err != nil {
-            return nil, fmt.Errorf("failed to get prerequisite weights for definition %s: %v", def.Code, err)
+        vnodes := make([]ImportMetaDefinitionVersion, 0, len(versions))
+        for _, v := range versions {
+            // Load references
+            var refs []models.Reference
+            if err := s.db.Where("definition_id = ?", v.ID).Find(&refs).Error; err != nil {
+                return nil, fmt.Errorf("failed to fetch references for definition %d: %v", v.ID, err)
+            }
+            refStrings := make([]string, 0, len(refs))
+            for _, r := range refs { refStrings = append(refStrings, r.Reference) }
+
+            vnodes = append(vnodes, ImportMetaDefinitionVersion{
+                Prompt:      v.Prompt,
+                Type:        v.Type,
+                Description: v.Description,
+                Notes:       v.Notes,
+                References:  refStrings,
+            })
         }
-
-		// Handle multiple descriptions - STANDARDIZED EXPORT
-		var descriptions FlexibleStringArray
-		if strings.Contains(def.Description, "|||") {
-			descriptions = FlexibleStringArray(strings.Split(def.Description, "|||"))
-		} else {
-			descriptions = FlexibleStringArray([]string{def.Description})
-		}
-
-        exportData.Definitions[def.Code] = ImportDefinitionNode{
-            Code:          def.Code,
-            Name:          def.Name,
-            Description:   descriptions, // Always export as FlexibleStringArray (which marshals to []string)
-            Notes:         def.Notes,
-            References:    references,
-            Prerequisites: prerequisiteCodes,
+        exportData.MetaDefinitions[md.Code] = ImportMetaDefinitionNode{
+            Code:                md.Code,
+            Name:                md.Name,
+            Prerequisites:       prerequisiteCodes,
             PrerequisiteWeights: prereqWeights,
-            XPosition:     def.XPosition,
-            YPosition:     def.YPosition,
+            XPosition:           md.XPosition,
+            YPosition:           md.YPosition,
+            Versions:            vnodes,
         }
     }
 
@@ -302,7 +325,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
         }
     }
 
-	return exportData, nil
+    return exportData, nil
 }
 
 // ReadImportFileFromPath reads and parses an import file from a file path
@@ -349,30 +372,30 @@ func (s *ImportService) ReadImportFileFromPath(filePath string) (*ImportData, er
 
 // ValidateImportData validates the structure and content of import data
 func (s *ImportService) ValidateImportData(data *ImportData) error {
-	if data == nil {
-		return errors.New("import data is nil")
-	}
+    if data == nil {
+        return errors.New("import data is nil")
+    }
 
-	// Collect all codes to check for duplicates
-	allCodes := make(map[string]bool)
+    // Collect all codes to check for duplicates
+    allCodes := make(map[string]bool)
 
-	// Validate definitions
-	for code, def := range data.Definitions {
-		if def.Code == "" {
-			return fmt.Errorf("definition %s has empty code", code)
-		}
-		if def.Name == "" {
-			return fmt.Errorf("definition %s has empty name", code)
-		}
-		if len(def.Description.ToStringSlice()) == 0 {
-			return fmt.Errorf("definition %s has empty description", code)
-		}
+    // Validate meta-definitions (preferred path)
+    for code, md := range data.MetaDefinitions {
+        if md.Code == "" { return fmt.Errorf("metaDefinition %s has empty code", code) }
+        if md.Name == "" { return fmt.Errorf("metaDefinition %s has empty name", code) }
+        if len(md.Versions) == 0 { return fmt.Errorf("metaDefinition %s has no versions", code) }
+        if allCodes[md.Code] { return fmt.Errorf("duplicate code found: %s", md.Code) }
+        allCodes[md.Code] = true
+    }
 
-		if allCodes[def.Code] {
-			return fmt.Errorf("duplicate code found: %s", def.Code)
-		}
-		allCodes[def.Code] = true
-	}
+    // Validate definitions (legacy, optional)
+    for code, def := range data.Definitions {
+        if def.Code == "" { return fmt.Errorf("definition %s has empty code", code) }
+        if def.Name == "" { return fmt.Errorf("definition %s has empty name", code) }
+        if len(def.Description.ToStringSlice()) == 0 { return fmt.Errorf("definition %s has empty description", code) }
+        if allCodes[def.Code] { return fmt.Errorf("duplicate code found: %s", def.Code) }
+        allCodes[def.Code] = true
+    }
 
     // Validate metaExercises or legacy exercises
     if len(data.MetaExercises) > 0 {
@@ -623,115 +646,108 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
         }
     }
 
-    // Assign unique codes for definitions
+    // Assign unique codes for meta-definitions (preferred)
+    metaDefAssigned := map[string]string{}
+    for code, md := range data.MetaDefinitions {
+        baseCode := md.Code
+        if baseCode == "" { baseCode = code }
+        assigned := uniqueCodeFor(baseCode, codesInUse)
+        metaDefAssigned[code] = assigned
+        codesInUse[assigned] = true
+    }
+
+    // Assign unique codes for definitions (legacy path)
     for code, defNode := range data.Definitions {
         baseCode := defNode.Code
-        if baseCode == "" {
-            baseCode = code // Fallback to map key
-		}
-		assignedCode := uniqueCodeFor(baseCode, codesInUse)
-		defAssigned[code] = assignedCode
-		codesInUse[assignedCode] = true
-	}
+        if baseCode == "" { baseCode = code }
+        assignedCode := uniqueCodeFor(baseCode, codesInUse)
+        defAssigned[code] = assignedCode
+        codesInUse[assignedCode] = true
+    }
 
     // Assign unique codes for meta-exercises (after legacy conversion above)
     for code, me := range data.MetaExercises {
         baseCode := me.Code
-        if baseCode == "" {
-            baseCode = code
-        }
+        if baseCode == "" { baseCode = code }
         assignedCode := uniqueCodeFor(baseCode, codesInUse)
         metaAssigned[code] = assignedCode
         codesInUse[assignedCode] = true
     }
 
-	// Create DAOs for the transaction
-	definitionDAO := dao.NewDefinitionDAO(tx)
-	exerciseDAO := dao.NewExerciseDAO(tx)
+    // Create DAOs for the transaction
+    definitionDAO := dao.NewDefinitionDAO(tx)
+    exerciseDAO := dao.NewExerciseDAO(tx)
+    metaDefDAO := dao.NewMetaDefinitionDAO(tx)
 
-	// Create definitions first (without prerequisites)
-	definitions := make(map[string]*models.Definition) // map by assigned code
-	for code, defNode := range data.Definitions {
-		assignedCode := defAssigned[code]
-		// Process multiple descriptions - join with a delimiter for storing
-		var descriptionStr string
-		descriptions := defNode.Description.ToStringSlice()
-		if len(descriptions) > 1 {
-			descriptionStr = strings.Join(descriptions, "|||")
-		} else if len(descriptions) == 1 {
-			descriptionStr = descriptions[0]
-		} else {
-			descriptionStr = ""
-		}
-
-		definition := &models.Definition{
-			Code:        assignedCode, // Use assigned code
-			Name:        defNode.Name,
-			Description: descriptionStr,
-			Notes:       defNode.Notes,
-			DomainID:    domain.ID,
-			OwnerID:     ownerID,
-			XPosition:   defNode.XPosition,
-			YPosition:   defNode.YPosition,
-		}
-
-		// Create the definition with references but no prerequisites yet
-        if err := definitionDAO.Create(definition, defNode.References, nil, nil); err != nil {
-            return fmt.Errorf("failed to create definition %s: %v", assignedCode, err)
+    // Create meta-definitions first (with no prerequisites)
+    metaDefs := make(map[string]*models.MetaDefinition)
+    for code, node := range data.MetaDefinitions {
+        assigned := metaDefAssigned[code]
+        md := &models.MetaDefinition{
+            Code: assigned,
+            Name: node.Name,
+            DomainID: domain.ID,
+            OwnerID: ownerID,
+            XPosition: node.XPosition,
+            YPosition: node.YPosition,
         }
+        if err := tx.Create(md).Error; err != nil {
+            return fmt.Errorf("failed to create metaDefinition %s: %v", assigned, err)
+        }
+        metaDefs[assigned] = md
+        if assigned != code {
+            log.Printf("Created meta-definition: %s (ID: %d) [renamed from %s]", md.Name, md.ID, code)
+        }
+    }
 
-		definitions[assignedCode] = definition // Store by assigned code
-		if assignedCode != code {
-			log.Printf("Created definition: %s (ID: %d) [renamed from %s]", definition.Name, definition.ID, code)
-		} else {
-			log.Printf("Created definition: %s (ID: %d)", definition.Name, definition.ID)
-		}
-	}
-
-	// Now add prerequisites for definitions
-	for code, defNode := range data.Definitions {
-		if len(defNode.Prerequisites) > 0 {
-			assignedCode := defAssigned[code]
-			definition := definitions[assignedCode]
-			var prerequisiteIDs []uint
-
-			for _, prereqCode := range defNode.Prerequisites {
-				// Resolve prerequisite through assignment map
-				resolvedPrereq := defAssigned[prereqCode]
-				if resolvedPrereq == "" {
-					resolvedPrereq = prereqCode // Not in import, might be existing
-				}
-
-				if prereqDef, exists := definitions[resolvedPrereq]; exists {
-					prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
-				} else {
-					log.Printf("Warning: Prerequisite %s not found for definition %s", prereqCode, assignedCode)
-				}
-			}
-
-            if len(prerequisiteIDs) > 0 {
-                var idWeights map[uint]float64
-                if len(defNode.PrerequisiteWeights) > 0 {
-                    idWeights = make(map[uint]float64, len(defNode.PrerequisiteWeights))
-                    for pcode, w := range defNode.PrerequisiteWeights {
-                        // Resolve prerequisite code through assignment map
-                        resolvedPrereq := defAssigned[pcode]
-                        if resolvedPrereq == "" {
-                            resolvedPrereq = pcode
-                        }
-                        if prereqDef, ok := definitions[resolvedPrereq]; ok {
-                            if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
-                            idWeights[prereqDef.ID] = w
-                        }
-                    }
-                }
-                // Update definition with prerequisites (and weights if provided)
-                if err := definitionDAO.Update(definition, defNode.References, prerequisiteIDs, idWeights); err != nil {
-                    return fmt.Errorf("failed to update definition %s with prerequisites: %v", assignedCode, err)
-                }
+    // Create versions for each meta-definition
+    // Build a map for first definition version per meta-definition to help exercise prerequisite resolution later
+    firstDefByCode := map[string]*models.Definition{}
+    for code, node := range data.MetaDefinitions {
+        assigned := metaDefAssigned[code]
+        md := metaDefs[assigned]
+        for idx, v := range node.Versions {
+            def, err := metaDefDAO.AddVersion(md.ID, &models.DefinitionVersionRequest{
+                Prompt: v.Prompt,
+                Type: v.Type,
+                Description: v.Description,
+                Notes: v.Notes,
+                References: v.References,
+            })
+            if err != nil {
+                return fmt.Errorf("failed to create version for %s: %v", assigned, err)
             }
-		}
-	}
+            if idx == 0 { firstDefByCode[assigned] = def }
+        }
+    }
+
+    // Attach concept prerequisites (meta_definition → meta_definition)
+    for code, node := range data.MetaDefinitions {
+        if len(node.Prerequisites) == 0 { continue }
+        assigned := metaDefAssigned[code]
+        md := metaDefs[assigned]
+        var ids []uint
+        weights := map[uint]float64{}
+        for _, pcode := range node.Prerequisites {
+            // Resolve through assigned mapping (prefer imported metaDefinitions)
+            resolved := metaDefAssigned[pcode]
+            if resolved == "" { resolved = pcode }
+            if target, ok := metaDefs[resolved]; ok {
+                ids = append(ids, target.ID)
+                if w, ok2 := node.PrerequisiteWeights[pcode]; ok2 {
+                    if w < 0.01 { w = 0.01 } else if w > 1.0 { w = 1.0 }
+                    weights[target.ID] = w
+                }
+            } else {
+                log.Printf("Warning: Unknown prerequisite code %s for metaDefinition %s", pcode, assigned)
+            }
+        }
+        if len(ids) > 0 {
+            if err := metaDefDAO.Update(md, ids, weights); err != nil {
+                return fmt.Errorf("failed to attach prerequisites for %s: %v", assigned, err)
+            }
+        }
+    }
 
     // (legacy conversion moved earlier)
 
@@ -824,19 +840,19 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
         }
     }
 
-    // Create versions for each meta
-    for code, me := range data.MetaExercises {
-        assignedCode := metaAssigned[code]
-        meta := metas[assignedCode]
-        for _, v := range me.Versions {
-            vv := &models.Exercise{
+        // Create versions for each meta
+        for code, me := range data.MetaExercises {
+            assignedCode := metaAssigned[code]
+            meta := metas[assignedCode]
+            for _, v := range me.Versions {
+                vv := &models.Exercise{
                 Code: assignedCode, Name: me.Name, Statement: v.Statement, Description: v.Description, Hints: v.Hints, Notes: v.Notes,
                 DomainID: domain.ID, OwnerID: ownerID, MetaExerciseID: meta.ID, Verifiable: v.Verifiable, Result: v.Result, Difficulty: v.Difficulty,
                 XPosition: me.XPosition, YPosition: me.YPosition,
             }
             if err := tx.Create(vv).Error; err != nil { return fmt.Errorf("failed to create version for %s: %v", assignedCode, err) }
         }
-    }
+        }
 
     // Legacy path (if still any exercises remain in shape; unlikely after conversion above)
     for code, exNode := range data.Exercises {

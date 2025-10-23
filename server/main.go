@@ -67,6 +67,8 @@ func main() {
 	domainNetworkDAO := dao.NewDomainNetworkDAO(db)
     metaExerciseDAO := dao.NewMetaExerciseDAO(db)
     metaSvc := services.NewMetaExerciseService(db)
+    metaDefinitionDAO := dao.NewMetaDefinitionDAO(db)
+    metaDefSvc := services.NewMetaDefinitionService(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -87,13 +89,14 @@ func main() {
 	userHandler := handlers.NewUserHandler(userDAO)
 	authHandler := handlers.NewAuthHandler(userDAO)
 	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO, importService) // Added ImportService
-	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO)
+	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO, metaDefinitionDAO)
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
 	srsHandler := handlers.NewSRSHandler(db)
-    metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc)
+	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc)
+	metaDefinitionHandler := handlers.NewMetaDefinitionHandler(metaDefinitionDAO, domainDAO, metaDefSvc)
 
 	// Initialize router
 	router := gin.Default()
@@ -178,6 +181,10 @@ func main() {
 				domains.GET("/:id/meta-exercises", metaExerciseHandler.GetDomainMetaExercises)
 				domains.POST("/:id/meta-exercises", metaExerciseHandler.CreateMetaExercise)
 
+				// Meta Definitions (pools)
+				domains.GET("/:id/meta-definitions", metaDefinitionHandler.GetDomainMetaDefinitions)
+				domains.POST("/:id/meta-definitions", metaDefinitionHandler.CreateMetaDefinition)
+
 				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)
 				domains.PUT("/:id/graph/positions", graphHandler.UpdatePositions)
@@ -225,6 +232,17 @@ func main() {
                 metas.POST("/:id/versions", metaExerciseHandler.AddVersion)
                 metas.PUT("/:id/versions/:versionId", metaExerciseHandler.UpdateVersion)
                 metas.DELETE("/:id/versions/:versionId", metaExerciseHandler.DeleteVersion)
+            }
+
+            // Meta-definition routes
+            metaDefs := authorized.Group("/meta-definitions")
+            {
+                metaDefs.GET("/:id", metaDefinitionHandler.GetMetaDefinition)
+                metaDefs.PUT("/:id", metaDefinitionHandler.UpdateMetaDefinition)
+                metaDefs.GET("/:id/next-version", metaDefinitionHandler.GetNextVersion)
+                metaDefs.POST("/:id/versions", metaDefinitionHandler.AddVersion)
+                metaDefs.PUT("/:id/versions/:versionId", metaDefinitionHandler.UpdateVersion)
+                metaDefs.DELETE("/:id/versions/:versionId", metaDefinitionHandler.DeleteVersion)
             }
 
 			// Progress routes

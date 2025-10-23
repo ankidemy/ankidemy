@@ -136,10 +136,15 @@ func (c *CreditPropagationService) PropagateCredit(
     startNode, exists := graph[nodeKey]
     if !exists {
         // Fallback: treat 'exercise' and 'meta_exercise' as equivalent node kinds
+        // Also treat 'definition' and 'meta_definition' as equivalent
         if reviewedNodeType == "exercise" {
             nodeType = "meta_exercise"
         } else if reviewedNodeType == "meta_exercise" {
             nodeType = "exercise"
+        } else if reviewedNodeType == "definition" {
+            nodeType = "meta_definition"
+        } else if reviewedNodeType == "meta_definition" {
+            nodeType = "definition"
         }
         nodeKey = c.getNodeKey(reviewedNodeID, nodeType)
         startNode, exists = graph[nodeKey]

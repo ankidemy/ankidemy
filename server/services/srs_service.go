@@ -33,18 +33,24 @@ func NewSRSService(db *gorm.DB) *SRSService {
 }
 
 // normalize types for different subsystems
-// Progress table stores meta-exercises under 'exercise' for legacy compatibility
+// Progress table stores meta-exercises under 'exercise' and meta-definitions under 'definition' for legacy compatibility
 func toProgressType(t string) string {
     if t == "meta_exercise" {
         return "exercise"
     }
+    if t == "meta_definition" {
+        return "definition"
+    }
     return t
 }
 
-// Graph (prerequisites) uses 'meta_exercise' as the node type for exercise pools
+// Graph (prerequisites) uses 'meta_exercise' and 'meta_definition' as the node types for pools
 func toGraphType(t string) string {
     if t == "exercise" {
         return "meta_exercise"
+    }
+    if t == "definition" {
+        return "meta_definition"
     }
     return t
 }
@@ -124,6 +130,12 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
         } else {
             go metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success, nil)
         }
+    }
+
+    // For meta definitions: record version outcome stats (best-effort, outside main credit path)
+    if request.NodeType == "definition" && request.VersionID != nil {
+        metaDefSvc := NewMetaDefinitionService(s.db)
+        go metaDefSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success)
     }
 
 	// Record review history
@@ -618,13 +630,25 @@ func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string) 
 
 func (s *SRSService) getDomainIDForNode(nodeID uint, nodeType string) (uint, error) {
 	var domainID uint
-	
+
     if nodeType == "definition" {
-        var definition models.Definition
-        if err := s.db.Select("domain_id").First(&definition, nodeID).Error; err != nil {
+        // Try meta_definition first (new system), fallback to legacy definition
+        var metaDef models.MetaDefinition
+        if err := s.db.Select("domain_id").First(&metaDef, nodeID).Error; err == nil {
+            domainID = metaDef.DomainID
+        } else {
+            var definition models.Definition
+            if err := s.db.Select("domain_id").First(&definition, nodeID).Error; err != nil {
+                return 0, err
+            }
+            domainID = definition.DomainID
+        }
+    } else if nodeType == "meta_definition" {
+        var metaDef models.MetaDefinition
+        if err := s.db.Select("domain_id").First(&metaDef, nodeID).Error; err != nil {
             return 0, err
         }
-        domainID = definition.DomainID
+        domainID = metaDef.DomainID
     } else if nodeType == "exercise" || nodeType == "meta_exercise" {
         var meta models.MetaExercise
         if err := s.db.Select("domain_id").First(&meta, nodeID).Error; err != nil {
@@ -634,7 +658,7 @@ func (s *SRSService) getDomainIDForNode(nodeID uint, nodeType string) (uint, err
     } else {
         return 0, errors.New("invalid node type")
     }
-	
+
 	return domainID, nil
 }
 
@@ -681,11 +705,13 @@ func (s *SRSService) recordSessionReview(tx *gorm.DB, request *models.ReviewRequ
     srsDao := dao.NewSRSDao(tx)
 
     // Normalize node type for session rows: treat meta_exercise as exercise,
-    // keep definition/exercise unchanged. This avoids CHECK constraint issues
-    // in environments where session_reviews still restricts node_type.
+    // meta_definition as definition. This maintains consistency with progress storage.
     normalizedType := request.NodeType
     if normalizedType == "meta_exercise" {
         normalizedType = "exercise"
+    }
+    if normalizedType == "meta_definition" {
+        normalizedType = "definition"
     }
 
     sessionReview := &models.SessionReview{

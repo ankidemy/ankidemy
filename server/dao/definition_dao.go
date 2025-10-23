@@ -299,26 +299,29 @@ func (d *DefinitionDAO) ConvertToResponse(definition *models.DefinitionWithPrere
 	for _, ref := range definition.References {
 		references = append(references, ref.Reference)
 	}
-	
-    // Load weights per prerequisite code
-    weights, _ := d.getPrerequisiteWeights(definition.ID, "definition")
 
-    return models.DefinitionResponse{
-        ID:            definition.ID,
-        Code:          definition.Code,
-        Name:          definition.Name,
-        Description:   definition.Description,
-        Notes:         definition.Notes,
-        References:    references,
-        Prerequisites: definition.PrerequisiteCodes,
-        PrerequisiteWeights: weights,
-        DomainID:      definition.DomainID,
-        OwnerID:       definition.OwnerID,
-        XPosition:     definition.XPosition,
-        YPosition:     definition.YPosition,
-        CreatedAt:     definition.CreatedAt,
-        UpdatedAt:     definition.UpdatedAt,
-    }
+	// Load weights per prerequisite code
+	weights, _ := d.getPrerequisiteWeights(definition.ID, "definition")
+
+	return models.DefinitionResponse{
+		ID:                  definition.ID,
+		Code:                definition.Code,
+		Name:                definition.Name,
+		Prompt:              definition.Prompt,
+		Type:                definition.Type,
+		Description:         definition.Description,
+		Notes:               definition.Notes,
+		References:          references,
+		Prerequisites:       definition.PrerequisiteCodes,
+		PrerequisiteWeights: weights,
+		DomainID:            definition.DomainID,
+		OwnerID:             definition.OwnerID,
+		MetaDefinitionID:    definition.MetaDefinitionID,
+		XPosition:           definition.XPosition,
+		YPosition:           definition.YPosition,
+		CreatedAt:           definition.CreatedAt,
+		UpdatedAt:           definition.UpdatedAt,
+	}
 }
 
 // Helper function to get prerequisite codes for a node
@@ -381,23 +384,25 @@ func (d *DefinitionDAO) UpdatePositions(positions map[uint]struct{ X, Y float64 
 
 // CheckCodeExistsInDomain checks if a code already exists in a domain (across both definitions and meta-exercises)
 func (d *DefinitionDAO) CheckCodeExistsInDomain(code string, domainID uint) (bool, error) {
-	var defCount int64
-	if err := d.db.Model(&models.Definition{}).
+	// Check meta_definitions (concept pools)
+	var metaDefCount int64
+	if err := d.db.Model(&models.MetaDefinition{}).
 		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&defCount).Error; err != nil {
+		Count(&metaDefCount).Error; err != nil {
 		return false, err
 	}
 
-	if defCount > 0 {
+	if metaDefCount > 0 {
 		return true, nil
 	}
 
-	var metaCount int64
+	// Check meta_exercises
+	var metaExCount int64
 	if err := d.db.Model(&models.MetaExercise{}).
 		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaCount).Error; err != nil {
+		Count(&metaExCount).Error; err != nil {
 		return false, err
 	}
 
-	return metaCount > 0, nil
+	return metaExCount > 0, nil
 }

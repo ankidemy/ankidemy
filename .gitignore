@@ -12,3 +12,4 @@ server/sample.json
 *gopath*
 *build.out
 *build.raw
+current_git_diff.txt

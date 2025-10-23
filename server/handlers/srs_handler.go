@@ -45,8 +45,8 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 	}
 
     // Validate node type
-    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise' or 'meta_exercise'"})
+    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" && request.NodeType != "meta_definition" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise', 'meta_exercise', or 'meta_definition'"})
         return
     }
 
@@ -56,8 +56,9 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 		return
 	}
 
-    // Normalize 'meta_exercise' to 'exercise' internally for SRS storage compatibility
+    // Normalize meta types to base types for SRS storage compatibility
     if request.NodeType == "meta_exercise" { request.NodeType = "exercise" }
+    if request.NodeType == "meta_definition" { request.NodeType = "definition" }
     response, err := h.srsService.SubmitReview(userID.(uint), &request)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -86,13 +87,14 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 		nodeType = "mixed"
 	}
 
-    if nodeType != "definition" && nodeType != "exercise" && nodeType != "meta_exercise" && nodeType != "mixed" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Type must be 'definition', 'exercise', 'meta_exercise', or 'mixed'"})
+    if nodeType != "definition" && nodeType != "exercise" && nodeType != "meta_exercise" && nodeType != "meta_definition" && nodeType != "mixed" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Type must be 'definition', 'exercise', 'meta_exercise', 'meta_definition', or 'mixed'"})
         return
     }
 
-    // Treat 'meta_exercise' same as 'exercise' for due selection
+    // Normalize meta types to base types for due selection
     if nodeType == "meta_exercise" { nodeType = "exercise" }
+    if nodeType == "meta_definition" { nodeType = "definition" }
     dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -219,12 +221,17 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 	}
 
 	// Validate node type
-    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise' or 'meta_exercise'"})
+    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" && request.NodeType != "meta_definition" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise', 'meta_exercise', or 'meta_definition'"})
         return
     }
 
-	err := h.srsService.UpdateNodeStatus(userID.(uint), request.NodeID, request.NodeType, request.Status)
+    // Normalize meta types to base types
+    nodeType := request.NodeType
+    if nodeType == "meta_exercise" { nodeType = "exercise" }
+    if nodeType == "meta_definition" { nodeType = "definition" }
+
+	err := h.srsService.UpdateNodeStatus(userID.(uint), request.NodeID, nodeType, request.Status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
