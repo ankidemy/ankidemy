@@ -143,11 +143,13 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
 
     const reviewData: ReviewRequest = {
       nodeId: currentReviewItem.nodeId,
-      nodeType: currentReviewItem.nodeType,
+      nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
       success: quality >= 3,
       quality: quality,
       timeTaken: timeTaken,
       sessionId: srs.state.currentSession.id,
+      // Provide the concrete version id when available (definition version or exercise version)
+      versionId: (itemDetails && typeof itemDetails.id === 'number') ? itemDetails.id : undefined,
     };
 
     await srs.submitReview(reviewData);

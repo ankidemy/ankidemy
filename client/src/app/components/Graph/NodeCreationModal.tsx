@@ -6,7 +6,9 @@ import {
   createDefinition,
   createMetaDefinition,
   createMetaExercise,
+  addMetaDefinitionVersion,
   addMetaExerciseVersion,
+  getMetaDefinition,
   getMetaExercise,
   DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
   Definition as ApiDefinition,
@@ -59,6 +61,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [references, setReferences] = useState('');
   // Additional versions for meta-exercise creation
   const [extraVersions, setExtraVersions] = useState<Array<{ statement: string; description?: string; hints?: string; notes?: string; difficulty?: number; verifiable?: boolean; result?: string }>>([]);
+  // Additional versions for meta-definition creation
+  const [extraDefVersions, setExtraDefVersions] = useState<Array<{ prompt: string; description?: string; notes?: string; references?: string; type?: string }>>([]);
   const [selectedDefPrereqIds, setSelectedDefPrereqIds] = useState<number[]>([]);
   const [selectedExPrereqIds, setSelectedExPrereqIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,6 +87,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       setPrompt('');
       setVersionType('open_ended');
       setReferences('');
+      setExtraDefVersions([]);
       setSelectedDefPrereqIds([]);
       setSelectedExPrereqIds([]);
       setError(null);
@@ -195,7 +200,27 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           };
         }
         const response = await createMetaDefinition(domainId, metaDefData);
-        onSuccess(response.code, response as any);
+        // Add extra definition versions, if any
+        for (const v of extraDefVersions) {
+          const effPrompt = (v.prompt || '').trim();
+          if (!effPrompt) continue;
+          const payload: any = {
+            prompt: effPrompt,
+            type: v.type || 'open_ended',
+            description: v.description?.trim() || undefined,
+            notes: v.notes?.trim() || undefined,
+            references: v.references?.split(',').map(r => r.trim()).filter(Boolean) || undefined,
+          };
+          await addMetaDefinitionVersion((response as any).id, payload);
+        }
+        // Fetch fresh meta-definition including new versions for surgical insert
+        let enriched = response as any;
+        try {
+          enriched = await getMetaDefinition((response as any).id);
+        } catch (e) {
+          console.warn('Could not fetch fresh meta-definition; using original response.');
+        }
+        onSuccess(enriched.code, enriched as any);
       } else {
         if (!statement.trim()) throw new Error('Statement is required for the initial version');
         const response = await createMetaExercise(domainId, {
@@ -420,6 +445,58 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                   className="text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">Comma-separated URLs or references</p>
+              </div>
+              {/* Additional definition versions */}
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Additional Versions</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setExtraDefVersions(v => [...v, { prompt: '' }])}
+                    disabled={isSubmitting}
+                  >
+                    Add Another Version
+                  </Button>
+                </div>
+                {extraDefVersions.map((v, idx) => (
+                  <div key={`extra-def-v-${idx}`} className="p-2 border rounded">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-gray-600">Prompt *</label>
+                        <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.prompt} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], prompt: e.target.value }; return copy; })} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-gray-600">Type</label>
+                        <select
+                          className="w-full border rounded px-2 py-1 text-sm"
+                          value={v.type || 'open_ended'}
+                          onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], type: e.target.value }; return copy; })}
+                        >
+                          <option value="open_ended">Open Ended</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-gray-600">Definition (Description)</label>
+                        <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.description || ''} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], description: e.target.value }; return copy; })} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-gray-600">Notes</label>
+                        <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.notes || ''} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], notes: e.target.value }; return copy; })} />
+                      </div>
+                    </div>
+                    <div className="mt-1">
+                      <label className="block text-xs font-medium mb-1 text-gray-600">References (comma-separated)</label>
+                      <Input className="text-sm" value={v.references || ''} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], references: e.target.value }; return copy; })} />
+                    </div>
+                    <div className="text-right mt-2">
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setExtraDefVersions(arr => arr.filter((_, i) => i !== idx))}>Remove</Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </>
           ) : (

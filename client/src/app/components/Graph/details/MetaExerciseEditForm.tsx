@@ -10,7 +10,8 @@ interface Props {
   onAddVersion?: (v: Partial<ExerciseVersion> & { statement: string }) => Promise<void>;
   onUpdateVersion?: (id: number, v: Partial<ExerciseVersion>) => Promise<void>;
   onDeleteVersion?: (id: number) => Promise<void>;
-  onUpdateMeta?: (payload: { name?: string; code?: string; xPosition?: number; yPosition?: number }) => Promise<void>;
+  // Only name updates are exposed in the UI now
+  onUpdateMeta?: (payload: { name?: string }) => Promise<void>;
   onBack?: () => void;
   initialActiveIndex?: number;
 }
@@ -115,12 +116,11 @@ const MetaExerciseEditForm: React.FC<Props> = ({
     setActive(0);
   };
 
-  // Meta-level editing
-  const [metaDraft, setMetaDraft] = useState({ name: meta.name, code: meta.code });
-  const [showCodeConfirm, setShowCodeConfirm] = useState(false);
-  const [pendingSavePayload, setPendingSavePayload] = useState<{ name?: string; code?: string } | null>(null);
+  // Meta-level editing (name only)
+  const [metaDraft, setMetaDraft] = useState({ name: meta.name });
+  const [isEditingMeta, setIsEditingMeta] = useState(false);
 
-  const performMetaSave = async (payload: { name?: string; code?: string }) => {
+  const performMetaSave = async (payload: { name?: string }) => {
     if (!onUpdateMeta) return;
     try {
       await onUpdateMeta(payload);
@@ -128,15 +128,14 @@ const MetaExerciseEditForm: React.FC<Props> = ({
     } catch (error: any) {
       showToast(error.message || 'Failed to update meta', 'error');
     } finally {
-      setPendingSavePayload(null);
-      setShowCodeConfirm(false);
+      // no-op
     }
   };
 
   const handleMetaSave = async () => {
     if (!onUpdateMeta) return;
 
-    const payload: { name?: string; code?: string } = {};
+    const payload: { name?: string } = {};
 
     if (metaDraft.name.trim() !== meta.name) {
       if (metaDraft.name.trim() === '') {
@@ -146,47 +145,18 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       payload.name = metaDraft.name.trim();
     }
 
-    if (metaDraft.code.trim() !== meta.code) {
-      payload.code = metaDraft.code.trim();
-    }
-
     if (Object.keys(payload).length === 0) {
       showToast('No changes to save', 'info');
-      return;
-    }
-
-    // If code changed, confirm before saving
-    if (payload.code && payload.code !== meta.code) {
-      setPendingSavePayload(payload);
-      setShowCodeConfirm(true);
       return;
     }
 
     await performMetaSave(payload);
   };
 
-  const handleCodeChange = (newCode: string) => {
-    // Allow free editing; confirmation will happen on Save
-    setMetaDraft(d => ({ ...d, code: newCode }));
-  };
-
-  const confirmCodeChange = async () => {
-    if (pendingSavePayload) {
-      await performMetaSave(pendingSavePayload);
-    } else {
-      setShowCodeConfirm(false);
-    }
-  };
-
-  const cancelCodeChange = () => {
-    setPendingSavePayload(null);
-    setShowCodeConfirm(false);
-  };
-
   // Update metaDraft when meta changes (e.g., after successful save)
   React.useEffect(() => {
-    setMetaDraft({ name: meta.name, code: meta.code });
-  }, [meta.name, meta.code]);
+    setMetaDraft({ name: meta.name });
+  }, [meta.name]);
 
   // Apply initialActiveIndex when it changes
   React.useEffect(() => {
@@ -199,10 +169,15 @@ const MetaExerciseEditForm: React.FC<Props> = ({
 
   return (
     <div className="space-y-3">
-      {/* Meta Section */}
+      {/* Meta Section (name only) */}
       {onUpdateMeta && (
         <div className="p-3 border border-blue-200 rounded bg-blue-50">
-          <h3 className="text-sm font-semibold mb-2 text-blue-900">Meta-Exercise Details</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-blue-900">Meta-Exercise Details</h3>
+            {!isEditingMeta ? (
+              <Button size="sm" variant="outline" onClick={() => setIsEditingMeta(true)}>Edit</Button>
+            ) : null}
+          </div>
           <div className="space-y-2">
             <div>
               <label className="block text-xs font-medium mb-1 text-gray-700">Name (required)</label>
@@ -210,52 +185,17 @@ const MetaExerciseEditForm: React.FC<Props> = ({
                 value={metaDraft.name}
                 onChange={(e) => setMetaDraft(d => ({ ...d, name: e.target.value }))}
                 placeholder="Exercise name"
-                className="text-sm"
+                className={`text-sm ${!isEditingMeta ? 'bg-gray-100 text-gray-600' : ''}`}
+                disabled={!isEditingMeta}
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 text-gray-700">
-                Code (optional, changes affect references)
-              </label>
-              <Input
-                value={metaDraft.code}
-                onChange={(e) => handleCodeChange(e.target.value)}
-                placeholder="Exercise code"
-                className="text-sm"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="default" onClick={handleMetaSave}>
-                Save Meta
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setMetaDraft({ name: meta.name, code: meta.code })}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Code Change Confirmation Modal */}
-      {showCodeConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-4 rounded shadow-lg max-w-md">
-            <h3 className="font-semibold mb-2">Confirm Code Change</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Changing the code affects references and prerequisites. Are you sure you want to proceed?
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button size="sm" variant="outline" onClick={cancelCodeChange}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="default" onClick={confirmCodeChange}>
-                Proceed
-              </Button>
-            </div>
+            {isEditingMeta && (
+              <div className="flex gap-2">
+                <Button size="sm" variant="default" onClick={async () => { await handleMetaSave(); setIsEditingMeta(false); }}>
+                  Save Name
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}

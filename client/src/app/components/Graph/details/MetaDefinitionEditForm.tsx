@@ -10,14 +10,8 @@ interface Props {
   onAddVersion?: (v: Partial<DefinitionVersion> & { prompt: string }) => Promise<void>;
   onUpdateVersion?: (id: number, v: Partial<DefinitionVersion>) => Promise<void>;
   onDeleteVersion?: (id: number) => Promise<void>;
-  onUpdateMeta?: (payload: {
-    name?: string;
-    code?: string;
-    xPosition?: number;
-    yPosition?: number;
-    cascadeCode?: boolean;
-    cascadeName?: boolean;
-  }) => Promise<void>;
+  // Only name updates are exposed in the UI now
+  onUpdateMeta?: (payload: { name?: string }) => Promise<void>;
   onBack?: () => void;
   initialActiveIndex?: number;
 }
@@ -131,25 +125,11 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
     setActive(0);
   };
 
-  // Meta-level editing
-  const [metaDraft, setMetaDraft] = useState({ name: meta.name, code: meta.code });
-  const [posDraft, setPosDraft] = useState<{ x?: number; y?: number }>({ x: meta.xPosition, y: meta.yPosition });
-  const [showCodeConfirm, setShowCodeConfirm] = useState(false);
-  const [pendingSavePayload, setPendingSavePayload] = useState<{
-    name?: string;
-    code?: string;
-    cascadeCode?: boolean;
-    cascadeName?: boolean;
-  } | null>(null);
-  const [cascadeCode, setCascadeCode] = useState<boolean>(false);
-  const [cascadeName, setCascadeName] = useState<boolean>(false);
+  // Meta-level editing (name only)
+  const [metaDraft, setMetaDraft] = useState({ name: meta.name });
+  const [isEditingMeta, setIsEditingMeta] = useState(false);
 
-  const performMetaSave = async (payload: {
-    name?: string;
-    code?: string;
-    cascadeCode?: boolean;
-    cascadeName?: boolean;
-  }) => {
+  const performMetaSave = async (payload: { name?: string }) => {
     if (!onUpdateMeta) return;
     try {
       await onUpdateMeta(payload);
@@ -157,15 +137,14 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
     } catch (error: any) {
       showToast(error.message || 'Failed to update concept', 'error');
     } finally {
-      setPendingSavePayload(null);
-      setShowCodeConfirm(false);
+      // no-op
     }
   };
 
   const handleMetaSave = async () => {
     if (!onUpdateMeta) return;
 
-    const payload: { name?: string; code?: string; cascadeCode?: boolean; cascadeName?: boolean; xPosition?: number; yPosition?: number } = {};
+    const payload: { name?: string } = {};
 
     if (metaDraft.name.trim() !== meta.name) {
       if (metaDraft.name.trim() === '') {
@@ -173,58 +152,20 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
         return;
       }
       payload.name = metaDraft.name.trim();
-      payload.cascadeName = cascadeName;
     }
-
-    if (metaDraft.code.trim() !== meta.code) {
-      payload.code = metaDraft.code.trim();
-      payload.cascadeCode = cascadeCode;
-    }
-
-    // Positions (optional)
-    const px = Number(posDraft.x);
-    const py = Number(posDraft.y);
-    if (!Number.isNaN(px)) payload.xPosition = px;
-    if (!Number.isNaN(py)) payload.yPosition = py;
 
     if (Object.keys(payload).length === 0) {
       showToast('No changes to save', 'info');
       return;
     }
 
-    // If code changed, confirm before saving
-    if (payload.code && payload.code !== meta.code) {
-      setPendingSavePayload(payload);
-      setShowCodeConfirm(true);
-      return;
-    }
-
     await performMetaSave(payload);
-  };
-
-  const handleCodeChange = (newCode: string) => {
-    // Allow free editing; confirmation will happen on Save
-    setMetaDraft(d => ({ ...d, code: newCode }));
-  };
-
-  const confirmCodeChange = async () => {
-    if (pendingSavePayload) {
-      await performMetaSave(pendingSavePayload);
-    } else {
-      setShowCodeConfirm(false);
-    }
-  };
-
-  const cancelCodeChange = () => {
-    setPendingSavePayload(null);
-    setShowCodeConfirm(false);
   };
 
   // Update metaDraft when meta changes (e.g., after successful save)
   React.useEffect(() => {
-    setMetaDraft({ name: meta.name, code: meta.code });
-    setPosDraft({ x: meta.xPosition, y: meta.yPosition });
-  }, [meta.name, meta.code]);
+    setMetaDraft({ name: meta.name });
+  }, [meta.name]);
 
   // Apply initialActiveIndex when it changes
   React.useEffect(() => {
@@ -236,106 +177,41 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
   }, [initialActiveIndex]);
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="border-b p-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Edit Concept Pool</h2>
-        {onBack && (
-          <Button variant="ghost" size="sm" onClick={onBack}>
-            Back
-          </Button>
-        )}
-      </div>
+    <div className="space-y-3">
 
-      {/* Meta fields */}
-      <div className="p-4 border-b bg-gray-50">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Code</label>
-            <Input
-              value={metaDraft.code}
-              onChange={(e) => handleCodeChange(e.target.value)}
-              className="text-sm"
-            />
-          </div>
+      {/* Meta fields (Name with Edit→Save flow) */}
+      <div className="p-3 border border-blue-200 rounded bg-blue-50">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-blue-900">Edit Concept Pool</h2>
+          {!isEditingMeta ? (
+            <Button size="sm" variant="outline" onClick={() => setIsEditingMeta(true)}>Edit</Button>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-1 gap-2">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
             <Input
               value={metaDraft.name}
               onChange={(e) => setMetaDraft(d => ({ ...d, name: e.target.value }))}
-              className="text-sm"
+              className={`text-sm ${!isEditingMeta ? 'bg-gray-100 text-gray-600' : ''}`}
+              disabled={!isEditingMeta}
             />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3 mt-2">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">X Position</label>
-            <Input
-              type="number"
-              value={posDraft.x ?? ''}
-              onChange={(e) => setPosDraft(p => ({ ...p, x: e.target.value === '' ? undefined : Number(e.target.value) }))}
-              className="text-sm"
-            />
+        {isEditingMeta && (
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" onClick={async () => { await handleMetaSave(); setIsEditingMeta(false); }}>
+              Save Name
+            </Button>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Y Position</label>
-            <Input
-              type="number"
-              value={posDraft.y ?? ''}
-              onChange={(e) => setPosDraft(p => ({ ...p, y: e.target.value === '' ? undefined : Number(e.target.value) }))}
-              className="text-sm"
-            />
-          </div>
-        </div>
-        <div className="mt-2 flex items-center gap-4 text-xs text-gray-700">
-          <label className="flex items-center gap-1">
-            <input type="checkbox" checked={cascadeCode} onChange={(e)=> setCascadeCode(e.target.checked)} />
-            Cascade code to versions
-          </label>
-          <label className="flex items-center gap-1">
-            <input type="checkbox" checked={cascadeName} onChange={(e)=> setCascadeName(e.target.checked)} />
-            Cascade name to versions
-          </label>
-        </div>
-        <div className="mt-2 flex gap-2">
-          <Button size="sm" onClick={handleMetaSave}>
-            Save Pool Info
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setMetaDraft({ name: meta.name, code: meta.code })}
-          >
-            Reset
-          </Button>
-        </div>
-        <p className="text-xs text-gray-500 mt-2">
-          {versions.length} version{versions.length !== 1 ? 's' : ''} total
-        </p>
+        )}
+        <p className="text-xs text-gray-500 mt-2">{versions.length} version{versions.length !== 1 ? 's' : ''} total</p>
       </div>
 
-      {/* Code change confirmation modal */}
-      {showCodeConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md">
-            <h3 className="text-lg font-semibold mb-2">Confirm Code Change</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Changing the code will require a full graph refresh. Are you sure?
-            </p>
-            <div className="flex gap-2">
-              <Button onClick={confirmCodeChange} size="sm">
-                Confirm
-              </Button>
-              <Button onClick={cancelCodeChange} variant="outline" size="sm">
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Code change confirmation removed (code editing disabled) */}
 
       {/* Version selector */}
-      <div className="p-3 border-b bg-blue-50">
+      <div className="p-3 border rounded bg-blue-50">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-sm font-medium">Versions:</span>
           {versions.map((v, idx) => (
@@ -371,7 +247,7 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
       </div>
 
       {/* Version editor */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="p-4 space-y-3 border rounded">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Prompt *</label>
           <textarea

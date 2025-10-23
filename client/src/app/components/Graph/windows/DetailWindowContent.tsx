@@ -13,6 +13,7 @@ import PrerequisitesPanel from '../details/PrerequisitesPanel';
 import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
 import MetaExerciseVersionsViewer from '../details/MetaExerciseVersionsViewer';
 import MetaDefinitionEditForm from '../details/MetaDefinitionEditForm';
+import MetaDefinitionVersionsViewer from '../details/MetaDefinitionVersionsViewer';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
@@ -111,6 +112,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         setMetaDetails(meta);
         const ver = await getNextMetaDefinitionVersion(mid);
         setCurrentVersion(ver as any);
+        // If the suggested version exists in the list, align selection index
+        if (meta.versions && ver?.id != null) {
+          const idx = meta.versions.findIndex(v => v.id === (ver as any).id);
+          if (idx >= 0) setSelectedDefinitionIndex(idx);
+        }
         details = {
           code: meta.code,
           name: meta.name,
@@ -435,13 +441,19 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Helper functions for descriptions
   const hasMultipleDescriptions = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      return ((metaDetails as MetaDefinition).versions?.length || 0) > 1;
+    }
     const detail = nodeDetails as Definition;
     if (!detail || !('description' in detail)) return false;
-    return (Array.isArray(detail.description) && detail.description.length > 1) || 
-           String(detail.description).includes('|||');
+    return (Array.isArray(detail.description) && detail.description.length > 1) ||
+      String(detail.description).includes('|||');
   };
 
   const totalDescriptionsCount = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      return (metaDetails as MetaDefinition).versions?.length || 0;
+    }
     const detail = nodeDetails as Definition;
     if (!detail || !('description' in detail)) return 0;
     if (Array.isArray(detail.description)) return detail.description.length;
@@ -449,11 +461,36 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   };
 
   const currentDescriptionText = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      const versions = (metaDetails as MetaDefinition).versions || [];
+      const idx = Math.max(0, Math.min(selectedDefinitionIndex, Math.max(0, versions.length - 1)));
+      return versions[idx]?.description || '';
+    }
     const detail = nodeDetails as Definition;
     if (!detail || !('description' in detail)) return '';
     if (Array.isArray(detail.description)) return detail.description[selectedDefinitionIndex] || '';
     return String(detail.description).split('|||')[selectedDefinitionIndex] || '';
   };
+
+  // Keep currentVersion and nodeDetails in sync with selected definition version
+  useEffect(() => {
+    if (currentNode.type !== 'definition') return;
+    const meta = metaDetails as MetaDefinition | null;
+    if (!meta || !Array.isArray(meta.versions) || meta.versions.length === 0) return;
+    const idx = Math.max(0, Math.min(selectedDefinitionIndex, meta.versions.length - 1));
+    const ver = meta.versions[idx];
+    if (!ver) return;
+    // Update only if different to avoid render loops
+    if (!currentVersion || currentVersion.id !== ver.id) {
+      setCurrentVersion(ver as any);
+      setNodeDetails({
+        code: meta.code,
+        name: meta.name,
+        description: ver.description || '',
+        type: 'definition'
+      } as Definition);
+    }
+  }, [selectedDefinitionIndex, metaDetails, currentNode.type]);
 
   const availableDefinitions = graphData?.definitions ? 
     Object.values(graphData.definitions).map((def: any) => ({
@@ -720,9 +757,9 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           )
         ) : (
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className={`grid w-full ${currentNode.type === 'exercise' ? 'grid-cols-4' : 'grid-cols-3'} h-9`}>
+            <TabsList className={`grid w-full ${currentNode.type === 'exercise' ? 'grid-cols-4' : 'grid-cols-4'} h-9`}>
               <TabsTrigger value="details" className="text-sm h-8">Details</TabsTrigger>
-              {currentNode.type === 'exercise' && (
+              {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
                 <TabsTrigger value="versions" className="text-sm h-8">Versions</TabsTrigger>
               )}
               {currentNode.type === 'exercise' && (
@@ -733,21 +770,38 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               )}
               <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
             </TabsList>
-            {currentNode.type === 'exercise' && (
+            {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
               <TabsContent value="versions" className="mt-3">
-                {metaDetails ? (
-                  <MetaExerciseVersionsViewer
-                    meta={metaDetails}
-                    activeIndex={selectedVersionIndex}
-                    setActiveIndex={setSelectedVersionIndex}
-                    isOwner={isDomainOwner()}
-                    onEditVersion={isDomainOwner() ? (index) => {
-                      setSelectedVersionIndex(index);
-                      setIsEditMode(true);
-                    } : undefined}
-                  />
+                {currentNode.type === 'exercise' ? (
+                  metaDetails ? (
+                    <MetaExerciseVersionsViewer
+                      meta={metaDetails as MetaExercise}
+                      activeIndex={selectedVersionIndex}
+                      setActiveIndex={setSelectedVersionIndex}
+                      isOwner={isDomainOwner()}
+                      onEditVersion={isDomainOwner() ? (index) => {
+                        setSelectedVersionIndex(index);
+                        setIsEditMode(true);
+                      } : undefined}
+                    />
+                  ) : (
+                    <div className="text-center py-5 text-gray-500">Loading versions…</div>
+                  )
                 ) : (
-                  <div className="text-center py-5 text-gray-500">Loading versions…</div>
+                  metaDetails ? (
+                    <MetaDefinitionVersionsViewer
+                      meta={metaDetails as MetaDefinition}
+                      activeIndex={selectedDefinitionIndex}
+                      setActiveIndex={setSelectedDefinitionIndex}
+                      isOwner={isDomainOwner()}
+                      onEditVersion={isDomainOwner() ? (index) => {
+                        setSelectedDefinitionIndex(index);
+                        setIsEditMode(true);
+                      } : undefined}
+                    />
+                  ) : (
+                    <div className="text-center py-5 text-gray-500">Loading versions…</div>
+                  )
                 )}
               </TabsContent>
             )}
