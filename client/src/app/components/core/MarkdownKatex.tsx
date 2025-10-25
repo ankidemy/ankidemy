@@ -60,15 +60,16 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
         components={{
           // Keep paragraphs and lists compact for our cards
           p: ({ node, ...props }) => <p {...props} />,
-          code: ({ inline, className, children, ...props }: React.ComponentProps<"code"> & ExtraProps & { inline?: boolean }) => {
-            const c = String(children).replace(/\n$/, "");
-            if (inline) return <code className={className}>{c}</code>;
-            return (
-              <pre className="rounded bg-gray-100 border border-gray-200 p-2 overflow-auto text-sm">
-                <code className={className} {...props}>{c}</code>
-              </pre>
-            );
-          },
+          // Never emit <pre> from code; block styling handled by <pre> below.
+          code: ({ className, children, ...props }: React.ComponentProps<"code"> & ExtraProps) => (
+            <code className={className} {...props}>{String(children).replace(/\n$/, "")}</code>
+          ),
+          // Style block code containers created by react-markdown for fenced code blocks.
+          pre: ({ node, children, ...props }) => (
+            <pre className="rounded bg-gray-100 border border-gray-200 p-2 overflow-auto text-sm" {...props}>
+              {children}
+            </pre>
+          ),
           table: ({ node, ...props }) => (
             <div className="overflow-x-auto"><table className="table-auto w-full" {...props} /></div>
           ),
