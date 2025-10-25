@@ -53,14 +53,17 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
     try {
       setLoading(true);
       const all = await getDomainPrerequisites(domainId);
-      const filtered = all.filter(p => p.nodeId === nodeId && (
-        p.nodeType === nodeType || (nodeType === 'meta_exercise' && p.nodeType === 'exercise') || (nodeType === 'meta_definition' && p.nodeType === 'definition')
-      ));
+      // Filter strictly by graph-level types only (no legacy type aliasing)
+      const filtered = all.filter(p =>
+        p.nodeId === nodeId &&
+        p.nodeType === nodeType &&
+        (p.prerequisiteType === 'meta_definition' || p.prerequisiteType === 'meta_exercise')
+      );
       setRows(filtered.map(p => ({
         id: p.id,
         prerequisiteId: p.prerequisiteId,
         weight: p.weight,
-        type: (p.prerequisiteType === 'definition' ? 'meta_definition' : 'meta_exercise')
+        type: p.prerequisiteType as 'meta_definition' | 'meta_exercise'
       })));
       setError(null);
     } catch (e) {
@@ -156,10 +159,14 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
           <div className="space-y-2">
             {rows.map(r => {
               const d = (r.type === 'meta_definition' ? defMap : metaMap).get(r.prerequisiteId);
+              const typeLabel = r.type === 'meta_definition' ? 'Concept' : 'Exercise';
               return (
                 <div key={r.id} className="flex items-center justify-between p-2 border rounded">
-                  <div className="text-sm">
-                    {d ? `${d.code}: ${d.name}` : `#${r.prerequisiteId}`}
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">
+                      {d ? `${d.code}: ${d.name}` : `#${r.prerequisiteId}`}
+                    </div>
+                    <div className="text-xs text-gray-500">{typeLabel}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-600">Weight</span>

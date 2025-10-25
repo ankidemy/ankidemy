@@ -173,10 +173,6 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         throw new Error('Code already exists in this domain. Please choose a different code.');
       }
 
-      // Prepare prerequisite data with weights (definitions only for initial create)
-      const prerequisiteIdsToSend = selectedDefPrereqIds.length > 0 ? selectedDefPrereqIds : undefined;
-      const prerequisiteWeightsToSend = selectedDefPrereqIds.length > 0 ? defPrereqWeights : undefined;
-
       if (type === 'definition') {
         // Use createMetaDefinition instead of legacy createDefinition
         const metaDefData: any = {
@@ -184,8 +180,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           name: name.trim(),
           xPosition: position?.x,
           yPosition: position?.y,
-          prerequisiteIds: prerequisiteIdsToSend,
-          prerequisiteWeights: prerequisiteWeightsToSend,
+          // Concept prerequisites will be attached via SRS API after creation
         };
         // Include initial version only if user provided any fields; default prompt to "Define <Name>" if needed
         const anyVersionField = [prompt, description, notes, references].some(v => (v || '').trim().length > 0);
@@ -200,6 +195,20 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           };
         }
         const response = await createMetaDefinition(domainId, metaDefData);
+        // Attach concept prerequisites (meta_definition -> meta_definition) via SRS API
+        if (selectedDefPrereqIds.length > 0) {
+          const { createPrerequisite } = await import('@/lib/srs-api');
+          for (const defId of selectedDefPrereqIds) {
+            await createPrerequisite({
+              nodeId: (response as any).id,
+              nodeType: 'meta_definition',
+              prerequisiteId: defId,
+              prerequisiteType: 'meta_definition',
+              weight: defPrereqWeights[defId] ?? 1.0,
+              isManual: true,
+            });
+          }
+        }
         // Add extra definition versions, if any
         for (const v of extraDefVersions) {
           const effPrompt = (v.prompt || '').trim();
@@ -213,7 +222,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           };
           await addMetaDefinitionVersion((response as any).id, payload);
         }
-        // Fetch fresh meta-definition including new versions for surgical insert
+        // Fetch fresh meta-definition including new prerequisites and versions for surgical insert
         let enriched = response as any;
         try {
           enriched = await getMetaDefinition((response as any).id);
@@ -228,8 +237,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           name: name.trim(),
           xPosition: position?.x,
           yPosition: position?.y,
-          prerequisiteIds: prerequisiteIdsToSend,
-          prerequisiteWeights: prerequisiteWeightsToSend,
+          // Prerequisites will be attached via SRS API after creation
           initialVersion: {
             statement: statement.trim(),
             description: description.trim() || undefined,
@@ -240,7 +248,21 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             result: verifiable ? (result.trim() || undefined) : undefined,
           }
         });
-        // Attach exercise prerequisites (meta_exercise -> meta_exercise)
+        // Attach concept prerequisites (meta_exercise -> meta_definition) via SRS API
+        if (selectedDefPrereqIds.length > 0) {
+          const { createPrerequisite } = await import('@/lib/srs-api');
+          for (const defId of selectedDefPrereqIds) {
+            await createPrerequisite({
+              nodeId: (response as any).id,
+              nodeType: 'meta_exercise',
+              prerequisiteId: defId,
+              prerequisiteType: 'meta_definition',
+              weight: defPrereqWeights[defId] ?? 1.0,
+              isManual: true,
+            });
+          }
+        }
+        // Attach exercise prerequisites (meta_exercise -> meta_exercise) via SRS API
         if (selectedExPrereqIds.length > 0) {
           const { createPrerequisite } = await import('@/lib/srs-api');
           for (const exId of selectedExPrereqIds) {

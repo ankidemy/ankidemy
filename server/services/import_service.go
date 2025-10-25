@@ -252,10 +252,10 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 
     // Export meta-definitions (pools with versions)
     for _, md := range metaDefs {
-        // Get concept prerequisites and weights
-        prerequisiteCodes, err := s.getPrerequisiteCodes(md.ID, "meta_definition")
+        // Get concept prerequisites and weights (meta_definition -> meta_definition)
+        prerequisiteCodes, err := s.getMetaDefinitionPrerequisiteCodes(md.ID)
         if err != nil { return nil, fmt.Errorf("failed to get prerequisites for meta definition %s: %v", md.Code, err) }
-        prereqWeights, err := s.getPrerequisiteWeights(md.ID, "meta_definition")
+        prereqWeights, err := s.getMetaDefinitionPrerequisiteWeights(md.ID)
         if err != nil { return nil, fmt.Errorf("failed to get prerequisite weights for meta definition %s: %v", md.Code, err) }
 
         // Get definition versions under this pool
@@ -292,12 +292,10 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
         }
     }
 
-    // Export meta-exercises (with versions and weights)
+    // Export meta-exercises (with all prerequisite types and weights)
     for _, me := range metas {
-        prerequisiteCodes, err := s.getPrerequisiteCodes(me.ID, "meta_exercise")
-        if err != nil { return nil, fmt.Errorf("failed to get prerequisites for meta %s: %v", me.Code, err) }
-        prereqWeights, err := s.getPrerequisiteWeights(me.ID, "meta_exercise")
-        if err != nil { return nil, fmt.Errorf("failed to get prerequisite weights for meta %s: %v", me.Code, err) }
+        prerequisiteCodes, prereqWeights, err := s.getMetaExerciseAllPrerequisites(me.ID)
+        if err != nil { return nil, fmt.Errorf("failed to get prerequisites for meta exercise %s: %v", me.Code, err) }
         var versions []models.Exercise
         if err := s.db.Where("meta_exercise_id = ?", me.ID).Order("id ASC").Find(&versions).Error; err != nil {
             return nil, fmt.Errorf("failed to fetch versions for %s: %v", me.Code, err)
@@ -545,12 +543,12 @@ func uniqueCodeFor(base string, used map[string]bool) string {
 	}
 }
 
-// Helper function to get prerequisite codes for a node
+// Helper function to get prerequisite codes for a node (legacy - definitions only)
 func (s *ImportService) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string, error) {
 	query := `
-		SELECT d.code 
+		SELECT d.code
 		FROM node_prerequisites np
-		JOIN definitions d ON np.prerequisite_id = d.id 
+		JOIN definitions d ON np.prerequisite_id = d.id
 		WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
 		ORDER BY d.code
 	`
@@ -563,12 +561,12 @@ func (s *ImportService) getPrerequisiteCodes(nodeID uint, nodeType string) ([]st
 	return codes, nil
 }
 
-// getPrerequisiteWeights returns a map[code]weight for a node's prerequisites
+// getPrerequisiteWeights returns a map[code]weight for a node's prerequisites (legacy - definitions only)
 func (s *ImportService) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
     query := `
-        SELECT d.code, np.weight 
+        SELECT d.code, np.weight
         FROM node_prerequisites np
-        JOIN definitions d ON np.prerequisite_id = d.id 
+        JOIN definitions d ON np.prerequisite_id = d.id
         WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
         ORDER BY d.code
     `
@@ -583,6 +581,95 @@ func (s *ImportService) getPrerequisiteWeights(nodeID uint, nodeType string) (ma
     res := make(map[string]float64, len(rows))
     for _, r := range rows { res[r.Code] = r.Weight }
     return res, nil
+}
+
+// getMetaDefinitionPrerequisiteCodes returns concept prerequisite codes for a meta_definition
+func (s *ImportService) getMetaDefinitionPrerequisiteCodes(nodeID uint) ([]string, error) {
+	query := `
+		SELECT md.code
+		FROM node_prerequisites np
+		JOIN meta_definitions md ON np.prerequisite_id = md.id
+		WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
+		ORDER BY md.code
+	`
+	var codes []string
+	if err := s.db.Raw(query, nodeID).Scan(&codes).Error; err != nil {
+		return nil, err
+	}
+	return codes, nil
+}
+
+// getMetaDefinitionPrerequisiteWeights returns concept prerequisite weights for a meta_definition
+func (s *ImportService) getMetaDefinitionPrerequisiteWeights(nodeID uint) (map[string]float64, error) {
+    query := `
+        SELECT md.code, np.weight
+        FROM node_prerequisites np
+        JOIN meta_definitions md ON np.prerequisite_id = md.id
+        WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
+        ORDER BY md.code
+    `
+    type row struct{
+        Code string
+        Weight float64
+    }
+    var rows []row
+    if err := s.db.Raw(query, nodeID).Scan(&rows).Error; err != nil {
+        return nil, err
+    }
+    res := make(map[string]float64, len(rows))
+    for _, r := range rows { res[r.Code] = r.Weight }
+    return res, nil
+}
+
+// getMetaExerciseAllPrerequisites returns all prerequisite codes and weights for a meta_exercise
+// (includes meta_definition, meta_exercise, and legacy definition types)
+func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, map[string]float64, error) {
+    type row struct{
+        Code string
+        Weight float64
+    }
+    var allRows []row
+
+    // Get meta_definition prerequisites
+    query1 := `
+        SELECT md.code, np.weight
+        FROM node_prerequisites np
+        JOIN meta_definitions md ON np.prerequisite_id = md.id
+        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
+    `
+    var mdRows []row
+    if err := s.db.Raw(query1, nodeID).Scan(&mdRows).Error; err != nil { return nil, nil, err }
+    allRows = append(allRows, mdRows...)
+
+    // Get meta_exercise prerequisites
+    query2 := `
+        SELECT me.code, np.weight
+        FROM node_prerequisites np
+        JOIN meta_exercises me ON np.prerequisite_id = me.id
+        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+    `
+    var meRows []row
+    if err := s.db.Raw(query2, nodeID).Scan(&meRows).Error; err != nil { return nil, nil, err }
+    allRows = append(allRows, meRows...)
+
+    // Get legacy definition prerequisites (for backward compatibility)
+    query3 := `
+        SELECT d.code, np.weight
+        FROM node_prerequisites np
+        JOIN definitions d ON np.prerequisite_id = d.id
+        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
+    `
+    var defRows []row
+    if err := s.db.Raw(query3, nodeID).Scan(&defRows).Error; err != nil { return nil, nil, err }
+    allRows = append(allRows, defRows...)
+
+    codes := make([]string, 0, len(allRows))
+    weights := make(map[string]float64, len(allRows))
+    for _, r := range allRows {
+        codes = append(codes, r.Code)
+        weights[r.Code] = r.Weight
+    }
+    return codes, weights, nil
 }
 
 // importDataToDomain handles the core import logic for definitions and exercises
@@ -777,68 +864,65 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
             seen[pcode] = struct{}{}
 
             // Resolve prerequisite through assignment maps
-        // Prefer resolving against imported metaDefinitions (concept codes) to attach ex -> (first) definition version
-        resolvedDefCode := metaDefAssigned[pcode]
-        if resolvedDefCode == "" {
-            // Fallbacks: legacy defAssigned mapping or raw code if already assigned
-            if v, ok := defAssigned[pcode]; ok { resolvedDefCode = v } else { resolvedDefCode = pcode }
-        }
-        resolvedMetaCode := metaAssigned[pcode]
+            // Priority: meta_definition (concepts) > meta_exercise > legacy definitions
+            resolvedMetaDefCode := metaDefAssigned[pcode]
+            if resolvedMetaDefCode == "" { resolvedMetaDefCode = pcode }
+            resolvedMetaExCode := metaAssigned[pcode]
+            resolvedDefCode := defAssigned[pcode]
+            if resolvedDefCode == "" { resolvedDefCode = pcode }
 
-            // Try to find in imported definitions first
-            if resolvedDefCode != "" {
-                if def, ok := firstDefByCode[resolvedDefCode]; ok {
-                    w := clamp01(me.PrerequisiteWeights[pcode])
-                    // Skip if duplicate already exists in DB
-                    var count int64
-                    if err := tx.Model(&models.NodePrerequisite{}).
-                        Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
-                            metas[assignedCode].ID, "meta_exercise", def.ID, "definition").
-                        Count(&count).Error; err != nil {
-                        return fmt.Errorf("failed to check existing prerequisite: %v", err)
-                    }
-                    if count == 0 {
-                        if err := tx.Create(&models.NodePrerequisite{
-                            NodeID:           metas[assignedCode].ID,
-                            NodeType:         "meta_exercise",
-                            PrerequisiteID:   def.ID,
-                            PrerequisiteType: "definition",
-                            Weight:           w,
-                            IsManual:         true,
-                        }).Error; err != nil {
-                            return fmt.Errorf("failed to attach prerequisite %s to %s: %v", pcode, assignedCode, err)
-                        }
-                    }
-                    continue
+            // 1. Try to find in imported meta-definitions (concepts) - preferred for graph
+            if metaDef, ok := metaDefs[resolvedMetaDefCode]; ok {
+                w := clamp01(me.PrerequisiteWeights[pcode])
+                var count int64
+                if err := tx.Model(&models.NodePrerequisite{}).
+                    Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
+                        metas[assignedCode].ID, "meta_exercise", metaDef.ID, "meta_definition").
+                    Count(&count).Error; err != nil {
+                    return fmt.Errorf("failed to check existing prerequisite: %v", err)
                 }
+                if count == 0 {
+                    if err := tx.Create(&models.NodePrerequisite{
+                        NodeID:           metas[assignedCode].ID,
+                        NodeType:         "meta_exercise",
+                        PrerequisiteID:   metaDef.ID,
+                        PrerequisiteType: "meta_definition",
+                        Weight:           w,
+                        IsManual:         true,
+                    }).Error; err != nil {
+                        return fmt.Errorf("failed to attach meta_definition prerequisite %s to %s: %v", pcode, assignedCode, err)
+                    }
+                }
+                continue
             }
 
-            // Try to find in imported meta-exercises
-            if resolvedMetaCode != "" {
-                if meta, ok := metas[resolvedMetaCode]; ok {
-                    w := clamp01(me.PrerequisiteWeights[pcode])
-                    var count int64
-                    if err := tx.Model(&models.NodePrerequisite{}).
-                        Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
-                            metas[assignedCode].ID, "meta_exercise", meta.ID, "meta_exercise").
-                        Count(&count).Error; err != nil {
-                        return fmt.Errorf("failed to check existing prerequisite: %v", err)
-                    }
-                    if count == 0 {
-                        if err := tx.Create(&models.NodePrerequisite{
-                            NodeID:           metas[assignedCode].ID,
-                            NodeType:         "meta_exercise",
-                            PrerequisiteID:   meta.ID,
-                            PrerequisiteType: "meta_exercise",
-                            Weight:           w,
-                            IsManual:         true,
-                        }).Error; err != nil {
-                            return fmt.Errorf("failed to attach prerequisite %s to %s: %v", pcode, assignedCode, err)
-                        }
-                    }
-                    continue
+            // 2. Try to find in imported meta-exercises
+            if metaEx, ok := metas[resolvedMetaExCode]; ok {
+                w := clamp01(me.PrerequisiteWeights[pcode])
+                var count int64
+                if err := tx.Model(&models.NodePrerequisite{}).
+                    Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
+                        metas[assignedCode].ID, "meta_exercise", metaEx.ID, "meta_exercise").
+                    Count(&count).Error; err != nil {
+                    return fmt.Errorf("failed to check existing prerequisite: %v", err)
                 }
+                if count == 0 {
+                    if err := tx.Create(&models.NodePrerequisite{
+                        NodeID:           metas[assignedCode].ID,
+                        NodeType:         "meta_exercise",
+                        PrerequisiteID:   metaEx.ID,
+                        PrerequisiteType: "meta_exercise",
+                        Weight:           w,
+                        IsManual:         true,
+                    }).Error; err != nil {
+                        return fmt.Errorf("failed to attach meta_exercise prerequisite %s to %s: %v", pcode, assignedCode, err)
+                    }
+                }
+                continue
             }
+
+            // 3. No legacy fallback: do not create meta_exercise → definition links in dev meta graph
+            // If code does not resolve to meta_definition or meta_exercise, skip with warning.
 
             log.Printf("Warning: Unknown prerequisite code %s for metaExercise %s", pcode, assignedCode)
         }

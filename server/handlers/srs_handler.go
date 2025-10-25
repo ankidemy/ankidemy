@@ -394,14 +394,25 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-    // Validate node types
-    if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise' or 'meta_exercise'"})
+    // Validate node types for graph prerequisites (dev: meta graph only)
+    // Disallow legacy 'definition'/'exercise' node types to prevent invisible links in UI.
+    if request.NodeType != "meta_exercise" && request.NodeType != "meta_definition" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'meta_definition' or 'meta_exercise'"})
         return
     }
 
-    if request.PrerequisiteType != "definition" && request.PrerequisiteType != "exercise" && request.PrerequisiteType != "meta_exercise" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisite type must be 'definition', 'exercise' or 'meta_exercise'"})
+    if request.PrerequisiteType != "meta_exercise" && request.PrerequisiteType != "meta_definition" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisite type must be 'meta_definition' or 'meta_exercise'"})
+        return
+    }
+
+    // Enforce valid prerequisite pairs for meta graph
+    if request.NodeType == "meta_definition" && request.PrerequisiteType != "meta_definition" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "meta_definition nodes can only have meta_definition prerequisites"})
+        return
+    }
+    if request.NodeType == "meta_exercise" && request.PrerequisiteType != "meta_definition" && request.PrerequisiteType != "meta_exercise" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "meta_exercise nodes can only have meta_definition or meta_exercise prerequisites"})
         return
     }
 
