@@ -45,6 +45,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   onAnotherVersion,
 }) => {
   const [showNotes, setShowNotes] = useState(false);
+  const [answerPreview, setAnswerPreview] = useState(false);
   const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
 
   const qualityRatingButtons = [
@@ -132,14 +133,40 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       )}
 
       <div>
-        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Your Answer</h4>
-        <textarea
-          className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
-          placeholder="Enter your answer..."
-          value={userAnswer}
-          onChange={(e) => onUpdateAnswer(e.target.value)}
-          disabled={exerciseAttemptCompleted && !showSolution}
-        />
+        <div className="flex items-center justify-between mb-1">
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Your Answer</h4>
+          {/* For non-verifiable exercises, allow markdown preview toggle */}
+          {!exercise.verifiable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs px-1"
+              onClick={() => setAnswerPreview(v => !v)}
+            >
+              {answerPreview ? 'Edit' : 'Preview'}
+            </Button>
+          )}
+        </div>
+
+        {/* Editable textarea unless in preview mode (for non-verifiable). */}
+        {(!answerPreview || exercise.verifiable) ? (
+          <textarea
+            className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
+            placeholder="Enter your answer..."
+            value={userAnswer}
+            onChange={(e) => onUpdateAnswer(e.target.value)}
+            disabled={exerciseAttemptCompleted && !showSolution}
+          />
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded p-2 text-sm">
+            {userAnswer?.trim() ? (
+              <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
+            ) : (
+              <span className="text-gray-400 italic">Nothing to preview</span>
+            )}
+          </div>
+        )}
+
         {exercise.verifiable && !exerciseAttemptCompleted && (
           <div className="mt-1.5 flex justify-end">
             <Button size="sm" onClick={onVerifyAnswer} className="h-7 text-xs">Verify Answer</Button>

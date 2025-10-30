@@ -36,6 +36,9 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   const [sessionStats, setSessionStats] = useState({ total: 0, completed: 0, correct: 0 });
   const [startTime, setStartTime] = useState<number | null>(null);
   const [autoNavigateToNodes, setAutoNavigateToNodes] = useState(false);
+  // User answer state for non-verifiable exercises
+  const [userAnswer, setUserAnswer] = useState<string>("");
+  const [answerPreview, setAnswerPreview] = useState<boolean>(false);
   
   // FIX 1: Add refresh mechanism to update item details when nodes are edited
   const currentItemIdRef = useRef<string | null>(null);
@@ -159,6 +162,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     setIsLoadingItem(true);
     setShowAnswer(false);
+    setUserAnswer("");
+    setAnswerPreview(false);
     setCurrentReviewItem(review);
     currentItemIdRef.current = review.nodeCode;
     
@@ -193,6 +198,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   // Handle showing answer
   const handleShowAnswer = useCallback(() => {
     setShowAnswer(true);
+    setAnswerPreview(true);
     ui.showReviewAnswer();
   }, [ui]);
 
@@ -358,8 +364,89 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
               Exercise: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex>
             </h3>
             <MarkdownKatex className="p-4 bg-gray-50 rounded-md border text-base mb-2 whitespace-pre-wrap">{itemDetails.statement || "N/A"}</MarkdownKatex>
-            {showAnswer && (
-              <MarkdownKatex className="p-4 bg-green-50 rounded-md border border-green-200 text-base whitespace-pre-wrap">{`Solution: ${itemDetails.description || "N/A"}`}</MarkdownKatex>
+
+            {/* Non-verifiable: input + preview toggle before reveal */}
+            {itemDetails?.verifiable === false && !showAnswer && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-medium text-gray-700">Your Answer</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs px-1"
+                    onClick={() => setAnswerPreview(v => !v)}
+                  >
+                    {answerPreview ? 'Edit' : 'Preview'}
+                  </Button>
+                </div>
+                {answerPreview ? (
+                  <div className="bg-gray-50 border border-gray-200 rounded p-2 text-sm">
+                    {userAnswer?.trim() ? (
+                      <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
+                    ) : (
+                      <span className="text-gray-400 italic">Nothing to preview</span>
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
+                    placeholder="Enter your answer..."
+                    value={userAnswer}
+                    onChange={(e) => setUserAnswer(e.target.value)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Non-verifiable: after reveal show side-by-side compare */}
+            {itemDetails?.verifiable === false && showAnswer && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-medium text-gray-700">Your Answer</p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs px-1"
+                      onClick={() => setAnswerPreview(v => !v)}
+                    >
+                      {answerPreview ? 'Edit' : 'Preview'}
+                    </Button>
+                  </div>
+                  {answerPreview ? (
+                    <div className="p-3 bg-gray-50 rounded-md border text-sm whitespace-pre-wrap">
+                      {userAnswer?.trim() ? (
+                        <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
+                      ) : (
+                        <span className="text-gray-400 italic">No answer provided</span>
+                      )}
+                    </div>
+                  ) : (
+                    <textarea
+                      className="w-full border border-gray-300 rounded p-2 h-40 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
+                      placeholder="Edit your answer..."
+                      value={userAnswer}
+                      onChange={(e) => setUserAnswer(e.target.value)}
+                    />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-1">Solution</p>
+                  <MarkdownKatex className="p-3 bg-green-50 rounded-md border border-green-200 text-sm whitespace-pre-wrap">
+                    {itemDetails.description || "N/A"}
+                  </MarkdownKatex>
+                </div>
+              </div>
+            )}
+
+            {/* Verifiable (or unknown): keep existing one-column solution on reveal */}
+            {itemDetails?.verifiable !== false && showAnswer && (
+              <div className="mt-3">
+                <p className="text-sm font-medium text-gray-700 mb-1">Solution:</p>
+                <MarkdownKatex className="p-4 bg-green-50 rounded-md border border-green-200 text-base whitespace-pre-wrap">
+                  {itemDetails.description || "N/A"}
+                </MarkdownKatex>
+              </div>
             )}
           </div>
         )}
