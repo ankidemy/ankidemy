@@ -6,6 +6,7 @@ import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import { InlineMarkdownKatex, MarkdownKatex } from '@/app/components/core/MarkdownKatex';
+import ZoomableImage from '../components/ZoomableImage';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
@@ -326,12 +327,22 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
             <MarkdownKatex className="p-4 bg-blue-50 rounded-md border text-base mb-2 whitespace-pre-wrap">
               {itemDetails.prompt || "N/A"}
             </MarkdownKatex>
-            {showAnswer && itemDetails.description && (
+            {itemDetails.promptImagePath && (
+              <div className="mb-3">
+                <ZoomableImage src={itemDetails.promptImagePath} alt="Prompt image" />
+              </div>
+            )}
+            {showAnswer && (itemDetails.description || itemDetails.descriptionImagePath) && (
               <div className="mt-3">
                 <p className="text-sm font-medium text-gray-700 mb-1">Additional Information:</p>
                 <MarkdownKatex className="p-4 bg-gray-50 rounded-md border text-base whitespace-pre-wrap">
-                  {itemDetails.description}
+                  {itemDetails.description || "N/A"}
                 </MarkdownKatex>
+                {itemDetails.descriptionImagePath && (
+                  <div className="mt-2">
+                    <ZoomableImage src={itemDetails.descriptionImagePath} alt="Description image" />
+                  </div>
+                )}
               </div>
             )}
             {showAnswer && itemDetails.notes && (
@@ -364,6 +375,11 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
               Exercise: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex>
             </h3>
             <MarkdownKatex className="p-4 bg-gray-50 rounded-md border text-base mb-2 whitespace-pre-wrap">{itemDetails.statement || "N/A"}</MarkdownKatex>
+            {itemDetails.statementImagePath && (
+              <div className="mb-3">
+                <ZoomableImage src={itemDetails.statementImagePath} alt="Statement image" />
+              </div>
+            )}
 
             {/* Non-verifiable: input + preview toggle before reveal */}
             {itemDetails?.verifiable === false && !showAnswer && (
@@ -435,6 +451,11 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
                   <MarkdownKatex className="p-3 bg-green-50 rounded-md border border-green-200 text-sm whitespace-pre-wrap">
                     {itemDetails.description || "N/A"}
                   </MarkdownKatex>
+                  {itemDetails.descriptionImagePath && (
+                    <div className="mt-2">
+                      <ZoomableImage src={itemDetails.descriptionImagePath} alt="Solution image" />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -446,6 +467,11 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
                 <MarkdownKatex className="p-4 bg-green-50 rounded-md border border-green-200 text-base whitespace-pre-wrap">
                   {itemDetails.description || "N/A"}
                 </MarkdownKatex>
+                {itemDetails.descriptionImagePath && (
+                  <div className="mt-2">
+                    <ZoomableImage src={itemDetails.descriptionImagePath} alt="Solution image" />
+                  </div>
+                )}
               </div>
             )}
           </div>

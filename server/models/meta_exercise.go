@@ -47,6 +47,8 @@ type ExerciseVersionRequest struct {
     Verifiable  bool    `json:"verifiable,omitempty"`
     Result      string  `json:"result,omitempty"`
     Difficulty  int     `json:"difficulty,omitempty"`
+    StatementImagePath   string `json:"statementImagePath,omitempty"`
+    DescriptionImagePath string `json:"descriptionImagePath,omitempty"`
 }
 
 // MetaExerciseResponse bundles meta exercise info, prerequisites and aggregate/version info
@@ -65,4 +67,3 @@ type MetaExerciseResponse struct {
     VersionCount int `json:"versionCount"`
     Versions []ExerciseResponse `json:"versions,omitempty"`
 }
-

@@ -79,6 +79,8 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 			Description: req.InitialVersion.Description,
 			Notes:       req.InitialVersion.Notes,
 			References:  req.InitialVersion.References,
+			PromptImagePath:      req.InitialVersion.PromptImagePath,
+			DescriptionImagePath: req.InitialVersion.DescriptionImagePath,
 		})
 	}
 
@@ -155,6 +157,8 @@ func (h *MetaDefinitionHandler) AddVersion(c *gin.Context) {
 		Code:             v.Code,
 		Name:             v.Name,
 		Prompt:           v.Prompt,
+		PromptImagePath:  v.PromptImagePath,
+		DescriptionImagePath: v.DescriptionImagePath,
 		Type:             v.Type,
 		Description:      v.Description,
 		Notes:            v.Notes,
@@ -176,6 +180,11 @@ func (h *MetaDefinitionHandler) UpdateVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID"})
 		return
 	}
+	var existing models.Definition
+	if err := h.metaDAO.DB.First(&existing, uint(vid)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
+		return
+	}
 	var req models.DefinitionVersionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -185,6 +194,12 @@ func (h *MetaDefinitionHandler) UpdateVersion(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update version"})
 		return
+	}
+	if existing.PromptImagePath != "" && req.PromptImagePath != existing.PromptImagePath {
+		_ = services.DeleteMediaFile(existing.PromptImagePath)
+	}
+	if existing.DescriptionImagePath != "" && req.DescriptionImagePath != existing.DescriptionImagePath {
+		_ = services.DeleteMediaFile(existing.DescriptionImagePath)
 	}
 
 	// Load references for response
@@ -200,6 +215,8 @@ func (h *MetaDefinitionHandler) UpdateVersion(c *gin.Context) {
 		Code:             v.Code,
 		Name:             v.Name,
 		Prompt:           v.Prompt,
+		PromptImagePath:  v.PromptImagePath,
+		DescriptionImagePath: v.DescriptionImagePath,
 		Type:             v.Type,
 		Description:      v.Description,
 		Notes:            v.Notes,
@@ -264,6 +281,8 @@ func (h *MetaDefinitionHandler) GetNextVersion(c *gin.Context) {
 		Code:             v.Code,
 		Name:             v.Name,
 		Prompt:           v.Prompt,
+		PromptImagePath:  v.PromptImagePath,
+		DescriptionImagePath: v.DescriptionImagePath,
 		Type:             v.Type,
 		Description:      v.Description,
 		Notes:            v.Notes,

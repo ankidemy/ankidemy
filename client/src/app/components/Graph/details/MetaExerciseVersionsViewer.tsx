@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
+import ZoomableImage from '../components/ZoomableImage';
 import type { MetaExercise } from '@/lib/api';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -141,6 +142,11 @@ const MetaExerciseVersionsViewer: React.FC<MetaExerciseVersionsViewerProps> = ({
             ) : (
               <span className="text-gray-400 italic">N/A</span>
             )}
+            {currentVersion.statementImagePath && (
+              <div className="mt-2">
+                <ZoomableImage src={currentVersion.statementImagePath} alt="Statement image" />
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -174,6 +180,11 @@ const MetaExerciseVersionsViewer: React.FC<MetaExerciseVersionsViewerProps> = ({
                 </MarkdownKatex>
               ) : (
                 <span className="text-gray-400 italic">N/A</span>
+              )}
+              {currentVersion.descriptionImagePath && (
+                <div className="mt-2">
+                  <ZoomableImage src={currentVersion.descriptionImagePath} alt="Solution image" />
+                </div>
               )}
             </CardContent>
           </Card>

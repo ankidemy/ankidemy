@@ -10,6 +10,8 @@ export interface Definition {
   name: string;
   description: string | string[];
   notes?: string;
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   references?: string[];
   prerequisites?: string[]; // codes of prerequisite definitions
   prerequisiteWeights?: Record<string, number>; // FIXED: weights for each prerequisite
@@ -39,6 +41,8 @@ export interface DefinitionVersionPreview {
   description?: string;
   notes?: string;
   references?: string[];
+  promptImagePath?: string;
+  descriptionImagePath?: string;
 }
 
 export interface Exercise {
@@ -51,6 +55,8 @@ export interface Exercise {
   statement: string;
   // Some payloads omit description for exercises
   description?: string;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
   // Optional metadata fields sometimes present in payloads
   notes?: string;
   hints?: string;
@@ -144,6 +150,8 @@ export interface DefinitionRequest {
   description: string;
   notes?: string;
   references?: string[];
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   prerequisiteCodes?: string[];
   prerequisiteWeights?: Record<string, number>; // FIXED: weights for prerequisites
   domainId: number;
@@ -157,6 +165,8 @@ export interface ExerciseRequest {
   statement: string;
   description?: string;
   hints?: string;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
   domainId: number;
   verifiable?: boolean;
   result?: string;

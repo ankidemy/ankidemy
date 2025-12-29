@@ -485,6 +485,24 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     return '';
   };
 
+  const currentPromptImagePath = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      const versions = (metaDetails as MetaDefinition).versions || [];
+      const idx = Math.max(0, Math.min(selectedDefinitionIndex, Math.max(0, versions.length - 1)));
+      return (versions[idx] as any)?.promptImagePath || '';
+    }
+    return (nodeDetails as Definition | null)?.promptImagePath || '';
+  };
+
+  const currentDescriptionImagePath = () => {
+    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
+      const versions = (metaDetails as MetaDefinition).versions || [];
+      const idx = Math.max(0, Math.min(selectedDefinitionIndex, Math.max(0, versions.length - 1)));
+      return (versions[idx] as any)?.descriptionImagePath || '';
+    }
+    return (nodeDetails as Definition | null)?.descriptionImagePath || '';
+  };
+
   const currentNotesText = () => {
     if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
       const versions = (metaDetails as MetaDefinition).versions || [];
@@ -911,6 +929,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   currentDescription={currentDescriptionText()}
                   currentPrompt={currentPromptText()}
                   currentNotes={currentNotesText()}
+                  promptImagePath={currentPromptImagePath()}
+                  descriptionImagePath={currentDescriptionImagePath()}
                   onNavigatePrev={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
                   onNavigateNext={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
                   relatedExercises={relatedExercises}
@@ -942,6 +962,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   }))}
                   srsStatus={nodeProgress?.status}
                   onAnotherVersion={handleAnotherVersion}
+                  statementImagePath={(nodeDetails as Exercise | null)?.statementImagePath}
+                  descriptionImagePath={(nodeDetails as Exercise | null)?.descriptionImagePath}
                 />
               )}
             </TabsContent>

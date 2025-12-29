@@ -123,6 +123,17 @@ func (d *ProgressDAO) GetUserExerciseProgress(userID, domainID uint) ([]models.U
 	return progress, result.Error
 }
 
+// IsUserEnrolled checks if a user is enrolled in a domain.
+func (d *ProgressDAO) IsUserEnrolled(userID, domainID uint) (bool, error) {
+	var count int64
+	if err := d.db.Model(&models.UserDomainProgress{}).
+		Where("user_id = ? AND domain_id = ?", userID, domainID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // TrackDefinitionReview records a user's review of a definition (spaced repetition)
 func (d *ProgressDAO) TrackDefinitionReview(userID, definitionID uint, result models.ReviewResult, timeTaken int) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {

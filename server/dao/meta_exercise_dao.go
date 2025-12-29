@@ -11,6 +11,15 @@ type MetaExerciseDAO struct{ db *gorm.DB }
 
 func NewMetaExerciseDAO(db *gorm.DB) *MetaExerciseDAO { return &MetaExerciseDAO{db: db} }
 
+// FindVersionByID loads a specific exercise version by its ID.
+func (d *MetaExerciseDAO) FindVersionByID(versionID uint) (*models.Exercise, error) {
+	var ex models.Exercise
+	if err := d.db.First(&ex, versionID).Error; err != nil {
+		return nil, err
+	}
+	return &ex, nil
+}
+
 // Create a meta exercise and its prerequisites
 func (d *MetaExerciseDAO) Create(meta *models.MetaExercise, prerequisiteIDs []uint, weights map[uint]float64) error {
     return d.db.Transaction(func(tx *gorm.DB) error {
@@ -93,6 +102,8 @@ func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionReq
         Description: req.Description,
         Notes: req.Notes,
         Hints: req.Hints,
+        StatementImagePath: req.StatementImagePath,
+        DescriptionImagePath: req.DescriptionImagePath,
         DomainID: meta.DomainID,
         OwnerID: meta.OwnerID,
         MetaExerciseID: meta.ID,
@@ -114,6 +125,8 @@ func (d *MetaExerciseDAO) UpdateVersion(versionID uint, req *models.ExerciseVers
     ex.Description = req.Description
     ex.Notes = req.Notes
     ex.Hints = req.Hints
+    ex.StatementImagePath = req.StatementImagePath
+    ex.DescriptionImagePath = req.DescriptionImagePath
     ex.Verifiable = req.Verifiable
     ex.Result = req.Result
     if req.Difficulty >= 1 && req.Difficulty <= 7 { ex.Difficulty = req.Difficulty }
@@ -260,6 +273,8 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
                 Name: v.Name,
                 Statement: v.Statement,
                 Description: v.Description,
+                StatementImagePath: v.StatementImagePath,
+                DescriptionImagePath: v.DescriptionImagePath,
                 Notes: v.Notes,
                 Hints: v.Hints,
                 DomainID: v.DomainID,

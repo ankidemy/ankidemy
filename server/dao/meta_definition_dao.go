@@ -176,6 +176,8 @@ func (d *MetaDefinitionDAO) AddVersion(metaID uint, req *models.DefinitionVersio
 		Type:             defType,
 		Description:      req.Description,
 		Notes:            req.Notes,
+		PromptImagePath:  req.PromptImagePath,
+		DescriptionImagePath: req.DescriptionImagePath,
 		DomainID:         meta.DomainID,
 		OwnerID:          meta.OwnerID,
 		MetaDefinitionID: meta.ID,
@@ -225,6 +227,8 @@ func (d *MetaDefinitionDAO) UpdateVersion(versionID uint, req *models.Definition
 	}
 	def.Description = req.Description
 	def.Notes = req.Notes
+	def.PromptImagePath = req.PromptImagePath
+	def.DescriptionImagePath = req.DescriptionImagePath
 
 	err := d.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&def).Error; err != nil {
@@ -415,6 +419,8 @@ func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versi
 				Code:             v.Code,
 				Name:             v.Name,
 				Prompt:           v.Prompt,
+				PromptImagePath:  v.PromptImagePath,
+				DescriptionImagePath: v.DescriptionImagePath,
 				Type:             v.Type,
 				Description:      v.Description,
 				Notes:            v.Notes,

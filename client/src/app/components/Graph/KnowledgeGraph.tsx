@@ -39,6 +39,7 @@ import {
   getEnrolledDomains,
   getCurrentUser,
   User,
+  uploadNodeImage,
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
 import { getStatusColor, isNodeDue, calculateDaysUntilReview, createPrerequisite, deletePrerequisite, getDomainPrerequisites } from '@/lib/srs-api';
@@ -58,6 +59,7 @@ import GraphLegend from './utils/GraphLegend';
 import { GraphLifecycle } from './utils/GraphLifecycle';
 import TopControls from './panels/TopControls';
 import LeftPanelToggle from './panels/LeftPanelToggle';
+import ZoomableImage from './components/ZoomableImage';
 import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
 import { showToast } from '@/app/components/core/ToastNotification';
@@ -129,9 +131,13 @@ interface FrenzyNoteState {
   prompt: string;
   defaultPrompt: string;
   isAutoPrompt: boolean;
+  promptImagePath: string;
   content: string;
   defaultContent: string;
   isAutoContent: boolean;
+  contentImagePath: string;
+  solution: string;
+  solutionImagePath: string;
 }
 
 interface FrenzyDeletedNodeSnapshot {
@@ -565,6 +571,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyNoteDraft, setFrenzyNoteDraft] = useState('');
   const [frenzyNoteNameDraft, setFrenzyNoteNameDraft] = useState('');
   const [frenzyNotePromptDraft, setFrenzyNotePromptDraft] = useState('');
+  const [frenzyNotePromptImagePath, setFrenzyNotePromptImagePath] = useState('');
+  const [frenzyNoteContentImagePath, setFrenzyNoteContentImagePath] = useState('');
+  const [frenzyNoteSolutionDraft, setFrenzyNoteSolutionDraft] = useState('');
+  const [frenzyNoteSolutionImagePath, setFrenzyNoteSolutionImagePath] = useState('');
+  const [showFrenzySolution, setShowFrenzySolution] = useState(false);
   const [frenzyNotePreview, setFrenzyNotePreview] = useState(false);
   const [isSavingFrenzyNote, setIsSavingFrenzyNote] = useState(false);
   const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
@@ -577,6 +588,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyNotePosition, setFrenzyNotePosition] = useState<{ x: number; y: number }>({ x: 240, y: 80 });
   const [isDraggingFrenzyNote, setIsDraggingFrenzyNote] = useState(false);
   const frenzyNoteDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const frenzyPromptImageInputRef = useRef<HTMLInputElement | null>(null);
+  const frenzyContentImageInputRef = useRef<HTMLInputElement | null>(null);
+  const frenzySolutionImageInputRef = useRef<HTMLInputElement | null>(null);
 
   // Refs for stable callbacks
   const isInitializedRef = useRef<boolean>(false);
@@ -1512,6 +1526,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const effectivePrompt = node.type === 'definition'
         ? (rawPrompt.trim().length > 0 ? rawPrompt : defaultPrompt)
         : '';
+      const promptImagePath = node.type === 'definition'
+        ? ((version as DefinitionVersion).promptImagePath || '')
+        : '';
+      const contentImagePath = node.type === 'definition'
+        ? ((version as DefinitionVersion).descriptionImagePath || '')
+        : ((version as ExerciseVersion).statementImagePath || '');
+      const solutionText = node.type === 'exercise'
+        ? ((version as ExerciseVersion).description || '')
+        : '';
+      const solutionImagePath = node.type === 'exercise'
+        ? ((version as ExerciseVersion).descriptionImagePath || '')
+        : '';
       setFrenzyNote({
         nodeId: resolvedCode,
         nodeType: node.type,
@@ -1521,14 +1547,23 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         prompt: effectivePrompt,
         defaultPrompt,
         isAutoPrompt,
+        promptImagePath,
         content: effectiveContent,
         defaultContent,
         isAutoContent,
+        contentImagePath,
+        solution: solutionText,
+        solutionImagePath,
       });
       setFrenzyNoteCodeDraft(resolvedCode);
       setFrenzyNoteDraft(effectiveContent);
       setFrenzyNoteNameDraft(resolvedName);
       setFrenzyNotePromptDraft(effectivePrompt);
+      setFrenzyNotePromptImagePath(promptImagePath);
+      setFrenzyNoteContentImagePath(contentImagePath);
+      setFrenzyNoteSolutionDraft(solutionText);
+      setFrenzyNoteSolutionImagePath(solutionImagePath);
+      setShowFrenzySolution(false);
       setFrenzyNotePreview(false);
     } catch (error) {
       console.error('Failed to load frenzy note:', error);
@@ -1628,7 +1663,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const codeChanged = codeDraft.length > 0 && codeDraft !== frenzyNote.nodeId;
     const promptChanged = isDefinition && frenzyNotePromptDraft !== frenzyNote.prompt;
     const contentChanged = draft !== frenzyNote.content;
-    if (!nameChanged && !codeChanged && !promptChanged && !contentChanged) return;
+    const promptImageChanged = isDefinition && frenzyNotePromptImagePath !== frenzyNote.promptImagePath;
+    const contentImageChanged = frenzyNoteContentImagePath !== frenzyNote.contentImagePath;
+    const solutionChanged = !isDefinition && frenzyNoteSolutionDraft !== frenzyNote.solution;
+    const solutionImageChanged = !isDefinition && frenzyNoteSolutionImagePath !== frenzyNote.solutionImagePath;
+    if (!nameChanged && !codeChanged && !promptChanged && !contentChanged && !promptImageChanged && !contentImageChanged && !solutionChanged && !solutionImageChanged) return;
 
     if (codeChanged && existingCodes.has(codeDraft)) {
       showToast(`Code "${codeDraft}" already exists.`, 'warning');
@@ -1646,23 +1685,29 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
       const previousCode = frenzyNote.nodeId;
 
-      if (promptChanged || contentChanged) {
+      if (promptChanged || contentChanged || promptImageChanged || contentImageChanged || solutionChanged || solutionImageChanged) {
         if (frenzyNote.nodeType === 'definition') {
           const current = frenzyNote.version as DefinitionVersion;
           const nextPrompt = promptChanged ? frenzyNotePromptDraft : current.prompt;
           const nextDescription = contentChanged ? draft : (current.description || '');
+          const nextPromptImage = promptImageChanged ? frenzyNotePromptImagePath : (current.promptImagePath || '');
+          const nextDescriptionImage = contentImageChanged ? frenzyNoteContentImagePath : (current.descriptionImagePath || '');
           await updateMetaDefinitionVersion(frenzyNote.metaId, current.id, {
             prompt: nextPrompt,
             type: current.type,
             description: nextDescription,
             notes: current.notes,
             references: current.references || [],
+            promptImagePath: nextPromptImage,
+            descriptionImagePath: nextDescriptionImage,
           });
-          const updated = { ...current, prompt: nextPrompt, description: nextDescription };
+          const updated = { ...current, prompt: nextPrompt, description: nextDescription, promptImagePath: nextPromptImage, descriptionImagePath: nextDescriptionImage };
           setFrenzyNote(prev => prev ? {
             ...prev,
             prompt: nextPrompt,
             content: nextDescription,
+            promptImagePath: nextPromptImage,
+            contentImagePath: nextDescriptionImage,
             version: updated,
             isAutoPrompt: promptChanged ? false : prev.isAutoPrompt,
             isAutoContent: contentChanged ? false : prev.isAutoContent,
@@ -1670,19 +1715,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         } else {
           const current = frenzyNote.version as ExerciseVersion;
           const nextStatement = contentChanged ? draft : (current.statement || '');
+          const nextSolution = solutionChanged ? frenzyNoteSolutionDraft : (current.description || '');
+          const nextStatementImage = contentImageChanged ? frenzyNoteContentImagePath : (current.statementImagePath || '');
+          const nextSolutionImage = solutionImageChanged ? frenzyNoteSolutionImagePath : (current.descriptionImagePath || '');
           await updateMetaExerciseVersion(frenzyNote.metaId, current.id, {
             statement: nextStatement,
-            description: current.description,
+            description: nextSolution,
             notes: current.notes,
             hints: current.hints,
             verifiable: current.verifiable,
             result: current.result,
             difficulty: current.difficulty,
+            statementImagePath: nextStatementImage,
+            descriptionImagePath: nextSolutionImage,
           });
-          const updated = { ...current, statement: nextStatement };
+          const updated = { ...current, statement: nextStatement, description: nextSolution, statementImagePath: nextStatementImage, descriptionImagePath: nextSolutionImage };
           setFrenzyNote(prev => prev ? {
             ...prev,
             content: nextStatement,
+            contentImagePath: nextStatementImage,
+            solution: nextSolution,
+            solutionImagePath: nextSolutionImage,
             version: updated,
             isAutoContent: contentChanged ? false : prev.isAutoContent,
           } : prev);
@@ -1804,6 +1857,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     frenzyNoteDraft,
     frenzyNoteNameDraft,
     frenzyNotePromptDraft,
+    frenzyNotePromptImagePath,
+    frenzyNoteContentImagePath,
+    frenzyNoteSolutionDraft,
+    frenzyNoteSolutionImagePath,
     frenzyNoteCodeDraft,
     isFrenzyEditMode,
     loadFrenzyPrerequisites,
@@ -1815,6 +1872,110 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     existingCodes,
   ]);
 
+  const uploadFrenzyImage = useCallback(async (file: File, target: 'prompt' | 'content' | 'solution') => {
+    if (!frenzyNote) return;
+    const domainId = parseInt(subjectMatterId, 10);
+    if (isNaN(domainId)) {
+      showToast('Missing domain identifier.', 'error');
+      return;
+    }
+
+    const field = target === 'prompt'
+      ? 'prompt'
+      : (frenzyNote.nodeType === 'definition' ? 'description' : (target === 'content' ? 'statement' : 'description'));
+
+    try {
+      const { imagePath } = await uploadNodeImage({
+        file,
+        domainId,
+        nodeType: frenzyNote.nodeType,
+        field,
+      });
+
+      if (frenzyNote.nodeType === 'definition') {
+        const current = frenzyNote.version as DefinitionVersion;
+        const nextPromptImage = target === 'prompt' ? imagePath : (frenzyNotePromptImagePath || current.promptImagePath || '');
+        const nextContentImage = target === 'content' ? imagePath : (frenzyNoteContentImagePath || current.descriptionImagePath || '');
+        const nextPrompt = (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt)
+          ? (current.prompt || '')
+          : frenzyNotePromptDraft;
+        const nextDescription = (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent)
+          ? (current.description || '')
+          : frenzyNoteDraft;
+        await updateMetaDefinitionVersion(frenzyNote.metaId, current.id, {
+          prompt: nextPrompt,
+          type: current.type,
+          description: nextDescription,
+          notes: current.notes,
+          references: current.references || [],
+          promptImagePath: nextPromptImage,
+          descriptionImagePath: nextContentImage,
+        });
+        setFrenzyNotePromptImagePath(nextPromptImage);
+        setFrenzyNoteContentImagePath(nextContentImage);
+        setFrenzyNote(prev => prev ? {
+          ...prev,
+          promptImagePath: nextPromptImage,
+          contentImagePath: nextContentImage,
+          version: { ...current, promptImagePath: nextPromptImage, descriptionImagePath: nextContentImage },
+        } : prev);
+      } else {
+        const current = frenzyNote.version as ExerciseVersion;
+        const nextStatementImage = target === 'content' ? imagePath : (frenzyNoteContentImagePath || current.statementImagePath || '');
+        const nextSolutionImage = target === 'solution' ? imagePath : (frenzyNoteSolutionImagePath || current.descriptionImagePath || '');
+        const nextStatement = (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent)
+          ? (current.statement || '')
+          : frenzyNoteDraft;
+        const nextSolution = frenzyNoteSolutionDraft;
+        await updateMetaExerciseVersion(frenzyNote.metaId, current.id, {
+          statement: nextStatement,
+          description: nextSolution,
+          notes: current.notes,
+          hints: current.hints,
+          verifiable: current.verifiable,
+          result: current.result,
+          difficulty: current.difficulty,
+          statementImagePath: nextStatementImage,
+          descriptionImagePath: nextSolutionImage,
+        });
+        setFrenzyNoteContentImagePath(nextStatementImage);
+        setFrenzyNoteSolutionImagePath(nextSolutionImage);
+        setFrenzyNote(prev => prev ? {
+          ...prev,
+          contentImagePath: nextStatementImage,
+          solutionImagePath: nextSolutionImage,
+          version: { ...current, statementImagePath: nextStatementImage, descriptionImagePath: nextSolutionImage, description: nextSolution },
+        } : prev);
+      }
+      showToast('Image uploaded.', 'success', 1200);
+    } catch (error) {
+      console.error('Failed to upload image:', error);
+      showToast('Failed to upload image.', 'error');
+    }
+  }, [
+    frenzyNote,
+    frenzyNotePromptDraft,
+    frenzyNoteDraft,
+    frenzyNoteSolutionDraft,
+    frenzyNotePromptImagePath,
+    frenzyNoteContentImagePath,
+    frenzyNoteSolutionImagePath,
+    subjectMatterId,
+    updateMetaDefinitionVersion,
+    updateMetaExerciseVersion,
+  ]);
+
+  const handleFrenzyPaste = useCallback((event: React.ClipboardEvent, target: 'prompt' | 'content' | 'solution') => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    const imageItem = Array.from(items).find(item => item.type.startsWith('image/'));
+    if (!imageItem) return;
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    uploadFrenzyImage(file, target);
+  }, [uploadFrenzyImage]);
+
   const closeFrenzyNote = useCallback(async () => {
     await saveFrenzyNote();
     setFrenzyNote(null);
@@ -1822,6 +1983,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setFrenzyNoteDraft('');
     setFrenzyNoteNameDraft('');
     setFrenzyNotePromptDraft('');
+    setFrenzyNotePromptImagePath('');
+    setFrenzyNoteContentImagePath('');
+    setFrenzyNoteSolutionDraft('');
+    setFrenzyNoteSolutionImagePath('');
+    setShowFrenzySolution(false);
     setFrenzyNotePreview(false);
     setIsDraggingFrenzyNote(false);
   }, [saveFrenzyNote]);
@@ -2539,6 +2705,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                             setFrenzyNote(prev => prev ? { ...prev, isAutoPrompt: false } : prev);
                           }
                         }}
+                        onPaste={(e) => handleFrenzyPaste(e, 'prompt')}
                         onFocus={(e) => {
                           if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
                             e.currentTarget.select();
@@ -2554,6 +2721,29 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                           frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
                         }`}
                       />
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        {frenzyNotePromptImagePath ? (
+                          <ZoomableImage src={frenzyNotePromptImagePath} alt="Prompt image" maxHeightClass="max-h-24" className="max-w-[180px]" />
+                        ) : (
+                          <span className="text-[11px] text-yellow-700">No prompt image</span>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={frenzyPromptImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadFrenzyImage(file, 'prompt');
+                              if (e.currentTarget) e.currentTarget.value = '';
+                            }}
+                          />
+                          <Button size="sm" variant="outline" onClick={() => frenzyPromptImageInputRef.current?.click()}>
+                            Upload Image
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   <div className="mb-2">
@@ -2576,6 +2766,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                           setFrenzyNote(prev => prev ? { ...prev, isAutoContent: false } : prev);
                         }
                       }}
+                      onPaste={(e) => handleFrenzyPaste(e, 'content')}
                       onFocus={(e) => {
                         if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
                           e.currentTarget.select();
@@ -2594,8 +2785,90 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       }`}
                     />
                   )}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    {frenzyNoteContentImagePath ? (
+                      <ZoomableImage src={frenzyNoteContentImagePath} alt="Content image" maxHeightClass="max-h-24" className="max-w-[180px]" />
+                    ) : (
+                      <span className="text-[11px] text-yellow-700">No image attached</span>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={frenzyContentImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadFrenzyImage(file, 'content');
+                          if (e.currentTarget) e.currentTarget.value = '';
+                        }}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => frenzyContentImageInputRef.current?.click()}>
+                        Upload Image
+                      </Button>
+                    </div>
+                  </div>
                   </div>
                 </div>
+                {frenzyNote.nodeType === 'exercise' && (
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs text-yellow-800">Solution</label>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setShowFrenzySolution(prev => !prev)}
+                        className="text-[11px]"
+                      >
+                        {showFrenzySolution ? 'Hide' : 'Show'}
+                      </Button>
+                    </div>
+                    {showFrenzySolution && (
+                      <>
+                        {frenzyNotePreview ? (
+                          <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-40 overflow-y-auto">
+                            <MarkdownKatex className="whitespace-pre-wrap">
+                              {frenzyNoteSolutionDraft || 'No solution'}
+                            </MarkdownKatex>
+                          </div>
+                        ) : (
+                          <textarea
+                            value={frenzyNoteSolutionDraft}
+                            onChange={(e) => setFrenzyNoteSolutionDraft(e.target.value)}
+                            onPaste={(e) => handleFrenzyPaste(e, 'solution')}
+                            onBlur={() => saveFrenzyNote()}
+                            rows={4}
+                            placeholder="Solution or explanation..."
+                            className="w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+                          />
+                        )}
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          {frenzyNoteSolutionImagePath ? (
+                            <ZoomableImage src={frenzyNoteSolutionImagePath} alt="Solution image" maxHeightClass="max-h-24" className="max-w-[180px]" />
+                          ) : (
+                            <span className="text-[11px] text-yellow-700">No solution image</span>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <input
+                              ref={frenzySolutionImageInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) uploadFrenzyImage(file, 'solution');
+                                if (e.currentTarget) e.currentTarget.value = '';
+                              }}
+                            />
+                            <Button size="sm" variant="outline" onClick={() => frenzySolutionImageInputRef.current?.click()}>
+                              Upload Image
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="mt-2 flex items-center justify-between">
                   <Button
                     size="sm"

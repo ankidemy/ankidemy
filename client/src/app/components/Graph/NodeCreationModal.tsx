@@ -10,12 +10,14 @@ import {
   addMetaExerciseVersion,
   getMetaDefinition,
   getMetaExercise,
+  uploadNodeImage,
   DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
   Definition as ApiDefinition,
   Exercise as ApiExercise,
   MetaDefinition
 } from '@/lib/api';
 import { X } from 'lucide-react';
+import ImageUploadField from './components/ImageUploadField';
 
 interface PrerequisiteOption {
   code: string; // The string code for display and internal graph use
@@ -52,6 +54,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [notes, setNotes] = useState('');
   const [statement, setStatement] = useState('');
   const [hints, setHints] = useState('');
+  const [statementImagePath, setStatementImagePath] = useState('');
+  const [solutionImagePath, setSolutionImagePath] = useState('');
   const [difficulty, setDifficulty] = useState('3');
   const [verifiable, setVerifiable] = useState(false);
   const [result, setResult] = useState('');
@@ -59,10 +63,12 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [prompt, setPrompt] = useState('');
   const [versionType, setVersionType] = useState('open_ended');
   const [references, setReferences] = useState('');
+  const [promptImagePath, setPromptImagePath] = useState('');
+  const [descriptionImagePath, setDescriptionImagePath] = useState('');
   // Additional versions for meta-exercise creation
-  const [extraVersions, setExtraVersions] = useState<Array<{ statement: string; description?: string; hints?: string; notes?: string; difficulty?: number; verifiable?: boolean; result?: string }>>([]);
+  const [extraVersions, setExtraVersions] = useState<Array<{ statement: string; description?: string; hints?: string; notes?: string; difficulty?: number; verifiable?: boolean; result?: string; statementImagePath?: string; descriptionImagePath?: string }>>([]);
   // Additional versions for meta-definition creation
-  const [extraDefVersions, setExtraDefVersions] = useState<Array<{ prompt: string; description?: string; notes?: string; references?: string; type?: string }>>([]);
+  const [extraDefVersions, setExtraDefVersions] = useState<Array<{ prompt: string; description?: string; notes?: string; references?: string; type?: string; promptImagePath?: string; descriptionImagePath?: string }>>([]);
   const [selectedDefPrereqIds, setSelectedDefPrereqIds] = useState<number[]>([]);
   const [selectedExPrereqIds, setSelectedExPrereqIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,12 +87,16 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
       setNotes('');
       setStatement('');
       setHints('');
+      setStatementImagePath('');
+      setSolutionImagePath('');
       setDifficulty('3');
       setVerifiable(false);
       setResult('');
       setPrompt('');
       setVersionType('open_ended');
       setReferences('');
+      setPromptImagePath('');
+      setDescriptionImagePath('');
       setExtraDefVersions([]);
       setSelectedDefPrereqIds([]);
       setSelectedExPrereqIds([]);
@@ -183,7 +193,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           // Concept prerequisites will be attached via SRS API after creation
         };
         // Include initial version only if user provided any fields; default prompt to "Define <Name>" if needed
-        const anyVersionField = [prompt, description, notes, references].some(v => (v || '').trim().length > 0);
+        const anyVersionField = [prompt, description, notes, references, promptImagePath, descriptionImagePath]
+          .some(v => (v || '').trim().length > 0);
         if (anyVersionField) {
           const effectivePrompt = (prompt || '').trim() || (name.trim() ? `Define ${name.trim()}` : 'Define the concept');
           metaDefData.initialVersion = {
@@ -192,6 +203,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             description: description.trim() || undefined,
             notes: notes.trim() || undefined,
             references: references.trim() ? references.split(',').map(r => r.trim()).filter(r => r) : undefined,
+            promptImagePath: promptImagePath || undefined,
+            descriptionImagePath: descriptionImagePath || undefined,
           };
         }
         const response = await createMetaDefinition(domainId, metaDefData);
@@ -219,6 +232,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             description: v.description?.trim() || undefined,
             notes: v.notes?.trim() || undefined,
             references: v.references?.split(',').map(r => r.trim()).filter(Boolean) || undefined,
+            promptImagePath: v.promptImagePath || undefined,
+            descriptionImagePath: v.descriptionImagePath || undefined,
           };
           await addMetaDefinitionVersion((response as any).id, payload);
         }
@@ -246,6 +261,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             difficulty: parseInt(difficulty, 10) || 3,
             verifiable,
             result: verifiable ? (result.trim() || undefined) : undefined,
+            statementImagePath: statementImagePath || undefined,
+            descriptionImagePath: solutionImagePath || undefined,
           }
         });
         // Attach concept prerequisites (meta_exercise -> meta_definition) via SRS API
@@ -372,6 +389,32 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 <div key={`extra-v-${idx}`} className="p-2 border rounded">
                   <label className="block text-xs font-medium mb-1 text-gray-600">Statement</label>
                   <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.statement} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], statement: e.target.value }; return copy; })} />
+                  <div className="mt-2">
+                    <ImageUploadField
+                      label="Statement Image"
+                      imagePath={v.statementImagePath}
+                      disabled={isSubmitting}
+                      onUpload={async (file) => {
+                        const { imagePath } = await uploadNodeImage({
+                          file,
+                          domainId,
+                          nodeType: 'exercise',
+                          field: 'statement',
+                        });
+                        return imagePath;
+                      }}
+                      onChange={(path) => setExtraVersions(arr => {
+                        const copy = [...arr];
+                        copy[idx] = { ...copy[idx], statementImagePath: path };
+                        return copy;
+                      })}
+                      onClear={() => setExtraVersions(arr => {
+                        const copy = [...arr];
+                        copy[idx] = { ...copy[idx], statementImagePath: '' };
+                        return copy;
+                      })}
+                    />
+                  </div>
                   <div className="grid grid-cols-2 gap-2 mt-1">
                     <div>
                       <label className="block text-xs font-medium mb-1 text-gray-600">Solution</label>
@@ -381,6 +424,32 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                       <label className="block text-xs font-medium mb-1 text-gray-600">Hints</label>
                       <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.hints || ''} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], hints: e.target.value }; return copy; })} />
                     </div>
+                  </div>
+                  <div className="mt-2">
+                    <ImageUploadField
+                      label="Solution Image"
+                      imagePath={v.descriptionImagePath}
+                      disabled={isSubmitting}
+                      onUpload={async (file) => {
+                        const { imagePath } = await uploadNodeImage({
+                          file,
+                          domainId,
+                          nodeType: 'exercise',
+                          field: 'description',
+                        });
+                        return imagePath;
+                      }}
+                      onChange={(path) => setExtraVersions(arr => {
+                        const copy = [...arr];
+                        copy[idx] = { ...copy[idx], descriptionImagePath: path };
+                        return copy;
+                      })}
+                      onClear={() => setExtraVersions(arr => {
+                        const copy = [...arr];
+                        copy[idx] = { ...copy[idx], descriptionImagePath: '' };
+                        return copy;
+                      })}
+                    />
                   </div>
                   <div className="grid grid-cols-3 gap-2 mt-1">
                     <div>
@@ -419,6 +488,23 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 />
                 <p className="text-xs text-gray-500 mt-1">The question/prompt to display during reviews</p>
               </div>
+              <ImageUploadField
+                label="Prompt Image"
+                helperText="Supports one image per prompt."
+                imagePath={promptImagePath}
+                disabled={isSubmitting}
+                onUpload={async (file) => {
+                  const { imagePath } = await uploadNodeImage({
+                    file,
+                    domainId,
+                    nodeType: 'definition',
+                    field: 'prompt',
+                  });
+                  return imagePath;
+                }}
+                onChange={setPromptImagePath}
+                onClear={() => setPromptImagePath('')}
+              />
               <div>
                 <label htmlFor="versionType" className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                 <select
@@ -444,6 +530,23 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 />
                 <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}</p>
               </div>
+              <ImageUploadField
+                label="Description Image"
+                helperText="Supports one image per description."
+                imagePath={descriptionImagePath}
+                disabled={isSubmitting}
+                onUpload={async (file) => {
+                  const { imagePath } = await uploadNodeImage({
+                    file,
+                    domainId,
+                    nodeType: 'definition',
+                    field: 'description',
+                  });
+                  return imagePath;
+                }}
+                onChange={setDescriptionImagePath}
+                onClear={() => setDescriptionImagePath('')}
+              />
               <div>
                 <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
                 <textarea
@@ -500,6 +603,32 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                         </select>
                       </div>
                     </div>
+                    <div className="mt-2">
+                      <ImageUploadField
+                        label="Prompt Image"
+                        imagePath={v.promptImagePath}
+                        disabled={isSubmitting}
+                        onUpload={async (file) => {
+                          const { imagePath } = await uploadNodeImage({
+                            file,
+                            domainId,
+                            nodeType: 'definition',
+                            field: 'prompt',
+                          });
+                          return imagePath;
+                        }}
+                        onChange={(path) => setExtraDefVersions(arr => {
+                          const copy = [...arr];
+                          copy[idx] = { ...copy[idx], promptImagePath: path };
+                          return copy;
+                        })}
+                        onClear={() => setExtraDefVersions(arr => {
+                          const copy = [...arr];
+                          copy[idx] = { ...copy[idx], promptImagePath: '' };
+                          return copy;
+                        })}
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-2 mt-1">
                       <div>
                         <label className="block text-xs font-medium mb-1 text-gray-600">Definition (Description)</label>
@@ -509,6 +638,32 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                         <label className="block text-xs font-medium mb-1 text-gray-600">Notes</label>
                         <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.notes || ''} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], notes: e.target.value }; return copy; })} />
                       </div>
+                    </div>
+                    <div className="mt-2">
+                      <ImageUploadField
+                        label="Description Image"
+                        imagePath={v.descriptionImagePath}
+                        disabled={isSubmitting}
+                        onUpload={async (file) => {
+                          const { imagePath } = await uploadNodeImage({
+                            file,
+                            domainId,
+                            nodeType: 'definition',
+                            field: 'description',
+                          });
+                          return imagePath;
+                        }}
+                        onChange={(path) => setExtraDefVersions(arr => {
+                          const copy = [...arr];
+                          copy[idx] = { ...copy[idx], descriptionImagePath: path };
+                          return copy;
+                        })}
+                        onClear={() => setExtraDefVersions(arr => {
+                          const copy = [...arr];
+                          copy[idx] = { ...copy[idx], descriptionImagePath: '' };
+                          return copy;
+                        })}
+                      />
                     </div>
                     <div className="mt-1">
                       <label className="block text-xs font-medium mb-1 text-gray-600">References (comma-separated)</label>
@@ -528,11 +683,45 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 <textarea id="statement" value={statement} onChange={(e) => setStatement(e.target.value)} rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Exercise statement..." required disabled={isSubmitting}/>
                 <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}</p>
               </div>
+              <ImageUploadField
+                label="Statement Image"
+                helperText="Supports one image per statement."
+                imagePath={statementImagePath}
+                disabled={isSubmitting}
+                onUpload={async (file) => {
+                  const { imagePath } = await uploadNodeImage({
+                    file,
+                    domainId,
+                    nodeType: 'exercise',
+                    field: 'statement',
+                  });
+                  return imagePath;
+                }}
+                onChange={setStatementImagePath}
+                onClear={() => setStatementImagePath('')}
+              />
               <div>
                 <label htmlFor="solution" className="block text-sm font-medium text-gray-700 mb-1">Solution / Explanation (Optional)</label>
                 <textarea id="solution" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Solution details..." disabled={isSubmitting}/>
                  <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation.'}</p>
               </div>
+              <ImageUploadField
+                label="Solution Image"
+                helperText="Supports one image per solution."
+                imagePath={solutionImagePath}
+                disabled={isSubmitting}
+                onUpload={async (file) => {
+                  const { imagePath } = await uploadNodeImage({
+                    file,
+                    domainId,
+                    nodeType: 'exercise',
+                    field: 'description',
+                  });
+                  return imagePath;
+                }}
+                onChange={setSolutionImagePath}
+                onClear={() => setSolutionImagePath('')}
+              />
               <div>
                 <label htmlFor="hints" className="block text-sm font-medium text-gray-700 mb-1">Hints (Optional)</label>
                 <textarea id="hints" value={hints} onChange={(e) => setHints(e.target.value)} rows={2} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Optional hints..." disabled={isSubmitting}/>

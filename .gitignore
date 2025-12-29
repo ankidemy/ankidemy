@@ -14,3 +14,4 @@ server/build-errors.log
 *build.out
 *build.raw
 current_git_diff.txt
+media/

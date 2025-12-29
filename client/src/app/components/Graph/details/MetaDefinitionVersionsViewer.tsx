@@ -5,6 +5,7 @@ import React from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
+import ZoomableImage from '../components/ZoomableImage';
 import type { MetaDefinition } from '@/lib/api';
 
 interface MetaDefinitionVersionsViewerProps {
@@ -122,6 +123,11 @@ const MetaDefinitionVersionsViewer: React.FC<MetaDefinitionVersionsViewerProps> 
             ) : (
               <span className="text-gray-400 italic">N/A</span>
             )}
+            {currentVersion.promptImagePath && (
+              <div className="mt-2">
+                <ZoomableImage src={currentVersion.promptImagePath} alt="Prompt image" />
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -139,6 +145,11 @@ const MetaDefinitionVersionsViewer: React.FC<MetaDefinitionVersionsViewerProps> 
               </MarkdownKatex>
             ) : (
               <span className="text-gray-400 italic">N/A</span>
+            )}
+            {currentVersion.descriptionImagePath && (
+              <div className="mt-2">
+                <ZoomableImage src={currentVersion.descriptionImagePath} alt="Description image" />
+              </div>
             )}
           </CardContent>
         </Card>

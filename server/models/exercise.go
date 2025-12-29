@@ -18,6 +18,8 @@ type Exercise struct {
     Description string    `gorm:"column:description" json:"description"`
     Notes       string    `gorm:"column:notes" json:"notes"`
     Hints       string    `gorm:"column:hints" json:"hints"`
+    StatementImagePath   string    `gorm:"column:statement_image_path" json:"statementImagePath,omitempty"`
+    DescriptionImagePath string    `gorm:"column:description_image_path" json:"descriptionImagePath,omitempty"`
     DomainID    uint      `gorm:"column:domain_id;not null" json:"domainId"`
     OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
     MetaExerciseID uint   `gorm:"column:meta_exercise_id;not null;index" json:"metaExerciseId"`
@@ -50,6 +52,8 @@ type ExerciseRequest struct {
     Name           string   `json:"name"`
     Statement      string   `json:"statement"`
     Description    string   `json:"description,omitempty"`
+    StatementImagePath   string   `json:"statementImagePath,omitempty"`
+    DescriptionImagePath string   `json:"descriptionImagePath,omitempty"`
     Notes          string   `json:"notes,omitempty"`
     Hints          string   `json:"hints,omitempty"`
     DomainID       uint     `json:"domainId"`
@@ -71,6 +75,8 @@ type ExerciseResponse struct {
 	Name          string    `json:"name"`
 	Statement     string    `json:"statement"`
 	Description   string    `json:"description,omitempty"`
+	StatementImagePath   string    `json:"statementImagePath,omitempty"`
+	DescriptionImagePath string    `json:"descriptionImagePath,omitempty"`
 	Notes         string    `json:"notes,omitempty"`
 	Hints         string    `json:"hints,omitempty"`
 	DomainID      uint      `json:"domainId"`

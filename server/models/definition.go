@@ -15,6 +15,8 @@ type Definition struct {
 	Description string    `gorm:"column:description;not null" json:"description"`
 	Notes       string    `gorm:"column:notes" json:"notes"`
 	Prompt      string    `gorm:"column:prompt;type:text" json:"prompt"`
+	PromptImagePath      string    `gorm:"column:prompt_image_path" json:"promptImagePath,omitempty"`
+	DescriptionImagePath string    `gorm:"column:description_image_path" json:"descriptionImagePath,omitempty"`
 	Type        string    `gorm:"column:type;default:open_ended" json:"type"`
 	DomainID    uint      `gorm:"column:domain_id;not null" json:"domainId"`
 	OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
@@ -60,6 +62,8 @@ type DefinitionRequest struct {
     Description    string   `json:"description"`
     Notes          string   `json:"notes,omitempty"`
     Prompt         string   `json:"prompt,omitempty"`
+    PromptImagePath      string   `json:"promptImagePath,omitempty"`
+    DescriptionImagePath string   `json:"descriptionImagePath,omitempty"`
     Type           string   `json:"type,omitempty"` // default "open_ended"
     References     []string `json:"references,omitempty"`
     PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
@@ -79,6 +83,8 @@ type DefinitionResponse struct {
     Description   string    `json:"description"`
     Notes         string    `json:"notes,omitempty"`
     Prompt        string    `json:"prompt,omitempty"`
+    PromptImagePath      string    `json:"promptImagePath,omitempty"`
+    DescriptionImagePath string    `json:"descriptionImagePath,omitempty"`
     Type          string    `json:"type,omitempty"`
     References    []string  `json:"references,omitempty"`
     Prerequisites []string  `json:"prerequisites,omitempty"` // Just the codes

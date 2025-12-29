@@ -45,6 +45,8 @@ type DefinitionVersionRequest struct {
 	Description string   `json:"description,omitempty"`
 	Notes       string   `json:"notes,omitempty"`
 	References  []string `json:"references,omitempty"`
+	PromptImagePath      string `json:"promptImagePath,omitempty"`
+	DescriptionImagePath string `json:"descriptionImagePath,omitempty"`
 }
 
 // MetaDefinitionResponse bundles meta definition info, prerequisites and aggregate/version info

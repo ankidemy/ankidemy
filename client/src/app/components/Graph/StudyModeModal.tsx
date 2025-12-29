@@ -6,6 +6,7 @@ import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
+import ZoomableImage from './components/ZoomableImage';
 import { useSRS } from '@/contexts/SRSContext';
 import { DueReview, ReviewQuality, ReviewRequest, SessionType, StudySession } from '@/types/srs';
 import { ArrowLeft, ArrowRight, CheckCircle, Eye, Loader2, XCircle, Target, MapPin } from 'lucide-react';
@@ -212,15 +213,34 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
           <div>
             <h3 className="text-lg font-semibold mb-2">Define: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex></h3>
             {showAnswer && (
-              <MarkdownKatex className="p-3 bg-gray-50 rounded-md border text-sm">{itemDetails.description?.split('|||')[0] || "N/A"}</MarkdownKatex>
+              <>
+                <MarkdownKatex className="p-3 bg-gray-50 rounded-md border text-sm">{itemDetails.description?.split('|||')[0] || "N/A"}</MarkdownKatex>
+                {itemDetails.descriptionImagePath && (
+                  <div className="mt-2">
+                    <ZoomableImage src={itemDetails.descriptionImagePath} alt="Description image" />
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (
           <div>
             <h3 className="text-lg font-semibold mb-2">Exercise: <InlineMarkdownKatex>{itemDetails.name}</InlineMarkdownKatex></h3>
             <MarkdownKatex className="p-3 bg-gray-50 rounded-md border text-sm mb-2">{itemDetails.statement || "N/A"}</MarkdownKatex>
+            {itemDetails.statementImagePath && (
+              <div className="mb-2">
+                <ZoomableImage src={itemDetails.statementImagePath} alt="Statement image" />
+              </div>
+            )}
             {showAnswer && (
-              <MarkdownKatex className="p-3 bg-green-50 rounded-md border border-green-200 text-sm">{`Solution: ${itemDetails.description || "N/A"}`}</MarkdownKatex>
+              <>
+                <MarkdownKatex className="p-3 bg-green-50 rounded-md border border-green-200 text-sm">{`Solution: ${itemDetails.description || "N/A"}`}</MarkdownKatex>
+                {itemDetails.descriptionImagePath && (
+                  <div className="mt-2">
+                    <ZoomableImage src={itemDetails.descriptionImagePath} alt="Solution image" />
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

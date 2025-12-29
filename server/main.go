@@ -97,6 +97,7 @@ func main() {
 	srsHandler := handlers.NewSRSHandler(db)
 	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc)
 	metaDefinitionHandler := handlers.NewMetaDefinitionHandler(metaDefinitionDAO, domainDAO, metaDefSvc)
+	mediaHandler := handlers.NewMediaHandler(domainDAO, progressDAO)
 
 	// Initialize router
 	router := gin.Default()
@@ -294,6 +295,10 @@ func main() {
 				// Test/Debug endpoints
 				srs.POST("/test/credit-propagation", srsHandler.TestCreditPropagation)
 			}
+
+			// Media routes
+			authorized.POST("/media/upload", mediaHandler.UploadImage)
+			authorized.GET("/media/:userId/:visibility/:domain/:filename", mediaHandler.GetImage)
 
 			// Admin routes
 			admin := authorized.Group("/admin")

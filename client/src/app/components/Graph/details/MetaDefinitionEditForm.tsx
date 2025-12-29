@@ -3,7 +3,9 @@ import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import type { MetaDefinition, DefinitionVersion } from '@/lib/api';
+import { uploadNodeImage } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
+import ImageUploadField from '../components/ImageUploadField';
 
 interface Props {
   meta: MetaDefinition;
@@ -82,6 +84,8 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
         description: draft.description,
         notes: draft.notes,
         references: draft.references,
+        promptImagePath: draft.promptImagePath,
+        descriptionImagePath: draft.descriptionImagePath,
       });
       // Parent will refresh meta; effect above will switch to the new last version
       return;
@@ -94,6 +98,8 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
       description: val('description', ''),
       notes: val('notes', ''),
       references: val('references', []),
+      promptImagePath: val('promptImagePath', ''),
+      descriptionImagePath: val('descriptionImagePath', ''),
     } as Partial<DefinitionVersion>;
     await onUpdateVersion(cur.id, payload);
     setDraft({});
@@ -105,7 +111,9 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
       type: 'open_ended',
       description: '',
       notes: '',
-      references: []
+      references: [],
+      promptImagePath: '',
+      descriptionImagePath: '',
     });
     setActive('new');
   };
@@ -260,6 +268,23 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
           <p className="text-xs text-gray-500 mt-1">The question shown during reviews</p>
         </div>
 
+        <ImageUploadField
+          label="Prompt Image"
+          helperText="Supports one image per prompt."
+          imagePath={val('promptImagePath', '')}
+          onUpload={async (file) => {
+            const { imagePath } = await uploadNodeImage({
+              file,
+              domainId: meta.domainId,
+              nodeType: 'definition',
+              field: 'prompt',
+            });
+            return imagePath;
+          }}
+          onChange={(path) => setDraft(d => ({ ...d, promptImagePath: path }))}
+          onClear={() => setDraft(d => ({ ...d, promptImagePath: '' }))}
+        />
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
           <select
@@ -282,6 +307,23 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
           />
           <p className="text-xs text-gray-500 mt-1">Supports LaTeX notation</p>
         </div>
+
+        <ImageUploadField
+          label="Description Image"
+          helperText="Supports one image per description."
+          imagePath={val('descriptionImagePath', '')}
+          onUpload={async (file) => {
+            const { imagePath } = await uploadNodeImage({
+              file,
+              domainId: meta.domainId,
+              nodeType: 'definition',
+              field: 'description',
+            });
+            return imagePath;
+          }}
+          onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
+          onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
+        />
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>

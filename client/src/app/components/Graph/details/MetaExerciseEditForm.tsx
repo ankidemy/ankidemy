@@ -3,7 +3,9 @@ import React, { useMemo, useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import type { MetaExercise, ExerciseVersion } from '@/lib/api';
+import { uploadNodeImage } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
+import ImageUploadField from '../components/ImageUploadField';
 
 interface Props {
   meta: MetaExercise;
@@ -82,6 +84,8 @@ const MetaExerciseEditForm: React.FC<Props> = ({
         difficulty,
         verifiable: !!draft.verifiable,
         result: draft.result,
+        statementImagePath: draft.statementImagePath,
+        descriptionImagePath: draft.descriptionImagePath,
       });
       // Parent will refresh meta; effect above will switch to the new last version
       return;
@@ -96,13 +100,15 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       difficulty: val('difficulty', 3),
       verifiable: val('verifiable', false),
       result: val('result',''),
+      statementImagePath: val('statementImagePath', ''),
+      descriptionImagePath: val('descriptionImagePath', ''),
     } as Partial<ExerciseVersion>;
     await onUpdateVersion(cur.id, payload);
     setDraft({});
   };
 
   const startDraft = () => {
-    setDraft({ statement: '', description: '', hints: '', notes: '', result: '', difficulty: 3, verifiable: false });
+    setDraft({ statement: '', description: '', hints: '', notes: '', result: '', difficulty: 3, verifiable: false, statementImagePath: '', descriptionImagePath: '' });
     setActive('new');
   };
   const discardDraft = () => {
@@ -222,6 +228,22 @@ const MetaExerciseEditForm: React.FC<Props> = ({
           disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
           className="w-full border rounded px-2 py-1 text-sm"
         />
+        <ImageUploadField
+          label="Statement Image"
+          helperText="Supports one image per statement."
+          imagePath={val('statementImagePath', '')}
+          onUpload={async (file) => {
+            const { imagePath } = await uploadNodeImage({
+              file,
+              domainId: meta.domainId,
+              nodeType: 'exercise',
+              field: 'statement',
+            });
+            return imagePath;
+          }}
+          onChange={(path) => setDraft(d => ({ ...d, statementImagePath: path }))}
+          onClear={() => setDraft(d => ({ ...d, statementImagePath: '' }))}
+        />
         <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Solution</label>
         <textarea
           rows={4}
@@ -229,6 +251,22 @@ const MetaExerciseEditForm: React.FC<Props> = ({
           onChange={(e)=> setDraft(d=> ({...d, description: e.target.value}))}
           disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
           className="w-full border rounded px-2 py-1 text-sm"
+        />
+        <ImageUploadField
+          label="Solution Image"
+          helperText="Supports one image per solution."
+          imagePath={val('descriptionImagePath', '')}
+          onUpload={async (file) => {
+            const { imagePath } = await uploadNodeImage({
+              file,
+              domainId: meta.domainId,
+              nodeType: 'exercise',
+              field: 'description',
+            });
+            return imagePath;
+          }}
+          onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
+          onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
         />
         <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Hints</label>
         <textarea

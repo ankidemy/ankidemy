@@ -85,6 +85,8 @@ export interface Definition {
   name: string;
   description: string;
   notes?: string;
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   domainId: number;
   ownerId: number;
   xPosition?: number;
@@ -105,6 +107,8 @@ export interface Exercise {
   description: string;
   notes?: string;
   hints?: string;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
   domainId: number;
   ownerId: number;
   verifiable: boolean;
@@ -128,6 +132,8 @@ export interface ExerciseVersion {
   verifiable?: boolean;
   result?: string;
   difficulty?: number;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -157,6 +163,8 @@ export interface DefinitionVersion {
   description?: string;
   notes?: string;
   references?: string[];
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -182,6 +190,8 @@ export interface DefinitionRequest {
   description: string;
   notes?: string;
   references?: string[];
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   prerequisiteIds?: number[];
   prerequisiteWeights?: Record<number, number>; // NEW: weights for each prerequisite ID
   domainId: number;
@@ -197,6 +207,8 @@ export interface ExerciseRequest {
   description?: string;
   notes?: string;
   hints?: string;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
   domainId: number;
   verifiable?: boolean;
   result?: string;
@@ -414,6 +426,28 @@ const handleResponse = async (response: Response) => {
   console.debug(`API Response from ${response.url}:`, data);
   
   return data;
+};
+
+export const uploadNodeImage = async (payload: {
+  file: File;
+  domainId: number;
+  nodeType: 'definition' | 'exercise';
+  field: 'prompt' | 'description' | 'statement';
+}): Promise<{ imagePath: string }> => {
+  const formData = new FormData();
+  formData.append('file', payload.file);
+  formData.append('domainId', String(payload.domainId));
+  formData.append('nodeType', payload.nodeType);
+  formData.append('field', payload.field);
+
+  const response = await fetch(`${API_URL}/api/media/upload`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+    },
+    body: formData,
+  });
+  return handleResponse(response);
 };
 
 // UPDATED: Login now supports email OR username via identifier field
@@ -749,6 +783,8 @@ export const updateDefinition = async (id: number, definitionData: {
   description?: string;
   notes?: string;
   references?: string[];
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   prerequisiteIds?: number[];
   prerequisiteWeights?: Record<number, number>; // NEW: include weights
   xPosition?: number;
@@ -862,6 +898,8 @@ export const createMetaDefinition = async (domainId: number, data: {
     description?: string;
     notes?: string;
     references?: string[];
+    promptImagePath?: string;
+    descriptionImagePath?: string;
   };
 }): Promise<MetaDefinition> => {
   const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
@@ -927,6 +965,8 @@ export const addMetaDefinitionVersion = async (id: number, version: {
   description?: string;
   notes?: string;
   references?: string[];
+  promptImagePath?: string;
+  descriptionImagePath?: string;
 }): Promise<DefinitionVersion> => {
   const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions`, {
     method: 'POST',
@@ -997,7 +1037,7 @@ export const getDomainMetaExercises = async (domainId: number): Promise<MetaExer
 export const createMetaExercise = async (domainId: number, data: {
   code: string; name: string; xPosition?: number; yPosition?: number;
   prerequisiteIds?: number[]; prerequisiteWeights?: Record<number, number>;
-  initialVersion?: { statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number };
+  initialVersion?: { statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number; statementImagePath?: string; descriptionImagePath?: string };
 }): Promise<MetaExercise> => {
   const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, {
     method: 'POST',
@@ -1038,7 +1078,7 @@ export const deleteMetaExercise = async (metaId: number): Promise<void> => {
 };
 
 export const addMetaExerciseVersion = async (metaId: number, version: {
-  statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number;
+  statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number; statementImagePath?: string; descriptionImagePath?: string;
 }): Promise<ExerciseVersion> => {
   const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions`, {
     method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(version)
@@ -1092,6 +1132,8 @@ export const updateExercise = async (id: number, exerciseData: {
   description?: string;
   notes?: string;
   hints?: string;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
   difficulty?: number;
   verifiable?: boolean;
   result?: string;

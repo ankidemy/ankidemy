@@ -10,6 +10,7 @@ import (
     "github.com/gin-gonic/gin"
     "myapp/server/dao"
     "myapp/server/models"
+    "myapp/server/services"
 )
 
 // DefinitionHandler handles definition-related HTTP requests
@@ -158,6 +159,8 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		Description: req.Description,
 		Notes:       req.Notes,
 		References:  req.References,
+		PromptImagePath: req.PromptImagePath,
+		DescriptionImagePath: req.DescriptionImagePath,
 	}
 
 	definition, err := h.metaDefinitionDAO.AddVersion(metaDefID, versionReq)
@@ -244,6 +247,9 @@ func (h *DefinitionHandler) UpdateDefinition(c *gin.Context) {
 		return
 	}
 
+	oldPromptImage := definition.PromptImagePath
+	oldDescriptionImage := definition.DescriptionImagePath
+
 	// Update fields if provided
 	if req.Name != "" {
 		definition.Name = req.Name
@@ -253,6 +259,12 @@ func (h *DefinitionHandler) UpdateDefinition(c *gin.Context) {
 	}
 	if req.Notes != "" {
 		definition.Notes = req.Notes
+	}
+	if req.PromptImagePath != "" {
+		definition.PromptImagePath = req.PromptImagePath
+	}
+	if req.DescriptionImagePath != "" {
+		definition.DescriptionImagePath = req.DescriptionImagePath
 	}
 	if req.XPosition != 0 {
 		definition.XPosition = req.XPosition
@@ -265,10 +277,17 @@ func (h *DefinitionHandler) UpdateDefinition(c *gin.Context) {
 	}
 
 	// Update definition
-    if err := h.definitionDAO.Update(definition, req.References, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update definition"})
-        return
-    }
+	if err := h.definitionDAO.Update(definition, req.References, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update definition"})
+		return
+	}
+
+	if req.PromptImagePath != "" && req.PromptImagePath != oldPromptImage {
+		_ = services.DeleteMediaFile(oldPromptImage)
+	}
+	if req.DescriptionImagePath != "" && req.DescriptionImagePath != oldDescriptionImage {
+		_ = services.DeleteMediaFile(oldDescriptionImage)
+	}
 
 	// Get the updated definition with prerequisites
 	updatedDef, err := h.definitionDAO.FindByIDWithPrerequisites(definition.ID)

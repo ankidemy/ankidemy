@@ -308,6 +308,8 @@ func (d *DefinitionDAO) ConvertToResponse(definition *models.DefinitionWithPrere
 		Code:                definition.Code,
 		Name:                definition.Name,
 		Prompt:              definition.Prompt,
+		PromptImagePath:     definition.PromptImagePath,
+		DescriptionImagePath: definition.DescriptionImagePath,
 		Type:                definition.Type,
 		Description:         definition.Description,
 		Notes:               definition.Notes,

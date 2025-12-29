@@ -57,6 +57,8 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
             Verifiable: req.InitialVersion.Verifiable,
             Result: req.InitialVersion.Result,
             Difficulty: req.InitialVersion.Difficulty,
+            StatementImagePath: req.InitialVersion.StatementImagePath,
+            DescriptionImagePath: req.InitialVersion.DescriptionImagePath,
         })
     }
 
@@ -107,10 +109,20 @@ func (h *MetaExerciseHandler) AddVersion(c *gin.Context) {
 func (h *MetaExerciseHandler) UpdateVersion(c *gin.Context) {
     vid, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
     if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid version ID"}); return }
+    existing, err := h.metaDAO.FindVersionByID(uint(vid))
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error":"Version not found"}); return
+    }
     var req models.ExerciseVersionRequest
     if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
     v, err := h.metaDAO.UpdateVersion(uint(vid), &req)
     if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to update version"}); return }
+    if existing.StatementImagePath != "" && req.StatementImagePath != existing.StatementImagePath {
+        _ = services.DeleteMediaFile(existing.StatementImagePath)
+    }
+    if existing.DescriptionImagePath != "" && req.DescriptionImagePath != existing.DescriptionImagePath {
+        _ = services.DeleteMediaFile(existing.DescriptionImagePath)
+    }
     c.JSON(http.StatusOK, v)
 }
 
@@ -143,6 +155,8 @@ func (h *MetaExerciseHandler) GetNextVersion(c *gin.Context) {
         Name: v.Name,
         Statement: v.Statement,
         Description: v.Description,
+        StatementImagePath: v.StatementImagePath,
+        DescriptionImagePath: v.DescriptionImagePath,
         Notes: v.Notes,
         Hints: v.Hints,
         DomainID: v.DomainID,

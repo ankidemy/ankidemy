@@ -7,6 +7,7 @@ import (
     "github.com/gin-gonic/gin"
     "myapp/server/dao"
     "myapp/server/models"
+    "myapp/server/services"
 )
 
 // handlers/exercise_handler.go - Fixed type issues
@@ -123,6 +124,8 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
         Description: req.Description,
         Notes:       req.Notes,
         Hints:       req.Hints,
+        StatementImagePath: req.StatementImagePath,
+        DescriptionImagePath: req.DescriptionImagePath,
         DomainID:    meta.DomainID,
         OwnerID:     userID.(uint),
         MetaExerciseID: meta.ID,
@@ -217,6 +220,9 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 		return
 	}
 
+	oldStatementImage := exercise.StatementImagePath
+	oldDescriptionImage := exercise.DescriptionImagePath
+
 	// Update fields if provided
 	if req.Name != "" {
 		exercise.Name = req.Name
@@ -232,6 +238,12 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 	}
 	if req.Hints != "" {
 		exercise.Hints = req.Hints
+	}
+	if req.StatementImagePath != "" {
+		exercise.StatementImagePath = req.StatementImagePath
+	}
+	if req.DescriptionImagePath != "" {
+		exercise.DescriptionImagePath = req.DescriptionImagePath
 	}
 	if req.Result != "" {
 		exercise.Result = req.Result
@@ -253,6 +265,13 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update exercise"})
         return
     }
+
+	if req.StatementImagePath != "" && req.StatementImagePath != oldStatementImage {
+		_ = services.DeleteMediaFile(oldStatementImage)
+	}
+	if req.DescriptionImagePath != "" && req.DescriptionImagePath != oldDescriptionImage {
+		_ = services.DeleteMediaFile(oldDescriptionImage)
+	}
 
 	// Get the updated exercise with prerequisites
 	updatedEx, err := h.exerciseDAO.FindByIDWithPrerequisites(exercise.ID)

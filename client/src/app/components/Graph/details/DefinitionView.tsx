@@ -6,6 +6,7 @@ import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { InlineMarkdownKatex, MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { AppMode, Definition } from '../utils/types';
+import ZoomableImage from '../components/ZoomableImage';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
 
@@ -19,6 +20,8 @@ interface DefinitionViewProps {
   currentDescription: string;
   currentPrompt?: string;
   currentNotes?: string;
+  promptImagePath?: string;
+  descriptionImagePath?: string;
   onNavigatePrev: () => void;
   onNavigateNext: () => void;
   relatedExercises: string[];
@@ -38,6 +41,8 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   currentDescription,
   currentPrompt,
   currentNotes,
+  promptImagePath,
+  descriptionImagePath,
   onNavigatePrev,
   onNavigateNext,
   relatedExercises,
@@ -89,13 +94,18 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
               ) : (
                 <span className="text-gray-400 italic">N/A</span>
               )}
+              {promptImagePath && (
+                <div className="mt-2">
+                  <ZoomableImage src={promptImagePath} alt="Prompt image" />
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
       </div>
 
       {/* Collapsible Description (hidden by default) */}
-      {currentDescription && currentDescription.trim().length > 0 && (
+      {((currentDescription && currentDescription.trim().length > 0) || descriptionImagePath) && (
         <div>
           <div className="flex justify-between items-center mb-1">
             <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Description</h4>
@@ -112,7 +122,16 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
           {showDescription && (
             <Card className="bg-white border shadow-sm">
               <CardContent className="p-3 text-sm">
-                <MarkdownKatex key={`desc-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentDescription}</MarkdownKatex>
+                {currentDescription && currentDescription.trim().length > 0 ? (
+                  <MarkdownKatex key={`desc-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentDescription}</MarkdownKatex>
+                ) : (
+                  <span className="text-gray-400 italic">N/A</span>
+                )}
+                {descriptionImagePath && (
+                  <div className="mt-2">
+                    <ZoomableImage src={descriptionImagePath} alt="Description image" />
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

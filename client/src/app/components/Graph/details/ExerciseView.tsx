@@ -6,6 +6,7 @@ import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { Exercise, AnswerFeedback } from '../utils/types';
+import ZoomableImage from '../components/ZoomableImage';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
 
@@ -25,6 +26,8 @@ interface ExerciseViewProps {
   availableDefinitions?: { code: string; name: string }[];
   srsStatus?: NodeStatus;
   onAnotherVersion?: () => void;
+  statementImagePath?: string;
+  descriptionImagePath?: string;
 }
 
 const ExerciseView: React.FC<ExerciseViewProps> = ({
@@ -43,6 +46,8 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   availableDefinitions = [],
   srsStatus,
   onAnotherVersion,
+  statementImagePath,
+  descriptionImagePath,
 }) => {
   const [showNotes, setShowNotes] = useState(false);
   const [answerPreview, setAnswerPreview] = useState(false);
@@ -70,6 +75,11 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
               <MarkdownKatex className="whitespace-pre-wrap">{exercise.statement}</MarkdownKatex>
             ) : (
               <span className="text-gray-400 italic">N/A</span>
+            )}
+            {statementImagePath && (
+              <div className="mt-2">
+                <ZoomableImage src={statementImagePath} alt="Statement image" />
+              </div>
             )}
           </CardContent>
         </Card>
@@ -101,16 +111,21 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
           </Button>
         </div>
         {showSolution && (
-          <Card className="bg-green-50 border border-green-200 shadow-sm">
-            <CardContent className="p-3 text-sm">
-              {exercise.description && exercise.description.trim().length > 0 ? (
-                <MarkdownKatex className="whitespace-pre-wrap">{exercise.description}</MarkdownKatex>
-              ) : (
-                <span className="text-gray-400 italic">N/A</span>
-              )}
-            </CardContent>
-          </Card>
-        )}
+            <Card className="bg-green-50 border border-green-200 shadow-sm">
+              <CardContent className="p-3 text-sm">
+                {exercise.description && exercise.description.trim().length > 0 ? (
+                  <MarkdownKatex className="whitespace-pre-wrap">{exercise.description}</MarkdownKatex>
+                ) : (
+                  <span className="text-gray-400 italic">N/A</span>
+                )}
+                {descriptionImagePath && (
+                  <div className="mt-2">
+                    <ZoomableImage src={descriptionImagePath} alt="Solution image" />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
       </div>
 
       {exercise.notes && (
