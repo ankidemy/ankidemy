@@ -90,6 +90,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   const reviewQueueRef = useRef<HTMLDivElement>(null);
   const lastSeenReviewIdsRef = useRef<Set<string>>(new Set());
   const wasReviewQueueOpenRef = useRef(false);
+  const canEdit = isOwner;
 
   const dueReviews = srs.state.dueReviews;
   const dueCount = isEnrolled ? dueReviews.length : 0;
@@ -510,8 +511,8 @@ const TopControls: React.FC<TopControlsProps> = ({
           variant="outline"
           size="sm"
           onClick={onCreateDefinition}
-          disabled={!isEnrolled}
-          title={!isEnrolled ? "Enroll in domain to create definitions" : "Add Definition"}
+          disabled={!canEdit}
+          title={!canEdit ? "Only domain owners can create definitions" : "Add Definition"}
           className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
         >
           <Plus size={14} className="mr-1" /> Def
@@ -521,8 +522,8 @@ const TopControls: React.FC<TopControlsProps> = ({
             variant="outline"
             size="sm"
             onClick={onCreateExercise}
-            disabled={!isEnrolled}
-            title={!isEnrolled ? "Enroll in domain to create exercises" : "Add Exercise"}
+            disabled={!canEdit}
+            title={!canEdit ? "Only domain owners can create exercises" : "Add Exercise"}
             className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
           >
             <Plus size={14} className="mr-1" /> Ex
@@ -535,9 +536,9 @@ const TopControls: React.FC<TopControlsProps> = ({
             variant="outline"
             size="sm"
             onClick={onSavePositions}
-            disabled={isSavingPositions}
+            disabled={isSavingPositions || !canEdit}
             className="flex items-center bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
-            title="Save current node positions"
+            title={!canEdit ? "Only domain owners can save positions" : "Save current node positions"}
           >
             {isSavingPositions ? (
               <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-yellow-600 mr-1"></div>

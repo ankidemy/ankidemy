@@ -18,12 +18,13 @@ interface Props {
   nodeId: number; // numeric node id (definition or pool)
   nodeType: 'meta_definition' | 'meta_exercise';
   availableDefinitions: AvailableItem[];
+  canEdit?: boolean;
   // Control which prerequisite kinds can be added
   allowKinds?: Array<'meta_definition' | 'meta_exercise'>;
   onChanged?: () => void; // notify parent to refresh graph
 }
 
-const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, availableDefinitions, allowKinds = ['meta_definition', 'meta_exercise'], onChanged }) => {
+const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, availableDefinitions, canEdit = true, allowKinds = ['meta_definition', 'meta_exercise'], onChanged }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Array<{ id: number; prerequisiteId: number; weight: number; type: 'meta_definition' | 'meta_exercise' }>>([]);
@@ -101,6 +102,7 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
   });
 
   const handleWeightCommit = async (rowId: number, mode: 'blur' | 'direct', rawValue?: string) => {
+    if (!canEdit) return;
     const row = rows.find(r => r.id === rowId);
     if (!row) return;
     const raw = (rawValue ?? weightDrafts[rowId] ?? '').trim();
@@ -123,12 +125,14 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
   };
 
   const handleRemove = async (rowId: number) => {
+    if (!canEdit) return;
     await deletePrerequisite(rowId);
     setRows(rows => rows.filter(r => r.id !== rowId));
     onChanged?.();
   };
 
   const handleAddMultiple = async () => {
+    if (!canEdit) return;
     const toProcess: Array<{ id: number; type: 'meta_definition' | 'meta_exercise'; weight: number }> = [];
     if (selectedKind === 'meta_definition') {
       addingDefinitionIds.forEach(id => {
@@ -190,6 +194,7 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                       min="0.01"
                       max="1.00"
                       step="0.01"
+                      disabled={!canEdit}
                       value={weightDrafts[r.id] ?? String(r.weight)}
                       onChange={(e) => setWeightDrafts(prev => ({ ...prev, [r.id]: e.target.value }))}
                       onBlur={async (e) => {
@@ -210,7 +215,7 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                       }}
                       className="w-20 h-7 text-sm"
                     />
-                    <Button size="sm" variant="outline" onClick={() => handleRemove(r.id)}>Remove</Button>
+                    <Button size="sm" variant="outline" onClick={() => handleRemove(r.id)} disabled={!canEdit}>Remove</Button>
                   </div>
                 </div>
               );
@@ -221,6 +226,9 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
 
       <div className="pt-2 border-t">
         <h4 className="text-xs font-medium text-gray-600 mb-1">Add Prerequisite</h4>
+        {!canEdit && (
+          <div className="text-xs text-gray-500 mb-2">Only domain owners can edit prerequisites.</div>
+        )}
         <div className="space-y-3">
           {allowKinds.includes('meta_definition') && (
             <div>
@@ -231,12 +239,14 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                   onChange={(e)=> setSearchDef(e.target.value)}
                   placeholder="Search concepts..."
                   className="h-7 text-xs w-48"
+                  disabled={!canEdit}
                 />
               </div>
               <select
                 multiple
-                className="border rounded px-2 py-1 text-sm w-full h-28"
+                className="border rounded px-2 py-1 text-sm w-full h-28 disabled:bg-gray-100"
                 value={addingDefinitionIds.map(String)}
+                disabled={!canEdit}
                 onChange={(e)=> {
                   const selected = Array.from(e.target.selectedOptions).map(o => parseInt(o.value, 10)).filter(id => !Number.isNaN(id) && id !== nodeId);
                   setAddingDefinitionIds(selected);
@@ -257,7 +267,16 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                     return (
                       <div key={`def-add-${id}`} className="flex items-center justify-between text-xs">
                         <span className="truncate mr-2">{item.code}</span>
-                        <Input type="number" min="0.01" max="1.00" step="0.01" value={String(definitionWeights[id] ?? 1.0)} onChange={(e)=> setDefinitionWeights(prev => ({ ...prev, [id]: parseFloat(e.target.value) || 1.0 }))} className="w-16 h-6 text-xs" />
+                        <Input
+                          type="number"
+                          min="0.01"
+                          max="1.00"
+                          step="0.01"
+                          value={String(definitionWeights[id] ?? 1.0)}
+                          onChange={(e)=> setDefinitionWeights(prev => ({ ...prev, [id]: parseFloat(e.target.value) || 1.0 }))}
+                          className="w-16 h-6 text-xs"
+                          disabled={!canEdit}
+                        />
                       </div>
                     );
                   })}
@@ -275,12 +294,14 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                   onChange={(e)=> setSearchMeta(e.target.value)}
                   placeholder="Search exercises..."
                   className="h-7 text-xs w-48"
+                  disabled={!canEdit}
                 />
               </div>
               <select
                 multiple
-                className="border rounded px-2 py-1 text-sm w-full h-28"
+                className="border rounded px-2 py-1 text-sm w-full h-28 disabled:bg-gray-100"
                 value={addingExerciseIds.map(String)}
+                disabled={!canEdit}
                 onChange={(e)=> {
                   const selected = Array.from(e.target.selectedOptions).map(o => parseInt(o.value, 10)).filter(id => !Number.isNaN(id) && id !== nodeId);
                   setAddingExerciseIds(selected);
@@ -301,7 +322,16 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                     return (
                       <div key={`meta-add-${id}`} className="flex items-center justify-between text-xs">
                         <span className="truncate mr-2">{item.code}</span>
-                        <Input type="number" min="0.01" max="1.00" step="0.01" value={String(exerciseWeights[id] ?? 1.0)} onChange={(e)=> setExerciseWeights(prev => ({ ...prev, [id]: parseFloat(e.target.value) || 1.0 }))} className="w-16 h-6 text-xs" />
+                        <Input
+                          type="number"
+                          min="0.01"
+                          max="1.00"
+                          step="0.01"
+                          value={String(exerciseWeights[id] ?? 1.0)}
+                          onChange={(e)=> setExerciseWeights(prev => ({ ...prev, [id]: parseFloat(e.target.value) || 1.0 }))}
+                          className="w-16 h-6 text-xs"
+                          disabled={!canEdit}
+                        />
                       </div>
                     );
                   })}
@@ -314,7 +344,12 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
             {allowKinds.length > 1 && (
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <span>Adding:</span>
-                <select className="border rounded px-2 py-1 text-xs" value={selectedKind} onChange={(e)=> setSelectedKind(e.target.value as any)}>
+                <select
+                  className="border rounded px-2 py-1 text-xs disabled:bg-gray-100"
+                  value={selectedKind}
+                  onChange={(e)=> setSelectedKind(e.target.value as any)}
+                  disabled={!canEdit}
+                >
                   {allowKinds.includes('meta_definition') && <option value="meta_definition">Concepts</option>}
                   {allowKinds.includes('meta_exercise') && <option value="meta_exercise">Exercises</option>}
                 </select>
@@ -324,7 +359,16 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
           </div>
 
           <div className="text-right">
-            <Button size="sm" onClick={handleAddMultiple} disabled={(selectedKind === 'meta_definition' ? addingDefinitionIds.length : addingExerciseIds.length) === 0}>Add Selected</Button>
+            <Button
+              size="sm"
+              onClick={handleAddMultiple}
+              disabled={
+                !canEdit ||
+                (selectedKind === 'meta_definition' ? addingDefinitionIds.length : addingExerciseIds.length) === 0
+              }
+            >
+              Add Selected
+            </Button>
           </div>
         </div>
       </div>

@@ -206,17 +206,8 @@ export default function MainPage() {
       // Direct access for owned or enrolled domains
       router.push(`/main/domains/${domain.id}/study`);
     } else if (domain.privacy === 'public') {
-      // Prompt for enrollment in public domain
-      const shouldEnroll = window.confirm(
-        `You are not enrolled in "${domain.name}". Would you like to enroll to access all features including progress tracking?\n\nNote: You can still browse the domain without enrolling, but won't have access to study features.`
-      );
-
-      if (shouldEnroll) {
-        await handleEnrollment(domain);
-      } else {
-        // Navigate anyway but user will have limited access
-        router.push(`/main/domains/${domain.id}/study`);
-      }
+      // Navigate to public domain; enrollment is optional and handled in the domain view
+      router.push(`/main/domains/${domain.id}/study`);
     } else {
       // Private domain that user doesn't own
       showToast('This is a private domain you cannot access', 'error');

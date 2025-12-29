@@ -338,32 +338,30 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [showHistory, numericId, fetchHistory]);
 
-  // Robust domain ownership check (handles type mismatches and missing data)
-  const isDomainOwner = useCallback(() => {
+  const canEdit = useMemo(() => {
     const ownerId = domainData?.ownerId;
     const userId = currentUser?.id;
     if (ownerId == null || userId == null) {
-      // If we cannot determine yet, don't block UI; server will enforce auth
-      return true;
+      return false;
     }
     return Number(ownerId) === Number(userId);
   }, [domainData?.ownerId, currentUser?.id]);
 
   // Edit mode toggle
   const toggleEditMode = useCallback(() => {
-    if (!isDomainOwner()) {
+    if (!canEdit && !isEditMode) {
       showToast('You can only edit nodes in domains you own', 'warning');
       return;
     }
     setIsEditMode(!isEditMode);
-  }, [isDomainOwner, isEditMode]);
+  }, [canEdit, isEditMode]);
 
   // ENHANCED: Surgical edit submission with fallback
   const handleSubmitEdit = useCallback(async () => {
     if (!nodeDetails) return;
     
     // Check domain ownership (client-side hint; server enforces auth)
-    if (!isDomainOwner()) {
+    if (!canEdit) {
       showToast("You don't have permission to edit nodes in this domain.", "error");
       setIsEditMode(false);
       return;
@@ -682,8 +680,15 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           variant="ghost"
           size="icon"
           onClick={toggleEditMode}
+          disabled={!canEdit && !isEditMode}
           className="h-8 w-8"
-          title={isEditMode ? "View Mode" : "Edit Mode"}
+          title={
+            !canEdit
+              ? "Only domain owners can edit nodes"
+              : isEditMode
+              ? "View Mode"
+              : "Edit Mode"
+          }
         >
           <Edit size={16} />
         </Button>
@@ -918,8 +923,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       meta={metaDetails as MetaExercise}
                       activeIndex={selectedVersionIndex}
                       setActiveIndex={setSelectedVersionIndex}
-                      isOwner={isDomainOwner()}
-                      onEditVersion={isDomainOwner() ? (index) => {
+                      isOwner={canEdit}
+                      onEditVersion={canEdit ? (index) => {
                         setSelectedVersionIndex(index);
                         setIsEditMode(true);
                       } : undefined}
@@ -933,8 +938,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       meta={metaDetails as MetaDefinition}
                       activeIndex={selectedDefinitionIndex}
                       setActiveIndex={setSelectedDefinitionIndex}
-                      isOwner={isDomainOwner()}
-                      onEditVersion={isDomainOwner() ? (index) => {
+                      isOwner={canEdit}
+                      onEditVersion={canEdit ? (index) => {
                         setSelectedDefinitionIndex(index);
                         setIsEditMode(true);
                       } : undefined}
@@ -953,6 +958,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     nodeId={numericId}
                     nodeType={'meta_exercise'}
                     availableDefinitions={availableDefinitions}
+                    canEdit={canEdit}
                     onChanged={async () => {
                       // Surgical update: fetch fresh meta-exercise and update only this node
                       try {
@@ -987,6 +993,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     nodeType={'meta_definition'}
                     availableDefinitions={availableDefinitions}
                     allowKinds={['meta_definition']}
+                    canEdit={canEdit}
                     onChanged={async () => {
                       // Surgical update for concept prerequisites: reload meta-definition and apply its codes/weights
                       try {

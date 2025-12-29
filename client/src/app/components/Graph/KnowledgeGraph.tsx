@@ -972,6 +972,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
+    if (!isDomainOwner) {
+      showToast('Only domain owners can create nodes.', 'warning');
+      return;
+    }
     if (!hasAccess) {
       if (domainData && domainData.privacy === 'public') {
         setShowEnrollmentModal(true);
@@ -998,7 +1002,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, [hasAccess, domainData]);
+  }, [hasAccess, domainData, isDomainOwner]);
 
   const insertCreatedNode = useCallback((
     nodeCode: string,
@@ -2590,9 +2594,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
                 <p className="text-lg">This domain is empty.</p>
                 <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
+                {!isDomainOwner && (
+                  <p className="mt-1 text-sm text-gray-400">Only domain owners can create nodes.</p>
+                )}
                 <div className="mt-4 flex items-center gap-2">
-                  <Button onClick={() => createNewNode('definition')} size="sm">Create Definition</Button>
-                  <Button onClick={() => createNewNode('exercise')} variant="outline" size="sm">Create Exercise</Button>
+                  <Button
+                    onClick={() => createNewNode('definition')}
+                    size="sm"
+                    disabled={!isDomainOwner}
+                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Definition'}
+                  >
+                    Create Definition
+                  </Button>
+                  <Button
+                    onClick={() => createNewNode('exercise')}
+                    variant="outline"
+                    size="sm"
+                    disabled={!isDomainOwner}
+                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Exercise'}
+                  >
+                    Create Exercise
+                  </Button>
                 </div>
               </div>
             ) : isProcessingData ? (
@@ -2624,9 +2646,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
                 <p className="text-lg">No graph data to display for this domain.</p>
                 <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
+                {!isDomainOwner && (
+                  <p className="mt-1 text-sm text-gray-400">Only domain owners can create nodes.</p>
+                )}
                 <div className="mt-4 flex items-center gap-2">
-                  <Button onClick={() => createNewNode('definition')} size="sm">Create Definition</Button>
-                  <Button onClick={() => createNewNode('exercise')} variant="outline" size="sm">Create Exercise</Button>
+                  <Button
+                    onClick={() => createNewNode('definition')}
+                    size="sm"
+                    disabled={!isDomainOwner}
+                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Definition'}
+                  >
+                    Create Definition
+                  </Button>
+                  <Button
+                    onClick={() => createNewNode('exercise')}
+                    variant="outline"
+                    size="sm"
+                    disabled={!isDomainOwner}
+                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Exercise'}
+                  >
+                    Create Exercise
+                  </Button>
                 </div>
                 <Button onClick={refreshGraphAndSRSData} variant="ghost" size="sm" className="mt-3">
                   <RefreshCw size={14} className="mr-1.5" /> Refresh

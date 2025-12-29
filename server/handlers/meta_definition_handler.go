@@ -2,13 +2,13 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
-	"strconv"
-	"strings"
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
 	"myapp/server/models"
 	"myapp/server/services"
+	"net/http"
+	"strconv"
+	"strings"
 )
 
 type MetaDefinitionHandler struct {
@@ -34,7 +34,12 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 		return
 	}
 	userIDv, ok := c.Get("userID")
-	if !ok || userIDv.(uint) != domain.OwnerID {
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	isAdmin, adminExists := c.Get("isAdmin")
+	if userIDv.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -74,11 +79,11 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 	// Optional initial version
 	if req.InitialVersion != nil {
 		_, _ = h.metaDAO.AddVersion(meta.ID, &models.DefinitionVersionRequest{
-			Prompt:      req.InitialVersion.Prompt,
-			Type:        req.InitialVersion.Type,
-			Description: req.InitialVersion.Description,
-			Notes:       req.InitialVersion.Notes,
-			References:  req.InitialVersion.References,
+			Prompt:               req.InitialVersion.Prompt,
+			Type:                 req.InitialVersion.Type,
+			Description:          req.InitialVersion.Description,
+			Notes:                req.InitialVersion.Notes,
+			References:           req.InitialVersion.References,
 			PromptImagePath:      req.InitialVersion.PromptImagePath,
 			DescriptionImagePath: req.InitialVersion.DescriptionImagePath,
 		})
@@ -101,6 +106,23 @@ func (h *MetaDefinitionHandler) GetMetaDefinition(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 		return
 	}
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	if domain.Privacy != "public" {
+		userIDv, ok := c.Get("userID")
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		isAdmin, adminExists := c.Get("isAdmin")
+		if userIDv.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
+	}
 	resp, _ := h.metaDAO.ConvertToResponse(meta, versions, true)
 	c.JSON(http.StatusOK, resp)
 }
@@ -111,6 +133,23 @@ func (h *MetaDefinitionHandler) GetDomainMetaDefinitions(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
 		return
+	}
+	domain, err := h.domainDAO.FindByID(uint(id64))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	if domain.Privacy != "public" {
+		userIDv, ok := c.Get("userID")
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		isAdmin, adminExists := c.Get("isAdmin")
+		if userIDv.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 	}
 	metas, err := h.metaDAO.GetByDomainID(uint(id64))
 	if err != nil {
@@ -133,6 +172,21 @@ func (h *MetaDefinitionHandler) AddVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
+	meta, _, err := h.metaDAO.FindByID(uint(id64))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
+		return
+	}
+	userIDv, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	isAdmin, adminExists := c.Get("isAdmin")
+	if userIDv.(uint) != meta.OwnerID && (!adminExists || !isAdmin.(bool)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
 	var req models.DefinitionVersionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -153,23 +207,23 @@ func (h *MetaDefinitionHandler) AddVersion(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, models.DefinitionResponse{
-		ID:               v.ID,
-		Code:             v.Code,
-		Name:             v.Name,
-		Prompt:           v.Prompt,
-		PromptImagePath:  v.PromptImagePath,
+		ID:                   v.ID,
+		Code:                 v.Code,
+		Name:                 v.Name,
+		Prompt:               v.Prompt,
+		PromptImagePath:      v.PromptImagePath,
 		DescriptionImagePath: v.DescriptionImagePath,
-		Type:             v.Type,
-		Description:      v.Description,
-		Notes:            v.Notes,
-		References:       refStrings,
-		DomainID:         v.DomainID,
-		OwnerID:          v.OwnerID,
-		MetaDefinitionID: v.MetaDefinitionID,
-		XPosition:        v.XPosition,
-		YPosition:        v.YPosition,
-		CreatedAt:        v.CreatedAt,
-		UpdatedAt:        v.UpdatedAt,
+		Type:                 v.Type,
+		Description:          v.Description,
+		Notes:                v.Notes,
+		References:           refStrings,
+		DomainID:             v.DomainID,
+		OwnerID:              v.OwnerID,
+		MetaDefinitionID:     v.MetaDefinitionID,
+		XPosition:            v.XPosition,
+		YPosition:            v.YPosition,
+		CreatedAt:            v.CreatedAt,
+		UpdatedAt:            v.UpdatedAt,
 	})
 }
 
@@ -183,6 +237,16 @@ func (h *MetaDefinitionHandler) UpdateVersion(c *gin.Context) {
 	var existing models.Definition
 	if err := h.metaDAO.DB.First(&existing, uint(vid)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
+		return
+	}
+	userIDv, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	isAdmin, adminExists := c.Get("isAdmin")
+	if userIDv.(uint) != existing.OwnerID && (!adminExists || !isAdmin.(bool)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 	var req models.DefinitionVersionRequest
@@ -211,23 +275,23 @@ func (h *MetaDefinitionHandler) UpdateVersion(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.DefinitionResponse{
-		ID:               v.ID,
-		Code:             v.Code,
-		Name:             v.Name,
-		Prompt:           v.Prompt,
-		PromptImagePath:  v.PromptImagePath,
+		ID:                   v.ID,
+		Code:                 v.Code,
+		Name:                 v.Name,
+		Prompt:               v.Prompt,
+		PromptImagePath:      v.PromptImagePath,
 		DescriptionImagePath: v.DescriptionImagePath,
-		Type:             v.Type,
-		Description:      v.Description,
-		Notes:            v.Notes,
-		References:       refStrings,
-		DomainID:         v.DomainID,
-		OwnerID:          v.OwnerID,
-		MetaDefinitionID: v.MetaDefinitionID,
-		XPosition:        v.XPosition,
-		YPosition:        v.YPosition,
-		CreatedAt:        v.CreatedAt,
-		UpdatedAt:        v.UpdatedAt,
+		Type:                 v.Type,
+		Description:          v.Description,
+		Notes:                v.Notes,
+		References:           refStrings,
+		DomainID:             v.DomainID,
+		OwnerID:              v.OwnerID,
+		MetaDefinitionID:     v.MetaDefinitionID,
+		XPosition:            v.XPosition,
+		YPosition:            v.YPosition,
+		CreatedAt:            v.CreatedAt,
+		UpdatedAt:            v.UpdatedAt,
 	})
 }
 
@@ -236,6 +300,21 @@ func (h *MetaDefinitionHandler) DeleteVersion(c *gin.Context) {
 	vid, err := strconv.ParseUint(c.Param("versionId"), 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID"})
+		return
+	}
+	var existing models.Definition
+	if err := h.metaDAO.DB.First(&existing, uint(vid)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
+		return
+	}
+	userIDv, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	isAdmin, adminExists := c.Get("isAdmin")
+	if userIDv.(uint) != existing.OwnerID && (!adminExists || !isAdmin.(bool)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 	if err := h.metaDAO.DeleteVersion(uint(vid)); err != nil {
@@ -277,23 +356,23 @@ func (h *MetaDefinitionHandler) GetNextVersion(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.DefinitionResponse{
-		ID:               v.ID,
-		Code:             v.Code,
-		Name:             v.Name,
-		Prompt:           v.Prompt,
-		PromptImagePath:  v.PromptImagePath,
+		ID:                   v.ID,
+		Code:                 v.Code,
+		Name:                 v.Name,
+		Prompt:               v.Prompt,
+		PromptImagePath:      v.PromptImagePath,
 		DescriptionImagePath: v.DescriptionImagePath,
-		Type:             v.Type,
-		Description:      v.Description,
-		Notes:            v.Notes,
-		References:       refStrings,
-		DomainID:         v.DomainID,
-		OwnerID:          v.OwnerID,
-		MetaDefinitionID: v.MetaDefinitionID,
-		XPosition:        v.XPosition,
-		YPosition:        v.YPosition,
-		CreatedAt:        v.CreatedAt,
-		UpdatedAt:        v.UpdatedAt,
+		Type:                 v.Type,
+		Description:          v.Description,
+		Notes:                v.Notes,
+		References:           refStrings,
+		DomainID:             v.DomainID,
+		OwnerID:              v.OwnerID,
+		MetaDefinitionID:     v.MetaDefinitionID,
+		XPosition:            v.XPosition,
+		YPosition:            v.YPosition,
+		CreatedAt:            v.CreatedAt,
+		UpdatedAt:            v.UpdatedAt,
 	})
 }
 
@@ -314,7 +393,12 @@ func (h *MetaDefinitionHandler) UpdateMetaDefinition(c *gin.Context) {
 
 	// Check ownership
 	userIDv, ok := c.Get("userID")
-	if !ok || userIDv.(uint) != meta.OwnerID {
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	isAdmin, adminExists := c.Get("isAdmin")
+	if userIDv.(uint) != meta.OwnerID && (!adminExists || !isAdmin.(bool)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -403,7 +487,12 @@ func (h *MetaDefinitionHandler) DeleteMetaDefinition(c *gin.Context) {
 	}
 
 	userIDv, ok := c.Get("userID")
-	if !ok || userIDv.(uint) != meta.OwnerID {
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	isAdmin, adminExists := c.Get("isAdmin")
+	if userIDv.(uint) != meta.OwnerID && (!adminExists || !isAdmin.(bool)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
