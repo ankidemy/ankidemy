@@ -24,6 +24,9 @@ interface ExerciseViewProps {
   exerciseAttemptCompleted: boolean;
   onNavigateToNode: (nodeId: string) => void;
   availableDefinitions?: { code: string; name: string }[];
+  availableExercises?: { code: string; name: string }[];
+  definitionPrerequisites?: string[];
+  exercisePrerequisites?: string[];
   srsStatus?: NodeStatus;
   onAnotherVersion?: () => void;
   statementImagePath?: string;
@@ -44,6 +47,9 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   exerciseAttemptCompleted,
   onNavigateToNode,
   availableDefinitions = [],
+  availableExercises = [],
+  definitionPrerequisites,
+  exercisePrerequisites,
   srsStatus,
   onAnotherVersion,
   statementImagePath,
@@ -64,6 +70,14 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
     const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
     return prereqDef ? `${prereqCode}: ${prereqDef.name}` : prereqCode;
   };
+
+  const getExercisePrerequisiteDisplayText = (prereqCode: string): string => {
+    const prereqEx = availableExercises.find(ex => ex.code === prereqCode);
+    return prereqEx ? `${prereqCode}: ${prereqEx.name}` : prereqCode;
+  };
+
+  const definitionPrereqs = definitionPrerequisites ?? exercise.prerequisites ?? [];
+  const exercisePrereqs = exercisePrerequisites ?? [];
 
   return (
     <>
@@ -221,27 +235,59 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       )}
 
       <div>
-        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1 mt-3">Related Concepts</h4>
-        {exercise.prerequisites?.length ? (
-          <div className="flex flex-wrap gap-1">
-            {exercise.prerequisites.map((prereqCode) => (
-              <Button
-                key={prereqCode}
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigateToNode(prereqCode)}
-                className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                title={`Navigate to ${prereqCode}`}
-              >
-                <span className="truncate max-w-[220px] inline-block align-middle">
-                  <InlineMarkdownKatex>{getPrerequisiteDisplayText(prereqCode)}</InlineMarkdownKatex>
-                </span>
-              </Button>
-            ))}
+        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1 mt-3">Prerequisites</h4>
+        <div className="space-y-2">
+          <div>
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Definitions</div>
+            {definitionPrereqs.length ? (
+              <div className="flex flex-wrap gap-1">
+                {definitionPrereqs.map((prereqCode) => (
+                  <Button
+                    key={prereqCode}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onNavigateToNode(prereqCode)}
+                    className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
+                    title={`Navigate to ${prereqCode}`}
+                  >
+                    <span className="truncate max-w-[220px] inline-block align-middle">
+                      <InlineMarkdownKatex className="pointer-events-none">
+                        {getPrerequisiteDisplayText(prereqCode)}
+                      </InlineMarkdownKatex>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 italic">None</p>
+            )}
           </div>
-        ) : (
-          <p className="text-sm text-gray-500 italic">None</p>
-        )}
+          <div>
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Exercises</div>
+            {exercisePrereqs.length ? (
+              <div className="flex flex-wrap gap-1">
+                {exercisePrereqs.map((prereqCode) => (
+                  <Button
+                    key={prereqCode}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onNavigateToNode(prereqCode)}
+                    className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
+                    title={`Navigate to ${prereqCode}`}
+                  >
+                    <span className="truncate max-w-[220px] inline-block align-middle">
+                      <InlineMarkdownKatex className="pointer-events-none">
+                        {getExercisePrerequisiteDisplayText(prereqCode)}
+                      </InlineMarkdownKatex>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 italic">None</p>
+            )}
+          </div>
+        </div>
       </div>
     </>
   );

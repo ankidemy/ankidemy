@@ -194,7 +194,9 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 <span className="truncate max-w-[220px] inline-block align-middle">
                   {/* Using InlineMath to typeset within a button */}
                   {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                  <InlineMarkdownKatex>{getPrerequisiteDisplayText(prereqCode)}</InlineMarkdownKatex>
+                  <InlineMarkdownKatex className="pointer-events-none">
+                    {getPrerequisiteDisplayText(prereqCode)}
+                  </InlineMarkdownKatex>
                 </span>
               </Button>
             ))}

@@ -1,7 +1,7 @@
 // client/src/app/components/Graph/windows/DetailWindowContent.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp } from 'lucide-react';
@@ -93,6 +93,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [answerFeedback, setAnswerFeedback] = useState<AnswerFeedback | null>(null);
   const [exerciseAttemptCompleted, setExerciseAttemptCompleted] = useState(false);
   const [selectedVersionIndex, setSelectedVersionIndex] = useState(0);
+  const [prereqLookup, setPrereqLookup] = useState<{ definitions: string[]; exercises: string[]; loaded: boolean }>({
+    definitions: [],
+    exercises: [],
+    loaded: false,
+  });
 
   // Review history state
   const [showHistory, setShowHistory] = useState(false);
@@ -122,6 +127,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           code: meta.code,
           name: meta.name,
           description: ver.description || '',
+          prerequisites: meta.prerequisites || [],
+          prerequisiteWeights: meta.prerequisiteWeights || {},
           type: 'definition'
         } as Definition;
       } else {
@@ -132,7 +139,15 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         setMetaDetails(meta);
         const ver = await getNextMetaExerciseVersion(mid);
         setCurrentVersion(ver as any);
-        details = { ...(ver as any), id: ver.id, code: meta.code, name: meta.name, type: 'exercise' } as Exercise;
+        details = {
+          ...(ver as any),
+          id: ver.id,
+          code: meta.code,
+          name: meta.name,
+          prerequisites: meta.prerequisites || [],
+          prerequisiteWeights: meta.prerequisiteWeights || {},
+          type: 'exercise',
+        } as Exercise;
       }
       if (details) {
         setNodeDetails({ ...details, type: node.type } as Definition | Exercise);
@@ -533,12 +548,96 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [selectedDefinitionIndex, metaDetails, currentNode.type]);
 
-  const availableDefinitions = graphData?.definitions ? 
-    Object.values(graphData.definitions).map((def: any) => ({
+  const availableDefinitions = useMemo(() => {
+    if (!graphData?.definitions) return [];
+    return Object.values(graphData.definitions).map((def: any) => ({
       code: def.code,
       name: def.name,
       numericId: codeToNumericIdMap.get(def.code),
-    })).filter((d: any) => d.numericId != null) : [];
+    })).filter((d: any) => d.numericId != null);
+  }, [graphData?.definitions, codeToNumericIdMap]);
+
+  const availableExercises = useMemo(() => {
+    if (!graphData?.exercises) return [];
+    return Object.values(graphData.exercises).map((ex: any) => ({
+      code: ex.code,
+      name: ex.name,
+      numericId: codeToNumericIdMap.get(ex.code),
+    })).filter((e: any) => e.numericId != null);
+  }, [graphData?.exercises, codeToNumericIdMap]);
+
+  const definitionIdToCodeMap = useMemo(() => {
+    const map = new Map<number, string>();
+    availableDefinitions.forEach(def => {
+      if (typeof def.numericId === 'number') map.set(def.numericId, def.code);
+    });
+    return map;
+  }, [availableDefinitions]);
+
+  const exerciseIdToCodeMap = useMemo(() => {
+    const map = new Map<number, string>();
+    availableExercises.forEach(ex => {
+      if (typeof ex.numericId === 'number') map.set(ex.numericId, ex.code);
+    });
+    return map;
+  }, [availableExercises]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPrereqs = async () => {
+      setPrereqLookup({ definitions: [], exercises: [], loaded: false });
+      const nodeId = codeToNumericIdMap.get(currentNode.id);
+      const domainId = domainData?.id;
+      if (!nodeId || !domainId) return;
+      const nodeType = currentNode.type === 'definition' ? 'meta_definition' : 'meta_exercise';
+      try {
+        const all = await getDomainPrerequisites(domainId);
+        if (cancelled) return;
+        const filtered = all.filter(p => p.nodeId === nodeId && p.nodeType === nodeType);
+        const definitions = filtered
+          .filter(p => p.prerequisiteType === 'meta_definition')
+          .map(p => definitionIdToCodeMap.get(p.prerequisiteId))
+          .filter((code): code is string => Boolean(code));
+        const exercises = filtered
+          .filter(p => p.prerequisiteType === 'meta_exercise')
+          .map(p => exerciseIdToCodeMap.get(p.prerequisiteId))
+          .filter((code): code is string => Boolean(code));
+        setPrereqLookup({ definitions, exercises, loaded: true });
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Failed to load prerequisites for detail window:', error);
+        }
+      }
+    };
+    loadPrereqs();
+    return () => { cancelled = true; };
+  }, [currentNode.id, currentNode.type, domainData?.id, codeToNumericIdMap, definitionIdToCodeMap, exerciseIdToCodeMap]);
+
+  const fallbackPrereqCodes = useMemo(() => {
+    const raw = (metaDetails as MetaDefinition | MetaExercise | null)?.prerequisites
+      || (nodeDetails as Definition | Exercise | null)?.prerequisites
+      || [];
+    if (!graphData) return raw;
+    return raw.filter(code => graphData.definitions?.[code] || graphData.exercises?.[code]);
+  }, [metaDetails, nodeDetails, graphData]);
+
+  const fallbackDefinitionPrereqs = useMemo(() => {
+    if (!graphData?.definitions) return fallbackPrereqCodes;
+    return fallbackPrereqCodes.filter(code => Boolean(graphData.definitions?.[code]));
+  }, [fallbackPrereqCodes, graphData]);
+
+  const fallbackExercisePrereqs = useMemo(() => {
+    if (!graphData?.exercises) return [];
+    return fallbackPrereqCodes.filter(code => Boolean(graphData.exercises?.[code]));
+  }, [fallbackPrereqCodes, graphData]);
+
+  const definitionPrereqsForView = prereqLookup.loaded ? prereqLookup.definitions : fallbackDefinitionPrereqs;
+  const exercisePrereqsForView = prereqLookup.loaded ? prereqLookup.exercises : fallbackExercisePrereqs;
+
+  const definitionDetailsForView = useMemo(() => {
+    if (!nodeDetails || currentNode.type !== 'definition') return nodeDetails;
+    return { ...(nodeDetails as Definition), prerequisites: definitionPrereqsForView };
+  }, [nodeDetails, currentNode.type, definitionPrereqsForView]);
 
   if (isLoading) {
     return (
@@ -920,7 +1019,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             <TabsContent value="details" className="mt-3 space-y-4">
               {currentNode.type === 'definition' ? (
                 <DefinitionView
-                  definition={nodeDetails as Definition}
+                  definition={definitionDetailsForView as Definition}
                   mode="practice" // Always show content in detail windows
                   showDefinition={showDefinition}
                   onToggleDefinition={() => setShowDefinition(!showDefinition)}
@@ -960,6 +1059,12 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     code: d.code,
                     name: d.name
                   }))}
+                  availableExercises={availableExercises.map((e: any) => ({
+                    code: e.code,
+                    name: e.name
+                  }))}
+                  definitionPrerequisites={definitionPrereqsForView}
+                  exercisePrerequisites={exercisePrereqsForView}
                   srsStatus={nodeProgress?.status}
                   onAnotherVersion={handleAnotherVersion}
                   statementImagePath={(nodeDetails as Exercise | null)?.statementImagePath}
