@@ -31,6 +31,7 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
   const [addingExerciseIds, setAddingExerciseIds] = useState<number[]>([]);
   const [definitionWeights, setDefinitionWeights] = useState<Record<number, number>>({});
   const [exerciseWeights, setExerciseWeights] = useState<Record<number, number>>({});
+  const [weightDrafts, setWeightDrafts] = useState<Record<number, string>>({});
 
   const [metaList, setMetaList] = useState<AvailableItem[]>([]);
   const [selectedKind, setSelectedKind] = useState<'meta_definition' | 'meta_exercise'>(allowKinds.includes('meta_definition') ? 'meta_definition' : 'meta_exercise');
@@ -80,7 +81,6 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
       setMetaList(metas.map((m: any) => ({ code: m.code, name: m.name, numericId: m.id })));
     } catch {}
   })(); }, [domainId]);
-
   const availableDefToAdd = availableDefinitions
     .filter(d => d.numericId !== nodeId)
     .filter(d => !rows.some(r => r.prerequisiteId === d.numericId));
@@ -100,10 +100,25 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
     return (`${item.code} ${item.name}`).toLowerCase().includes(query);
   });
 
-  const handleWeightChange = async (rowId: number, newWeight: number) => {
-    const w = Math.max(0.01, Math.min(1.0, Number(newWeight) || 1.0));
-    await updatePrerequisite(rowId, { weight: w });
-    setRows(rows => rows.map(r => r.id === rowId ? { ...r, weight: w } : r));
+  const handleWeightCommit = async (rowId: number, mode: 'blur' | 'direct', rawValue?: string) => {
+    const row = rows.find(r => r.id === rowId);
+    if (!row) return;
+    const raw = (rawValue ?? weightDrafts[rowId] ?? '').trim();
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed)) {
+      if (mode === 'blur') {
+        setWeightDrafts(prev => ({ ...prev, [rowId]: String(row.weight) }));
+      }
+      return;
+    }
+    const clamped = Math.max(0.01, Math.min(1.0, parsed));
+    if (clamped === row.weight) {
+      setWeightDrafts(prev => ({ ...prev, [rowId]: String(row.weight) }));
+      return;
+    }
+    await updatePrerequisite(rowId, { weight: clamped });
+    setRows(rows => rows.map(r => r.id === rowId ? { ...r, weight: clamped } : r));
+    setWeightDrafts(prev => ({ ...prev, [rowId]: String(clamped) }));
     onChanged?.();
   };
 
@@ -175,8 +190,24 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
                       min="0.01"
                       max="1.00"
                       step="0.01"
-                      value={String(r.weight)}
-                      onChange={(e) => handleWeightChange(r.id, parseFloat(e.target.value))}
+                      value={weightDrafts[r.id] ?? String(r.weight)}
+                      onChange={(e) => setWeightDrafts(prev => ({ ...prev, [r.id]: e.target.value }))}
+                      onBlur={async (e) => {
+                        await handleWeightCommit(r.id, 'blur', e.currentTarget.value);
+                      }}
+                      onKeyUp={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                          handleWeightCommit(r.id, 'direct', (e.currentTarget as HTMLInputElement).value);
+                        }
+                      }}
+                      onMouseUp={(e) => {
+                        handleWeightCommit(r.id, 'direct', (e.currentTarget as HTMLInputElement).value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                        }
+                      }}
                       className="w-20 h-7 text-sm"
                     />
                     <Button size="sm" variant="outline" onClick={() => handleRemove(r.id)}>Remove</Button>

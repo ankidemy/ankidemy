@@ -98,6 +98,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'details' | 'versions' | 'prerequisites' | 'srs'>('details');
 
   // Load node details
   const loadNodeDetails = useCallback(async (node: GraphNode) => {
@@ -156,6 +157,9 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   useEffect(() => {
     loadNodeDetails(currentNode);
   }, [loadNodeDetails, currentNode]);
+  useEffect(() => {
+    setActiveTab('details');
+  }, [currentNode.id]);
 
   // Navigation within window
   const navigateToNode = useCallback(async (nodeId: string) => {
@@ -775,7 +779,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             <div className="text-center py-5 text-gray-500">Loading details...</div>
           )
         ) : (
-          <Tabs defaultValue="details" className="w-full">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
             <TabsList className={`grid w-full ${currentNode.type === 'exercise' ? 'grid-cols-4' : 'grid-cols-4'} h-9`}>
               <TabsTrigger value="details" className="text-sm h-8">Details</TabsTrigger>
               {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (

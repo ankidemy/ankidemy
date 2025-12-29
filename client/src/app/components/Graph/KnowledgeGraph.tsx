@@ -196,9 +196,25 @@ const useGraphStructure = (
       .map(e => `${e.code}:${(e.prerequisites || []).sort().join(',')}`)
       .sort()
       .join('|');
+
+    const defWeightHash = Object.values(definitions)
+      .map(d => {
+        const weights = Object.fromEntries(Object.entries(d.prerequisiteWeights || {}).sort());
+        return `${d.code}:${JSON.stringify(weights)}`;
+      })
+      .sort()
+      .join('|');
+
+    const exWeightHash = Object.values(exercises)
+      .map(e => {
+        const weights = Object.fromEntries(Object.entries(e.prerequisiteWeights || {}).sort());
+        return `${e.code}:${JSON.stringify(weights)}`;
+      })
+      .sort()
+      .join('|');
     
     // FIX: robust version
-    const version = hashString([defStructureHash, exStructureHash, mode].join('::'));
+    const version = hashString([defStructureHash, exStructureHash, defWeightHash, exWeightHash, mode].join('::'));
 
     // PASS 1: Build nodes for all definitions (structure only)
     Object.values(definitions).forEach(def => {
@@ -283,7 +299,7 @@ const useGraphStructure = (
     JSON.stringify(Object.fromEntries(
       Object.values(exercises).map(e => [e.code, (e.prerequisites || []).sort()])
     )),
-    // Track weight changes without triggering physics reset (version unaffected)
+    // Track weight changes so link labels update without a physics reset
     JSON.stringify(Object.fromEntries(
       Object.values(definitions).map(d => [d.code, d.prerequisiteWeights || {}])
     )),
