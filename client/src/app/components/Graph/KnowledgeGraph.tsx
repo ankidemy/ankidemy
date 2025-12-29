@@ -65,6 +65,7 @@ import NodeCreationModal from './NodeCreationModal';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 import { PositionManager } from './utils/PositionManager';
+import { getNextDotCode as getNextDotCodeFromUtils, getNextExerciseCode as getNextExerciseCodeFromUtils } from './utils/codeGeneration';
 
 // ============================================================================
 // TYPE DEFINITIONS FOR TRUE STRUCTURE/METADATA SEPARATION
@@ -1287,58 +1288,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return `Define ${safeName}`;
   }, []);
 
-  const getNextDotCode = useCallback(() => {
-    const parse = (code: string) => {
-      const match = code.match(/^(\d+)\.(\d+)\.(\d+)$/);
-      if (!match) return null;
-      return {
-        major: parseInt(match[1], 10),
-        minor: parseInt(match[2], 10),
-        patch: parseInt(match[3], 10),
-      };
-    };
+  const getNextDotCode = useCallback(() => (
+    getNextDotCodeFromUtils(existingCodes)
+  ), [existingCodes]);
 
-    let best: { major: number; minor: number; patch: number } | null = null;
-    existingCodes.forEach(code => {
-      const parsed = parse(code);
-      if (!parsed) return;
-      if (!best) {
-        best = parsed;
-        return;
-      }
-      if (
-        parsed.major > best.major ||
-        (parsed.major === best.major && parsed.minor > best.minor) ||
-        (parsed.major === best.major && parsed.minor === best.minor && parsed.patch > best.patch)
-      ) {
-        best = parsed;
-      }
-    });
-
-    let major = best ? best.major : 0;
-    let minor = best ? best.minor : 0;
-    let patch = best ? best.patch : 0;
-
-    const increment = () => {
-      patch += 1;
-      if (patch > 9) {
-        patch = 0;
-        minor += 1;
-      }
-      if (minor > 9) {
-        minor = 0;
-        major += 1;
-      }
-    };
-
-    increment();
-    let candidate = `${major}.${minor}.${patch}`;
-    while (existingCodes.has(candidate)) {
-      increment();
-      candidate = `${major}.${minor}.${patch}`;
-    }
-    return candidate;
-  }, [existingCodes]);
+  const getNextExerciseCode = useCallback(() => (
+    getNextExerciseCodeFromUtils(existingCodes)
+  ), [existingCodes]);
 
   const loadFrenzyPrerequisites = useCallback(async () => {
     const domainId = parseInt(subjectMatterId, 10);
@@ -1582,7 +1538,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    const code = getNextDotCode();
+    const code = type === 'exercise' ? getNextExerciseCode() : getNextDotCode();
     const name = type === 'definition' ? `Concept ${code}` : `Exercise ${code}`;
     const center = getGraphCenter();
     const spawn = {
@@ -1645,6 +1601,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     isDomainOwner,
     subjectMatterId,
     getNextDotCode,
+    getNextExerciseCode,
     getGraphCenter,
     getDefaultFrenzyContent,
     getDefaultFrenzyPrompt,

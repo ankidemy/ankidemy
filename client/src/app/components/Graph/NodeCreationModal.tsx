@@ -1,5 +1,5 @@
 // File: ./src/app/components/Graph/NodeCreationModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import {
@@ -18,6 +18,7 @@ import {
 } from '@/lib/api';
 import { X } from 'lucide-react';
 import ImageUploadField from './components/ImageUploadField';
+import { getNextDotCode, getNextExerciseCode } from './utils/codeGeneration';
 
 interface PrerequisiteOption {
   code: string; // The string code for display and internal graph use
@@ -78,37 +79,52 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   const [exPrereqWeights, setExPrereqWeights] = useState<Record<number, number>>({});
   const [searchDef, setSearchDef] = useState('');
   const [searchEx, setSearchEx] = useState('');
+  const hasInitializedRef = useRef(false);
+  const lastTypeRef = useRef(type);
 
   useEffect(() => {
-    if (isOpen) {
-      setCode('');
-      setName('');
-      setDescription('');
-      setNotes('');
-      setStatement('');
-      setHints('');
-      setStatementImagePath('');
-      setSolutionImagePath('');
-      setDifficulty('3');
-      setVerifiable(false);
-      setResult('');
-      setPrompt('');
-      setVersionType('open_ended');
-      setReferences('');
-      setPromptImagePath('');
-      setDescriptionImagePath('');
-      setExtraDefVersions([]);
-      setSelectedDefPrereqIds([]);
-      setSelectedExPrereqIds([]);
-      setError(null);
-      setCodeError(null);
-      setIsSubmitting(false);
-      setDefPrereqWeights({});
-      setExPrereqWeights({});
-      setSearchDef('');
-      setSearchEx('');
+    if (!isOpen) {
+      hasInitializedRef.current = false;
+      lastTypeRef.current = type;
+      return;
     }
-  }, [isOpen, type]);
+
+    const typeChanged = lastTypeRef.current !== type;
+    if (hasInitializedRef.current && !typeChanged) return;
+
+    const defaultCode = type === 'exercise'
+      ? getNextExerciseCode(existingCodes)
+      : getNextDotCode(existingCodes);
+
+    setCode(defaultCode);
+    setName('');
+    setDescription('');
+    setNotes('');
+    setStatement('');
+    setHints('');
+    setStatementImagePath('');
+    setSolutionImagePath('');
+    setDifficulty('3');
+    setVerifiable(false);
+    setResult('');
+    setPrompt('');
+    setVersionType('open_ended');
+    setReferences('');
+    setPromptImagePath('');
+    setDescriptionImagePath('');
+    setExtraDefVersions([]);
+    setSelectedDefPrereqIds([]);
+    setSelectedExPrereqIds([]);
+    setError(null);
+    setCodeError(null);
+    setIsSubmitting(false);
+    setDefPrereqWeights({});
+    setExPrereqWeights({});
+    setSearchDef('');
+    setSearchEx('');
+    hasInitializedRef.current = true;
+    lastTypeRef.current = type;
+  }, [isOpen, type, existingCodes]);
 
   // Check for duplicate code
   useEffect(() => {
