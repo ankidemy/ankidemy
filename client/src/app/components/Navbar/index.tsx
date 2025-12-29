@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { logout, User } from '@/lib/api';
+import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
 
 interface NavbarProps {
   currentUser?: User | null;
@@ -66,82 +67,85 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser, onMenuClick, extraMenuItem
             </Link>
           </div>
 
-          {/* User Menu */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => {
-                if (onMenuClick) {
-                  onMenuClick();
-                } else {
-                  setShowMenu(!showMenu);
-                }
-              }}
-              className="relative group"
-              aria-label="Abrir menú"
-            >
-              <div className="flex flex-col justify-center items-end w-8 h-8 space-y-1">
-                <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all duration-200" />
-                <span className="w-2/3 h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all duration-200" />
-                <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all duration-200" />
-              </div>
-            </button>
+          {/* Notification Center + User Menu */}
+          <div className="flex items-center gap-4">
+            <NotificationCenter />
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => {
+                  if (onMenuClick) {
+                    onMenuClick();
+                  } else {
+                    setShowMenu(!showMenu);
+                  }
+                }}
+                className="relative group"
+                aria-label="Abrir menú"
+              >
+                <div className="flex flex-col justify-center items-end w-8 h-8 space-y-1">
+                  <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all duration-200" />
+                  <span className="w-2/3 h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all duration-200" />
+                  <span className="w-full h-0.5 bg-gray-800 group-hover:bg-orange-500 transition-all duration-200" />
+                </div>
+              </button>
 
-            {/* Dropdown Menu */}
-            {showMenu && (
-              <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border z-50">
-                <div className="py-2">
-                  {currentUser && (
-                    <div className="px-4 py-2 border-b border-gray-100">
-                      <p className="text-sm text-gray-500">Bienvenido,</p>
-                      <p className="text-sm font-medium text-gray-900 truncate">{currentUser.username || 'Usuario'}</p>
-                    </div>
-                  )}
-                  
-                  <ul className="py-2 text-sm text-gray-800">
-                    {extraMenuItems.map(item => (
-                      <li key={item.href}>
+              {/* Dropdown Menu */}
+              {showMenu && (
+                <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border z-50">
+                  <div className="py-2">
+                    {currentUser && (
+                      <div className="px-4 py-2 border-b border-gray-100">
+                        <p className="text-sm text-gray-500">Bienvenido,</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">{currentUser.username || 'Usuario'}</p>
+                      </div>
+                    )}
+                    
+                    <ul className="py-2 text-sm text-gray-800">
+                      {extraMenuItems.map(item => (
+                        <li key={item.href}>
+                          <Link 
+                            href={item.href}
+                            className="block px-4 py-2 hover:bg-orange-50 hover:text-orange-600 transition-colors rounded-md mx-2"
+                            onClick={() => setShowMenu(false)}
+                          >
+                            {item.label}
+                          </Link>
+                        </li>
+                      ))}
+                      <li>
                         <Link 
-                          href={item.href}
+                          href="/profile"
                           className="block px-4 py-2 hover:bg-orange-50 hover:text-orange-600 transition-colors rounded-md mx-2"
                           onClick={() => setShowMenu(false)}
                         >
-                          {item.label}
+                          Profile
                         </Link>
                       </li>
-                    ))}
-                    <li>
-                      <Link 
-                        href="/profile"
-                        className="block px-4 py-2 hover:bg-orange-50 hover:text-orange-600 transition-colors rounded-md mx-2"
-                        onClick={() => setShowMenu(false)}
-                      >
-                        Profile
-                      </Link>
-                    </li>
-                    <li>
-                      <Link 
-                        href="/settings"
-                        className="block px-4 py-2 hover:bg-orange-50 hover:text-orange-600 transition-colors rounded-md mx-2"
-                        onClick={() => setShowMenu(false)}
-                      > 
-                        Settings 
-                      </Link>
-                    </li>
-                    <li className="border-t border-gray-100 mt-2 pt-2">
-                      <button 
-                        onClick={() => {
-                          setShowMenu(false);
-                          handleLogout();
-                        }}
-                        className="w-full text-left block px-4 py-2 text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors rounded-md mx-2"
-                      >
-                        Logout
-                      </button>
-                    </li>
-                  </ul>
+                      <li>
+                        <Link 
+                          href="/settings"
+                          className="block px-4 py-2 hover:bg-orange-50 hover:text-orange-600 transition-colors rounded-md mx-2"
+                          onClick={() => setShowMenu(false)}
+                        > 
+                          Settings 
+                        </Link>
+                      </li>
+                      <li className="border-t border-gray-100 mt-2 pt-2">
+                        <button 
+                          onClick={() => {
+                            setShowMenu(false);
+                            handleLogout();
+                          }}
+                          className="w-full text-left block px-4 py-2 text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors rounded-md mx-2"
+                        >
+                          Logout
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>

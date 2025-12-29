@@ -36,6 +36,13 @@ const GraphLegend: React.FC<GraphLegendProps> = ({ mode, hasExercises }) => {
         <div className="w-3 h-3 rounded-full mr-1.5 border-2 flex-shrink-0" style={{ borderColor: 'rgb(236, 72, 153)' }}></div>
         <span className="truncate">New</span>
       </div>
+      <div className="flex items-center mb-1">
+        <div
+          className="w-3 h-3 rounded-full mr-1.5 border-2 flex-shrink-0"
+          style={{ borderColor: 'rgb(245, 158, 11)' }}
+        ></div>
+        <span className="truncate">Due</span>
+      </div>
       <div className="flex items-center mt-1 pt-1 border-t">
         <div style={{width: '12px', height: '2px', backgroundColor: '#aaa', marginRight: '6px', flexShrink: 0}}></div>
         <span className="truncate">Prereq. Link</span>

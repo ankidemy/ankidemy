@@ -605,7 +605,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadDueReviews = useCallback(async (sessionType: SessionType = 'mixed'): Promise<DueReview[]> => {
     const domainId = currentDomainIdRef.current;
     if (domainId === null) {
-        showToast("No domain selected to load due reviews.", "warning");
+        console.warn("No domain selected to load due reviews.");
         return [];
     }
     dispatch({ type: 'SET_LOADING', payload: true });

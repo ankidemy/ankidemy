@@ -243,14 +243,17 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
     // Due indicator animation
     if (isDue) {
+      const isGraspedDue = status === 'grasped';
       const time = Date.now();
       const pulseRadius = nodeSize + 2.5 / globalScale;
       const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time / 400));
+      const primaryColor = '245, 158, 11';
+      const secondaryColor = '251, 191, 36';
       
       ctx.beginPath();
       ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI, false);
-      ctx.strokeStyle = `rgba(255, 80, 80, ${pulseAlpha})`;
-      ctx.lineWidth = 3 / globalScale;
+      ctx.strokeStyle = `rgba(${primaryColor}, ${pulseAlpha})`;
+      ctx.lineWidth = (isGraspedDue ? 3.5 : 3) / globalScale;
       ctx.stroke();
       
       // Secondary pulse ring
@@ -258,9 +261,19 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       const secondaryAlpha = 0.2 + 0.4 * Math.abs(Math.sin(time / 600));
       ctx.beginPath();
       ctx.arc(x, y, secondaryPulse, 0, 2 * Math.PI, false);
-      ctx.strokeStyle = `rgba(255, 120, 120, ${secondaryAlpha})`;
-      ctx.lineWidth = 1.5 / globalScale;
+      ctx.strokeStyle = `rgba(${secondaryColor}, ${secondaryAlpha})`;
+      ctx.lineWidth = (isGraspedDue ? 2 : 1.5) / globalScale;
       ctx.stroke();
+
+      if (isGraspedDue) {
+        const highlightPulse = nodeSize + 6 / globalScale;
+        const highlightAlpha = 0.2 + 0.3 * Math.abs(Math.sin(time / 500));
+        ctx.beginPath();
+        ctx.arc(x, y, highlightPulse, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(34, 197, 94, ${highlightAlpha})`;
+        ctx.lineWidth = 1.5 / globalScale;
+        ctx.stroke();
+      }
     }
 
     // Node type icon

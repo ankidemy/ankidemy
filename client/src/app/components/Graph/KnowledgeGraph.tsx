@@ -330,6 +330,11 @@ const useGraphMetadata = (
   return useMemo(() => {
     const nodeMetadata = new Map<string, NodeMetadata>();
     const linkMetadata = new Map<string, LinkMetadata>();
+    const dueNodeCodes = new Set(
+      (srs.state.dueReviews || [])
+        .map((review: any) => review?.nodeCode)
+        .filter(Boolean)
+    );
 
     // Build metadata for each node
     structureNodes.forEach((nodeCore, nodeId) => {
@@ -345,13 +350,14 @@ const useGraphMetadata = (
       const isRoot = (nodeCore.prerequisites || []).length === 0;
       const status = (progress?.status as NodeStatus) || 'fresh';
       const srsColor = getStatusColor(status);
+      const isDue = (progress ? isNodeDue(progress.nextReview) : false) || dueNodeCodes.has(nodeId);
 
       nodeMetadata.set(nodeId, {
         name: fullNodeData?.name ?? nodeId,
         isRootDefinition: isDefinition ? isRoot : undefined,
         difficulty: !isDefinition ? ((fullNodeData as ApiExercise | undefined)?.difficulty) : undefined,
         status,
-        isDue: progress ? isNodeDue(progress.nextReview) : false,
+        isDue,
         daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
         progress: progress || null,
         color: srsColor,
@@ -368,6 +374,7 @@ const useGraphMetadata = (
     // Dependencies track metadata changes
     srs.state.domainProgress,
     srs.state.lastUpdated,
+    srs.state.dueReviews,
     // IMPORTANT: Recompute when the set of structure nodes changes (e.g., switching to practice mode)
     // This ensures newly materialized exercise nodes receive proper SRS-driven colors instead of gray fallbacks.
     (() => Array.from(structureNodes.keys()).sort().join('|'))(),
@@ -2546,6 +2553,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           isOwner={currentUser && domainData && domainData.ownerId === currentUser.id}
           isEnrolled={hasAccess ?? undefined}
           onDataImported={refreshGraphAndSRSData}
+          onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
         />
 
         {/* Main Content */}

@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
 import DomainForm from "@/app/components/Domain/DomainForm";
 import { showToast } from '@/app/components/core/ToastNotification';
+import { useNotifications } from '@/contexts/NotificationContext';
 
 import {
   Domain,
@@ -26,6 +27,8 @@ import {
 import { archiveDomain } from '@/lib/api';
 
 export default function MainPage() {
+  const { domainDueCounts } = useNotifications();
+
   // State
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -484,7 +487,14 @@ export default function MainPage() {
                         </div>
                       )}
                     </div>
-                    <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
+                    <div className="flex items-start justify-between gap-2 pr-8">
+                      <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
+                      {domainDueCounts[domain.id] > 0 && (
+                        <span className="mt-1 inline-flex items-center rounded-full bg-orange-100 text-orange-700 text-xs font-semibold px-2 py-0.5">
+                          {domainDueCounts[domain.id]} due
+                        </span>
+                      )}
+                    </div>
                     <p className="text-gray-600 mb-4 line-clamp-2 min-h-[2.5rem]">{domain.description || "No description"}</p>
                     
                     <div className="flex justify-between items-center relative">

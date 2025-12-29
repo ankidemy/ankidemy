@@ -5,6 +5,7 @@ import "./globals.css";
 import "katex/dist/katex.min.css";
 import { ToastContainer, ToastProvider } from "@/app/components/core/ToastNotification"; // Updated import for ToastProvider
 import { SRSProvider } from '@/contexts/SRSContext'; // Import SRSProvider
+import { NotificationProvider } from '@/contexts/NotificationContext';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,7 +33,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
      <ToastProvider>
-       <SRSProvider>{children}</SRSProvider>
+       <SRSProvider>
+         <NotificationProvider>{children}</NotificationProvider>
+       </SRSProvider>
        <ToastContainer />
      </ToastProvider>
       </body>
