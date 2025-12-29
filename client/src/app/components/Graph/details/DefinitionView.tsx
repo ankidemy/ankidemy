@@ -28,6 +28,7 @@ interface DefinitionViewProps {
   onNavigateToNode: (nodeId: string) => void;
   onReview: (result: 'again' | 'hard' | 'good' | 'easy') => void;
   availableDefinitions?: { code: string; name: string }[];
+  availableExercises?: { code: string; name: string }[];
   srsStatus?: NodeStatus;
 }
 
@@ -49,6 +50,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   onNavigateToNode,
   onReview,
   availableDefinitions = [],
+  availableExercises = [],
   srsStatus,
 }) => {
   const hasMultipleDescriptions = totalDescriptions > 1;
@@ -58,7 +60,12 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
     const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
-    return prereqDef ? `${prereqCode}: ${prereqDef.name}` : prereqCode;
+    return prereqDef ? prereqDef.name : prereqCode;
+  };
+
+  const getRelatedExerciseDisplayText = (exerciseCode: string): string => {
+    const exercise = availableExercises.find(ex => ex.code === exerciseCode);
+    return exercise ? exercise.name : exerciseCode;
   };
 
   // Reset collapsibles when version index changes (hide by default)
@@ -188,7 +195,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 size="sm"
                 onClick={() => onNavigateToNode(prereqCode)}
                 className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                title={`Navigate to ${prereqCode}`}
+                title={`Navigate to ${getPrerequisiteDisplayText(prereqCode)}`}
               >
                 {/* Render LaTeX inside button label */}
                 <span className="truncate max-w-[220px] inline-block align-middle">
@@ -217,9 +224,11 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                 size="sm"
                 onClick={() => onNavigateToNode(exerciseCode)}
                 className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
-                title={`Navigate to ${exerciseCode}`}
+                title={`Navigate to ${getRelatedExerciseDisplayText(exerciseCode)}`}
               >
-                {exerciseCode}
+                <InlineMarkdownKatex className="pointer-events-none">
+                  {getRelatedExerciseDisplayText(exerciseCode)}
+                </InlineMarkdownKatex>
               </Button>
             ))}
           </div>

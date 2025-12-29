@@ -248,7 +248,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       payload: {
         id: windowId,
         type: 'detail',
-        title: `${nodeData.id}: ${nodeData.name}`,
+        title: nodeData.name,
         contentProps: { nodeData },
         position: defaultPosition,
         size: { width: 450, height: 600 },

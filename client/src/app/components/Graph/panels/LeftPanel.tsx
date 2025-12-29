@@ -155,7 +155,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
         className={itemClasses}
         onClick={(e) => handleNodeItemClick(node, e)}
         onKeyDown={handleKeyDown}
-        title={`${node.id}: ${node.name}${nodeProgress?.isDue ? ' (Due for review)' : ''}`}
+        title={`${node.name}${nodeProgress?.isDue ? ' (Due for review)' : ''}`}
         tabIndex={0}
       >
         <div className="flex items-center space-x-3">
@@ -198,7 +198,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
           {/* Node Content with enhanced typography */}
           <div className="flex-1 min-w-0">
             <div className={`font-medium truncate ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-              <InlineMarkdownKatex>{`${node.id}: ${node.name}`}</InlineMarkdownKatex>
+              <InlineMarkdownKatex>{node.name}</InlineMarkdownKatex>
             </div>
             
             {/* Enhanced metadata display */}

@@ -201,7 +201,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     
     // Update window title
     ui.updateWindow(windowId, { 
-      title: `${newNode.id}: ${newNode.name}`,
+      title: newNode.name,
       contentProps: { nodeData: newNode }
     });
     
@@ -226,7 +226,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     loadNodeDetails(previousNode);
     
     ui.updateWindow(windowId, { 
-      title: `${previousNode.id}: ${previousNode.name}`,
+      title: previousNode.name,
       contentProps: { nodeData: previousNode }
     });
   }, [nodeHistory, windowId, ui, loadNodeDetails]);
@@ -444,7 +444,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const updatedCurrentNode = { ...currentNode, name: formName };
         setCurrentNode(updatedCurrentNode);
         ui.updateWindow(windowId, { 
-          title: `${updatedCurrentNode.id}: ${updatedCurrentNode.name}`,
+          title: updatedCurrentNode.name,
           contentProps: { nodeData: updatedCurrentNode }
         });
       }
@@ -676,7 +676,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           )
         )}
         <h3 className="flex-1 font-semibold text-base truncate">
-          <InlineMarkdownKatex>{`${currentNode.id}: ${currentNode.name}`}</InlineMarkdownKatex>
+          <InlineMarkdownKatex>{currentNode.name}</InlineMarkdownKatex>
         </h3>
         <Button
           variant="ghost"
@@ -785,7 +785,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   // Update current node identity (code/name) so header and future loads are correct
                   setCurrentNode(prev => ({ ...prev, id: updated.code, name: updated.name }));
                   // Update window title immediately
-                  ui.updateWindow(windowId, { title: `${updated.code}: ${updated.name}` });
+                  ui.updateWindow(windowId, { title: updated.name });
 
                   // If code changed, force a full graph refresh to rebuild code-indexed maps and links
                   if (updated.code !== prevCode) {
@@ -877,7 +877,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   setCurrentNode(prev => ({ ...prev, id: updated.code, name: updated.name }));
 
                   // Update window title immediately
-                  ui.updateWindow(windowId, { title: `${updated.code}: ${updated.name}` });
+                  ui.updateWindow(windowId, { title: updated.name });
 
                   // Keep nodeDetails in sync for current view
                   setNodeDetails(prev => prev ? { ...prev, code: updated.code, name: updated.name } as any : prev);
@@ -1038,6 +1038,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   availableDefinitions={availableDefinitions.map((d: any) => ({
                     code: d.code,
                     name: d.name
+                  }))}
+                  availableExercises={availableExercises.map((e: any) => ({
+                    code: e.code,
+                    name: e.name
                   }))}
                   srsStatus={nodeProgress?.status}
                 />

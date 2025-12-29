@@ -68,12 +68,12 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
     const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
-    return prereqDef ? `${prereqCode}: ${prereqDef.name}` : prereqCode;
+    return prereqDef ? prereqDef.name : prereqCode;
   };
 
   const getExercisePrerequisiteDisplayText = (prereqCode: string): string => {
     const prereqEx = availableExercises.find(ex => ex.code === prereqCode);
-    return prereqEx ? `${prereqCode}: ${prereqEx.name}` : prereqCode;
+    return prereqEx ? prereqEx.name : prereqCode;
   };
 
   const definitionPrereqs = definitionPrerequisites ?? exercise.prerequisites ?? [];
@@ -248,7 +248,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
                     size="sm"
                     onClick={() => onNavigateToNode(prereqCode)}
                     className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                    title={`Navigate to ${prereqCode}`}
+                    title={`Navigate to ${getPrerequisiteDisplayText(prereqCode)}`}
                   >
                     <span className="truncate max-w-[220px] inline-block align-middle">
                       <InlineMarkdownKatex className="pointer-events-none">
@@ -273,7 +273,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
                     size="sm"
                     onClick={() => onNavigateToNode(prereqCode)}
                     className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
-                    title={`Navigate to ${prereqCode}`}
+                    title={`Navigate to ${getExercisePrerequisiteDisplayText(prereqCode)}`}
                   >
                     <span className="truncate max-w-[220px] inline-block align-middle">
                       <InlineMarkdownKatex className="pointer-events-none">

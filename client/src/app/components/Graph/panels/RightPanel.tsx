@@ -62,6 +62,7 @@ interface RightPanelProps {
   onStatusChange: (nodeId: string, status: NodeStatus) => Promise<void>;
   
   availableDefinitions: { code: string; name: string }[];
+  availableExercises?: { code: string; name: string }[];
 }
 
 // Extracted ReviewHistory component for better organization
@@ -165,6 +166,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onSubmitEdit,
   onStatusChange,
   availableDefinitions,
+  availableExercises = [],
 }) => {
   const srs = useSRS();
   const nodeProgress = selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number'
@@ -200,8 +202,8 @@ const RightPanel: React.FC<RightPanelProps> = ({
                 <ArrowLeft size={16} />
               </Button>
             )}
-            <h3 className="font-semibold text-base truncate flex-grow" title={`${selectedNode.id}: ${selectedNode.name}`}>
-              <InlineMarkdownKatex>{`${selectedNode.id}: ${selectedNode.name}`}</InlineMarkdownKatex>
+            <h3 className="font-semibold text-base truncate flex-grow" title={selectedNode.name}>
+              <InlineMarkdownKatex>{selectedNode.name}</InlineMarkdownKatex>
             </h3>
           </div>
           <div className="flex flex-shrink-0">
@@ -257,6 +259,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     onNavigateToNode={onNavigateToNode}
                     onReview={onReviewDefinition}
                     availableDefinitions={availableDefinitions}
+                    availableExercises={availableExercises}
                     srsStatus={nodeProgress?.status}
                   />
                 ) : (
@@ -274,10 +277,11 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     exerciseAttemptCompleted={exerciseAttemptCompleted}
                     statementImagePath={(selectedNodeDetails as Exercise)?.statementImagePath}
                     descriptionImagePath={(selectedNodeDetails as Exercise)?.descriptionImagePath}
-                    onNavigateToNode={onNavigateToNode}
-                    availableDefinitions={availableDefinitions}
-                    srsStatus={nodeProgress?.status}
-                  />
+                  onNavigateToNode={onNavigateToNode}
+                  availableDefinitions={availableDefinitions}
+                  availableExercises={availableExercises}
+                  srsStatus={nodeProgress?.status}
+                />
                 )}
               </TabsContent>
               
