@@ -344,10 +344,10 @@ export { getVisualGraph };
 // Get status color for UI display
 export const getStatusColor = (status: NodeStatus): string => {
   const colors = {
-    fresh: '#94A3B8',      // Slate 400 - not started
-    tackling: '#F59E0B',   // Amber 500 - working on it  
-    grasped: '#10B981',    // Emerald 500 - understood
-    learned: '#3B82F6',    // Blue 500 - mastered
+    fresh: '#94A3B8',      // Slate 400 - not started (muted)
+    tackling: '#F97316',   // Orange 500 - difficult (intense)
+    grasped: '#22C55E',    // Green 500 - understood (intense)
+    learned: '#93C5FD',    // Blue 300 - mastered (muted)
   };
   return colors[status] || colors.fresh;
 };

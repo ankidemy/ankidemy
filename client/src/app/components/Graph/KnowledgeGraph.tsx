@@ -343,14 +343,14 @@ const useGraphMetadata = (
       // produce minimal metadata so the node isn't dropped.
       const isDefinition = nodeCore.type === 'definition';
       const isRoot = (nodeCore.prerequisites || []).length === 0;
-      const baseColor = isDefinition ? (isRoot ? '#28a745' : '#007bff') : '#9ccc65';
-      const srsColor = progress?.status ? getStatusColor(progress.status) : baseColor;
+      const status = (progress?.status as NodeStatus) || 'fresh';
+      const srsColor = getStatusColor(status);
 
       nodeMetadata.set(nodeId, {
         name: fullNodeData?.name ?? nodeId,
         isRootDefinition: isDefinition ? isRoot : undefined,
         difficulty: !isDefinition ? ((fullNodeData as ApiExercise | undefined)?.difficulty) : undefined,
-        status: (progress?.status as NodeStatus) || 'fresh',
+        status,
         isDue: progress ? isNodeDue(progress.nextReview) : false,
         daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
         progress: progress || null,
@@ -534,6 +534,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [newlyCreatedNodeId, setNewlyCreatedNodeId] = useState<string | null>(null);
 
   // Interactive state
   const [highlightNodes, setHighlightNodes] = useState(new Set<string>());
@@ -633,12 +634,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const combined = new Set<string>();
     
     activeNodeIds.forEach(id => combined.add(id));
-    selectedNodeIds.forEach(id => combined.add(id));
     highlightNodes.forEach(id => combined.add(id));
     if (pendingLinkSourceId) combined.add(pendingLinkSourceId);
     
     return combined;
-  }, [activeNodeIds, selectedNodeIds, highlightNodes, pendingLinkSourceId]);
+  }, [activeNodeIds, highlightNodes, pendingLinkSourceId]);
+
+  const primarySelectedNodeId = useMemo(() => {
+    for (const id of selectedNodeIds) return id;
+    return null;
+  }, [selectedNodeIds]);
 
   const handleNodeSelect = useCallback((nodeId: string, isSelected: boolean) => {
     setSelectedNodeIds(prev => {
@@ -1013,6 +1018,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setCodeToNumericIdMap(m => new Map(m).set(nodeCode, payload.id));
     }
     setNodeDataCache(c => new Map(c).set(nodeCode, payload));
+    setNewlyCreatedNodeId(nodeCode);
 
     // Insert surgically into structure state (only the new node & its links)
     setCurrentStructuralGraphData(prev => {
@@ -1373,13 +1379,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     });
   }, []);
 
-  const addFrenzyPrerequisite = useCallback(async (source: GraphNode, target: GraphNode) => {
+  const addFrenzyPrerequisite = useCallback(async (
+    source: GraphNode,
+    target: GraphNode,
+    idOverrides?: { sourceId?: number; targetId?: number }
+  ) => {
     if (target.type === 'definition' && source.type !== 'definition') {
       showToast('Definitions can only depend on definitions.', 'warning');
       return;
     }
-    const sourceId = codeToNumericIdMap.get(source.id);
-    const targetId = codeToNumericIdMap.get(target.id);
+    const sourceId = idOverrides?.sourceId ?? codeToNumericIdMap.get(source.id);
+    const targetId = idOverrides?.targetId ?? codeToNumericIdMap.get(target.id);
     if (!sourceId || !targetId) {
       showToast('Missing node identifiers for linking.', 'error');
       return;
@@ -1546,6 +1556,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       y: center.y + (Math.random() - 0.5) * 40,
     };
 
+    const selectedNode = primarySelectedNodeId
+      ? stableGraph.nodes.find(n => n.id === primarySelectedNodeId)
+      : null;
+
     try {
       if (type === 'definition') {
         const defaultContent = getDefaultFrenzyContent('definition', name);
@@ -1566,6 +1580,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         frenzyAutoContentRef.current.set(code, defaultContent);
         frenzyAutoPromptRef.current.set(code, defaultPrompt);
         insertCreatedNode(code, 'definition', created, spawn);
+        if (selectedNode) {
+          await addFrenzyPrerequisite(
+            selectedNode,
+            { id: code, name, type: 'definition' } as GraphNode,
+            { targetId: (created as any).id }
+          );
+        }
         if (isFrenzyEditMode) {
           openFrenzyNote({ id: code, name, type: 'definition' } as GraphNode, (created as any).id);
         }
@@ -1588,6 +1609,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         });
         frenzyAutoContentRef.current.set(code, defaultContent);
         insertCreatedNode(code, 'exercise', created, spawn);
+        if (selectedNode) {
+          await addFrenzyPrerequisite(
+            selectedNode,
+            { id: code, name, type: 'exercise' } as GraphNode,
+            { targetId: (created as any).id }
+          );
+        }
         if (isFrenzyEditMode) {
           openFrenzyNote({ id: code, name, type: 'exercise' } as GraphNode, (created as any).id);
         }
@@ -1606,6 +1634,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     getDefaultFrenzyContent,
     getDefaultFrenzyPrompt,
     insertCreatedNode,
+    primarySelectedNodeId,
+    stableGraph.nodes,
+    addFrenzyPrerequisite,
     isFrenzyEditMode,
     openFrenzyNote,
   ]);
@@ -1949,6 +1980,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setIsDraggingFrenzyNote(false);
   }, [saveFrenzyNote]);
 
+  useEffect(() => {
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (mode !== 'frenzy' || !isFrenzyEditMode) return;
+      if (frenzyClickTimerRef.current) {
+        clearTimeout(frenzyClickTimerRef.current);
+        frenzyClickTimerRef.current = null;
+      }
+      if (selectedNodeIds.size > 0) {
+        setSelectedNodeIds(new Set());
+      }
+      setPendingLinkSourceId(null);
+      if (frenzyNote) {
+        void closeFrenzyNote();
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [mode, isFrenzyEditMode, selectedNodeIds, frenzyNote, closeFrenzyNote]);
+
   const getNodeTypeByCode = useCallback((code: string) => {
     if (currentStructuralGraphData.definitions?.[code]) return 'definition';
     if (currentStructuralGraphData.exercises?.[code]) return 'exercise';
@@ -2053,6 +2105,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       });
       positionManagerRef.current.removePosition(node.id);
       if (pendingLinkSourceId === node.id) setPendingLinkSourceId(null);
+      setSelectedNodeIds(prev => {
+        if (!prev.has(node.id)) return prev;
+        const next = new Set(prev);
+        next.delete(node.id);
+        return next;
+      });
+      setNewlyCreatedNodeId(prev => (prev === node.id ? null : prev));
       if (frenzyNote?.nodeId === node.id) {
         setFrenzyNote(null);
         setFrenzyNoteCodeDraft('');
@@ -2075,6 +2134,30 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     pendingLinkSourceId,
     frenzyNote,
   ]);
+
+  const handleFrenzyToolChange = useCallback(async (nextTool: FrenzyEditTool) => {
+    const resolvedTool = frenzyTool === nextTool ? 'none' : nextTool;
+    setFrenzyTool(resolvedTool);
+    if (resolvedTool !== 'link' && resolvedTool !== 'unlink') {
+      setPendingLinkSourceId(null);
+    }
+    if (!primarySelectedNodeId) return;
+
+    if (resolvedTool === 'delete') {
+      const selectedNode = stableGraph.nodes.find(n => n.id === primarySelectedNodeId);
+      if (selectedNode) {
+        await deleteFrenzyNode(selectedNode);
+      } else {
+        showToast('Selected node not found.', 'warning');
+      }
+      return;
+    }
+
+    if (resolvedTool === 'link' || resolvedTool === 'unlink') {
+      setPendingLinkSourceId(primarySelectedNodeId);
+      showToast(`Select a target to ${resolvedTool === 'link' ? 'link' : 'unlink'} from ${primarySelectedNodeId}.`, 'info', 1500);
+    }
+  }, [frenzyTool, primarySelectedNodeId, stableGraph.nodes, deleteFrenzyNode]);
 
   const undoFrenzyDelete = useCallback(async () => {
     if (!lastDeletedNode) return;
@@ -2231,13 +2314,22 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       if (frenzyTool === 'link') {
         await addFrenzyPrerequisite(sourceNode, node);
       } else {
-        await removeFrenzyPrerequisite(sourceNode.id, node.id);
+        const directKey = `${sourceNode.id}-${node.id}`;
+        const reverseKey = `${node.id}-${sourceNode.id}`;
+        if (frenzyPrerequisiteMap.has(directKey)) {
+          await removeFrenzyPrerequisite(sourceNode.id, node.id);
+        } else if (frenzyPrerequisiteMap.has(reverseKey)) {
+          await removeFrenzyPrerequisite(node.id, sourceNode.id);
+        } else {
+          showToast('Link not found.', 'warning');
+        }
       }
     }
   }, [
     frenzyTool,
     pendingLinkSourceId,
     stableGraph.nodes,
+    frenzyPrerequisiteMap,
     addFrenzyPrerequisite,
     removeFrenzyPrerequisite,
     deleteFrenzyNode,
@@ -2260,6 +2352,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       if (frenzyClickTimerRef.current) {
         clearTimeout(frenzyClickTimerRef.current);
       }
+      if (frenzyTool === 'none') {
+        setSelectedNodeIds(new Set([node.id]));
+        frenzyClickTimerRef.current = setTimeout(() => {
+          frenzyLastClickRef.current = null;
+        }, 270);
+        return;
+      }
+      setSelectedNodeIds(new Set([node.id]));
       frenzyClickTimerRef.current = setTimeout(() => {
         frenzyLastClickRef.current = null;
         handleFrenzyNodeAction(node);
@@ -2267,7 +2367,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     handleNodeClick(node, false, 'click');
-  }, [mode, isFrenzyEditMode, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick]);
+  }, [mode, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick]);
 
   const handleGraphLinkClick = useCallback((link: GraphLink) => {
     if (!(mode === 'frenzy' && isFrenzyEditMode && frenzyTool === 'unlink')) return;
@@ -2499,7 +2599,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 highlightNodes={graphHighlightedNodes}
                 highlightLinks={highlightLinks}
                 filteredNodeType={filteredNodeType}
-                selectedNodeId={null}
+                selectedNodeIds={selectedNodeIds}
+                newlyCreatedNodeId={newlyCreatedNodeId}
                 labelDisplayMode={labelDisplayMode}
                 onNodeClick={handleGraphNodeClick}
                 onNodeHover={handleNodeHover}
@@ -2557,21 +2658,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       <Button
                         size="sm"
                         variant={frenzyTool === 'link' ? 'default' : 'outline'}
-                        onClick={() => setFrenzyTool('link')}
+                        onClick={() => handleFrenzyToolChange('link')}
                       >
                         Link
                       </Button>
                       <Button
                         size="sm"
                         variant={frenzyTool === 'unlink' ? 'default' : 'outline'}
-                        onClick={() => setFrenzyTool('unlink')}
+                        onClick={() => handleFrenzyToolChange('unlink')}
                       >
                         Unlink
                       </Button>
                       <Button
                         size="sm"
                         variant={frenzyTool === 'delete' ? 'destructive' : 'outline'}
-                        onClick={() => setFrenzyTool('delete')}
+                        onClick={() => handleFrenzyToolChange('delete')}
                       >
                         Delete
                       </Button>
@@ -2587,7 +2688,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       </Button>
                     )}
                     <div className="mt-2 text-[11px] text-gray-500">
-                      Double-click a node to edit its content.
+                      Single-click selects a node. Double-click edits it.
                     </div>
                   </div>
                 )}

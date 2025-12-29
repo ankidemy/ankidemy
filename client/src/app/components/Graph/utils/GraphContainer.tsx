@@ -15,6 +15,10 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false
 });
 
+const NEW_NODE_HIGHLIGHT_COLOR = '236, 72, 153';
+const SELECTED_HIGHLIGHT_COLOR = '139, 92, 246';
+const HOVER_HIGHLIGHT_COLOR = '14, 165, 233';
+
 export type LabelDisplayMode = 'off' | 'codes' | 'names';
 
 interface GraphContainerProps {
@@ -23,7 +27,8 @@ interface GraphContainerProps {
   highlightNodes: Set<string>;
   highlightLinks: Set<string>;
   filteredNodeType: FilteredNodeType;
-  selectedNodeId: string | null;
+  selectedNodeIds: Set<string>;
+  newlyCreatedNodeId: string | null;
   labelDisplayMode: LabelDisplayMode;
   onNodeClick: (node: GraphNode) => void;
   onNodeHover: (node: GraphNode | null) => void;
@@ -44,7 +49,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   highlightNodes,
   highlightLinks,
   filteredNodeType,
-  selectedNodeId,
+  selectedNodeIds,
+  newlyCreatedNodeId,
   labelDisplayMode,
   onNodeClick,
   onNodeHover,
@@ -161,7 +167,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
-    const isSelected = selectedNodeId === id;
+    const isSelected = selectedNodeIds.has(id);
+    const isNewlyCreated = newlyCreatedNodeId === id;
     const isHighlighted = highlightNodes.has(id);
 
     // Calculate final color with SRS status consideration
@@ -184,22 +191,33 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       finalColor = status ? getSRSStatusColor(status) : baseColor;
     }
 
+    // Render newly created highlight
+    if (isNewlyCreated) {
+      ctx.beginPath();
+      ctx.arc(x, y, nodeSize + 10 / globalScale, 0, 2 * Math.PI, false);
+      ctx.fillStyle = `rgba(${NEW_NODE_HIGHLIGHT_COLOR}, 0.22)`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${NEW_NODE_HIGHLIGHT_COLOR}, 0.9)`;
+      ctx.lineWidth = 3 / globalScale;
+      ctx.stroke();
+    }
+
     // Render selection highlight
     if (isSelected) {
       ctx.beginPath();
       ctx.arc(x, y, nodeSize + 8 / globalScale, 0, 2 * Math.PI, false);
-      ctx.fillStyle = 'rgba(255, 165, 0, 0.4)';
+      ctx.fillStyle = `rgba(${SELECTED_HIGHLIGHT_COLOR}, 0.25)`;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 165, 0, 0.8)';
+      ctx.strokeStyle = `rgba(${SELECTED_HIGHLIGHT_COLOR}, 0.9)`;
       ctx.lineWidth = 3 / globalScale;
       ctx.stroke();
     } else if (isHighlighted) {
       const highlightIntensity = highlightNodes.size > 10 ? 0.3 : 0.5;
       ctx.beginPath();
       ctx.arc(x, y, nodeSize + 6 / globalScale, 0, 2 * Math.PI, false);
-      ctx.fillStyle = `rgba(0, 123, 255, ${highlightIntensity})`;
+      ctx.fillStyle = `rgba(${HOVER_HIGHLIGHT_COLOR}, ${highlightIntensity})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(0, 123, 255, ${highlightIntensity + 0.3})`;
+      ctx.strokeStyle = `rgba(${HOVER_HIGHLIGHT_COLOR}, ${highlightIntensity + 0.3})`;
       ctx.lineWidth = 2 / globalScale;
       ctx.stroke();
     }
@@ -212,10 +230,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     
     // Node border
     if (isSelected) {
-      ctx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
+      ctx.strokeStyle = `rgba(${SELECTED_HIGHLIGHT_COLOR}, 0.95)`;
       ctx.lineWidth = 2 / globalScale;
     } else if (isHighlighted) {
-      ctx.strokeStyle = 'rgba(0, 123, 255, 0.8)';
+      ctx.strokeStyle = `rgba(${HOVER_HIGHLIGHT_COLOR}, 0.85)`;
       ctx.lineWidth = 1.5 / globalScale;
     } else {
       ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
@@ -265,7 +283,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
     // Label rendering with caching
     const labelThreshold = 0.5;
-    const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted;
+    const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted || isNewlyCreated;
 
     if (shouldShowLabel) {
       let labelText = '';
@@ -275,12 +293,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         labelText = name;
       }
       
-      if (labelDisplayMode === 'off' && (isSelected || isHighlighted)) {
+      if (labelDisplayMode === 'off' && (isSelected || isHighlighted || isNewlyCreated)) {
         labelText = `${id}: ${name}`;
       }
 
       if (labelText) {
-        const key = makeLabelKey(labelDisplayMode, id, labelText, isHighlighted || isSelected);
+        const key = makeLabelKey(labelDisplayMode, id, labelText, isHighlighted || isSelected || isNewlyCreated);
         const nodeCache = getNodeLabelCache(node);
         // Try fast per-node cache first, then global cache
         let cachedLabel = nodeCache.get(key) || labelRendererRef.current.getCache(labelText);
@@ -308,7 +326,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
       }
     }
-  }, [selectedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh]);
+  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh]);
 
   // Memoized link color calculation
   const getLinkColor = useCallback((link: any) => {
@@ -610,7 +628,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         nodeVisibility={(node: any) => 
           filteredNodeType === 'all' || 
           node.type === filteredNodeType || 
-          selectedNodeId === node.id || 
+          selectedNodeIds.has(node.id) || 
           highlightNodes.has(node.id)
         }
         
@@ -641,7 +659,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.graphLinks === nextProps.graphLinks &&
     prevProps.highlightNodes === nextProps.highlightNodes &&
     prevProps.highlightLinks === nextProps.highlightLinks &&
-    prevProps.selectedNodeId === nextProps.selectedNodeId &&
+    prevProps.selectedNodeIds === nextProps.selectedNodeIds &&
+    prevProps.newlyCreatedNodeId === nextProps.newlyCreatedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
     prevProps.onLinkClick === nextProps.onLinkClick &&
