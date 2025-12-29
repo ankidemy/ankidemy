@@ -1222,6 +1222,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return codes;
   }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises]);
 
+  const frenzyCodeConflict = !!frenzyNote
+    && frenzyNoteCodeDraft.trim().length > 0
+    && frenzyNoteCodeDraft.trim() !== frenzyNote.nodeId
+    && existingCodes.has(frenzyNoteCodeDraft.trim());
+
   const numericIdToCodeMap = useMemo(() => {
     const map = new Map<number, string>();
     codeToNumericIdMap.forEach((id, code) => {
@@ -1610,6 +1615,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const contentChanged = draft !== frenzyNote.content;
     if (!nameChanged && !codeChanged && !promptChanged && !contentChanged) return;
 
+    if (codeChanged && existingCodes.has(codeDraft)) {
+      showToast(`Code "${codeDraft}" already exists.`, 'warning');
+      return;
+    }
+
     setIsSavingFrenzyNote(true);
     try {
       if (!codeDraft && frenzyNoteCodeDraft.length > 0) {
@@ -1787,6 +1797,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     updateMetaDefinitionVersion,
     updateMetaExercise,
     updateMetaExerciseVersion,
+    existingCodes,
   ]);
 
   const closeFrenzyNote = useCallback(async () => {
@@ -2479,8 +2490,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       value={frenzyNoteCodeDraft}
                       onChange={(e) => setFrenzyNoteCodeDraft(e.target.value)}
                       onBlur={() => saveFrenzyNote()}
-                      className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+                      className={`w-full bg-yellow-50 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
+                        frenzyCodeConflict
+                          ? 'border-red-400 focus:ring-red-200 text-red-700'
+                          : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
+                      }`}
+                      aria-invalid={frenzyCodeConflict}
                     />
+                    {frenzyCodeConflict && (
+                      <div className="mt-1 text-xs text-red-600">
+                        Code already exists in this domain.
+                      </div>
+                    )}
                   </div>
                   <div className="mb-2">
                     <label className="block text-xs text-yellow-800 mb-1">Name</label>
