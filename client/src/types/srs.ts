@@ -13,6 +13,8 @@ export interface NodeProgress {
   userId: number;
   nodeId: number;
   nodeType: 'definition' | 'exercise';
+  nodeCode?: string;
+  nodeName?: string;
   status: NodeStatus;
   easinessFactor: number;
   intervalDays: number;

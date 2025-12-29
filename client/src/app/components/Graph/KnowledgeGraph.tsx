@@ -2983,6 +2983,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   domainId={parseInt(subjectMatterId, 10)}
                   onNavigateToNode={navigateToNodeById}
                   windowId={window.id}
+                  reviewMode={mode === 'frenzy' ? 'frenzy' : 'normal'}
                 />
               )}
             </DraggableWindow>
