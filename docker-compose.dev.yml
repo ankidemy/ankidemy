@@ -5,7 +5,7 @@ services:
   # Database Service - Development configuration
   db:
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
     volumes:
       - ./db/init-scripts:/docker-entrypoint-initdb.d
       - ./db/dev-config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
@@ -18,7 +18,7 @@ services:
       retries: 3
       start_period: 5s
 
-  # Server Service - Development with hot reload and optimized startup
+  # Server Service - Development with Air hot reload
   server:
     working_dir: /app
     volumes:
@@ -42,7 +42,7 @@ services:
           echo 'Installing git...' &&
           apk add --no-cache git;
         fi &&
-        
+
         # Check if go.mod has changed since last build
         if [ ! -f /tmp/go.mod.md5sum ] || ! md5sum -c /tmp/go.mod.md5sum >/dev/null 2>&1; then
           echo 'Dependencies changed, updating...' &&
@@ -51,11 +51,16 @@ services:
           go mod tidy &&
           md5sum go.mod > /tmp/go.mod.md5sum;
         fi &&
-        
-        # Build and run
+
+        # Install Air if not already installed
+        if ! command -v air >/dev/null 2>&1; then
+          echo 'Installing Air...' &&
+          go install github.com/air-verse/air@latest;
+        fi &&
+
+        # Run Air for live reloading
         cd /app &&
-        go build -o ./tmp/main . &&
-        ./tmp/main
+        air
       "
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8080}/health || exit 1"]

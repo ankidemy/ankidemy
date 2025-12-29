@@ -368,3 +368,31 @@ func (h *MetaDefinitionHandler) UpdateMetaDefinition(c *gin.Context) {
 	resp, _ := h.metaDAO.ConvertToResponse(meta, nil, false)
 	c.JSON(http.StatusOK, resp)
 }
+
+// DELETE /api/meta-definitions/:id
+func (h *MetaDefinitionHandler) DeleteMetaDefinition(c *gin.Context) {
+	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+
+	meta, _, err := h.metaDAO.FindByID(uint(id64))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
+		return
+	}
+
+	userIDv, ok := c.Get("userID")
+	if !ok || userIDv.(uint) != meta.OwnerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+
+	if err := h.metaDAO.Delete(uint(id64)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete meta definition"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Meta definition deleted"})
+}

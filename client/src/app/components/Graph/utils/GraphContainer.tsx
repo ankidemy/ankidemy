@@ -28,6 +28,8 @@ interface GraphContainerProps {
   onNodeClick: (node: GraphNode) => void;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeDragEnd: (node: GraphNode) => void;
+  onLinkClick?: (link: GraphLink) => void;
+  onBackgroundClick?: () => void;
   onEngineStop?: () => void;
   graphRef: React.MutableRefObject<any>;
   creditFlowAnimations?: CreditFlowAnimation[];
@@ -47,6 +49,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   onNodeClick,
   onNodeHover,
   onNodeDragEnd,
+  onLinkClick,
+  onBackgroundClick,
   onEngineStop,
   graphRef,
   creditFlowAnimations = [],
@@ -587,6 +591,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         onNodeClick={(node) => onNodeClick(node as any)}
         onNodeHover={(node) => onNodeHover(node as any)}
         onNodeDragEnd={(node) => onNodeDragEnd(node as any)}
+        onLinkClick={(link) => onLinkClick?.(link as any)}
+        onBackgroundClick={() => onBackgroundClick?.()}
         onEngineStop={handleEngineStop}
         
         // Physics simulation parameters
@@ -638,6 +644,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.selectedNodeId === nextProps.selectedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
+    prevProps.onLinkClick === nextProps.onLinkClick &&
+    prevProps.onBackgroundClick === nextProps.onBackgroundClick &&
     prevProps.creditFlowAnimations === nextProps.creditFlowAnimations &&
     prevProps.requiresPhysicsReset === nextProps.requiresPhysicsReset &&
     prevProps.structureVersion === nextProps.structureVersion

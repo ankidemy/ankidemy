@@ -285,6 +285,32 @@ func (d *MetaDefinitionDAO) DeleteVersion(versionID uint) error {
 	})
 }
 
+// Delete removes a meta-definition, its versions, and related prerequisites.
+func (d *MetaDefinitionDAO) Delete(id uint) error {
+	return d.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+			return err
+		}
+
+		var versionIDs []uint
+		if err := tx.Model(&models.Definition{}).Where("meta_definition_id = ?", id).Pluck("id", &versionIDs).Error; err != nil {
+			return err
+		}
+		if len(versionIDs) > 0 {
+			if err := tx.Where("definition_id IN ?", versionIDs).Delete(&models.Reference{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("meta_definition_id = ?", id).Delete(&models.Definition{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.MetaDefinition{}, id).Error
+	})
+}
+
 // FindByID returns meta and versions
 func (d *MetaDefinitionDAO) FindByID(id uint) (*models.MetaDefinition, []models.Definition, error) {
 	var meta models.MetaDefinition

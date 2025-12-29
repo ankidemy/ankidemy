@@ -9,7 +9,7 @@ import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { useSRS } from '@/contexts/SRSContext';
-import { GraphNode, FilteredNodeType } from '../utils/types';
+import { AppMode, GraphNode, FilteredNodeType } from '../utils/types';
 import { getStatusColor, getStatusIcon } from '@/lib/srs-api';
 
 interface LeftPanelProps {
@@ -25,7 +25,7 @@ interface LeftPanelProps {
   onNodeClick: (node: GraphNode) => void;
   onNodeSelect: (nodeId: string, isSelected: boolean) => void; // NEW: Selection handler
   onClearSelection: () => void; // NEW: Clear selection handler
-  mode: 'study' | 'practice';
+  mode: AppMode;
 }
 
 const LeftPanel: React.FC<LeftPanelProps> = ({

@@ -1,6 +1,6 @@
 module myapp/server
 
-go 1.21
+go 1.25
 
 require (
 	github.com/gin-contrib/cors v1.5.0

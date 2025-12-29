@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload } from 'lucide-react';
+import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
@@ -216,6 +216,15 @@ const TopControls: React.FC<TopControlsProps> = ({
           <BarChart size={14} className="mr-1" />
           Practice
         </Button>
+        <Button
+          variant={mode === 'frenzy' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => onModeChange('frenzy')}
+          className="flex items-center"
+        >
+          <Zap size={14} className="mr-1" />
+          Frenzy
+        </Button>
         
         {/* Study button - disabled if not enrolled */}
         <Button
@@ -330,7 +339,7 @@ const TopControls: React.FC<TopControlsProps> = ({
         >
           <Plus size={14} className="mr-1" /> Def
         </Button>
-        {mode === 'practice' && (
+        {(mode === 'practice' || mode === 'frenzy') && (
           <Button
             variant="outline"
             size="sm"

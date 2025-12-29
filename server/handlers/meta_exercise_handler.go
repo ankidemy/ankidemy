@@ -241,3 +241,31 @@ func (h *MetaExerciseHandler) UpdateMetaExercise(c *gin.Context) {
     resp, _ := h.metaDAO.ConvertToResponse(meta, nil, false)
     c.JSON(http.StatusOK, resp)
 }
+
+// DELETE /api/meta-exercises/:id
+func (h *MetaExerciseHandler) DeleteMetaExercise(c *gin.Context) {
+    id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid ID"})
+        return
+    }
+
+    meta, _, err := h.metaDAO.FindByID(uint(id64))
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error":"Meta exercise not found"})
+        return
+    }
+
+    userIDv, ok := c.Get("userID")
+    if !ok || userIDv.(uint) != meta.OwnerID {
+        c.JSON(http.StatusForbidden, gin.H{"error":"Not allowed"})
+        return
+    }
+
+    if err := h.metaDAO.Delete(uint(id64)); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error":"Failed to delete meta exercise"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message":"Meta exercise deleted"})
+}

@@ -2,8 +2,9 @@
 
 "use client";
 
-import React, { useState, useRef, useCallback, useMemo, FC } from 'react';
+import React, { useState, useRef, useCallback, useMemo, FC, useEffect } from 'react';
 import { MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
+import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { UIProvider, useUI } from '@/contexts/UIContext';
 import { DraggableWindow } from '@/app/components/core/DraggableWindow';
 import { DetailWindowContent } from './windows/DetailWindowContent';
@@ -13,14 +14,26 @@ import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
   getExerciseByCode,
-  updateDefinition,
-  updateExercise,
   Definition as ApiDefinition,
   Exercise as ApiExercise,
-  getDomainDefinitions,
   getDomainMetaDefinitions,
   getDomainMetaExercises,
   MetaDefinition,
+  MetaExercise,
+  createMetaDefinition,
+  createMetaExercise,
+  getMetaDefinition,
+  getMetaExercise,
+  updateMetaDefinition,
+  updateMetaExercise,
+  updateMetaDefinitionVersion,
+  updateMetaExerciseVersion,
+  addMetaDefinitionVersion,
+  addMetaExerciseVersion,
+  deleteMetaDefinition,
+  deleteMetaExercise,
+  DefinitionVersion,
+  ExerciseVersion,
   getDomain,
   enrollInDomain,
   getEnrolledDomains,
@@ -28,8 +41,8 @@ import {
   User,
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
-import { getStatusColor, isNodeDue, calculateDaysUntilReview } from '../../../lib/srs-api';
-import { NodeStatus } from '../../../types/srs';
+import { getStatusColor, isNodeDue, calculateDaysUntilReview, createPrerequisite, deletePrerequisite, getDomainPrerequisites } from '@/lib/srs-api';
+import { NodeStatus, NodePrerequisite } from '../../../types/srs';
 
 import {
   GraphNode,
@@ -103,6 +116,34 @@ interface GraphMetadataState {
   linkMetadata: Map<string, LinkMetadata>;
   version: number;
   lastMetadataChange: number;
+}
+
+type FrenzyEditTool = 'none' | 'link' | 'unlink' | 'delete';
+
+interface FrenzyNoteState {
+  nodeId: string;
+  nodeType: 'definition' | 'exercise';
+  nodeName: string;
+  metaId: number;
+  version: DefinitionVersion | ExerciseVersion;
+  prompt: string;
+  defaultPrompt: string;
+  isAutoPrompt: boolean;
+  content: string;
+  defaultContent: string;
+  isAutoContent: boolean;
+}
+
+interface FrenzyDeletedNodeSnapshot {
+  nodeType: 'definition' | 'exercise';
+  code: string;
+  name: string;
+  xPosition?: number;
+  yPosition?: number;
+  prerequisites: string[];
+  prerequisiteWeights: Record<string, number>;
+  versions: DefinitionVersion[] | ExerciseVersion[];
+  incoming: Array<{ code: string; type: 'definition' | 'exercise'; weight: number }>;
 }
 
 // ============================================================================
@@ -189,8 +230,8 @@ const useGraphStructure = (
       });
     });
 
-    // Build exercise nodes (pass 1) and links (pass 2) in practice mode
-    if (mode === 'practice') {
+    // Build exercise nodes (pass 1) and links (pass 2) in practice/frenzy mode
+    if (mode !== 'study') {
       // PASS 1: create all exercise nodes first so cross-exercise links can attach regardless of iteration order
       Object.values(exercises).forEach(ex => {
         if (!ex?.code) return;
@@ -493,10 +534,33 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [domainData, setDomainData] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const isDomainOwner = !!(currentUser && domainData && domainData.ownerId === currentUser.id);
 
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
   const [isSavingPositions, setIsSavingPositions] = useState(false);
+
+  // Frenzy edit mode state
+  const [isFrenzyEditMode, setIsFrenzyEditMode] = useState(false);
+  const [frenzyTool, setFrenzyTool] = useState<FrenzyEditTool>('none');
+  const [pendingLinkSourceId, setPendingLinkSourceId] = useState<string | null>(null);
+  const [frenzyNote, setFrenzyNote] = useState<FrenzyNoteState | null>(null);
+  const [frenzyNoteCodeDraft, setFrenzyNoteCodeDraft] = useState('');
+  const [frenzyNoteDraft, setFrenzyNoteDraft] = useState('');
+  const [frenzyNoteNameDraft, setFrenzyNoteNameDraft] = useState('');
+  const [frenzyNotePromptDraft, setFrenzyNotePromptDraft] = useState('');
+  const [frenzyNotePreview, setFrenzyNotePreview] = useState(false);
+  const [isSavingFrenzyNote, setIsSavingFrenzyNote] = useState(false);
+  const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
+  const [lastDeletedNode, setLastDeletedNode] = useState<FrenzyDeletedNodeSnapshot | null>(null);
+
+  const frenzyAutoContentRef = useRef<Map<string, string>>(new Map());
+  const frenzyAutoPromptRef = useRef<Map<string, string>>(new Map());
+  const frenzyClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frenzyLastClickRef = useRef<{ id: string; ts: number } | null>(null);
+  const [frenzyNotePosition, setFrenzyNotePosition] = useState<{ x: number; y: number }>({ x: 240, y: 80 });
+  const [isDraggingFrenzyNote, setIsDraggingFrenzyNote] = useState(false);
+  const frenzyNoteDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
 
   // Refs for stable callbacks
   const isInitializedRef = useRef<boolean>(false);
@@ -540,9 +604,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     activeNodeIds.forEach(id => combined.add(id));
     selectedNodeIds.forEach(id => combined.add(id));
     highlightNodes.forEach(id => combined.add(id));
+    if (pendingLinkSourceId) combined.add(pendingLinkSourceId);
     
     return combined;
-  }, [activeNodeIds, selectedNodeIds, highlightNodes]);
+  }, [activeNodeIds, selectedNodeIds, highlightNodes, pendingLinkSourceId]);
 
   const handleNodeSelect = useCallback((nodeId: string, isSelected: boolean) => {
     setSelectedNodeIds(prev => {
@@ -886,27 +951,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setShowNodeCreationModal(true);
   }, [hasAccess, domainData]);
 
-  // SURGICAL INSERT ON CREATE (no full refresh)
-  const handleNodeCreationSuccess = useCallback(async (nodeCode: string, created?: any) => {
-    setShowNodeCreationModal(false);
-    showToast(`${nodeCreationType === 'definition' ? 'Definition' : 'Exercise'} "${nodeCode}" created.`, 'success');
-
-    // Fetch only the created node (avoid full reload)
-    let createdData: any = null;
-    if (created) {
-      createdData = created;
-    } else {
-      try {
-        const raw = nodeCreationType === 'definition' 
-          ? await getDefinitionByCode(nodeCode, { domainId: domainData?.id }) 
-          : await getExerciseByCode(nodeCode, { domainId: domainData?.id });
-        // Some APIs return arrays; normalize
-        createdData = Array.isArray(raw) ? raw[0] : raw;
-      } catch (e) {
-        console.warn('Could not fetch created node details, using minimal payload.', e);
-      }
-    }
-
+  const insertCreatedNode = useCallback((
+    nodeCode: string,
+    type: 'definition' | 'exercise',
+    createdData?: any,
+    spawnOverride?: { x: number; y: number }
+  ) => {
     // Normalize payload to guarantee essential fields
     const payload: any = {
       ...(createdData || {}),
@@ -914,11 +964,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       name: (createdData && createdData.name) ? createdData.name : nodeCode,
       prerequisites: (createdData && Array.isArray(createdData.prerequisites)) ? createdData.prerequisites : [],
       prerequisiteWeights: (createdData && createdData.prerequisiteWeights) ? createdData.prerequisiteWeights : {},
-      type: nodeCreationType
+      type
     };
 
     // Decide spawn position and pin it so the view doesn't jump
-    const spawn = computeSpawnPosition(payload);
+    const spawn = spawnOverride || computeSpawnPosition(payload);
     positionManagerRef.current.fixPosition(nodeCode, spawn.x, spawn.y);
 
     // Update maps/cache
@@ -956,7 +1006,31 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     // Set a pending focus that will occur once the node appears in stableGraph
     pendingFocusNodeIdRef.current = nodeCode;
-  }, [nodeCreationType, computeSpawnPosition]);
+  }, [computeSpawnPosition]);
+
+  // SURGICAL INSERT ON CREATE (no full refresh)
+  const handleNodeCreationSuccess = useCallback(async (nodeCode: string, created?: any) => {
+    setShowNodeCreationModal(false);
+    showToast(`${nodeCreationType === 'definition' ? 'Definition' : 'Exercise'} "${nodeCode}" created.`, 'success');
+
+    // Fetch only the created node (avoid full reload)
+    let createdData: any = null;
+    if (created) {
+      createdData = created;
+    } else {
+      try {
+        const raw = nodeCreationType === 'definition' 
+          ? await getDefinitionByCode(nodeCode, { domainId: domainData?.id }) 
+          : await getExerciseByCode(nodeCode, { domainId: domainData?.id });
+        // Some APIs return arrays; normalize
+        createdData = Array.isArray(raw) ? raw[0] : raw;
+      } catch (e) {
+        console.warn('Could not fetch created node details, using minimal payload.', e);
+      }
+    }
+
+    insertCreatedNode(nodeCode, nodeCreationType, createdData);
+  }, [nodeCreationType, domainData?.id, insertCreatedNode]);
 
   // Focus newly created node handled by GraphLifecycle
 
@@ -998,6 +1072,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setHighlightNodes(new Set());
     setHighlightLinks(new Set());
     setSelectedNodeIds(new Set());
+    if (newMode !== 'frenzy') {
+      setIsFrenzyEditMode(false);
+      setFrenzyTool('none');
+      setPendingLinkSourceId(null);
+      setFrenzyNote(null);
+      setFrenzyNoteCodeDraft('');
+      setFrenzyNoteDraft('');
+      setFrenzyNoteNameDraft('');
+      setFrenzyNotePromptDraft('');
+      setFrenzyNotePreview(false);
+      setIsDraggingFrenzyNote(false);
+    }
   }, [mode, stableGraph.nodes]);
 
   // Filtered nodes for left panel
@@ -1119,6 +1205,955 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     Object.keys(currentStructuralGraphData.exercises || {}).forEach(code => codes.add(code));
     return codes;
   }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises]);
+
+  const numericIdToCodeMap = useMemo(() => {
+    const map = new Map<number, string>();
+    codeToNumericIdMap.forEach((id, code) => {
+      if (typeof id === 'number') map.set(id, code);
+    });
+    return map;
+  }, [codeToNumericIdMap]);
+
+  const getGraphCenter = useCallback(() => {
+    let position = { x: 0, y: 0 };
+    if (graphRef.current?.canvas) {
+      try {
+        const rect = graphRef.current.canvas().getBoundingClientRect();
+        const centerScreenX = rect.width / 2;
+        const centerScreenY = rect.height / 2;
+        const centerGraphCoords = graphRef.current.screen2GraphCoords(centerScreenX, centerScreenY);
+        position = { x: centerGraphCoords.x, y: centerGraphCoords.y };
+      } catch (e) {
+        console.warn("Could not get graph center.", e);
+      }
+    }
+    return position;
+  }, []);
+
+  const getMetaNodeType = useCallback((nodeType: 'definition' | 'exercise') => (
+    nodeType === 'definition' ? 'meta_definition' : 'meta_exercise'
+  ), []);
+
+  const getDefaultFrenzyContent = useCallback((nodeType: 'definition' | 'exercise', nodeName: string) => {
+    const safeName = nodeName || 'this node';
+    return nodeType === 'definition'
+      ? `Add details about ${safeName}.`
+      : `Solve: ${safeName}.`;
+  }, []);
+
+  const getDefaultFrenzyPrompt = useCallback((nodeName: string) => {
+    const safeName = nodeName || 'this concept';
+    return `Define ${safeName}`;
+  }, []);
+
+  const getNextDotCode = useCallback(() => {
+    const parse = (code: string) => {
+      const match = code.match(/^(\d+)\.(\d+)\.(\d+)$/);
+      if (!match) return null;
+      return {
+        major: parseInt(match[1], 10),
+        minor: parseInt(match[2], 10),
+        patch: parseInt(match[3], 10),
+      };
+    };
+
+    let best: { major: number; minor: number; patch: number } | null = null;
+    existingCodes.forEach(code => {
+      const parsed = parse(code);
+      if (!parsed) return;
+      if (!best) {
+        best = parsed;
+        return;
+      }
+      if (
+        parsed.major > best.major ||
+        (parsed.major === best.major && parsed.minor > best.minor) ||
+        (parsed.major === best.major && parsed.minor === best.minor && parsed.patch > best.patch)
+      ) {
+        best = parsed;
+      }
+    });
+
+    let major = best ? best.major : 0;
+    let minor = best ? best.minor : 0;
+    let patch = best ? best.patch : 0;
+
+    const increment = () => {
+      patch += 1;
+      if (patch > 9) {
+        patch = 0;
+        minor += 1;
+      }
+      if (minor > 9) {
+        minor = 0;
+        major += 1;
+      }
+    };
+
+    increment();
+    let candidate = `${major}.${minor}.${patch}`;
+    while (existingCodes.has(candidate)) {
+      increment();
+      candidate = `${major}.${minor}.${patch}`;
+    }
+    return candidate;
+  }, [existingCodes]);
+
+  const loadFrenzyPrerequisites = useCallback(async () => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (isNaN(domainId)) return;
+    try {
+      const prereqs = await getDomainPrerequisites(domainId);
+      const map = new Map<string, NodePrerequisite>();
+      prereqs.forEach(row => {
+        if (!row || row.nodeType.indexOf('meta_') !== 0 || row.prerequisiteType.indexOf('meta_') !== 0) return;
+        const sourceCode = numericIdToCodeMap.get(row.prerequisiteId);
+        const targetCode = numericIdToCodeMap.get(row.nodeId);
+        if (!sourceCode || !targetCode) return;
+        map.set(`${sourceCode}-${targetCode}`, row);
+      });
+      setFrenzyPrerequisiteMap(map);
+    } catch (error) {
+      console.error('Failed to load prerequisites:', error);
+      showToast('Failed to load prerequisites for edit mode.', 'error');
+    }
+  }, [subjectMatterId, numericIdToCodeMap]);
+
+  const toggleFrenzyEditMode = useCallback(async () => {
+    if (!isDomainOwner) {
+      showToast('Only domain owners can edit nodes.', 'warning');
+      return;
+    }
+    if (!isFrenzyEditMode) {
+      await loadFrenzyPrerequisites();
+    } else {
+      setFrenzyTool('none');
+      setPendingLinkSourceId(null);
+      setFrenzyNote(null);
+      setFrenzyNoteCodeDraft('');
+      setFrenzyNoteDraft('');
+      setFrenzyNoteNameDraft('');
+      setFrenzyNotePromptDraft('');
+      setFrenzyNotePreview(false);
+      setIsDraggingFrenzyNote(false);
+    }
+    setIsFrenzyEditMode(prev => !prev);
+  }, [isDomainOwner, isFrenzyEditMode, loadFrenzyPrerequisites]);
+
+  const applyPrerequisiteUpdate = useCallback((
+    sourceCode: string,
+    targetCode: string,
+    action: 'add' | 'remove',
+    weight: number = 1.0
+  ) => {
+    setCurrentStructuralGraphData(prev => {
+      const next = { ...prev };
+      const isDefinitionTarget = !!next.definitions?.[targetCode];
+      const collection = isDefinitionTarget
+        ? { ...(next.definitions || {}) }
+        : { ...(next.exercises || {}) };
+      const target = collection[targetCode];
+      if (!target) return prev;
+
+      const prereqs = new Set(target.prerequisites || []);
+      if (action === 'add') prereqs.add(sourceCode);
+      else prereqs.delete(sourceCode);
+
+      const weights = { ...(target.prerequisiteWeights || {}) };
+      if (action === 'add') weights[sourceCode] = weight;
+      else delete weights[sourceCode];
+
+      collection[targetCode] = {
+        ...target,
+        prerequisites: Array.from(prereqs),
+        prerequisiteWeights: weights,
+      };
+
+      if (isDefinitionTarget) next.definitions = collection;
+      else next.exercises = collection;
+      return next;
+    });
+  }, []);
+
+  const addFrenzyPrerequisite = useCallback(async (source: GraphNode, target: GraphNode) => {
+    if (target.type === 'definition' && source.type !== 'definition') {
+      showToast('Definitions can only depend on definitions.', 'warning');
+      return;
+    }
+    const sourceId = codeToNumericIdMap.get(source.id);
+    const targetId = codeToNumericIdMap.get(target.id);
+    if (!sourceId || !targetId) {
+      showToast('Missing node identifiers for linking.', 'error');
+      return;
+    }
+    const key = `${source.id}-${target.id}`;
+    if (frenzyPrerequisiteMap.has(key)) {
+      showToast('These nodes are already linked.', 'info');
+      return;
+    }
+
+    try {
+      const created = await createPrerequisite({
+        nodeId: targetId,
+        nodeType: getMetaNodeType(target.type),
+        prerequisiteId: sourceId,
+        prerequisiteType: getMetaNodeType(source.type),
+        weight: 1.0,
+        isManual: true,
+      });
+      setFrenzyPrerequisiteMap(prev => {
+        const next = new Map(prev);
+        next.set(key, created);
+        return next;
+      });
+      applyPrerequisiteUpdate(source.id, target.id, 'add', created.weight || 1.0);
+      showToast(`Linked ${source.id} -> ${target.id}`, 'success', 1200);
+    } catch (error) {
+      console.error('Failed to create prerequisite:', error);
+      showToast('Failed to create link.', 'error');
+    }
+  }, [codeToNumericIdMap, frenzyPrerequisiteMap, getMetaNodeType, applyPrerequisiteUpdate]);
+
+  const removeFrenzyPrerequisite = useCallback(async (sourceCode: string, targetCode: string) => {
+    const key = `${sourceCode}-${targetCode}`;
+    const existing = frenzyPrerequisiteMap.get(key);
+    if (!existing) {
+      showToast('Link not found.', 'warning');
+      return;
+    }
+
+    try {
+      await deletePrerequisite(existing.id);
+      setFrenzyPrerequisiteMap(prev => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+      applyPrerequisiteUpdate(sourceCode, targetCode, 'remove');
+      showToast(`Unlinked ${sourceCode} -> ${targetCode}`, 'success', 1200);
+    } catch (error) {
+      console.error('Failed to delete prerequisite:', error);
+      showToast('Failed to remove link.', 'error');
+    }
+  }, [frenzyPrerequisiteMap, applyPrerequisiteUpdate]);
+
+  const createFrenzyNode = useCallback(async (type: 'definition' | 'exercise') => {
+    if (!isDomainOwner) {
+      showToast('Only domain owners can create nodes.', 'warning');
+      return;
+    }
+    const domainId = parseInt(subjectMatterId, 10);
+    if (isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+
+    const code = getNextDotCode();
+    const name = type === 'definition' ? `Concept ${code}` : `Exercise ${code}`;
+    const center = getGraphCenter();
+    const spawn = {
+      x: center.x + (Math.random() - 0.5) * 40,
+      y: center.y + (Math.random() - 0.5) * 40,
+    };
+
+    try {
+      if (type === 'definition') {
+        const defaultContent = getDefaultFrenzyContent('definition', name);
+        const defaultPrompt = getDefaultFrenzyPrompt(name);
+        const created = await createMetaDefinition(domainId, {
+          code,
+          name,
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          initialVersion: {
+            prompt: defaultPrompt,
+            type: 'open_ended',
+            description: defaultContent,
+            notes: '',
+            references: [],
+          }
+        });
+        frenzyAutoContentRef.current.set(code, defaultContent);
+        frenzyAutoPromptRef.current.set(code, defaultPrompt);
+        insertCreatedNode(code, 'definition', created, spawn);
+      } else {
+        const defaultContent = getDefaultFrenzyContent('exercise', name);
+        const created = await createMetaExercise(domainId, {
+          code,
+          name,
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          initialVersion: {
+            statement: defaultContent,
+            description: '',
+            notes: '',
+            hints: '',
+            verifiable: false,
+            result: '',
+            difficulty: 3,
+          }
+        });
+        frenzyAutoContentRef.current.set(code, defaultContent);
+        insertCreatedNode(code, 'exercise', created, spawn);
+      }
+      showToast(`${type === 'definition' ? 'Definition' : 'Exercise'} "${code}" created.`, 'success');
+    } catch (error) {
+      console.error('Failed to create frenzy node:', error);
+      showToast('Failed to create node.', 'error');
+    }
+  }, [
+    isDomainOwner,
+    subjectMatterId,
+    getNextDotCode,
+    getGraphCenter,
+    getDefaultFrenzyContent,
+    getDefaultFrenzyPrompt,
+    insertCreatedNode
+  ]);
+
+  const openFrenzyNote = useCallback(async (node: GraphNode) => {
+    if (!isDomainOwner) {
+      showToast('Only domain owners can edit nodes.', 'warning');
+      return;
+    }
+    const metaId = codeToNumericIdMap.get(node.id);
+    if (!metaId) {
+      showToast('Missing node metadata.', 'error');
+      return;
+    }
+
+    try {
+      const meta = node.type === 'definition'
+        ? await getMetaDefinition(metaId)
+        : await getMetaExercise(metaId);
+      const versions = (meta as MetaDefinition | MetaExercise).versions || [];
+      const version = versions[0];
+      if (!version) {
+        showToast('No version content found for this node.', 'warning');
+        return;
+      }
+
+      const resolvedName = (meta as MetaDefinition | MetaExercise).name || node.name;
+      const resolvedCode = (meta as MetaDefinition | MetaExercise).code || node.id;
+      const autoContentHint = frenzyAutoContentRef.current.get(resolvedCode);
+      const defaultContent = autoContentHint
+        || getDefaultFrenzyContent(node.type, resolvedName);
+      const content = node.type === 'definition'
+        ? ((version as DefinitionVersion).description || '')
+        : ((version as ExerciseVersion).statement || '');
+      const isAutoContent = !!autoContentHint && (content.trim().length === 0 || content === autoContentHint);
+      const effectiveContent = content.trim().length > 0 ? content : defaultContent;
+
+      const rawPrompt = node.type === 'definition'
+        ? ((version as DefinitionVersion).prompt || '')
+        : '';
+      const autoPromptHint = node.type === 'definition'
+        ? frenzyAutoPromptRef.current.get(resolvedCode)
+        : undefined;
+      const defaultPrompt = node.type === 'definition'
+        ? (autoPromptHint || getDefaultFrenzyPrompt(resolvedName))
+        : '';
+      const isAutoPrompt = node.type === 'definition' && !!autoPromptHint
+        && (rawPrompt.trim().length === 0 || rawPrompt === autoPromptHint);
+      const effectivePrompt = node.type === 'definition'
+        ? (rawPrompt.trim().length > 0 ? rawPrompt : defaultPrompt)
+        : '';
+      setFrenzyNote({
+        nodeId: resolvedCode,
+        nodeType: node.type,
+        nodeName: resolvedName,
+        metaId,
+        version,
+        prompt: effectivePrompt,
+        defaultPrompt,
+        isAutoPrompt,
+        content: effectiveContent,
+        defaultContent,
+        isAutoContent,
+      });
+      setFrenzyNoteCodeDraft(resolvedCode);
+      setFrenzyNoteDraft(effectiveContent);
+      setFrenzyNoteNameDraft(resolvedName);
+      setFrenzyNotePromptDraft(effectivePrompt);
+      setFrenzyNotePreview(false);
+    } catch (error) {
+      console.error('Failed to load frenzy note:', error);
+      showToast('Failed to load node content.', 'error');
+    }
+  }, [isDomainOwner, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+
+  const saveFrenzyNote = useCallback(async (draftOverride?: string) => {
+    if (!frenzyNote) return;
+    const draft = draftOverride ?? frenzyNoteDraft;
+    const nameDraft = frenzyNoteNameDraft.trim();
+    const codeDraft = frenzyNoteCodeDraft.trim();
+    const isDefinition = frenzyNote.nodeType === 'definition';
+    const nameChanged = nameDraft.length > 0 && nameDraft !== frenzyNote.nodeName;
+    const codeChanged = codeDraft.length > 0 && codeDraft !== frenzyNote.nodeId;
+    const promptChanged = isDefinition && frenzyNotePromptDraft !== frenzyNote.prompt;
+    const contentChanged = draft !== frenzyNote.content;
+    if (!nameChanged && !codeChanged && !promptChanged && !contentChanged) return;
+
+    setIsSavingFrenzyNote(true);
+    try {
+      if (!codeDraft && frenzyNoteCodeDraft.length > 0) {
+        showToast('Code cannot be empty.', 'warning');
+      }
+      if (!nameDraft && frenzyNoteNameDraft.length > 0) {
+        showToast('Name cannot be empty.', 'warning');
+      }
+
+      const previousCode = frenzyNote.nodeId;
+
+      if (promptChanged || contentChanged) {
+        if (frenzyNote.nodeType === 'definition') {
+          const current = frenzyNote.version as DefinitionVersion;
+          const nextPrompt = promptChanged ? frenzyNotePromptDraft : current.prompt;
+          const nextDescription = contentChanged ? draft : (current.description || '');
+          await updateMetaDefinitionVersion(frenzyNote.metaId, current.id, {
+            prompt: nextPrompt,
+            type: current.type,
+            description: nextDescription,
+            notes: current.notes,
+            references: current.references || [],
+          });
+          const updated = { ...current, prompt: nextPrompt, description: nextDescription };
+          setFrenzyNote(prev => prev ? {
+            ...prev,
+            prompt: nextPrompt,
+            content: nextDescription,
+            version: updated,
+            isAutoPrompt: promptChanged ? false : prev.isAutoPrompt,
+            isAutoContent: contentChanged ? false : prev.isAutoContent,
+          } : prev);
+        } else {
+          const current = frenzyNote.version as ExerciseVersion;
+          const nextStatement = contentChanged ? draft : (current.statement || '');
+          await updateMetaExerciseVersion(frenzyNote.metaId, current.id, {
+            statement: nextStatement,
+            description: current.description,
+            notes: current.notes,
+            hints: current.hints,
+            verifiable: current.verifiable,
+            result: current.result,
+            difficulty: current.difficulty,
+          });
+          const updated = { ...current, statement: nextStatement };
+          setFrenzyNote(prev => prev ? {
+            ...prev,
+            content: nextStatement,
+            version: updated,
+            isAutoContent: contentChanged ? false : prev.isAutoContent,
+          } : prev);
+        }
+        if (contentChanged) {
+          frenzyAutoContentRef.current.delete(previousCode);
+        }
+        if (promptChanged) {
+          frenzyAutoPromptRef.current.delete(previousCode);
+        }
+      }
+
+      if (nameChanged || codeChanged) {
+        if (frenzyNote.nodeType === 'definition') {
+          const updatedMeta = await updateMetaDefinition(frenzyNote.metaId, {
+            ...(codeChanged ? { code: codeDraft } : {}),
+            ...(nameChanged ? { name: nameDraft } : {}),
+          });
+          const updatedCode = updatedMeta.code;
+          const updatedName = updatedMeta.name;
+          const codeWasUpdated = updatedCode !== previousCode;
+
+          if (!codeWasUpdated && nameChanged) {
+            setCurrentStructuralGraphData(prev => {
+              const next = { ...prev };
+              if (next.definitions?.[previousCode]) {
+                next.definitions = { ...next.definitions };
+                next.definitions[previousCode] = {
+                  ...next.definitions[previousCode],
+                  name: updatedName,
+                };
+              }
+              return next;
+            });
+            setNodeDataCache(prev => {
+              const next = new Map(prev);
+              const cached = next.get(previousCode);
+              if (cached) {
+                next.set(previousCode, { ...cached, name: updatedName });
+              }
+              return next;
+            });
+          }
+          setFrenzyNote(prev => prev ? { ...prev, nodeId: updatedCode, nodeName: updatedName } : prev);
+          setFrenzyNoteCodeDraft(updatedCode);
+          setFrenzyNoteNameDraft(updatedName);
+
+          if (codeWasUpdated) {
+            const autoContent = frenzyAutoContentRef.current.get(previousCode);
+            if (autoContent) {
+              frenzyAutoContentRef.current.set(updatedCode, autoContent);
+              frenzyAutoContentRef.current.delete(previousCode);
+            }
+            const autoPrompt = frenzyAutoPromptRef.current.get(previousCode);
+            if (autoPrompt) {
+              frenzyAutoPromptRef.current.set(updatedCode, autoPrompt);
+              frenzyAutoPromptRef.current.delete(previousCode);
+            }
+            await refreshGraphAndSRSData();
+            if (isFrenzyEditMode) {
+              await loadFrenzyPrerequisites();
+            }
+          }
+        } else {
+          const updatedMeta = await updateMetaExercise(frenzyNote.metaId, {
+            ...(codeChanged ? { code: codeDraft } : {}),
+            ...(nameChanged ? { name: nameDraft } : {}),
+          });
+          const updatedCode = updatedMeta.code;
+          const updatedName = updatedMeta.name;
+          const codeWasUpdated = updatedCode !== previousCode;
+
+          if (!codeWasUpdated && nameChanged) {
+            setCurrentStructuralGraphData(prev => {
+              const next = { ...prev };
+              if (next.exercises?.[previousCode]) {
+                next.exercises = { ...next.exercises };
+                next.exercises[previousCode] = {
+                  ...next.exercises[previousCode],
+                  name: updatedName,
+                };
+              }
+              return next;
+            });
+            setNodeDataCache(prev => {
+              const next = new Map(prev);
+              const cached = next.get(previousCode);
+              if (cached) {
+                next.set(previousCode, { ...cached, name: updatedName });
+              }
+              return next;
+            });
+          }
+          setFrenzyNote(prev => prev ? { ...prev, nodeId: updatedCode, nodeName: updatedName } : prev);
+          setFrenzyNoteCodeDraft(updatedCode);
+          setFrenzyNoteNameDraft(updatedName);
+
+          if (codeWasUpdated) {
+            const autoContent = frenzyAutoContentRef.current.get(previousCode);
+            if (autoContent) {
+              frenzyAutoContentRef.current.set(updatedCode, autoContent);
+              frenzyAutoContentRef.current.delete(previousCode);
+            }
+            await refreshGraphAndSRSData();
+            if (isFrenzyEditMode) {
+              await loadFrenzyPrerequisites();
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save frenzy note:', error);
+      showToast('Failed to save note.', 'error');
+    } finally {
+      setIsSavingFrenzyNote(false);
+    }
+  }, [
+    frenzyNote,
+    frenzyNoteDraft,
+    frenzyNoteNameDraft,
+    frenzyNotePromptDraft,
+    frenzyNoteCodeDraft,
+    isFrenzyEditMode,
+    loadFrenzyPrerequisites,
+    refreshGraphAndSRSData,
+    updateMetaDefinition,
+    updateMetaDefinitionVersion,
+    updateMetaExercise,
+    updateMetaExerciseVersion,
+  ]);
+
+  const closeFrenzyNote = useCallback(async () => {
+    await saveFrenzyNote();
+    setFrenzyNote(null);
+    setFrenzyNoteCodeDraft('');
+    setFrenzyNoteDraft('');
+    setFrenzyNoteNameDraft('');
+    setFrenzyNotePromptDraft('');
+    setFrenzyNotePreview(false);
+    setIsDraggingFrenzyNote(false);
+  }, [saveFrenzyNote]);
+
+  const getNodeTypeByCode = useCallback((code: string) => {
+    if (currentStructuralGraphData.definitions?.[code]) return 'definition';
+    if (currentStructuralGraphData.exercises?.[code]) return 'exercise';
+    return null;
+  }, [currentStructuralGraphData]);
+
+  const deleteFrenzyNode = useCallback(async (node: GraphNode) => {
+    if (!isDomainOwner) {
+      showToast('Only domain owners can delete nodes.', 'warning');
+      return;
+    }
+    const metaId = codeToNumericIdMap.get(node.id);
+    if (!metaId) {
+      showToast('Missing node metadata.', 'error');
+      return;
+    }
+
+    try {
+      const meta = node.type === 'definition'
+        ? await getMetaDefinition(metaId)
+        : await getMetaExercise(metaId);
+      const versions = (meta as MetaDefinition | MetaExercise).versions || [];
+
+      const incoming: Array<{ code: string; type: 'definition' | 'exercise'; weight: number }> = [];
+      Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
+        if (def.prerequisites?.includes(node.id)) {
+          incoming.push({
+            code: def.code,
+            type: 'definition',
+            weight: def.prerequisiteWeights?.[node.id] ?? 1.0
+          });
+        }
+      });
+      Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
+        if (ex.prerequisites?.includes(node.id)) {
+          incoming.push({
+            code: ex.code,
+            type: 'exercise',
+            weight: ex.prerequisiteWeights?.[node.id] ?? 1.0
+          });
+        }
+      });
+
+      const snapshot: FrenzyDeletedNodeSnapshot = {
+        nodeType: node.type,
+        code: meta.code,
+        name: meta.name,
+        xPosition: meta.xPosition,
+        yPosition: meta.yPosition,
+        prerequisites: meta.prerequisites || [],
+        prerequisiteWeights: meta.prerequisiteWeights || {},
+        versions,
+        incoming,
+      };
+
+      if (node.type === 'definition') {
+        await deleteMetaDefinition(metaId);
+      } else {
+        await deleteMetaExercise(metaId);
+      }
+      setLastDeletedNode(snapshot);
+
+      setCurrentStructuralGraphData(prev => {
+        const next = {
+          definitions: { ...(prev.definitions || {}) },
+          exercises: { ...(prev.exercises || {}) }
+        };
+        delete next.definitions[node.id];
+        delete next.exercises[node.id];
+
+        Object.values(next.definitions).forEach(def => {
+          if (!def.prerequisites) return;
+          def.prerequisites = def.prerequisites.filter(code => code !== node.id);
+          if (def.prerequisiteWeights) delete def.prerequisiteWeights[node.id];
+        });
+        Object.values(next.exercises).forEach(ex => {
+          if (!ex.prerequisites) return;
+          ex.prerequisites = ex.prerequisites.filter(code => code !== node.id);
+          if (ex.prerequisiteWeights) delete ex.prerequisiteWeights[node.id];
+        });
+
+        return next;
+      });
+
+      setCodeToNumericIdMap(prev => {
+        const next = new Map(prev);
+        next.delete(node.id);
+        return next;
+      });
+      setNodeDataCache(prev => {
+        const next = new Map(prev);
+        next.delete(node.id);
+        return next;
+      });
+      setFrenzyPrerequisiteMap(prev => {
+        const next = new Map<string, NodePrerequisite>();
+        prev.forEach((value, key) => {
+          if (key.startsWith(`${node.id}-`) || key.endsWith(`-${node.id}`)) return;
+          next.set(key, value);
+        });
+        return next;
+      });
+      positionManagerRef.current.removePosition(node.id);
+      if (pendingLinkSourceId === node.id) setPendingLinkSourceId(null);
+      if (frenzyNote?.nodeId === node.id) {
+        setFrenzyNote(null);
+        setFrenzyNoteCodeDraft('');
+        setFrenzyNoteDraft('');
+        setFrenzyNoteNameDraft('');
+        setFrenzyNotePromptDraft('');
+        setFrenzyNotePreview(false);
+        setIsDraggingFrenzyNote(false);
+      }
+
+      showToast(`Deleted ${node.id}. Undo available.`, 'success');
+    } catch (error) {
+      console.error('Failed to delete node:', error);
+      showToast('Failed to delete node.', 'error');
+    }
+  }, [
+    isDomainOwner,
+    codeToNumericIdMap,
+    currentStructuralGraphData,
+    pendingLinkSourceId,
+    frenzyNote,
+  ]);
+
+  const undoFrenzyDelete = useCallback(async () => {
+    if (!lastDeletedNode) return;
+    if (!isDomainOwner) {
+      showToast('Only domain owners can restore nodes.', 'warning');
+      return;
+    }
+    const domainId = parseInt(subjectMatterId, 10);
+    if (isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+
+    try {
+      const snapshot = lastDeletedNode;
+      const basePosition = snapshot.xPosition != null && snapshot.yPosition != null
+        ? { x: snapshot.xPosition, y: snapshot.yPosition }
+        : getGraphCenter();
+      let restoredMetaId: number | null = null;
+
+      if (snapshot.nodeType === 'definition') {
+        const versions = snapshot.versions as DefinitionVersion[];
+        const first = versions[0];
+        const created = await createMetaDefinition(domainId, {
+          code: snapshot.code,
+          name: snapshot.name,
+          xPosition: basePosition.x,
+          yPosition: basePosition.y,
+          initialVersion: {
+            prompt: first?.prompt || `Define ${snapshot.name}`,
+            type: first?.type || 'open_ended',
+            description: first?.description,
+            notes: first?.notes,
+            references: first?.references || [],
+          }
+        });
+        restoredMetaId = created.id;
+        for (const v of versions.slice(1)) {
+          await addMetaDefinitionVersion(created.id, {
+            prompt: v.prompt,
+            type: v.type,
+            description: v.description,
+            notes: v.notes,
+            references: v.references || [],
+          });
+        }
+        insertCreatedNode(snapshot.code, 'definition', created, basePosition);
+      } else {
+        const versions = snapshot.versions as ExerciseVersion[];
+        const first = versions[0];
+        const created = await createMetaExercise(domainId, {
+          code: snapshot.code,
+          name: snapshot.name,
+          xPosition: basePosition.x,
+          yPosition: basePosition.y,
+          initialVersion: {
+            statement: first?.statement || `Solve: ${snapshot.name}`,
+            description: first?.description,
+            notes: first?.notes,
+            hints: first?.hints,
+            verifiable: first?.verifiable,
+            result: first?.result,
+            difficulty: first?.difficulty || 3,
+          }
+        });
+        restoredMetaId = created.id;
+        for (const v of versions.slice(1)) {
+          await addMetaExerciseVersion(created.id, {
+            statement: v.statement,
+            description: v.description,
+            notes: v.notes,
+            hints: v.hints,
+            verifiable: v.verifiable,
+            result: v.result,
+            difficulty: v.difficulty,
+          });
+        }
+        insertCreatedNode(snapshot.code, 'exercise', created, basePosition);
+      }
+
+      if (restoredMetaId) {
+        for (const prereqCode of snapshot.prerequisites) {
+          const prereqType = getNodeTypeByCode(prereqCode);
+          const prereqId = codeToNumericIdMap.get(prereqCode);
+          if (!prereqType || !prereqId) continue;
+          await createPrerequisite({
+            nodeId: restoredMetaId,
+            nodeType: getMetaNodeType(snapshot.nodeType),
+            prerequisiteId: prereqId,
+            prerequisiteType: getMetaNodeType(prereqType),
+            weight: snapshot.prerequisiteWeights?.[prereqCode] ?? 1.0,
+            isManual: true,
+          });
+          applyPrerequisiteUpdate(prereqCode, snapshot.code, 'add', snapshot.prerequisiteWeights?.[prereqCode] ?? 1.0);
+        }
+
+        for (const incoming of snapshot.incoming) {
+          const targetId = codeToNumericIdMap.get(incoming.code);
+          if (!targetId) continue;
+          await createPrerequisite({
+            nodeId: targetId,
+            nodeType: getMetaNodeType(incoming.type),
+            prerequisiteId: restoredMetaId,
+            prerequisiteType: getMetaNodeType(snapshot.nodeType),
+            weight: incoming.weight ?? 1.0,
+            isManual: true,
+          });
+          applyPrerequisiteUpdate(snapshot.code, incoming.code, 'add', incoming.weight ?? 1.0);
+        }
+      }
+
+      await loadFrenzyPrerequisites();
+      setLastDeletedNode(null);
+      showToast(`Restored ${snapshot.code}.`, 'success');
+    } catch (error) {
+      console.error('Failed to restore node:', error);
+      showToast('Failed to restore node.', 'error');
+    }
+  }, [
+    lastDeletedNode,
+    isDomainOwner,
+    subjectMatterId,
+    getGraphCenter,
+    insertCreatedNode,
+    codeToNumericIdMap,
+    getMetaNodeType,
+    getNodeTypeByCode,
+    applyPrerequisiteUpdate,
+    loadFrenzyPrerequisites,
+  ]);
+
+  const handleFrenzyNodeAction = useCallback(async (node: GraphNode) => {
+    if (frenzyTool === 'delete') {
+      await deleteFrenzyNode(node);
+      return;
+    }
+    if (frenzyTool === 'link' || frenzyTool === 'unlink') {
+      if (!pendingLinkSourceId) {
+        setPendingLinkSourceId(node.id);
+        showToast(`Select a target to ${frenzyTool === 'link' ? 'link' : 'unlink'} from ${node.id}.`, 'info', 1500);
+        return;
+      }
+      if (pendingLinkSourceId === node.id) {
+        setPendingLinkSourceId(null);
+        showToast('Pick a different target node.', 'warning');
+        return;
+      }
+      const sourceNode = stableGraph.nodes.find(n => n.id === pendingLinkSourceId);
+      setPendingLinkSourceId(null);
+      if (!sourceNode) {
+        showToast('Source node not found.', 'error');
+        return;
+      }
+      if (frenzyTool === 'link') {
+        await addFrenzyPrerequisite(sourceNode, node);
+      } else {
+        await removeFrenzyPrerequisite(sourceNode.id, node.id);
+      }
+    }
+  }, [
+    frenzyTool,
+    pendingLinkSourceId,
+    stableGraph.nodes,
+    addFrenzyPrerequisite,
+    removeFrenzyPrerequisite,
+    deleteFrenzyNode,
+  ]);
+
+  const handleGraphNodeClick = useCallback((node: GraphNode) => {
+    if (mode === 'frenzy' && isFrenzyEditMode) {
+      const now = Date.now();
+      const last = frenzyLastClickRef.current;
+      if (last && last.id === node.id && now - last.ts < 260) {
+        if (frenzyClickTimerRef.current) {
+          clearTimeout(frenzyClickTimerRef.current);
+          frenzyClickTimerRef.current = null;
+        }
+        frenzyLastClickRef.current = null;
+        openFrenzyNote(node);
+        return;
+      }
+      frenzyLastClickRef.current = { id: node.id, ts: now };
+      if (frenzyClickTimerRef.current) {
+        clearTimeout(frenzyClickTimerRef.current);
+      }
+      frenzyClickTimerRef.current = setTimeout(() => {
+        frenzyLastClickRef.current = null;
+        handleFrenzyNodeAction(node);
+      }, 270);
+      return;
+    }
+    handleNodeClick(node, false, 'click');
+  }, [mode, isFrenzyEditMode, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick]);
+
+  const handleGraphLinkClick = useCallback((link: GraphLink) => {
+    if (!(mode === 'frenzy' && isFrenzyEditMode && frenzyTool === 'unlink')) return;
+    const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
+    const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
+    if (!sourceId || !targetId) return;
+    removeFrenzyPrerequisite(sourceId, targetId);
+  }, [mode, isFrenzyEditMode, frenzyTool, removeFrenzyPrerequisite]);
+
+  const handleGraphBackgroundClick = useCallback(() => {
+    if (mode === 'frenzy' && isFrenzyEditMode) {
+      setPendingLinkSourceId(null);
+      if (frenzyClickTimerRef.current) {
+        clearTimeout(frenzyClickTimerRef.current);
+        frenzyClickTimerRef.current = null;
+      }
+    }
+  }, [mode, isFrenzyEditMode]);
+
+  const handleFrenzyNoteMouseDown = useCallback((event: React.MouseEvent) => {
+    if (!frenzyNote) return;
+    if ((event.target as HTMLElement).closest('button, textarea, input')) return;
+    setIsDraggingFrenzyNote(true);
+    frenzyNoteDragOffsetRef.current = {
+      x: event.clientX - frenzyNotePosition.x,
+      y: event.clientY - frenzyNotePosition.y,
+    };
+    event.preventDefault();
+  }, [frenzyNote, frenzyNotePosition]);
+
+  useEffect(() => {
+    if (!isDraggingFrenzyNote) return;
+    const handleMove = (event: MouseEvent) => {
+      const offset = frenzyNoteDragOffsetRef.current;
+      if (!offset) return;
+      setFrenzyNotePosition({
+        x: Math.max(0, event.clientX - offset.x),
+        y: Math.max(0, event.clientY - offset.y),
+      });
+    };
+    const handleUp = () => {
+      setIsDraggingFrenzyNote(false);
+      frenzyNoteDragOffsetRef.current = null;
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDraggingFrenzyNote]);
 
   // Position saving
   const savePositions = useCallback(async () => {
@@ -1301,9 +2336,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 filteredNodeType={filteredNodeType}
                 selectedNodeId={null}
                 labelDisplayMode={labelDisplayMode}
-                onNodeClick={handleNodeClick}
+                onNodeClick={handleGraphNodeClick}
                 onNodeHover={handleNodeHover}
                 onNodeDragEnd={handleNodeDragEnd}
+                onLinkClick={handleGraphLinkClick}
+                onBackgroundClick={handleGraphBackgroundClick}
                 onEngineStop={handleEngineStop}
                 creditFlowAnimations={enhancedCreditFlowAnimations}
                 requiresPhysicsReset={stableGraph.requiresPhysicsReset}
@@ -1325,6 +2362,201 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             
             {!isProcessingData && !isRefreshing && stableGraph.nodes.length > 0 && (
               <GraphLegend mode={mode} hasExercises={stableGraph.nodes.some(n => n.type === 'exercise')} />
+            )}
+
+            {mode === 'frenzy' && (
+              <div className="absolute top-14 left-3 z-30 flex flex-col items-start gap-2">
+                <Button
+                  variant={isFrenzyEditMode ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={toggleFrenzyEditMode}
+                  disabled={!isDomainOwner}
+                  title={isDomainOwner ? 'Toggle edit tools' : 'Only domain owners can edit'}
+                  className="h-8 px-3"
+                >
+                  {isFrenzyEditMode ? 'Editing' : 'Edit'}
+                </Button>
+
+                {isFrenzyEditMode && (
+                  <div className="bg-white/95 border border-gray-200 rounded-md shadow-lg p-3 w-60">
+                    <div className="text-xs text-gray-500 mb-2">Frenzy tools</div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('definition')}>
+                        New
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('exercise')}>
+                        Exercise
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Button
+                        size="sm"
+                        variant={frenzyTool === 'link' ? 'default' : 'outline'}
+                        onClick={() => setFrenzyTool('link')}
+                      >
+                        Link
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={frenzyTool === 'unlink' ? 'default' : 'outline'}
+                        onClick={() => setFrenzyTool('unlink')}
+                      >
+                        Unlink
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={frenzyTool === 'delete' ? 'destructive' : 'outline'}
+                        onClick={() => setFrenzyTool('delete')}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                    {pendingLinkSourceId && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        From: <span className="font-semibold">{pendingLinkSourceId}</span>
+                      </div>
+                    )}
+                    {lastDeletedNode && (
+                      <Button size="sm" variant="ghost" onClick={undoFrenzyDelete} className="w-full justify-center">
+                        Undo delete
+                      </Button>
+                    )}
+                    <div className="mt-2 text-[11px] text-gray-500">
+                      Double-click a node to edit its content.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {frenzyNote && (
+              <div
+                className="absolute z-40 w-80 bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-3"
+                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
+              >
+                <div
+                  className="flex items-start justify-between gap-3 cursor-move select-none"
+                  onMouseDown={handleFrenzyNoteMouseDown}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-yellow-900 truncate">
+                      {frenzyNoteCodeDraft.trim() || frenzyNote.nodeId}
+                    </div>
+                    <div className="text-xs text-yellow-700 truncate">
+                      {frenzyNoteNameDraft.trim() || frenzyNote.nodeName}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={closeFrenzyNote}
+                    disabled={isSavingFrenzyNote}
+                    className="text-xs"
+                  >
+                    Close
+                  </Button>
+                </div>
+                <div className="mt-2">
+                  <div className="mb-2">
+                    <label className="block text-xs text-yellow-800 mb-1">Code</label>
+                    <input
+                      value={frenzyNoteCodeDraft}
+                      onChange={(e) => setFrenzyNoteCodeDraft(e.target.value)}
+                      onBlur={() => saveFrenzyNote()}
+                      className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <label className="block text-xs text-yellow-800 mb-1">Name</label>
+                    <input
+                      value={frenzyNoteNameDraft}
+                      onChange={(e) => setFrenzyNoteNameDraft(e.target.value)}
+                      onBlur={() => saveFrenzyNote()}
+                      className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+                    />
+                  </div>
+                  {frenzyNote.nodeType === 'definition' && (
+                    <div className="mb-2">
+                      <label className="block text-xs text-yellow-800 mb-1">Review Prompt</label>
+                      <input
+                        value={frenzyNotePromptDraft}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setFrenzyNotePromptDraft(value);
+                          if (frenzyNote.isAutoPrompt && value !== frenzyNote.defaultPrompt) {
+                            setFrenzyNote(prev => prev ? { ...prev, isAutoPrompt: false } : prev);
+                          }
+                        }}
+                        onFocus={(e) => {
+                          if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
+                            e.currentTarget.select();
+                          }
+                        }}
+                        onClick={(e) => {
+                          if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
+                            e.currentTarget.select();
+                          }
+                        }}
+                        onBlur={() => saveFrenzyNote()}
+                        className={`w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
+                          frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
+                        }`}
+                      />
+                    </div>
+                  )}
+                  <div className="mb-2">
+                    <label className="block text-xs text-yellow-800 mb-1">
+                      {frenzyNote.nodeType === 'definition' ? 'Definition' : 'Statement'}
+                    </label>
+                  {frenzyNotePreview ? (
+                    <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-56 overflow-y-auto">
+                      <MarkdownKatex className="whitespace-pre-wrap">
+                        {frenzyNoteDraft || frenzyNote.defaultContent}
+                      </MarkdownKatex>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={frenzyNoteDraft}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setFrenzyNoteDraft(value);
+                        if (frenzyNote.isAutoContent && value !== frenzyNote.defaultContent) {
+                          setFrenzyNote(prev => prev ? { ...prev, isAutoContent: false } : prev);
+                        }
+                      }}
+                      onFocus={(e) => {
+                        if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
+                          e.currentTarget.select();
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
+                          e.currentTarget.select();
+                        }
+                      }}
+                      onBlur={() => saveFrenzyNote()}
+                      rows={6}
+                      placeholder={frenzyNote.defaultContent}
+                      className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
+                        frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent ? 'text-gray-500' : 'text-gray-800'
+                      }`}
+                    />
+                  )}
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setFrenzyNotePreview(prev => !prev)}
+                  >
+                    {frenzyNotePreview ? 'Edit' : 'Preview'}
+                  </Button>
+                  {isSavingFrenzyNote && (
+                    <span className="text-xs text-gray-600">Saving...</span>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 

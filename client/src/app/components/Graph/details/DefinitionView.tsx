@@ -5,13 +5,13 @@ import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { InlineMarkdownKatex, MarkdownKatex } from '@/app/components/core/MarkdownKatex';
-import { Definition } from '../utils/types';
+import { AppMode, Definition } from '../utils/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
 
 interface DefinitionViewProps {
   definition: Definition;
-  mode: 'study' | 'practice';
+  mode: AppMode;
   showDefinition: boolean;
   onToggleDefinition: () => void;
   selectedDefinitionIndex: number;

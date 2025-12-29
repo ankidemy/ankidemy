@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { ArrowLeft, Edit, X, Eye, History, ChevronDown, ChevronUp } from 'lucide-react';
-import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
+import { AppMode, GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
 import NodeEditForm from '../details/NodeEditForm';
@@ -29,7 +29,7 @@ interface RightPanelProps {
   selectedNodeDetails: Definition | Exercise | null;
   isEditMode: boolean;
   onToggleEditMode: () => void;
-  mode: 'study' | 'practice';
+  mode: AppMode;
   nodeHistory: string[];
   onNavigateBack: () => void;
   onNavigateToNode: (nodeId: string) => void;

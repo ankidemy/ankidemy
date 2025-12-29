@@ -228,6 +228,7 @@ func main() {
             {
                 metas.GET("/:id", metaExerciseHandler.GetMetaExercise)
                 metas.PUT("/:id", metaExerciseHandler.UpdateMetaExercise)
+                metas.DELETE("/:id", metaExerciseHandler.DeleteMetaExercise)
                 metas.GET("/:id/next-version", metaExerciseHandler.GetNextVersion)
                 metas.POST("/:id/versions", metaExerciseHandler.AddVersion)
                 metas.PUT("/:id/versions/:versionId", metaExerciseHandler.UpdateVersion)
@@ -239,6 +240,7 @@ func main() {
             {
                 metaDefs.GET("/:id", metaDefinitionHandler.GetMetaDefinition)
                 metaDefs.PUT("/:id", metaDefinitionHandler.UpdateMetaDefinition)
+                metaDefs.DELETE("/:id", metaDefinitionHandler.DeleteMetaDefinition)
                 metaDefs.GET("/:id/next-version", metaDefinitionHandler.GetNextVersion)
                 metaDefs.POST("/:id/versions", metaDefinitionHandler.AddVersion)
                 metaDefs.PUT("/:id/versions/:versionId", metaDefinitionHandler.UpdateVersion)

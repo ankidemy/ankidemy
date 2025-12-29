@@ -908,6 +908,17 @@ export const updateMetaDefinition = async (id: number, data: {
 };
 
 /**
+ * Delete a meta-definition (concept pool) and its versions
+ */
+export const deleteMetaDefinition = async (id: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+/**
  * Add a new version to a meta-definition
  */
 export const addMetaDefinitionVersion = async (id: number, version: {
@@ -1011,6 +1022,17 @@ export const updateMetaExercise = async (metaId: number, payload: {
     method: 'PUT',
     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+/**
+ * Delete a meta-exercise (exercise pool) and its versions
+ */
+export const deleteMetaExercise = async (metaId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   return handleResponse(response);
 };

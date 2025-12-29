@@ -142,6 +142,22 @@ func (d *MetaExerciseDAO) DeleteVersion(versionID uint) error {
     })
 }
 
+// Delete removes a meta-exercise, its versions, and related prerequisites.
+func (d *MetaExerciseDAO) Delete(id uint) error {
+    return d.db.Transaction(func(tx *gorm.DB) error {
+        if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
+            return err
+        }
+        if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
+            return err
+        }
+        if err := tx.Where("meta_exercise_id = ?", id).Delete(&models.Exercise{}).Error; err != nil {
+            return err
+        }
+        return tx.Delete(&models.MetaExercise{}, id).Error
+    })
+}
+
 // FindByID returns meta and versions
 func (d *MetaExerciseDAO) FindByID(id uint) (*models.MetaExercise, []models.Exercise, error) {
     var meta models.MetaExercise

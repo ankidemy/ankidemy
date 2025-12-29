@@ -36,10 +36,85 @@ Proporcionar una herramienta que permita a individuos y organizaciones:
 ## 🚀 Comenzando
 
 ### Prerrequisitos
-[TBD - Lista de prerrequisitos]
+- Docker (versión 20.10 o superior)
+- Docker Compose (versión 2.0 o superior)
+- Make (opcional, pero recomendado)
+- Puertos disponibles: 4500, 8765, 54320, 5051
+
+### Configuración de Puertos
+
+La aplicación utiliza los siguientes puertos para evitar conflictos con otras aplicaciones:
+
+| Servicio | Puerto Externo | Puerto Interno | Descripción |
+|----------|---------------|----------------|-------------|
+| Cliente (Next.js) | 4500 | 3000 | Interfaz web de usuario |
+| Servidor (Go API) | 8765 | 8765 | API REST del backend |
+| Base de Datos (PostgreSQL) | 54320 | 5432 | Base de datos PostgreSQL |
+| PgAdmin | 5051 | 5050 | Interfaz de administración de BD |
+
+**Nota**: Los puertos externos son los que usas desde tu máquina host. Los puertos internos son los que usa Docker internamente en la red de contenedores.
 
 ### Instalación
-[TBD - Instrucciones de instalación]
+
+1. **Clonar el repositorio**
+   ```bash
+   git clone https://github.com/tu-usuario/ankidemy.git
+   cd ankidemy
+   ```
+
+2. **Configurar variables de entorno**
+
+   El archivo `.env` ya está configurado con valores por defecto. Si necesitas personalizarlos:
+   ```bash
+   # Edita el archivo .env según tus necesidades
+   nano .env
+   ```
+
+3. **Iniciar el entorno de desarrollo**
+   ```bash
+   # Usando Make (recomendado)
+   make dev
+
+   # O usando Docker Compose directamente
+   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+   ```
+
+4. **Acceder a la aplicación**
+   - **Aplicación web**: http://localhost:4500
+   - **API**: http://localhost:8765
+   - **PgAdmin**: http://localhost:5051
+     - Email: admin@example.com
+     - Contraseña: admin
+
+5. **Detener el entorno**
+   ```bash
+   # Usando Make
+   make down
+
+   # O usando Docker Compose
+   docker-compose down
+   ```
+
+### Comandos Útiles
+
+```bash
+# Iniciar en modo desarrollo
+make dev
+
+# Iniciar en modo producción
+make up
+
+# Detener todos los servicios
+make down
+
+# Ver logs en tiempo real
+docker-compose logs -f
+
+# Ver logs de un servicio específico
+docker-compose logs -f server
+docker-compose logs -f client
+docker-compose logs -f db
+```
 
 ## 💡 Cómo Funciona
 

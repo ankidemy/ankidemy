@@ -3,6 +3,7 @@
 
 server/tmp/*
 server/sample.json
+server/build-errors.log
 
 *.gocache/
 *localcache/
