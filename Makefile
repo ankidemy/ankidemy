@@ -1,38 +1,41 @@
+# Detect which docker compose command is available
+DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
+
 # Development and Production Commands
 .PHONY: dev prod prod-build down logs clean purge nuke wipe-db
 
 # Start development environment with logs (without -d)
 dev:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up
 
 # Start production environment with logs (without -d)
 prod:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up
 
 # Build and start production environment
 prod-build:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up --build
 
 # Build and start dev environment
 dev-build:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 # Stop all services (dev or prod)
 down:
-	docker compose down --remove-orphans
+	$(DOCKER_COMPOSE) down --remove-orphans
 
 # View logs for all services
 logs:
-	docker compose logs -f
+	$(DOCKER_COMPOSE) logs -f
 
 # Clean up containers and volumes
 clean:
-	docker compose down
+	$(DOCKER_COMPOSE) down
 	docker volume prune -f
 
 # Remove project images
 purge:
-	docker compose down
+	$(DOCKER_COMPOSE) down
 	docker rmi $$(docker images -q myapp-* 2>/dev/null) 2>/dev/null || true
 	@echo "Removed all project containers and images."
 
@@ -43,7 +46,7 @@ nuke:
 	@read confirmation; \
 	if [ "$$confirmation" = "NUKE" ]; then \
 		echo "Stopping all containers..."; \
-		docker compose down; \
+		$(DOCKER_COMPOSE) down; \
 		echo "Stopping Docker service..."; \
 		sudo systemctl stop docker; \
 		echo "Starting Docker service..."; \
@@ -63,7 +66,7 @@ wipe-db:
 	@echo "Type 'yes' to confirm: "
 	@read confirmation; \
 	if [ "$$confirmation" = "yes" ]; then \
-		docker compose -f docker-compose.yml -f docker-compose.dev.yml down; \
+		$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml down; \
 		docker volume rm $$(docker volume ls -q | grep postgres_data) || true; \
 		echo "Database reset complete."; \
 	else \
