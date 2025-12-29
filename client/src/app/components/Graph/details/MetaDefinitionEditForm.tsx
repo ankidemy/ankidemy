@@ -6,6 +6,7 @@ import type { MetaDefinition, DefinitionVersion } from '@/lib/api';
 import { uploadNodeImage } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 import ImageUploadField from '../components/ImageUploadField';
+import MarkdownPreviewField from '../components/MarkdownPreviewField';
 
 interface Props {
   meta: MetaDefinition;
@@ -256,17 +257,14 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
 
       {/* Version editor */}
       <div className="p-4 space-y-3 border rounded">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Prompt *</label>
-          <textarea
-            value={val('prompt', '')}
-            onChange={(e) => setDraft(d => ({ ...d, prompt: e.target.value }))}
-            rows={3}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-            placeholder="The review question to display..."
-          />
-          <p className="text-xs text-gray-500 mt-1">The question shown during reviews</p>
-        </div>
+        <MarkdownPreviewField
+          label="Prompt *"
+          value={val('prompt', '')}
+          onChange={(value) => setDraft(d => ({ ...d, prompt: value }))}
+          rows={3}
+          placeholder="The review question to display..."
+          helperText="The question shown during reviews"
+        />
 
         <ImageUploadField
           label="Prompt Image"
@@ -296,17 +294,14 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
-          <textarea
-            value={val('description', '')}
-            onChange={(e) => setDraft(d => ({ ...d, description: e.target.value }))}
-            rows={4}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-            placeholder="Additional context or explanation..."
-          />
-          <p className="text-xs text-gray-500 mt-1">Supports LaTeX notation</p>
-        </div>
+        <MarkdownPreviewField
+          label="Description (Optional)"
+          value={val('description', '')}
+          onChange={(value) => setDraft(d => ({ ...d, description: value }))}
+          rows={4}
+          placeholder="Additional context or explanation..."
+          helperText="Supports LaTeX notation"
+        />
 
         <ImageUploadField
           label="Description Image"
@@ -325,16 +320,13 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
           onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
         />
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
-          <textarea
-            value={val('notes', '')}
-            onChange={(e) => setDraft(d => ({ ...d, notes: e.target.value }))}
-            rows={2}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-            placeholder="Internal notes..."
-          />
-        </div>
+        <MarkdownPreviewField
+          label="Notes (Optional)"
+          value={val('notes', '')}
+          onChange={(value) => setDraft(d => ({ ...d, notes: value }))}
+          rows={2}
+          placeholder="Internal notes..."
+        />
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">References (Optional)</label>

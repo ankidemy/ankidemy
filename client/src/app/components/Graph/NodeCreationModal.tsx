@@ -18,6 +18,7 @@ import {
 } from '@/lib/api';
 import { X } from 'lucide-react';
 import ImageUploadField from './components/ImageUploadField';
+import MarkdownPreviewField from './components/MarkdownPreviewField';
 import { getNextDotCode, getNextExerciseCode } from './utils/codeGeneration';
 
 interface PrerequisiteOption {
@@ -403,8 +404,21 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
               </div>
               {extraVersions.map((v, idx) => (
                 <div key={`extra-v-${idx}`} className="p-2 border rounded">
-                  <label className="block text-xs font-medium mb-1 text-gray-600">Statement</label>
-                  <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.statement} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], statement: e.target.value }; return copy; })} />
+                  <MarkdownPreviewField
+                    id={`extra-ex-statement-${idx}`}
+                    label="Statement"
+                    value={v.statement}
+                    onChange={(value) => setExtraVersions(arr => {
+                      const copy = [...arr];
+                      copy[idx] = { ...copy[idx], statement: value };
+                      return copy;
+                    })}
+                    rows={3}
+                    labelClassName="text-xs font-medium text-gray-600"
+                    textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                    previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                    buttonClassName="h-5 text-[10px] px-1"
+                  />
                   <div className="mt-2">
                     <ImageUploadField
                       label="Statement Image"
@@ -433,12 +447,38 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-1">
                     <div>
-                      <label className="block text-xs font-medium mb-1 text-gray-600">Solution</label>
-                      <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.description || ''} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], description: e.target.value }; return copy; })} />
+                      <MarkdownPreviewField
+                        id={`extra-ex-solution-${idx}`}
+                        label="Solution"
+                        value={v.description || ''}
+                        onChange={(value) => setExtraVersions(arr => {
+                          const copy = [...arr];
+                          copy[idx] = { ...copy[idx], description: value };
+                          return copy;
+                        })}
+                        rows={2}
+                        labelClassName="text-xs font-medium text-gray-600"
+                        textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                        previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                        buttonClassName="h-5 text-[10px] px-1"
+                      />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium mb-1 text-gray-600">Hints</label>
-                      <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.hints || ''} onChange={e => setExtraVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], hints: e.target.value }; return copy; })} />
+                      <MarkdownPreviewField
+                        id={`extra-ex-hints-${idx}`}
+                        label="Hints"
+                        value={v.hints || ''}
+                        onChange={(value) => setExtraVersions(arr => {
+                          const copy = [...arr];
+                          copy[idx] = { ...copy[idx], hints: value };
+                          return copy;
+                        })}
+                        rows={2}
+                        labelClassName="text-xs font-medium text-gray-600"
+                        textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                        previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                        buttonClassName="h-5 text-[10px] px-1"
+                      />
                     </div>
                   </div>
                   <div className="mt-2">
@@ -491,19 +531,16 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
 
           {type === 'definition' ? (
             <>
-              <div>
-                <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 mb-1">Prompt</label>
-                <textarea
-                  id="prompt"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-                  placeholder={`Define ${name || 'the concept'}`}
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-gray-500 mt-1">The question/prompt to display during reviews</p>
-              </div>
+              <MarkdownPreviewField
+                id="prompt"
+                label="Prompt"
+                value={prompt}
+                onChange={setPrompt}
+                rows={3}
+                placeholder={`Define ${name || 'the concept'}`}
+                disabled={isSubmitting}
+                helperText="The question/prompt to display during reviews"
+              />
               <ImageUploadField
                 label="Prompt Image"
                 helperText="Supports one image per prompt."
@@ -533,19 +570,16 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                   <option value="open_ended">Open Ended</option>
                 </select>
               </div>
-              <div>
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
-                <textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={4}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-                  placeholder="Additional context or explanation..."
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}</p>
-              </div>
+              <MarkdownPreviewField
+                id="description"
+                label="Description (Optional)"
+                value={description}
+                onChange={setDescription}
+                rows={4}
+                placeholder="Additional context or explanation..."
+                disabled={isSubmitting}
+                helperText={'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}
+              />
               <ImageUploadField
                 label="Description Image"
                 helperText="Supports one image per description."
@@ -563,18 +597,15 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 onChange={setDescriptionImagePath}
                 onClear={() => setDescriptionImagePath('')}
               />
-              <div>
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
-                <textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-                  placeholder="Internal notes..."
-                  disabled={isSubmitting}
-                />
-              </div>
+              <MarkdownPreviewField
+                id="notes"
+                label="Notes (Optional)"
+                value={notes}
+                onChange={setNotes}
+                rows={2}
+                placeholder="Internal notes..."
+                disabled={isSubmitting}
+              />
               <div>
                 <label htmlFor="references" className="block text-sm font-medium text-gray-700 mb-1">References (Optional)</label>
                 <Input
@@ -605,8 +636,21 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                   <div key={`extra-def-v-${idx}`} className="p-2 border rounded">
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-xs font-medium mb-1 text-gray-600">Prompt *</label>
-                        <textarea rows={2} className="w-full border rounded px-2 py-1 text-sm" value={v.prompt} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], prompt: e.target.value }; return copy; })} />
+                        <MarkdownPreviewField
+                          id={`extra-def-prompt-${idx}`}
+                          label="Prompt *"
+                          value={v.prompt}
+                          onChange={(value) => setExtraDefVersions(arr => {
+                            const copy = [...arr];
+                            copy[idx] = { ...copy[idx], prompt: value };
+                            return copy;
+                          })}
+                          rows={2}
+                          labelClassName="text-xs font-medium text-gray-600"
+                          textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                          previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                          buttonClassName="h-5 text-[10px] px-1"
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1 text-gray-600">Type</label>
@@ -647,12 +691,38 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                     </div>
                     <div className="grid grid-cols-2 gap-2 mt-1">
                       <div>
-                        <label className="block text-xs font-medium mb-1 text-gray-600">Definition (Description)</label>
-                        <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.description || ''} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], description: e.target.value }; return copy; })} />
+                        <MarkdownPreviewField
+                          id={`extra-def-description-${idx}`}
+                          label="Definition (Description)"
+                          value={v.description || ''}
+                          onChange={(value) => setExtraDefVersions(arr => {
+                            const copy = [...arr];
+                            copy[idx] = { ...copy[idx], description: value };
+                            return copy;
+                          })}
+                          rows={3}
+                          labelClassName="text-xs font-medium text-gray-600"
+                          textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                          previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                          buttonClassName="h-5 text-[10px] px-1"
+                        />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium mb-1 text-gray-600">Notes</label>
-                        <textarea rows={3} className="w-full border rounded px-2 py-1 text-sm" value={v.notes || ''} onChange={e => setExtraDefVersions(arr => { const copy = [...arr]; copy[idx] = { ...copy[idx], notes: e.target.value }; return copy; })} />
+                        <MarkdownPreviewField
+                          id={`extra-def-notes-${idx}`}
+                          label="Notes"
+                          value={v.notes || ''}
+                          onChange={(value) => setExtraDefVersions(arr => {
+                            const copy = [...arr];
+                            copy[idx] = { ...copy[idx], notes: value };
+                            return copy;
+                          })}
+                          rows={3}
+                          labelClassName="text-xs font-medium text-gray-600"
+                          textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                          previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                          buttonClassName="h-5 text-[10px] px-1"
+                        />
                       </div>
                     </div>
                     <div className="mt-2">
@@ -694,11 +764,17 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             </>
           ) : (
             <>
-              <div>
-                <label htmlFor="statement" className="block text-sm font-medium text-gray-700 mb-1">Problem Statement *</label>
-                <textarea id="statement" value={statement} onChange={(e) => setStatement(e.target.value)} rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Exercise statement..." required disabled={isSubmitting}/>
-                <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}</p>
-              </div>
+              <MarkdownPreviewField
+                id="statement"
+                label="Problem Statement *"
+                value={statement}
+                onChange={setStatement}
+                rows={4}
+                placeholder="Exercise statement..."
+                required
+                disabled={isSubmitting}
+                helperText={'Supports LaTeX notation: $x^2$, $$\\sum_{i=0}^n i$$'}
+              />
               <ImageUploadField
                 label="Statement Image"
                 helperText="Supports one image per statement."
@@ -716,11 +792,16 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 onChange={setStatementImagePath}
                 onClear={() => setStatementImagePath('')}
               />
-              <div>
-                <label htmlFor="solution" className="block text-sm font-medium text-gray-700 mb-1">Solution / Explanation (Optional)</label>
-                <textarea id="solution" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Solution details..." disabled={isSubmitting}/>
-                 <p className="text-xs text-gray-500 mt-1">{'Supports LaTeX notation.'}</p>
-              </div>
+              <MarkdownPreviewField
+                id="solution"
+                label="Solution / Explanation (Optional)"
+                value={description}
+                onChange={setDescription}
+                rows={4}
+                placeholder="Solution details..."
+                disabled={isSubmitting}
+                helperText="Supports LaTeX notation."
+              />
               <ImageUploadField
                 label="Solution Image"
                 helperText="Supports one image per solution."
@@ -738,24 +819,24 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 onChange={setSolutionImagePath}
                 onClear={() => setSolutionImagePath('')}
               />
-              <div>
-                <label htmlFor="hints" className="block text-sm font-medium text-gray-700 mb-1">Hints (Optional)</label>
-                <textarea id="hints" value={hints} onChange={(e) => setHints(e.target.value)} rows={2} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400" placeholder="Optional hints..." disabled={isSubmitting}/>
-              </div>
-              <div>
-                <label htmlFor="exerciseNotes" className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes (Optional)
-                </label>
-                <textarea
-                  id="exerciseNotes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-                  placeholder="Additional notes about this exercise..."
-                  disabled={isSubmitting}
-                />
-              </div>
+              <MarkdownPreviewField
+                id="hints"
+                label="Hints (Optional)"
+                value={hints}
+                onChange={setHints}
+                rows={2}
+                placeholder="Optional hints..."
+                disabled={isSubmitting}
+              />
+              <MarkdownPreviewField
+                id="exerciseNotes"
+                label="Notes (Optional)"
+                value={notes}
+                onChange={setNotes}
+                rows={3}
+                placeholder="Additional notes about this exercise..."
+                disabled={isSubmitting}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                  <div>
                     <label htmlFor="difficulty" className="block text-sm font-medium text-gray-700 mb-1">Difficulty (1-7) *</label>

@@ -6,6 +6,7 @@ import type { MetaExercise, ExerciseVersion } from '@/lib/api';
 import { uploadNodeImage } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 import ImageUploadField from '../components/ImageUploadField';
+import MarkdownPreviewField from '../components/MarkdownPreviewField';
 
 interface Props {
   meta: MetaExercise;
@@ -220,13 +221,16 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       </div>
 
       <div className="p-2 border rounded" key={isDraft ? 'draft' : (cur?.id ?? 'no-version')}>
-        <label className="block text-xs font-medium mb-1 text-gray-600">Statement</label>
-        <textarea
+        <MarkdownPreviewField
+          label="Statement"
+          value={val('statement', '')}
+          onChange={(value) => setDraft(d => ({ ...d, statement: value }))}
           rows={4}
-          value={val('statement','')}
-          onChange={(e)=> setDraft(d=> ({...d, statement: e.target.value}))}
           disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-          className="w-full border rounded px-2 py-1 text-sm"
+          labelClassName="text-xs font-medium text-gray-600"
+          textareaClassName="w-full border rounded px-2 py-1 text-sm"
+          previewClassName="p-2 border rounded bg-gray-50 text-sm"
+          buttonClassName="h-5 text-[10px] px-1"
         />
         <ImageUploadField
           label="Statement Image"
@@ -244,14 +248,19 @@ const MetaExerciseEditForm: React.FC<Props> = ({
           onChange={(path) => setDraft(d => ({ ...d, statementImagePath: path }))}
           onClear={() => setDraft(d => ({ ...d, statementImagePath: '' }))}
         />
-        <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Solution</label>
-        <textarea
-          rows={4}
-          value={val('description','')}
-          onChange={(e)=> setDraft(d=> ({...d, description: e.target.value}))}
-          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-          className="w-full border rounded px-2 py-1 text-sm"
-        />
+        <div className="mt-2">
+          <MarkdownPreviewField
+            label="Solution"
+            value={val('description', '')}
+            onChange={(value) => setDraft(d => ({ ...d, description: value }))}
+            rows={4}
+            disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
+            labelClassName="text-xs font-medium text-gray-600"
+            textareaClassName="w-full border rounded px-2 py-1 text-sm"
+            previewClassName="p-2 border rounded bg-gray-50 text-sm"
+            buttonClassName="h-5 text-[10px] px-1"
+          />
+        </div>
         <ImageUploadField
           label="Solution Image"
           helperText="Supports one image per solution."
@@ -268,22 +277,32 @@ const MetaExerciseEditForm: React.FC<Props> = ({
           onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
           onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
         />
-        <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Hints</label>
-        <textarea
-          rows={3}
-          value={val('hints','')}
-          onChange={(e)=> setDraft(d=> ({...d, hints: e.target.value}))}
-          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-          className="w-full border rounded px-2 py-1 text-sm"
-        />
-        <label className="block text-xs font-medium mb-1 mt-2 text-gray-600">Notes</label>
-        <textarea
-          rows={3}
-          value={val('notes','')}
-          onChange={(e)=> setDraft(d=> ({...d, notes: e.target.value}))}
-          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-          className="w-full border rounded px-2 py-1 text-sm"
-        />
+        <div className="mt-2">
+          <MarkdownPreviewField
+            label="Hints"
+            value={val('hints', '')}
+            onChange={(value) => setDraft(d => ({ ...d, hints: value }))}
+            rows={3}
+            disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
+            labelClassName="text-xs font-medium text-gray-600"
+            textareaClassName="w-full border rounded px-2 py-1 text-sm"
+            previewClassName="p-2 border rounded bg-gray-50 text-sm"
+            buttonClassName="h-5 text-[10px] px-1"
+          />
+        </div>
+        <div className="mt-2">
+          <MarkdownPreviewField
+            label="Notes"
+            value={val('notes', '')}
+            onChange={(value) => setDraft(d => ({ ...d, notes: value }))}
+            rows={3}
+            disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
+            labelClassName="text-xs font-medium text-gray-600"
+            textareaClassName="w-full border rounded px-2 py-1 text-sm"
+            previewClassName="p-2 border rounded bg-gray-50 text-sm"
+            buttonClassName="h-5 text-[10px] px-1"
+          />
+        </div>
         <div className="grid grid-cols-3 gap-2 mt-2">
           <div>
             <label className="block text-xs font-medium mb-1 text-gray-600">Difficulty (1-7)</label>
