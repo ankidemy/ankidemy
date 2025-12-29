@@ -873,6 +873,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Handle node click
   const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false, context: 'click' | 'study' | 'navigation' = 'click') => {
     if (!nodeOnClick?.id) return;
+    if (mode === 'frenzy' && isFrenzyEditMode) return;
 
     const position = {
       x: typeof window !== 'undefined' ? window.innerWidth - 500 : 800,
@@ -880,7 +881,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     };
 
     ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
-  }, [ui]);
+  }, [ui, mode, isFrenzyEditMode]);
+  const handleNodeClickRef = useRef(handleNodeClick);
+
+  useEffect(() => {
+    handleNodeClickRef.current = handleNodeClick;
+  }, [handleNodeClick]);
 
   // Enhanced node hover with proper highlighting
   const handleNodeHover = useCallback((node: GraphNode | null) => {
@@ -1346,6 +1352,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     if (!isFrenzyEditMode) {
+      ui.closeAllWindows();
       await loadFrenzyPrerequisites();
     } else {
       setFrenzyTool('none');
@@ -1359,7 +1366,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setIsDraggingFrenzyNote(false);
     }
     setIsFrenzyEditMode(prev => !prev);
-  }, [isDomainOwner, isFrenzyEditMode, loadFrenzyPrerequisites]);
+  }, [isDomainOwner, isFrenzyEditMode, loadFrenzyPrerequisites, ui]);
 
   const applyPrerequisiteUpdate = useCallback((
     sourceCode: string,
@@ -1458,86 +1465,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [frenzyPrerequisiteMap, applyPrerequisiteUpdate]);
 
-  const createFrenzyNode = useCallback(async (type: 'definition' | 'exercise') => {
-    if (!isDomainOwner) {
-      showToast('Only domain owners can create nodes.', 'warning');
-      return;
-    }
-    const domainId = parseInt(subjectMatterId, 10);
-    if (isNaN(domainId)) {
-      showToast('Invalid domain.', 'error');
-      return;
-    }
-
-    const code = getNextDotCode();
-    const name = type === 'definition' ? `Concept ${code}` : `Exercise ${code}`;
-    const center = getGraphCenter();
-    const spawn = {
-      x: center.x + (Math.random() - 0.5) * 40,
-      y: center.y + (Math.random() - 0.5) * 40,
-    };
-
-    try {
-      if (type === 'definition') {
-        const defaultContent = getDefaultFrenzyContent('definition', name);
-        const defaultPrompt = getDefaultFrenzyPrompt(name);
-        const created = await createMetaDefinition(domainId, {
-          code,
-          name,
-          xPosition: spawn.x,
-          yPosition: spawn.y,
-          initialVersion: {
-            prompt: defaultPrompt,
-            type: 'open_ended',
-            description: defaultContent,
-            notes: '',
-            references: [],
-          }
-        });
-        frenzyAutoContentRef.current.set(code, defaultContent);
-        frenzyAutoPromptRef.current.set(code, defaultPrompt);
-        insertCreatedNode(code, 'definition', created, spawn);
-      } else {
-        const defaultContent = getDefaultFrenzyContent('exercise', name);
-        const created = await createMetaExercise(domainId, {
-          code,
-          name,
-          xPosition: spawn.x,
-          yPosition: spawn.y,
-          initialVersion: {
-            statement: defaultContent,
-            description: '',
-            notes: '',
-            hints: '',
-            verifiable: false,
-            result: '',
-            difficulty: 3,
-          }
-        });
-        frenzyAutoContentRef.current.set(code, defaultContent);
-        insertCreatedNode(code, 'exercise', created, spawn);
-      }
-      showToast(`${type === 'definition' ? 'Definition' : 'Exercise'} "${code}" created.`, 'success');
-    } catch (error) {
-      console.error('Failed to create frenzy node:', error);
-      showToast('Failed to create node.', 'error');
-    }
-  }, [
-    isDomainOwner,
-    subjectMatterId,
-    getNextDotCode,
-    getGraphCenter,
-    getDefaultFrenzyContent,
-    getDefaultFrenzyPrompt,
-    insertCreatedNode
-  ]);
-
-  const openFrenzyNote = useCallback(async (node: GraphNode) => {
+  const openFrenzyNote = useCallback(async (node: GraphNode, metaIdOverride?: number) => {
     if (!isDomainOwner) {
       showToast('Only domain owners can edit nodes.', 'warning');
       return;
     }
-    const metaId = codeToNumericIdMap.get(node.id);
+    const metaId = metaIdOverride ?? codeToNumericIdMap.get(node.id);
     if (!metaId) {
       showToast('Missing node metadata.', 'error');
       return;
@@ -1602,6 +1535,88 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Failed to load node content.', 'error');
     }
   }, [isDomainOwner, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+
+  const createFrenzyNode = useCallback(async (type: 'definition' | 'exercise') => {
+    if (!isDomainOwner) {
+      showToast('Only domain owners can create nodes.', 'warning');
+      return;
+    }
+    const domainId = parseInt(subjectMatterId, 10);
+    if (isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+
+    const code = getNextDotCode();
+    const name = type === 'definition' ? `Concept ${code}` : `Exercise ${code}`;
+    const center = getGraphCenter();
+    const spawn = {
+      x: center.x + (Math.random() - 0.5) * 40,
+      y: center.y + (Math.random() - 0.5) * 40,
+    };
+
+    try {
+      if (type === 'definition') {
+        const defaultContent = getDefaultFrenzyContent('definition', name);
+        const defaultPrompt = getDefaultFrenzyPrompt(name);
+        const created = await createMetaDefinition(domainId, {
+          code,
+          name,
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          initialVersion: {
+            prompt: defaultPrompt,
+            type: 'open_ended',
+            description: defaultContent,
+            notes: '',
+            references: [],
+          }
+        });
+        frenzyAutoContentRef.current.set(code, defaultContent);
+        frenzyAutoPromptRef.current.set(code, defaultPrompt);
+        insertCreatedNode(code, 'definition', created, spawn);
+        if (isFrenzyEditMode) {
+          openFrenzyNote({ id: code, name, type: 'definition' } as GraphNode, (created as any).id);
+        }
+      } else {
+        const defaultContent = getDefaultFrenzyContent('exercise', name);
+        const created = await createMetaExercise(domainId, {
+          code,
+          name,
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          initialVersion: {
+            statement: defaultContent,
+            description: '',
+            notes: '',
+            hints: '',
+            verifiable: false,
+            result: '',
+            difficulty: 3,
+          }
+        });
+        frenzyAutoContentRef.current.set(code, defaultContent);
+        insertCreatedNode(code, 'exercise', created, spawn);
+        if (isFrenzyEditMode) {
+          openFrenzyNote({ id: code, name, type: 'exercise' } as GraphNode, (created as any).id);
+        }
+      }
+      showToast(`${type === 'definition' ? 'Definition' : 'Exercise'} "${code}" created.`, 'success');
+    } catch (error) {
+      console.error('Failed to create frenzy node:', error);
+      showToast('Failed to create node.', 'error');
+    }
+  }, [
+    isDomainOwner,
+    subjectMatterId,
+    getNextDotCode,
+    getGraphCenter,
+    getDefaultFrenzyContent,
+    getDefaultFrenzyPrompt,
+    insertCreatedNode,
+    isFrenzyEditMode,
+    openFrenzyNote,
+  ]);
 
   const saveFrenzyNote = useCallback(async (draftOverride?: string) => {
     if (!frenzyNote) return;
@@ -2246,7 +2261,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       clearPendingFocusNodeId: () => { pendingFocusNodeIdRef.current = null; },
       focusNodeById: (nodeId: string) => {
         const node = stableGraph.nodes.find(n => n.id === nodeId);
-        if (node) handleNodeClick(node, false, 'navigation');
+        if (node) handleNodeClickRef.current(node, false, 'navigation');
       }
     });
   }
