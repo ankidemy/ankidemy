@@ -215,6 +215,10 @@ function debounce<T extends (...args: any[]) => any>(
   };
 }
 
+const FRENZY_DOUBLE_CLICK_MS = 260;
+const FRENZY_SINGLE_CLICK_DELAY_MS = 270;
+const FRENZY_LINK_SNAP_DISTANCE = 20;
+
 const buildExternalNodeId = (link: ExternalPrerequisiteLink): string => {
   const domainUid = link.externalDomainUid || 'unknown';
   return `ext:${domainUid}:${link.externalNodeType}:${link.externalNodeId}`;
@@ -925,6 +929,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const frenzyAutoPromptRef = useRef<Map<string, string>>(new Map());
   const frenzyClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frenzyLastClickRef = useRef<{ id: string; ts: number } | null>(null);
+  const frenzyBackgroundClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frenzyLastBackgroundClickRef = useRef<{ ts: number } | null>(null);
+  const frenzyPendingLinkRef = useRef<Set<string>>(new Set());
+  const frenzyDragLinkThrottleRef = useRef<number>(0);
+  const frenzyNoteRef = useRef<HTMLDivElement>(null);
   const [frenzyNotePosition, setFrenzyNotePosition] = useState<{ x: number; y: number }>({ x: 240, y: 80 });
   const [isDraggingFrenzyNote, setIsDraggingFrenzyNote] = useState(false);
   const frenzyNoteDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
@@ -1752,68 +1761,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [srs, hasAccess]);
 
-  // Handle node drag end with position manager
-  const handleNodeDragEnd = useCallback((node: GraphNode) => {
-    if (!node?.id || typeof node.x !== 'number' || typeof node.y !== 'number') return;
-
-    const groupId = node.groupId ?? parseGroupNodeId(node.id);
-    if (groupId) {
-      const previous = positionManagerRef.current.getPosition(node.id);
-      const prevX = previous?.x ?? (node.xPosition ?? node.x);
-      const prevY = previous?.y ?? (node.yPosition ?? node.y);
-      const dx = node.x - prevX;
-      const dy = node.y - prevY;
-      const members = groupMembersById.get(groupId);
-
-      if (members && (dx !== 0 || dy !== 0)) {
-        const stableNodes = stableGraphRef.current?.nodes ?? [];
-        const stableNodeMap = new Map(stableNodes.map(member => [member.id, member]));
-
-        const getStoredPosition = (memberId: string) => {
-          const saved = positionManagerRef.current.getPosition(memberId);
-          if (saved) return saved;
-          const def = currentStructuralGraphData.definitions?.[memberId];
-          if (def && typeof def.xPosition === 'number' && typeof def.yPosition === 'number') {
-            return { x: def.xPosition, y: def.yPosition };
-          }
-          const ex = currentStructuralGraphData.exercises?.[memberId];
-          if (ex && typeof ex.xPosition === 'number' && typeof ex.yPosition === 'number') {
-            return { x: ex.xPosition, y: ex.yPosition };
-          }
-          return null;
-        };
-
-        members.forEach(memberId => {
-          const memberNode = stableNodeMap.get(memberId);
-          let baseX = memberNode ? (typeof memberNode.x === 'number' ? memberNode.x : memberNode.xPosition) : undefined;
-          let baseY = memberNode ? (typeof memberNode.y === 'number' ? memberNode.y : memberNode.yPosition) : undefined;
-
-          if (typeof baseX !== 'number' || typeof baseY !== 'number') {
-            const stored = getStoredPosition(memberId);
-            if (!stored) return;
-            baseX = stored.x;
-            baseY = stored.y;
-          }
-
-          const nextX = baseX + dx;
-          const nextY = baseY + dy;
-          if (memberNode) {
-            memberNode.x = nextX;
-            memberNode.y = nextY;
-            memberNode.fx = nextX;
-            memberNode.fy = nextY;
-          }
-          positionManagerRef.current.fixPosition(memberId, nextX, nextY);
-        });
-      }
-    }
-
-    positionManagerRef.current.fixPosition(node.id, node.x, node.y);
-    setPositionsChanged(true);
-    (node as any).fx = node.x;
-    (node as any).fy = node.y;
-  }, [currentStructuralGraphData, groupMembersById]);
-
   // Enhanced engine stop handler with initial zoom
   const handleEngineStop = useCallback(() => {
     positionManagerRef.current.markStable();
@@ -1919,6 +1866,70 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
 
     return position;
+  }, []);
+
+  const getGraphCoordsFromEvent = useCallback((event?: MouseEvent) => {
+    if (!event || !graphRef.current?.screen2GraphCoords) return null;
+    const rect =
+      graphContainerRef.current?.getBoundingClientRect()
+      || graphRef.current?.canvas?.()?.getBoundingClientRect();
+    if (!rect) return null;
+    try {
+      const rawEvent = (event as any).sourceEvent ?? event;
+      let x: number | undefined;
+      let y: number | undefined;
+
+      if (typeof (rawEvent as MouseEvent & { layerX?: number }).layerX === 'number') {
+        x = (rawEvent as MouseEvent & { layerX?: number }).layerX;
+        y = (rawEvent as MouseEvent & { layerY?: number }).layerY;
+      } else if (typeof (rawEvent as MouseEvent).offsetX === 'number') {
+        x = (rawEvent as MouseEvent).offsetX;
+        y = (rawEvent as MouseEvent).offsetY;
+      } else if (typeof (rawEvent as MouseEvent).clientX === 'number') {
+        x = (rawEvent as MouseEvent).clientX - rect.left;
+        y = (rawEvent as MouseEvent).clientY - rect.top;
+      }
+
+      if (typeof x !== 'number' || typeof y !== 'number') return null;
+      const coords = graphRef.current.screen2GraphCoords(x, y);
+      if (!coords || !Number.isFinite(coords.x) || !Number.isFinite(coords.y)) return null;
+      return { x: coords.x, y: coords.y };
+    } catch (error) {
+      console.warn('Could not map background click to graph coords.', error);
+      return null;
+    }
+  }, []);
+
+  const getFrenzyNotePlacement = useCallback((anchorGraph?: { x: number; y: number }) => {
+    const rect =
+      graphContainerRef.current?.getBoundingClientRect()
+      || graphRef.current?.canvas?.()?.getBoundingClientRect();
+    if (!rect) return null;
+
+    const noteRect = frenzyNoteRef.current?.getBoundingClientRect();
+    const noteWidth = noteRect?.width ?? 320;
+    const noteHeight = noteRect?.height ?? 320;
+    const margin = 16;
+
+    let anchorX = rect.width / 2;
+    let anchorY = rect.height / 2;
+
+    if (anchorGraph && typeof graphRef.current?.graph2ScreenCoords === 'function') {
+      const screen = graphRef.current.graph2ScreenCoords(anchorGraph.x, anchorGraph.y);
+      if (screen && Number.isFinite(screen.x) && Number.isFinite(screen.y)) {
+        anchorX = screen.x;
+        anchorY = screen.y;
+      }
+    }
+
+    const placeRight = anchorX < rect.width / 2;
+    const targetCenterX = rect.width * (placeRight ? 0.7 : 0.3);
+    const maxX = Math.max(margin, rect.width - noteWidth - margin);
+    const x = Math.min(Math.max(targetCenterX - noteWidth / 2, margin), maxX);
+    const maxY = Math.max(margin, rect.height - noteHeight - margin);
+    const y = Math.min(Math.max(anchorY - noteHeight / 2, margin), maxY);
+
+    return { x, y };
   }, []);
 
   // Compute spawn near neighbors or viewport center
@@ -2106,6 +2117,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyNotePromptDraft('');
       setFrenzyNotePreview(false);
       setIsDraggingFrenzyNote(false);
+      if (frenzyClickTimerRef.current) {
+        clearTimeout(frenzyClickTimerRef.current);
+        frenzyClickTimerRef.current = null;
+      }
+      if (frenzyBackgroundClickTimerRef.current) {
+        clearTimeout(frenzyBackgroundClickTimerRef.current);
+        frenzyBackgroundClickTimerRef.current = null;
+      }
+      frenzyLastClickRef.current = null;
+      frenzyLastBackgroundClickRef.current = null;
     }
   }, [mode, stableGraph.nodes]);
 
@@ -2304,6 +2325,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyNotePromptDraft('');
       setFrenzyNotePreview(false);
       setIsDraggingFrenzyNote(false);
+      if (frenzyClickTimerRef.current) {
+        clearTimeout(frenzyClickTimerRef.current);
+        frenzyClickTimerRef.current = null;
+      }
+      if (frenzyBackgroundClickTimerRef.current) {
+        clearTimeout(frenzyBackgroundClickTimerRef.current);
+        frenzyBackgroundClickTimerRef.current = null;
+      }
+      frenzyLastClickRef.current = null;
+      frenzyLastBackgroundClickRef.current = null;
     }
     setIsFrenzyEditMode(prev => !prev);
   }, [canEdit, isFrenzyEditMode, loadFrenzyPrerequisites, ui]);
@@ -2409,7 +2440,106 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [frenzyPrerequisiteMap, applyPrerequisiteUpdate]);
 
-  const openFrenzyNote = useCallback(async (node: GraphNode, metaIdOverride?: number) => {
+  const maybeCreateFrenzyDragLink = useCallback(async (sourceNode: GraphNode) => {
+    if (mode !== 'frenzy' || !isFrenzyEditMode || !canEdit) return;
+    if (frenzyTool !== 'none') return;
+    if (sourceNode.type === 'group' || sourceNode.isExternal) return;
+    if (typeof sourceNode.x !== 'number' || typeof sourceNode.y !== 'number') return;
+
+    const candidates = stableGraphRef.current?.nodes ?? [];
+    let closest: GraphNode | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (const candidate of candidates) {
+      if (candidate.id === sourceNode.id) continue;
+      if (candidate.type === 'group' || candidate.isExternal) continue;
+      if (typeof candidate.x !== 'number' || typeof candidate.y !== 'number') continue;
+      const distance = Math.hypot(sourceNode.x - candidate.x, sourceNode.y - candidate.y);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = candidate;
+      }
+    }
+
+    if (!closest || closestDistance > FRENZY_LINK_SNAP_DISTANCE) return;
+    const key = `${sourceNode.id}-${closest.id}`;
+    if (frenzyPrerequisiteMap.has(key) || frenzyPendingLinkRef.current.has(key)) return;
+    frenzyPendingLinkRef.current.add(key);
+    try {
+      await addFrenzyPrerequisite(sourceNode, closest);
+    } finally {
+      frenzyPendingLinkRef.current.delete(key);
+    }
+  }, [mode, isFrenzyEditMode, canEdit, frenzyTool, frenzyPrerequisiteMap, addFrenzyPrerequisite]);
+
+  // Handle node drag end with position manager
+  const handleNodeDragEnd = useCallback((node: GraphNode) => {
+    if (!node?.id || typeof node.x !== 'number' || typeof node.y !== 'number') return;
+
+    const groupId = node.groupId ?? parseGroupNodeId(node.id);
+    if (groupId) {
+      const previous = positionManagerRef.current.getPosition(node.id);
+      const prevX = previous?.x ?? (node.xPosition ?? node.x);
+      const prevY = previous?.y ?? (node.yPosition ?? node.y);
+      const dx = node.x - prevX;
+      const dy = node.y - prevY;
+      const members = groupMembersById.get(groupId);
+
+      if (members && (dx !== 0 || dy !== 0)) {
+        const stableNodes = stableGraphRef.current?.nodes ?? [];
+        const stableNodeMap = new Map(stableNodes.map(member => [member.id, member]));
+
+        const getStoredPosition = (memberId: string) => {
+          const saved = positionManagerRef.current.getPosition(memberId);
+          if (saved) return saved;
+          const def = currentStructuralGraphData.definitions?.[memberId];
+          if (def && typeof def.xPosition === 'number' && typeof def.yPosition === 'number') {
+            return { x: def.xPosition, y: def.yPosition };
+          }
+          const ex = currentStructuralGraphData.exercises?.[memberId];
+          if (ex && typeof ex.xPosition === 'number' && typeof ex.yPosition === 'number') {
+            return { x: ex.xPosition, y: ex.yPosition };
+          }
+          return null;
+        };
+
+        members.forEach(memberId => {
+          const memberNode = stableNodeMap.get(memberId);
+          let baseX = memberNode ? (typeof memberNode.x === 'number' ? memberNode.x : memberNode.xPosition) : undefined;
+          let baseY = memberNode ? (typeof memberNode.y === 'number' ? memberNode.y : memberNode.yPosition) : undefined;
+
+          if (typeof baseX !== 'number' || typeof baseY !== 'number') {
+            const stored = getStoredPosition(memberId);
+            if (!stored) return;
+            baseX = stored.x;
+            baseY = stored.y;
+          }
+
+          const nextX = baseX + dx;
+          const nextY = baseY + dy;
+          if (memberNode) {
+            memberNode.x = nextX;
+            memberNode.y = nextY;
+            memberNode.fx = nextX;
+            memberNode.fy = nextY;
+          }
+          positionManagerRef.current.fixPosition(memberId, nextX, nextY);
+        });
+      }
+    }
+
+    positionManagerRef.current.fixPosition(node.id, node.x, node.y);
+    setPositionsChanged(true);
+    (node as any).fx = node.x;
+    (node as any).fy = node.y;
+    void maybeCreateFrenzyDragLink(node);
+  }, [currentStructuralGraphData, groupMembersById, maybeCreateFrenzyDragLink]);
+
+  const openFrenzyNote = useCallback(async (
+    node: GraphNode,
+    metaIdOverride?: number,
+    anchorGraph?: { x: number; y: number }
+  ) => {
     if (!canEdit) {
       showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
@@ -2468,6 +2598,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const solutionImagePath = node.type === 'exercise'
         ? ((version as ExerciseVersion).descriptionImagePath || '')
         : '';
+      const anchor = anchorGraph
+        || (typeof node.x === 'number' && typeof node.y === 'number'
+          ? { x: node.x, y: node.y }
+          : (typeof node.xPosition === 'number' && typeof node.yPosition === 'number'
+            ? { x: node.xPosition, y: node.yPosition }
+            : undefined));
+      const notePosition = getFrenzyNotePlacement(anchor);
+      if (notePosition) {
+        setFrenzyNotePosition(notePosition);
+      }
+
       setFrenzyNote({
         nodeId: resolvedCode,
         nodeType: node.type,
@@ -2495,13 +2636,24 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyNoteSolutionImagePath(solutionImagePath);
       setShowFrenzySolution(false);
       setFrenzyNotePreview(false);
+      if (anchor) {
+        requestAnimationFrame(() => {
+          const adjusted = getFrenzyNotePlacement(anchor);
+          if (adjusted) {
+            setFrenzyNotePosition(adjusted);
+          }
+        });
+      }
     } catch (error) {
       console.error('Failed to load frenzy note:', error);
       showToast('Failed to load node content.', 'error');
     }
-  }, [canEdit, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+  }, [canEdit, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt, getFrenzyNotePlacement]);
 
-  const createFrenzyNode = useCallback(async (type: 'definition' | 'exercise') => {
+  const createFrenzyNode = useCallback(async (
+    type: 'definition' | 'exercise',
+    spawnOverride?: { x: number; y: number }
+  ) => {
     if (!canEdit) {
       showToast('Only domain owners or editors can create nodes.', 'warning');
       return;
@@ -2514,10 +2666,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     const code = type === 'exercise' ? getNextExerciseCode() : getNextDotCode();
     const name = type === 'definition' ? `Concept ${code}` : `Exercise ${code}`;
-    const center = getGraphCenter();
-    const spawn = {
-      x: center.x + (Math.random() - 0.5) * 40,
-      y: center.y + (Math.random() - 0.5) * 40,
+    const basePosition = (spawnOverride && Number.isFinite(spawnOverride.x) && Number.isFinite(spawnOverride.y))
+      ? spawnOverride
+      : getGraphCenter();
+    const spawn = spawnOverride ? basePosition : {
+      x: basePosition.x + (Math.random() - 0.5) * 40,
+      y: basePosition.y + (Math.random() - 0.5) * 40,
     };
 
     const selectedNode = primarySelectedNodeId
@@ -2552,7 +2706,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           );
         }
         if (isFrenzyEditMode) {
-          openFrenzyNote({ id: code, name, type: 'definition' } as GraphNode, (created as any).id);
+          openFrenzyNote({ id: code, name, type: 'definition' } as GraphNode, (created as any).id, spawn);
         }
       } else {
         const defaultContent = getDefaultFrenzyContent('exercise', name);
@@ -2581,7 +2735,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           );
         }
         if (isFrenzyEditMode) {
-          openFrenzyNote({ id: code, name, type: 'exercise' } as GraphNode, (created as any).id);
+          openFrenzyNote({ id: code, name, type: 'exercise' } as GraphNode, (created as any).id, spawn);
         }
       }
       showToast(`${type === 'definition' ? 'Definition' : 'Exercise'} "${code}" created.`, 'success');
@@ -2951,6 +3105,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       if (frenzyClickTimerRef.current) {
         clearTimeout(frenzyClickTimerRef.current);
         frenzyClickTimerRef.current = null;
+      }
+      if (frenzyBackgroundClickTimerRef.current) {
+        clearTimeout(frenzyBackgroundClickTimerRef.current);
+        frenzyBackgroundClickTimerRef.current = null;
       }
       if (selectedNodeIds.size > 0) {
         setSelectedNodeIds(new Set());
@@ -3328,9 +3486,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     if (mode === 'frenzy' && isFrenzyEditMode) {
+      if (frenzyBackgroundClickTimerRef.current) {
+        clearTimeout(frenzyBackgroundClickTimerRef.current);
+        frenzyBackgroundClickTimerRef.current = null;
+      }
+      frenzyLastBackgroundClickRef.current = null;
       const now = Date.now();
       const last = frenzyLastClickRef.current;
-      if (last && last.id === node.id && now - last.ts < 260) {
+      if (last && last.id === node.id && now - last.ts < FRENZY_DOUBLE_CLICK_MS) {
         if (frenzyClickTimerRef.current) {
           clearTimeout(frenzyClickTimerRef.current);
           frenzyClickTimerRef.current = null;
@@ -3344,17 +3507,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         clearTimeout(frenzyClickTimerRef.current);
       }
       if (frenzyTool === 'none') {
-        setSelectedNodeIds(new Set([node.id]));
         frenzyClickTimerRef.current = setTimeout(() => {
           frenzyLastClickRef.current = null;
-        }, 270);
+          setSelectedNodeIds(prev => {
+            if (prev.size === 1 && prev.has(node.id)) return new Set();
+            return new Set([node.id]);
+          });
+        }, FRENZY_SINGLE_CLICK_DELAY_MS);
         return;
       }
-      setSelectedNodeIds(new Set([node.id]));
       frenzyClickTimerRef.current = setTimeout(() => {
         frenzyLastClickRef.current = null;
+        setSelectedNodeIds(new Set([node.id]));
         handleFrenzyNodeAction(node);
-      }, 270);
+      }, FRENZY_SINGLE_CLICK_DELAY_MS);
       return;
     }
     handleNodeClick(node, false, 'click');
@@ -3368,15 +3534,84 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     removeFrenzyPrerequisite(sourceId, targetId);
   }, [mode, isFrenzyEditMode, frenzyTool, removeFrenzyPrerequisite]);
 
-  const handleGraphBackgroundClick = useCallback(() => {
+  const handleGraphNodeRightClick = useCallback((node: GraphNode, event?: MouseEvent) => {
+    if (!(mode === 'frenzy' && isFrenzyEditMode)) return;
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (frenzyClickTimerRef.current) {
+      clearTimeout(frenzyClickTimerRef.current);
+      frenzyClickTimerRef.current = null;
+    }
+    if (frenzyBackgroundClickTimerRef.current) {
+      clearTimeout(frenzyBackgroundClickTimerRef.current);
+      frenzyBackgroundClickTimerRef.current = null;
+    }
+    frenzyLastClickRef.current = null;
+    frenzyLastBackgroundClickRef.current = null;
+    if (node.type === 'group') return;
+    if (node.isExternal) {
+      showToast('External nodes cannot be edited in this domain.', 'warning');
+      return;
+    }
+    void deleteFrenzyNode(node);
+  }, [mode, isFrenzyEditMode, deleteFrenzyNode]);
+
+  const handleGraphLinkRightClick = useCallback((link: GraphLink, event?: MouseEvent) => {
+    if (!(mode === 'frenzy' && isFrenzyEditMode)) return;
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (link.type === 'external') {
+      showToast('External links cannot be edited in this domain.', 'warning');
+      return;
+    }
+    if (!canEdit) {
+      showToast('Only domain owners or editors can remove links.', 'warning');
+      return;
+    }
+    const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
+    const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
+    if (!sourceId || !targetId) return;
+    void removeFrenzyPrerequisite(sourceId, targetId);
+  }, [mode, isFrenzyEditMode, canEdit, removeFrenzyPrerequisite]);
+
+  const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
     if (mode === 'frenzy' && isFrenzyEditMode) {
       setPendingLinkSourceId(null);
       if (frenzyClickTimerRef.current) {
         clearTimeout(frenzyClickTimerRef.current);
         frenzyClickTimerRef.current = null;
       }
+      frenzyLastClickRef.current = null;
+      const now = Date.now();
+      const last = frenzyLastBackgroundClickRef.current;
+      if (last && now - last.ts < FRENZY_DOUBLE_CLICK_MS) {
+        if (frenzyBackgroundClickTimerRef.current) {
+          clearTimeout(frenzyBackgroundClickTimerRef.current);
+          frenzyBackgroundClickTimerRef.current = null;
+        }
+        frenzyLastBackgroundClickRef.current = null;
+        const spawn = getGraphCoordsFromEvent(event) ?? getGraphCenter();
+        void createFrenzyNode('definition', spawn);
+        return;
+      }
+      frenzyLastBackgroundClickRef.current = { ts: now };
+      if (frenzyBackgroundClickTimerRef.current) {
+        clearTimeout(frenzyBackgroundClickTimerRef.current);
+      }
+      frenzyBackgroundClickTimerRef.current = setTimeout(() => {
+        frenzyLastBackgroundClickRef.current = null;
+        setSelectedNodeIds(new Set());
+      }, FRENZY_SINGLE_CLICK_DELAY_MS);
     }
-  }, [mode, isFrenzyEditMode]);
+  }, [mode, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode]);
+
+  const handleGraphNodeDrag = useCallback((node: GraphNode) => {
+    if (mode !== 'frenzy' || !isFrenzyEditMode) return;
+    const now = Date.now();
+    if (now - frenzyDragLinkThrottleRef.current < 120) return;
+    frenzyDragLinkThrottleRef.current = now;
+    void maybeCreateFrenzyDragLink(node);
+  }, [mode, isFrenzyEditMode, maybeCreateFrenzyDragLink]);
 
   const handleFrenzyNoteMouseDown = useCallback((event: React.MouseEvent) => {
     if (!frenzyNote) return;
@@ -3675,8 +3910,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 labelDisplayMode={labelDisplayMode}
                 onNodeClick={handleGraphNodeClick}
                 onNodeHover={handleNodeHover}
+                onNodeDrag={handleGraphNodeDrag}
                 onNodeDragEnd={handleNodeDragEnd}
                 onLinkClick={handleGraphLinkClick}
+                onNodeRightClick={handleGraphNodeRightClick}
+                onLinkRightClick={handleGraphLinkRightClick}
                 onBackgroundClick={handleGraphBackgroundClick}
                 onEngineStop={handleEngineStop}
                 creditFlowAnimations={enhancedCreditFlowAnimations}
@@ -3779,7 +4017,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       </Button>
                     )}
                     <div className="mt-2 text-[11px] text-gray-500">
-                      Single-click selects a node. Double-click edits it.
+                      Click toggles selection. Double-click opens. Double-click empty creates. Drag near to link. Right-click removes.
                     </div>
                   </div>
                 )}
@@ -3788,6 +4026,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
             {frenzyNote && (
               <div
+                ref={frenzyNoteRef}
                 className="absolute z-40 w-80 bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-3"
                 style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
               >

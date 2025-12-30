@@ -32,9 +32,12 @@ interface GraphContainerProps {
   labelDisplayMode: LabelDisplayMode;
   onNodeClick: (node: GraphNode) => void;
   onNodeHover: (node: GraphNode | null) => void;
+  onNodeDrag?: (node: GraphNode) => void;
   onNodeDragEnd: (node: GraphNode) => void;
   onLinkClick?: (link: GraphLink) => void;
-  onBackgroundClick?: () => void;
+  onNodeRightClick?: (node: GraphNode, event: MouseEvent) => void;
+  onLinkRightClick?: (link: GraphLink, event: MouseEvent) => void;
+  onBackgroundClick?: (event?: MouseEvent) => void;
   onEngineStop?: () => void;
   graphRef: React.MutableRefObject<any>;
   creditFlowAnimations?: CreditFlowAnimation[];
@@ -56,8 +59,11 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   labelDisplayMode,
   onNodeClick,
   onNodeHover,
+  onNodeDrag,
   onNodeDragEnd,
   onLinkClick,
+  onNodeRightClick,
+  onLinkRightClick,
   onBackgroundClick,
   onEngineStop,
   graphRef,
@@ -450,15 +456,39 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     return scaledWidth;
   }, [graphNodes, highlightLinks, highlightNodes]);
 
+  const getLinkCurvePoints = useCallback((link: any) => {
+    const { source, target } = link;
+
+    if (!source || !target ||
+        typeof source.x !== 'number' || typeof source.y !== 'number' ||
+        typeof target.x !== 'number' || typeof target.y !== 'number') {
+      return null;
+    }
+
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance === 0) return null;
+
+    const curvature = 0.1;
+    const midX = (source.x + target.x) / 2;
+    const midY = (source.y + target.y) / 2;
+    const perpX = -dy / distance * curvature * distance;
+    const perpY = dx / distance * curvature * distance;
+
+    return {
+      source,
+      target,
+      controlX: midX + perpX,
+      controlY: midY + perpY,
+    };
+  }, []);
+
   // Optimized link renderer
   const linkCanvasObject = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { source, target, weight = 1.0 } = link;
-    
-    if (!source || !target || 
-        typeof source.x !== 'number' || typeof source.y !== 'number' || 
-        typeof target.x !== 'number' || typeof target.y !== 'number') {
-      return;
-    }
+    const curve = getLinkCurvePoints(link);
+    if (!curve) return;
     
     const sourceId = typeof source === 'object' ? source.id : String(source);
     const targetId = typeof target === 'object' ? target.id : String(target);
@@ -470,31 +500,20 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const color = getLinkColor(link);
     const width = getLinkWidth(link) / globalScale;
     
-    // Calculate curve
-    const dx = target.x - source.x;
-    const dy = target.y - source.y;
+    const dx = curve.target.x - curve.source.x;
+    const dy = curve.target.y - curve.source.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    if (distance === 0) return;
-    
     const targetNode = graphNodes.find(n => n.id === targetId);
     const targetNodeSize = (targetNode?.type === 'definition' ? 7 : 6) / Math.sqrt(globalScale);
-    
-    const curvature = 0.1;
-    const midX = (source.x + target.x) / 2;
-    const midY = (source.y + target.y) / 2;
-    const perpX = -dy / distance * curvature * distance;
-    const perpY = dx / distance * curvature * distance;
-    const controlX = midX + perpX;
-    const controlY = midY + perpY;
+    const { controlX, controlY } = curve;
     
     // Glow effect for highlights
     if (isHighlighted || isConnectedHighlighted) {
       ctx.strokeStyle = color.replace(/[\d.]+\)$/, '0.3)');
       ctx.lineWidth = width * 3;
       ctx.beginPath();
-      ctx.moveTo(source.x, source.y);
-      ctx.quadraticCurveTo(controlX, controlY, target.x, target.y);
+      ctx.moveTo(curve.source.x, curve.source.y);
+      ctx.quadraticCurveTo(controlX, controlY, curve.target.x, curve.target.y);
       ctx.stroke();
     }
     
@@ -511,8 +530,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     }
     
     ctx.beginPath();
-    ctx.moveTo(source.x, source.y);
-    ctx.quadraticCurveTo(controlX, controlY, target.x, target.y);
+    ctx.moveTo(curve.source.x, curve.source.y);
+    ctx.quadraticCurveTo(controlX, controlY, curve.target.x, curve.target.y);
     ctx.stroke();
     ctx.setLineDash([]);
     
@@ -538,13 +557,13 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       iterations++;
     }
     
-    const arrowX = (1-t)*(1-t)*source.x + 2*(1-t)*t*controlX + t*t*target.x;
-    const arrowY = (1-t)*(1-t)*source.y + 2*(1-t)*t*controlY + t*t*target.y;
+    const arrowX = (1-t)*(1-t)*curve.source.x + 2*(1-t)*t*controlX + t*t*curve.target.x;
+    const arrowY = (1-t)*(1-t)*curve.source.y + 2*(1-t)*t*controlY + t*t*curve.target.y;
     
     // Arrow direction
     const t2 = Math.min(0.99, t + 0.02);
-    const dirX = ((1-t2)*(1-t2)*source.x + 2*(1-t2)*t2*controlX + t2*t2*target.x) - arrowX;
-    const dirY = ((1-t2)*(1-t2)*source.y + 2*(1-t2)*t2*controlY + t2*t2*target.y) - arrowY;
+    const dirX = ((1-t2)*(1-t2)*curve.source.x + 2*(1-t2)*t2*controlX + t2*t2*curve.target.x) - arrowX;
+    const dirY = ((1-t2)*(1-t2)*curve.source.y + 2*(1-t2)*t2*controlY + t2*t2*curve.target.y) - arrowY;
     const dirLength = Math.sqrt(dirX*dirX + dirY*dirY);
     
     if (dirLength > 0) {
@@ -585,7 +604,18 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.textBaseline = 'middle';
       ctx.fillText(text, controlX, controlY);
     }
-  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes]);
+  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes, getLinkCurvePoints]);
+
+  const linkPointerAreaPaint = useCallback((link: any, color: string, ctx: CanvasRenderingContext2D) => {
+    const curve = getLinkCurvePoints(link);
+    if (!curve) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(8, getLinkWidth(link) + 6);
+    ctx.beginPath();
+    ctx.moveTo(curve.source.x, curve.source.y);
+    ctx.quadraticCurveTo(curve.controlX, curve.controlY, curve.target.x, curve.target.y);
+    ctx.stroke();
+  }, [getLinkWidth, getLinkCurvePoints]);
 
   // Handle simulation stop
   const handleEngineStop = useCallback(() => {
@@ -665,6 +695,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         nodeCanvasObject={nodeCanvasObject}
         
         linkCanvasObject={linkCanvasObject}
+        linkPointerAreaPaint={linkPointerAreaPaint}
         linkColor={getLinkColor}
         linkWidth={getLinkWidth}
         linkCurvature={0.1}
@@ -676,9 +707,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         // Event handlers
         onNodeClick={(node) => onNodeClick(node as any)}
         onNodeHover={(node) => onNodeHover(node as any)}
+        onNodeDrag={(node) => onNodeDrag?.(node as any)}
         onNodeDragEnd={(node) => onNodeDragEnd(node as any)}
         onLinkClick={(link) => onLinkClick?.(link as any)}
-        onBackgroundClick={() => onBackgroundClick?.()}
+        onNodeRightClick={(node, event) => onNodeRightClick?.(node as any, event as MouseEvent)}
+        onLinkRightClick={(link, event) => onLinkRightClick?.(link as any, event as MouseEvent)}
+        onBackgroundClick={(event) => onBackgroundClick?.(event as MouseEvent)}
         onEngineStop={handleEngineStop}
         
         // Physics simulation parameters
@@ -731,7 +765,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.newlyCreatedNodeId === nextProps.newlyCreatedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
+    prevProps.onNodeDrag === nextProps.onNodeDrag &&
     prevProps.onLinkClick === nextProps.onLinkClick &&
+    prevProps.onNodeRightClick === nextProps.onNodeRightClick &&
+    prevProps.onLinkRightClick === nextProps.onLinkRightClick &&
     prevProps.onBackgroundClick === nextProps.onBackgroundClick &&
     prevProps.creditFlowAnimations === nextProps.creditFlowAnimations &&
     prevProps.requiresPhysicsReset === nextProps.requiresPhysicsReset &&
