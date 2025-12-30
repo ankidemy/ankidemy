@@ -83,6 +83,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const refreshInFlight = useRef(false);
+  const invitePollIntervalMs = 15000;
 
   const refreshNotifications = useCallback(async () => {
     if (refreshInFlight.current || typeof window === "undefined") return;
@@ -165,6 +166,46 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const interval = setInterval(refreshNotifications, 60000);
     return () => clearInterval(interval);
   }, [refreshNotifications]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      refreshNotifications();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshNotifications();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshNotifications]);
+
+  useEffect(() => {
+    const pollInvites = async () => {
+      if (typeof window === "undefined") return;
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      try {
+        const invites = await getPendingDomainInvites();
+        const inviteCount = Array.isArray(invites) ? invites.length : 0;
+        if (inviteCount !== pendingInviteCount) {
+          refreshNotifications();
+        }
+      } catch (error) {
+        console.warn("Failed to poll invites:", error);
+      }
+    };
+
+    pollInvites();
+    const interval = setInterval(pollInvites, invitePollIntervalMs);
+    return () => clearInterval(interval);
+  }, [pendingInviteCount, refreshNotifications, invitePollIntervalMs]);
 
   const totalDueCount = useMemo(() => {
     return Object.values(domainDueCounts).reduce((sum, value) => sum + value, 0);
