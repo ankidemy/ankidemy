@@ -1134,33 +1134,37 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             
             <TabsContent value="details" className="mt-3 space-y-4">
               {currentNode.type === 'definition' ? (
-                <DefinitionView
-                  definition={definitionDetailsForView as Definition}
-                  mode="practice" // Always show content in detail windows
-                  showDefinition={showDefinition}
-                  onToggleDefinition={() => setShowDefinition(!showDefinition)}
-                  selectedDefinitionIndex={selectedDefinitionIndex}
-                  totalDescriptions={totalDescriptionsCount()}
-                  currentDescription={currentDescriptionText()}
-                  currentPrompt={currentPromptText()}
-                  currentNotes={currentNotesText()}
-                  promptImagePath={currentPromptImagePath()}
-                  descriptionImagePath={currentDescriptionImagePath()}
-                  onNavigatePrev={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
-                  onNavigateNext={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
-                  relatedExercises={relatedExercises}
-                  onNavigateToNode={navigateToNode}
-                  onReview={handleReviewDefinition}
-                  availableDefinitions={availableDefinitions.map((d: any) => ({
-                    code: d.code,
-                    name: d.name
-                  }))}
-                  availableExercises={availableExercises.map((e: any) => ({
-                    code: e.code,
-                    name: e.name
-                  }))}
-                  srsStatus={nodeProgress?.status}
-                />
+                definitionDetailsForView ? (
+                  <DefinitionView
+                    definition={definitionDetailsForView as Definition}
+                    mode="practice" // Always show content in detail windows
+                    showDefinition={showDefinition}
+                    onToggleDefinition={() => setShowDefinition(!showDefinition)}
+                    selectedDefinitionIndex={selectedDefinitionIndex}
+                    totalDescriptions={totalDescriptionsCount()}
+                    currentDescription={currentDescriptionText()}
+                    currentPrompt={currentPromptText()}
+                    currentNotes={currentNotesText()}
+                    promptImagePath={currentPromptImagePath()}
+                    descriptionImagePath={currentDescriptionImagePath()}
+                    onNavigatePrev={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
+                    onNavigateNext={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
+                    relatedExercises={relatedExercises}
+                    onNavigateToNode={navigateToNode}
+                    onReview={handleReviewDefinition}
+                    availableDefinitions={availableDefinitions.map((d: any) => ({
+                      code: d.code,
+                      name: d.name
+                    }))}
+                    availableExercises={availableExercises.map((e: any) => ({
+                      code: e.code,
+                      name: e.name
+                    }))}
+                    srsStatus={nodeProgress?.status}
+                  />
+                ) : (
+                  <div className="text-sm text-gray-500">Definition details unavailable.</div>
+                )
               ) : (
                 <ExerciseView
                   exercise={nodeDetails as Exercise}

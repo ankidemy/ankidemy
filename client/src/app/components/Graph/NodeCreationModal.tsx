@@ -216,21 +216,16 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           yPosition: spawnPosition?.y,
           // Concept prerequisites will be attached via SRS API after creation
         };
-        // Include initial version only if user provided any fields; default prompt to "Define <Name>" if needed
-        const anyVersionField = [prompt, description, notes, references, promptImagePath, descriptionImagePath]
-          .some(v => (v || '').trim().length > 0);
-        if (anyVersionField) {
-          const effectivePrompt = (prompt || '').trim() || (name.trim() ? `Define ${name.trim()}` : 'Define the concept');
-          metaDefData.initialVersion = {
-            prompt: effectivePrompt,
-            type: versionType,
-            description: description.trim() || undefined,
-            notes: notes.trim() || undefined,
-            references: references.trim() ? references.split(',').map(r => r.trim()).filter(r => r) : undefined,
-            promptImagePath: promptImagePath || undefined,
-            descriptionImagePath: descriptionImagePath || undefined,
-          };
-        }
+        const effectivePrompt = (prompt || '').trim() || (name.trim() ? `Define ${name.trim()}` : 'Define the concept');
+        metaDefData.initialVersion = {
+          prompt: effectivePrompt,
+          type: versionType,
+          description: description.trim() || undefined,
+          notes: notes.trim() || undefined,
+          references: references.trim() ? references.split(',').map(r => r.trim()).filter(r => r) : undefined,
+          promptImagePath: promptImagePath || undefined,
+          descriptionImagePath: descriptionImagePath || undefined,
+        };
         const response = await createMetaDefinition(domainId, metaDefData);
         // Attach concept prerequisites (meta_definition -> meta_definition) via SRS API
         if (selectedDefPrereqIds.length > 0) {
