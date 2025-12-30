@@ -61,7 +61,10 @@ interface TopControlsProps {
     isExact: boolean;
     memberCount: number;
   }>;
+  selectedNodeIds?: string[];
+  onCreateGroup?: (name: string, seedCodes: string[], isExact: boolean, memberCodes?: string[]) => Promise<void>;
   onToggleGroupCollapse?: (groupId: number, collapsed: boolean) => void;
+  onDeleteGroup?: (groupId: number) => Promise<void>;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -94,7 +97,10 @@ const TopControls: React.FC<TopControlsProps> = ({
   onNavigateToNode,
   onManageAccess,
   groups = [],
+  selectedNodeIds = [],
+  onCreateGroup,
   onToggleGroupCollapse,
+  onDeleteGroup,
 }) => {
   const srs = useSRS();
 
@@ -104,7 +110,11 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [showReviewQueue, setShowReviewQueue] = useState(false);
   const [hasNewDue, setHasNewDue] = useState(false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const [groupExactDraft, setGroupExactDraft] = useState(false);
+  const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
   const reviewQueueRef = useRef<HTMLDivElement>(null);
+  const groupMenuRef = useRef<HTMLDivElement>(null);
   const lastSeenReviewIdsRef = useRef<Set<string>>(new Set());
   const wasReviewQueueOpenRef = useRef(false);
   const canEdit = canEditProp ?? isOwner;
@@ -194,6 +204,29 @@ const TopControls: React.FC<TopControlsProps> = ({
     wasReviewQueueOpenRef.current = true;
   }, [showReviewQueue, dueReviews, isEnrolled, currentDomainId, currentSrsDomainId, loadDueReviews]);
 
+  useEffect(() => {
+    if (!showGroupMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (groupMenuRef.current && !groupMenuRef.current.contains(event.target as Node)) {
+        setShowGroupMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showGroupMenu]);
+
+  useEffect(() => {
+    if (groups.length === 0) {
+      setDeleteGroupId(null);
+      return;
+    }
+    if (!deleteGroupId || !groups.some(group => group.id === deleteGroupId)) {
+      setDeleteGroupId(groups[0].id);
+    }
+  }, [groups, deleteGroupId]);
+
   const handleToggleReviewQueue = () => {
     setShowReviewQueue(prev => !prev);
   };
@@ -222,6 +255,41 @@ const TopControls: React.FC<TopControlsProps> = ({
       labelButtonText = "Labels";
       labelButtonTitle = "Cycle label display";
   }
+
+  const selectedGroupSeeds = selectedNodeIds.filter(nodeId => !nodeId.startsWith('group:') && !nodeId.startsWith('ext:'));
+
+  const handleCreateGroup = async () => {
+    if (!onCreateGroup) return;
+    const name = groupNameDraft.trim();
+    if (!name) {
+      showToast('Group name is required.', 'warning');
+      return;
+    }
+    if (selectedGroupSeeds.length === 0) {
+      showToast('Select at least one node to create a group.', 'warning');
+      return;
+    }
+    try {
+      await onCreateGroup(name, selectedGroupSeeds, groupExactDraft);
+      setGroupNameDraft('');
+      setGroupExactDraft(false);
+      showToast('Group created.', 'success');
+    } catch (error) {
+      console.warn('Failed to create group:', error);
+      showToast('Failed to create group.', 'error');
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!onDeleteGroup || deleteGroupId === null) return;
+    try {
+      await onDeleteGroup(deleteGroupId);
+      showToast('Group deleted.', 'success');
+    } catch (error) {
+      console.warn('Failed to delete group:', error);
+      showToast('Failed to delete group.', 'error');
+    }
+  };
 
   // NEW: Calculate available space info for debugging
   const spaceInfo = graphDimensions ? 
@@ -496,37 +564,103 @@ const TopControls: React.FC<TopControlsProps> = ({
             <LabelIconComponent size={12} className="mr-1" /> {labelButtonText}
           </Button>
 
-          {groups.length > 0 && onToggleGroupCollapse && (
-            <div className="relative">
+          {(onCreateGroup || onToggleGroupCollapse || onDeleteGroup) && (
+            <div className="relative" ref={groupMenuRef}>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowGroupMenu(prev => !prev)}
-                title="Collapse or expand groups"
+                title="Manage groups"
                 className="h-7 px-2 text-xs"
               >
                 <List size={12} className="mr-1" /> Groups
               </Button>
 
               {showGroupMenu && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg border z-30 overflow-hidden">
+                <div className="absolute right-0 mt-2 w-72 bg-white rounded-md shadow-lg border z-30 overflow-hidden">
                   <div className="px-3 py-2 border-b text-xs font-semibold text-gray-700">Groups</div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {groups.map(group => (
-                      <button
-                        key={group.id}
-                        type="button"
-                        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
-                        onClick={() => onToggleGroupCollapse(group.id, !group.collapsed)}
-                      >
+
+                  {onCreateGroup && (
+                    <div className="px-3 py-2 border-b space-y-2">
+                      <div className="text-[11px] font-semibold text-gray-700">Create group</div>
+                      <input
+                        value={groupNameDraft}
+                        onChange={(event) => setGroupNameDraft(event.target.value)}
+                        placeholder="Group name"
+                        className="w-full h-8 rounded border border-gray-200 px-2 text-xs"
+                      />
+                      <label className="flex items-center gap-2 text-[11px] text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={groupExactDraft}
+                          onChange={(event) => setGroupExactDraft(event.target.checked)}
+                        />
+                        Pin exact membership (test)
+                      </label>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-gray-500">
+                          Selected: {selectedGroupSeeds.length}
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={handleCreateGroup}
+                          disabled={!canEdit || selectedGroupSeeds.length === 0 || groupNameDraft.trim().length === 0}
+                        >
+                          Create
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {onToggleGroupCollapse && groups.length > 0 && (
+                    <div className="max-h-52 overflow-y-auto border-b">
+                      {groups.map(group => (
+                        <button
+                          key={group.id}
+                          type="button"
+                          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                          onClick={() => onToggleGroupCollapse(group.id, !group.collapsed)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" readOnly checked={group.collapsed} />
+                            <span className="truncate">{group.name}</span>
+                          </div>
+                          <span className="text-[10px] text-gray-500">{group.memberCount}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {onDeleteGroup && (
+                    <div className="px-3 py-2 space-y-2">
+                      <div className="text-[11px] font-semibold text-gray-700">Delete group</div>
+                      {groups.length === 0 ? (
+                        <div className="text-[11px] text-gray-500">No groups to delete.</div>
+                      ) : (
                         <div className="flex items-center gap-2">
-                          <input type="checkbox" readOnly checked={group.collapsed} />
-                          <span className="truncate">{group.name}</span>
+                          <select
+                            value={deleteGroupId ?? ''}
+                            onChange={(event) => setDeleteGroupId(Number(event.target.value))}
+                            className="flex-1 h-8 rounded border border-gray-200 px-2 text-xs"
+                          >
+                            {groups.map(group => (
+                              <option key={group.id} value={group.id}>
+                                {group.name}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={handleDeleteGroup}
+                            disabled={!canEdit || deleteGroupId === null}
+                          >
+                            Delete
+                          </Button>
                         </div>
-                        <span className="text-[10px] text-gray-500">{group.memberCount}</span>
-                      </button>
-                    ))}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

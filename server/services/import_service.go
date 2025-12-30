@@ -1195,9 +1195,163 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	}
 
 	// Import node groups (code-based)
+	buildGroupKey := func(nodeType string, nodeID uint) string {
+		return nodeType + ":" + strconv.Itoa(int(nodeID))
+	}
+	resolveGroupRefs := func(refs []ImportGroupNodeRef) map[string]models.NodeGroupSeed {
+		resolved := make(map[string]models.NodeGroupSeed)
+		for _, ref := range refs {
+			switch ref.NodeType {
+			case "meta_definition":
+				code := metaDefAssigned[ref.Code]
+				if code == "" {
+					code = ref.Code
+				}
+				if md, ok := metaDefs[code]; ok {
+					key := buildGroupKey("meta_definition", md.ID)
+					resolved[key] = models.NodeGroupSeed{NodeID: md.ID, NodeType: "meta_definition"}
+				}
+			case "meta_exercise":
+				code := metaAssigned[ref.Code]
+				if code == "" {
+					code = ref.Code
+				}
+				if me, ok := metas[code]; ok {
+					key := buildGroupKey("meta_exercise", me.ID)
+					resolved[key] = models.NodeGroupSeed{NodeID: me.ID, NodeType: "meta_exercise"}
+				}
+			}
+		}
+		return resolved
+	}
+	toSeedSlice := func(groupID uint, seedSet map[string]models.NodeGroupSeed) []models.NodeGroupSeed {
+		out := make([]models.NodeGroupSeed, 0, len(seedSet))
+		for _, seed := range seedSet {
+			seed.GroupID = groupID
+			out = append(out, seed)
+		}
+		return out
+	}
+	toMemberSlice := func(groupID uint, memberSet map[string]models.NodeGroupMember) []models.NodeGroupMember {
+		out := make([]models.NodeGroupMember, 0, len(memberSet))
+		for _, member := range memberSet {
+			member.GroupID = groupID
+			out = append(out, member)
+		}
+		return out
+	}
+
+	existingGroups := []models.NodeGroup{}
+	if err := tx.Where("domain_id = ?", domain.ID).Find(&existingGroups).Error; err != nil {
+		return fmt.Errorf("failed to load existing groups: %v", err)
+	}
+	groupIDs := make([]uint, 0, len(existingGroups))
+	groupsByName := make(map[string]*models.NodeGroup, len(existingGroups))
+	for i := range existingGroups {
+		group := &existingGroups[i]
+		groupKey := strings.TrimSpace(group.Name)
+		if groupKey == "" {
+			continue
+		}
+		groupIDs = append(groupIDs, group.ID)
+		if _, exists := groupsByName[groupKey]; !exists {
+			groupsByName[groupKey] = group
+		}
+	}
+
+	seedMap := make(map[uint]map[string]models.NodeGroupSeed)
+	memberMap := make(map[uint]map[string]models.NodeGroupMember)
+	if len(groupIDs) > 0 {
+		var seeds []models.NodeGroupSeed
+		if err := tx.Where("group_id IN ?", groupIDs).Find(&seeds).Error; err != nil {
+			return fmt.Errorf("failed to load group seeds: %v", err)
+		}
+		var members []models.NodeGroupMember
+		if err := tx.Where("group_id IN ?", groupIDs).Find(&members).Error; err != nil {
+			return fmt.Errorf("failed to load group members: %v", err)
+		}
+		for _, seed := range seeds {
+			set := seedMap[seed.GroupID]
+			if set == nil {
+				set = make(map[string]models.NodeGroupSeed)
+				seedMap[seed.GroupID] = set
+			}
+			set[buildGroupKey(seed.NodeType, seed.NodeID)] = seed
+		}
+		for _, member := range members {
+			set := memberMap[member.GroupID]
+			if set == nil {
+				set = make(map[string]models.NodeGroupMember)
+				memberMap[member.GroupID] = set
+			}
+			set[buildGroupKey(member.NodeType, member.NodeID)] = member
+		}
+	}
+
 	for _, group := range data.Groups {
 		name := strings.TrimSpace(group.Name)
 		if name == "" || len(group.Seeds) == 0 {
+			continue
+		}
+
+		incomingSeeds := resolveGroupRefs(group.Seeds)
+		if len(incomingSeeds) == 0 {
+			continue
+		}
+		incomingMembers := resolveGroupRefs(group.Members)
+
+		if existing, exists := groupsByName[name]; exists {
+			seedSet := seedMap[existing.ID]
+			if seedSet == nil {
+				seedSet = make(map[string]models.NodeGroupSeed)
+			}
+			for key, seed := range incomingSeeds {
+				seedSet[key] = seed
+			}
+			if !existing.IsExact && len(incomingMembers) > 0 {
+				for key, member := range incomingMembers {
+					seedSet[key] = member
+				}
+			}
+			seedMap[existing.ID] = seedSet
+
+			seeds := toSeedSlice(existing.ID, seedSet)
+			if err := tx.Where("group_id = ?", existing.ID).Delete(&models.NodeGroupSeed{}).Error; err != nil {
+				return fmt.Errorf("failed to update group seeds for %s: %v", name, err)
+			}
+			if err := tx.Create(&seeds).Error; err != nil {
+				return fmt.Errorf("failed to update group seeds for %s: %v", name, err)
+			}
+
+			if existing.IsExact {
+				memberSet := memberMap[existing.ID]
+				if memberSet == nil {
+					memberSet = make(map[string]models.NodeGroupMember)
+				}
+				if len(incomingMembers) == 0 {
+					for key, seed := range incomingSeeds {
+						memberSet[key] = models.NodeGroupMember{NodeID: seed.NodeID, NodeType: seed.NodeType}
+					}
+				} else {
+					for key, member := range incomingMembers {
+						memberSet[key] = models.NodeGroupMember{NodeID: member.NodeID, NodeType: member.NodeType}
+					}
+				}
+				for key, seed := range seedSet {
+					memberSet[key] = models.NodeGroupMember{NodeID: seed.NodeID, NodeType: seed.NodeType}
+				}
+				memberMap[existing.ID] = memberSet
+
+				members := toMemberSlice(existing.ID, memberSet)
+				if err := tx.Where("group_id = ?", existing.ID).Delete(&models.NodeGroupMember{}).Error; err != nil {
+					return fmt.Errorf("failed to update group members for %s: %v", name, err)
+				}
+				if len(members) > 0 {
+					if err := tx.Create(&members).Error; err != nil {
+						return fmt.Errorf("failed to update group members for %s: %v", name, err)
+					}
+				}
+			}
 			continue
 		}
 
@@ -1212,47 +1366,9 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		if err := tx.Create(&groupModel).Error; err != nil {
 			return fmt.Errorf("failed to create group %s: %v", name, err)
 		}
+		groupsByName[name] = &groupModel
 
-		seedSet := make(map[string]struct{})
-		seeds := make([]models.NodeGroupSeed, 0, len(group.Seeds))
-		for _, seed := range group.Seeds {
-			switch seed.NodeType {
-			case "meta_definition":
-				resolved := metaDefAssigned[seed.Code]
-				if resolved == "" {
-					resolved = seed.Code
-				}
-				if md, ok := metaDefs[resolved]; ok {
-					key := "meta_definition:" + strconv.Itoa(int(md.ID))
-					if _, exists := seedSet[key]; exists {
-						continue
-					}
-					seedSet[key] = struct{}{}
-					seeds = append(seeds, models.NodeGroupSeed{
-						GroupID:  groupModel.ID,
-						NodeID:   md.ID,
-						NodeType: "meta_definition",
-					})
-				}
-			case "meta_exercise":
-				resolved := metaAssigned[seed.Code]
-				if resolved == "" {
-					resolved = seed.Code
-				}
-				if me, ok := metas[resolved]; ok {
-					key := "meta_exercise:" + strconv.Itoa(int(me.ID))
-					if _, exists := seedSet[key]; exists {
-						continue
-					}
-					seedSet[key] = struct{}{}
-					seeds = append(seeds, models.NodeGroupSeed{
-						GroupID:  groupModel.ID,
-						NodeID:   me.ID,
-						NodeType: "meta_exercise",
-					})
-				}
-			}
-		}
+		seeds := toSeedSlice(groupModel.ID, incomingSeeds)
 		if len(seeds) == 0 {
 			_ = tx.Delete(&groupModel).Error
 			continue
@@ -1260,57 +1376,23 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		if err := tx.Create(&seeds).Error; err != nil {
 			return fmt.Errorf("failed to create group seeds for %s: %v", name, err)
 		}
+		seedMap[groupModel.ID] = incomingSeeds
 
 		if group.IsExact {
-			memberRefs := group.Members
-			if len(memberRefs) == 0 {
-				memberRefs = group.Seeds
+			if len(incomingMembers) == 0 {
+				incomingMembers = incomingSeeds
 			}
-			memberSet := make(map[string]struct{})
-			members := make([]models.NodeGroupMember, 0, len(memberRefs))
-			for _, member := range memberRefs {
-				switch member.NodeType {
-				case "meta_definition":
-					resolved := metaDefAssigned[member.Code]
-					if resolved == "" {
-						resolved = member.Code
-					}
-					if md, ok := metaDefs[resolved]; ok {
-						key := "meta_definition:" + strconv.Itoa(int(md.ID))
-						if _, exists := memberSet[key]; exists {
-							continue
-						}
-						memberSet[key] = struct{}{}
-						members = append(members, models.NodeGroupMember{
-							GroupID:  groupModel.ID,
-							NodeID:   md.ID,
-							NodeType: "meta_definition",
-						})
-					}
-				case "meta_exercise":
-					resolved := metaAssigned[member.Code]
-					if resolved == "" {
-						resolved = member.Code
-					}
-					if me, ok := metas[resolved]; ok {
-						key := "meta_exercise:" + strconv.Itoa(int(me.ID))
-						if _, exists := memberSet[key]; exists {
-							continue
-						}
-						memberSet[key] = struct{}{}
-						members = append(members, models.NodeGroupMember{
-							GroupID:  groupModel.ID,
-							NodeID:   me.ID,
-							NodeType: "meta_exercise",
-						})
-					}
-				}
+			memberSet := make(map[string]models.NodeGroupMember)
+			for key, member := range incomingMembers {
+				memberSet[key] = models.NodeGroupMember{NodeID: member.NodeID, NodeType: member.NodeType}
 			}
+			members := toMemberSlice(groupModel.ID, memberSet)
 			if len(members) > 0 {
 				if err := tx.Create(&members).Error; err != nil {
 					return fmt.Errorf("failed to create group members for %s: %v", name, err)
 				}
 			}
+			memberMap[groupModel.ID] = memberSet
 		}
 	}
 

@@ -950,7 +950,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const collapsedGroupIds = useMemo(() => {
     return new Set(domainGroups.filter(group => group.collapsed).map(group => group.id));
-  }, [domainGroups]);
+  }, [domainGroups, updateGroupState]);
 
   const groupNodeMetadata = useMemo(() => {
     const map = new Map<string, NodeMetadata>();
@@ -1245,9 +1245,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [resolveGroupNodeRef, updateGroupLocal]);
 
   const deleteGroupById = useCallback(async (groupId: number) => {
+    const existing = domainGroups.find(group => group.id === groupId);
+    if (existing?.collapsed) {
+      setDomainGroups(prev => prev.map(group => (
+        group.id === groupId ? { ...group, collapsed: false } : group
+      )));
+      await updateGroupState(groupId, false).catch(err => {
+        console.warn('Failed to uncollapse group before delete:', err);
+      });
+    }
     await deleteGroup(groupId);
     setDomainGroups(prev => prev.filter(group => group.id !== groupId));
-  }, []);
+  }, [domainGroups]);
 
   const toggleGroupCollapse = useCallback(async (groupId: number, nextCollapsed: boolean) => {
     const targetMembers = groupMembersById.get(groupId) ?? new Set<string>();
@@ -3293,7 +3302,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
           onManageAccess={() => setShowAccessModal(true)}
           groups={groupSummaries}
+          selectedNodeIds={Array.from(selectedNodeIds)}
+          onCreateGroup={async (name, seedCodes, isExact, memberCodes) => {
+            await createGroupFromNodes(name, seedCodes, isExact, memberCodes);
+          }}
           onToggleGroupCollapse={toggleGroupCollapse}
+          onDeleteGroup={async (groupId) => {
+            await deleteGroupById(groupId);
+          }}
         />
 
         {/* Main Content */}
