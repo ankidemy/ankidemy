@@ -30,7 +30,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   title,
   children,
   initialPosition = { x: 100, y: 100 },
-  initialSize = { width: 400, height: 500 },
+  initialSize = { width: 440, height: 500 },
   minWidth = 300,
   minHeight = 200,
   maxWidth,

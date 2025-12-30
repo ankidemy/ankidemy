@@ -302,7 +302,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
       ctx.shadowBlur = Math.max(1, iconFontSize * 0.1);
       
-      const text = type === 'definition' ? 'D' : 'E';
+      const text = type === 'definition' ? 'D' : type === 'exercise' ? 'E' : 'G';
       ctx.fillText(text, x, y);
       
       ctx.shadowColor = 'transparent';

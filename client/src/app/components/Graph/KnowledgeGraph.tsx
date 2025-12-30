@@ -1508,15 +1508,43 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
       if (members && (dx !== 0 || dy !== 0)) {
         const stableNodes = stableGraphRef.current?.nodes ?? [];
-        stableNodes.forEach(member => {
-          if (!members.has(member.id)) return;
-          const nextX = (member.x ?? 0) + dx;
-          const nextY = (member.y ?? 0) + dy;
-          member.x = nextX;
-          member.y = nextY;
-          member.fx = nextX;
-          member.fy = nextY;
-          positionManagerRef.current.fixPosition(member.id, nextX, nextY);
+        const stableNodeMap = new Map(stableNodes.map(member => [member.id, member]));
+
+        const getStoredPosition = (memberId: string) => {
+          const saved = positionManagerRef.current.getPosition(memberId);
+          if (saved) return saved;
+          const def = currentStructuralGraphData.definitions?.[memberId];
+          if (def && typeof def.xPosition === 'number' && typeof def.yPosition === 'number') {
+            return { x: def.xPosition, y: def.yPosition };
+          }
+          const ex = currentStructuralGraphData.exercises?.[memberId];
+          if (ex && typeof ex.xPosition === 'number' && typeof ex.yPosition === 'number') {
+            return { x: ex.xPosition, y: ex.yPosition };
+          }
+          return null;
+        };
+
+        members.forEach(memberId => {
+          const memberNode = stableNodeMap.get(memberId);
+          let baseX = memberNode ? (typeof memberNode.x === 'number' ? memberNode.x : memberNode.xPosition) : undefined;
+          let baseY = memberNode ? (typeof memberNode.y === 'number' ? memberNode.y : memberNode.yPosition) : undefined;
+
+          if (typeof baseX !== 'number' || typeof baseY !== 'number') {
+            const stored = getStoredPosition(memberId);
+            if (!stored) return;
+            baseX = stored.x;
+            baseY = stored.y;
+          }
+
+          const nextX = baseX + dx;
+          const nextY = baseY + dy;
+          if (memberNode) {
+            memberNode.x = nextX;
+            memberNode.y = nextY;
+            memberNode.fx = nextX;
+            memberNode.fy = nextY;
+          }
+          positionManagerRef.current.fixPosition(memberId, nextX, nextY);
         });
       }
     }
@@ -1525,7 +1553,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setPositionsChanged(true);
     (node as any).fx = node.x;
     (node as any).fy = node.y;
-  }, [groupMembersById]);
+  }, [currentStructuralGraphData, groupMembersById]);
 
   // Enhanced engine stop handler with initial zoom
   const handleEngineStop = useCallback(() => {

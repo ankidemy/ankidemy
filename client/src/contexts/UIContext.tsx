@@ -251,7 +251,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         title: nodeData.name,
         contentProps: { nodeData },
         position: defaultPosition,
-        size: { width: 450, height: 600 },
+        size: { width: 495, height: 600 },
       },
     });
   }, [state.windows]);
