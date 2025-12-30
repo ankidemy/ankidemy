@@ -831,6 +831,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const srs = useSRS();
   const router = useRouter();
   const graphRef = useRef<any>(null);
+  const graphContainerRef = useRef<HTMLDivElement>(null);
   const positionManagerRef = useRef(new PositionManager());
 
   // Core state
@@ -1882,10 +1883,50 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // ======= Surgical create: insert new node without full rerender & keep pan =======
 
+  // Get the current viewport center in graph coordinates
+  const getGraphCenter = useCallback(() => {
+    let position = { x: 0, y: 0 };
+
+    if (graphRef.current?.screen2GraphCoords) {
+      try {
+        let canvasWidth = 800;
+        let canvasHeight = 600;
+
+        if (graphContainerRef.current) {
+          const rect = graphContainerRef.current.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            canvasWidth = rect.width;
+            canvasHeight = rect.height;
+          }
+        } else if (typeof graphRef.current.canvas === 'function') {
+          const canvasEl = graphRef.current.canvas();
+          if (canvasEl) {
+            const rect = canvasEl.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              canvasWidth = rect.width;
+              canvasHeight = rect.height;
+            }
+          }
+        }
+
+        const centerScreenX = canvasWidth / 2;
+        const centerScreenY = canvasHeight / 2;
+        const centerGraphCoords = graphRef.current.screen2GraphCoords(centerScreenX, centerScreenY);
+        position = { x: centerGraphCoords.x, y: centerGraphCoords.y };
+      } catch (e) {
+        console.warn('[getGraphCenter] Could not calculate graph center:', e);
+      }
+    }
+
+    return position;
+  }, []);
+
   // Compute spawn near neighbors or viewport center
   const computeSpawnPosition = useCallback((created: Partial<ApiDefinition & ApiExercise>) => {
     const neighbors = new Set<string>([...(created.prerequisites || [])]);
-    let spawn = nodeCreationPosition;
+    let spawn: { x: number; y: number } | undefined = undefined;
+
+    // First priority: spawn near prerequisites if they exist
     if (neighbors.size > 0 && stableGraph.nodes.length > 0) {
       let sx = 0, sy = 0, c = 0;
       for (const n of stableGraph.nodes) {
@@ -1897,18 +1938,25 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
       if (c > 0) spawn = { x: sx / c, y: sy / c };
     }
-    if (!spawn) {
-      try {
-        if (graphRef.current?.canvas) {
-          const rect = graphRef.current.canvas().getBoundingClientRect();
-          const center = graphRef.current.screen2GraphCoords(rect.width / 2, rect.height / 2);
-          spawn = { x: center.x, y: center.y };
-        }
-      } catch {}
+
+    // Second priority: use stored nodeCreationPosition if it's valid (not at origin)
+    if (!spawn && nodeCreationPosition && (nodeCreationPosition.x !== 0 || nodeCreationPosition.y !== 0)) {
+      spawn = nodeCreationPosition;
     }
+
+    // Third priority: calculate current viewport center using getGraphCenter
+    if (!spawn) {
+      const center = getGraphCenter();
+      if (center.x !== 0 || center.y !== 0) {
+        spawn = center;
+      }
+    }
+
+    // Final fallback: origin (should rarely happen)
     if (!spawn) spawn = { x: 0, y: 0 };
+
     return { x: spawn.x + (Math.random() - 0.5) * 40, y: spawn.y + (Math.random() - 0.5) * 40 };
-  }, [nodeCreationPosition, stableGraph.nodes]);
+  }, [nodeCreationPosition, stableGraph.nodes, getGraphCenter]);
 
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
@@ -1917,26 +1965,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    let position: {x: number, y: number} = { x: 0, y: 0 };
-    if (graphRef.current?.canvas) {
-      try {
-        const rect = graphRef.current.canvas().getBoundingClientRect();
-        const centerScreenX = rect.width / 2;
-        const centerScreenY = rect.height / 2;
-        const centerGraphCoords = graphRef.current.screen2GraphCoords(centerScreenX, centerScreenY);
-        position = { 
-          x: centerGraphCoords.x + (Math.random() - 0.5) * 50, 
-          y: centerGraphCoords.y + (Math.random() - 0.5) * 50 
-        };
-      } catch(e) { 
-        console.warn("Could not get graph center for new node.", e); 
-      }
-    }
-    
+    const center = getGraphCenter();
+    const position = (center.x !== 0 || center.y !== 0) ? center : undefined;
+
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, [canEdit]);
+  }, [canEdit, getGraphCenter]);
 
   const insertCreatedNode = useCallback((
     nodeCode: string,
@@ -2206,22 +2241,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     });
     return map;
   }, [codeToNumericIdMap]);
-
-  const getGraphCenter = useCallback(() => {
-    let position = { x: 0, y: 0 };
-    if (graphRef.current?.canvas) {
-      try {
-        const rect = graphRef.current.canvas().getBoundingClientRect();
-        const centerScreenX = rect.width / 2;
-        const centerScreenY = rect.height / 2;
-        const centerGraphCoords = graphRef.current.screen2GraphCoords(centerScreenX, centerScreenY);
-        position = { x: centerGraphCoords.x, y: centerGraphCoords.y };
-      } catch (e) {
-        console.warn("Could not get graph center.", e);
-      }
-    }
-    return position;
-  }, []);
 
   const getMetaNodeType = useCallback((nodeType: 'definition' | 'exercise') => (
     nodeType === 'definition' ? 'meta_definition' : 'meta_exercise'
@@ -3516,6 +3535,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           availableExercisePrerequisites={availableMetaExercisesForModals}
           existingCodes={existingCodes}
           position={nodeCreationPosition}
+          getGraphCenter={getGraphCenter}
         />
 
         <EnrollmentModal
@@ -3606,7 +3626,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           {!showLeftPanel && <LeftPanelToggle onClick={toggleLeftPanel} />}
 
           {/* Graph Area */}
-          <div className="flex-1 bg-gray-50 overflow-hidden relative">
+          <div ref={graphContainerRef} className="flex-1 bg-gray-50 overflow-hidden relative">
             {isRefreshing ? (
               <div className="flex items-center justify-center h-full text-gray-500">
                 Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />

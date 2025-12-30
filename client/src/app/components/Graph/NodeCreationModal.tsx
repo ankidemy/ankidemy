@@ -37,6 +37,7 @@ interface NodeCreationModalProps {
   availableExercisePrerequisites?: PrerequisiteOption[];
   existingCodes: Set<string>;
   position?: {x: number, y: number};
+  getGraphCenter?: () => {x: number, y: number};
 }
 
 const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
@@ -48,7 +49,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
   availableDefinitionPrerequisites,
   availableExercisePrerequisites = [],
   existingCodes,
-  position
+  position,
+  getGraphCenter
 }) => {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -200,13 +202,18 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         throw new Error('Code already exists in this domain. Please choose a different code.');
       }
 
+      const currentCenter = getGraphCenter ? getGraphCenter() : position;
+      const spawnPosition = currentCenter && (currentCenter.x !== 0 || currentCenter.y !== 0)
+        ? currentCenter
+        : position;
+
       if (type === 'definition') {
         // Use createMetaDefinition instead of legacy createDefinition
         const metaDefData: any = {
           code: code.trim(),
           name: name.trim(),
-          xPosition: position?.x,
-          yPosition: position?.y,
+          xPosition: spawnPosition?.x,
+          yPosition: spawnPosition?.y,
           // Concept prerequisites will be attached via SRS API after creation
         };
         // Include initial version only if user provided any fields; default prompt to "Define <Name>" if needed
@@ -267,8 +274,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         const response = await createMetaExercise(domainId, {
           code: code.trim(),
           name: name.trim(),
-          xPosition: position?.x,
-          yPosition: position?.y,
+          xPosition: spawnPosition?.x,
+          yPosition: spawnPosition?.y,
           // Prerequisites will be attached via SRS API after creation
           initialVersion: {
             statement: statement.trim(),

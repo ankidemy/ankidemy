@@ -1,7 +1,7 @@
 // client/src/app/components/core/DraggableWindow.tsx
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Minus, Maximize2 } from 'lucide-react';
 import { Button } from './button';
 import { InlineMarkdownKatex } from './MarkdownKatex';
@@ -60,33 +60,42 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
     initialY: 0   // Add initial window position
   });
 
+  const clampPosition = useCallback((x: number, y: number, width: number, height: number) => {
+    if (typeof window === 'undefined') return { x, y };
+
+    const safeWidth = Number.isFinite(width) ? width : 0;
+    const safeHeight = Number.isFinite(height) ? height : 0;
+    const safeX = Number.isFinite(x) ? x : 0;
+    const safeY = Number.isFinite(y) ? y : 0;
+
+    const minX = -safeWidth + 100;
+    const maxX = window.innerWidth - 100;
+    const minY = 0;
+    const maxY = window.innerHeight - safeHeight;
+
+    return {
+      x: Math.min(Math.max(safeX, minX), maxX),
+      y: Math.min(Math.max(safeY, minY), maxY)
+    };
+  }, []);
+
   // Ensure window stays within viewport
   useEffect(() => {
     const constrainPosition = () => {
       if (!windowRef.current) return;
       
       const rect = windowRef.current.getBoundingClientRect();
-      const newPos = { ...position };
-      
-      // Keep header visible
-      if (rect.top < 0) newPos.y = 0;
-      if (rect.left < -rect.width + 100) newPos.x = -rect.width + 100;
-      if (rect.right > window.innerWidth + rect.width - 100) {
-        newPos.x = window.innerWidth - 100;
-      }
-      if (rect.bottom > window.innerHeight) {
-        newPos.y = window.innerHeight - rect.height;
-      }
-      
-      if (newPos.x !== position.x || newPos.y !== position.y) {
-        setPosition(newPos);
-      }
+      setPosition(prev => {
+        const next = clampPosition(prev.x, prev.y, rect.width, rect.height);
+        if (next.x === prev.x && next.y === prev.y) return prev;
+        return next;
+      });
     };
 
     constrainPosition();
     window.addEventListener('resize', constrainPosition);
     return () => window.removeEventListener('resize', constrainPosition);
-  }, [position]);
+  }, [clampPosition]);
 
   // Drag handling
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -103,10 +112,13 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
 
   const handleMouseMove = (e: MouseEvent) => {
     if (isDragging) {
-      setPosition({
-        x: e.clientX - dragStartPos.current.x,
-        y: e.clientY - dragStartPos.current.y
-      });
+      const next = clampPosition(
+        e.clientX - dragStartPos.current.x,
+        e.clientY - dragStartPos.current.y,
+        size.width,
+        size.height
+      );
+      setPosition(next);
     } else if (isResizing) {
       const deltaX = e.clientX - resizeStartPos.current.x;
       const deltaY = e.clientY - resizeStartPos.current.y;
@@ -138,8 +150,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
         newY = resizeStartPos.current.initialY + (resizeStartPos.current.height - newHeight);
       }
 
+      const next = clampPosition(newX, newY, newWidth, newHeight);
       setSize({ width: newWidth, height: newHeight });
-      setPosition({ x: newX, y: newY });
+      setPosition(next);
     }
   };
 
