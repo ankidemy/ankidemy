@@ -99,6 +99,15 @@ export interface DomainInvite {
   createdAt: string;
 }
 
+export interface AccessibleDomain {
+  id: number;
+  domainUid: string;
+  name: string;
+  privacy: string;
+  ownerId: number;
+  ownerUsername: string;
+}
+
 // NEW: Domain network link types
 export interface DomainLink {
   id: number;
@@ -106,6 +115,21 @@ export interface DomainLink {
   domainBId: number;
   createdBy: number;
   createdAt: string;
+}
+
+export interface ExternalPrerequisiteLink {
+  id: number;
+  domainId: number;
+  nodeId: number;
+  nodeType: 'meta_definition' | 'meta_exercise';
+  externalDomainUid: string;
+  externalDomainId?: number;
+  externalDomainName?: string;
+  externalNodeId: number;
+  externalNodeType: 'meta_definition' | 'meta_exercise';
+  externalNodeCode?: string;
+  externalNodeName?: string;
+  status: 'ok' | 'missing_domain' | 'missing_node' | 'no_access';
 }
 
 // FIXED: Added prerequisiteWeights to Definition interface
@@ -686,11 +710,65 @@ export const getSharedDomains = async (): Promise<Domain[]> => {
   }
 };
 
+export const getAccessibleDomains = async (): Promise<AccessibleDomain[]> => {
+  try {
+    const response = await fetch(`${API_URL}/api/domains/accessible`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      console.warn(`Failed to fetch accessible domains: ${response.status}`);
+      return [];
+    }
+    const result = await handleResponse(response);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.warn('Error fetching accessible domains:', error);
+    return [];
+  }
+};
+
 export const getDomain = async (id: number): Promise<Domain> => {
   const response = await fetch(`${API_URL}/api/domains/${id}`, {
     headers: getAuthHeaders(),
   });
   
+  return handleResponse(response);
+};
+
+export const getExternalPrerequisites = async (domainId: number): Promise<ExternalPrerequisiteLink[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
+    headers: getAuthHeaders(),
+  });
+  const result = await handleResponse(response);
+  return Array.isArray(result) ? result : [];
+};
+
+export const createExternalPrerequisite = async (
+  domainId: number,
+  payload: {
+    nodeId: number;
+    nodeType: 'meta_definition' | 'meta_exercise';
+    externalDomainUid: string;
+    externalNodeId: number;
+    externalNodeType: 'meta_definition' | 'meta_exercise';
+  }
+): Promise<ExternalPrerequisiteLink> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+export const deleteExternalPrerequisite = async (domainId: number, linkId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/${linkId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
   return handleResponse(response);
 };
 

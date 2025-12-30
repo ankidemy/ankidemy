@@ -67,6 +67,19 @@ func (d *DomainDAO) FindByID(id uint) (*models.Domain, error) {
 	return &domain, nil
 }
 
+// FindByUID finds a domain by its domain UID
+func (d *DomainDAO) FindByUID(uid string) (*models.Domain, error) {
+	var domain models.Domain
+	result := d.db.Where("domain_uid = ?", uid).First(&domain)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, errors.New("domain not found")
+		}
+		return nil, result.Error
+	}
+	return &domain, nil
+}
+
 // FindByIDWithStats finds a domain by ID and includes current statistics
 func (d *DomainDAO) FindByIDWithStats(id uint) (*DomainWithStats, error) {
 	var domain models.Domain
@@ -353,6 +366,9 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
 			return err
 		}
 		if err := tx.Where("domain_id = ?", domainID).Delete(&models.DomainInvite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("domain_id = ?", domainID).Delete(&models.ExternalPrerequisite{}).Error; err != nil {
 			return err
 		}
 

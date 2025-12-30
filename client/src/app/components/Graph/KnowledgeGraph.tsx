@@ -3,6 +3,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useMemo, FC, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { UIProvider, useUI } from '@/contexts/UIContext';
@@ -18,8 +19,10 @@ import {
   Exercise as ApiExercise,
   getDomainMetaDefinitions,
   getDomainMetaExercises,
+  getExternalPrerequisites,
   MetaDefinition,
   MetaExercise,
+  ExternalPrerequisiteLink,
   createMetaDefinition,
   createMetaExercise,
   getMetaDefinition,
@@ -80,6 +83,12 @@ interface GraphNodeCore {
   domainId?: number;
   xPosition?: number;
   yPosition?: number;
+  isExternal?: boolean;
+  externalStatus?: ExternalPrerequisiteLink['status'];
+  externalDomainId?: number;
+  externalDomainUid?: string;
+  externalNodeId?: number;
+  externalNodeType?: 'meta_definition' | 'meta_exercise';
 }
 
 interface GraphLinkCore {
@@ -100,6 +109,7 @@ interface GraphStructureState {
 // Metadata contains all visual and display properties
 interface NodeMetadata {
   name: string;
+  displayId?: string;
   isRootDefinition?: boolean;
   difficulty?: number;
   status?: NodeStatus;
@@ -107,6 +117,14 @@ interface NodeMetadata {
   daysUntilReview?: number | null;
   progress?: any;
   color?: string;
+  isExternal?: boolean;
+  externalStatus?: ExternalPrerequisiteLink['status'];
+  externalDomainId?: number;
+  externalDomainUid?: string;
+  externalNodeId?: number;
+  externalNodeType?: 'meta_definition' | 'meta_exercise';
+  externalDomainName?: string;
+  externalNodeName?: string;
 }
 
 interface LinkMetadata {
@@ -180,6 +198,19 @@ function debounce<T extends (...args: any[]) => any>(
   };
 }
 
+const buildExternalNodeId = (link: ExternalPrerequisiteLink): string => {
+  const domainUid = link.externalDomainUid || 'unknown';
+  return `ext:${domainUid}:${link.externalNodeType}:${link.externalNodeId}`;
+};
+
+const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
+  const nodeLabel = link.externalNodeCode
+    ? `${link.externalNodeCode}${link.externalNodeName ? `: ${link.externalNodeName}` : ''}`
+    : (link.externalNodeName || `Node ${link.externalNodeId}`);
+  const domainLabel = link.externalDomainName || 'External';
+  return `${domainLabel}: ${nodeLabel}`;
+};
+
 // ============================================================================
 // HOOKS FOR TRUE STRUCTURE/METADATA SEPARATION
 // ============================================================================
@@ -188,7 +219,8 @@ function debounce<T extends (...args: any[]) => any>(
 const useGraphStructure = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
-  mode: AppMode
+  mode: AppMode,
+  externalLinks: ExternalPrerequisiteLink[]
 ): GraphStructureState => {
   return useMemo(() => {
     const nodes = new Map<string, GraphNodeCore>();
@@ -220,13 +252,23 @@ const useGraphStructure = (
       })
       .sort()
       .join('|');
+
+    const externalLinkHash = externalLinks
+      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}`)
+      .sort()
+      .join('|');
     
     // FIX: robust version
-    const version = hashString([defStructureHash, exStructureHash, defWeightHash, exWeightHash, mode].join('::'));
+    const version = hashString([defStructureHash, exStructureHash, defWeightHash, exWeightHash, externalLinkHash, mode].join('::'));
+
+    const numericIdToCode = new Map<number, string>();
 
     // PASS 1: Build nodes for all definitions (structure only)
     Object.values(definitions).forEach(def => {
       if (!def?.code) return;
+      if (typeof def.id === 'number') {
+        numericIdToCode.set(def.id, def.code);
+      }
       nodes.set(def.code, {
         id: def.code,
         type: 'definition',
@@ -259,6 +301,9 @@ const useGraphStructure = (
       // PASS 1: create all exercise nodes first so cross-exercise links can attach regardless of iteration order
       Object.values(exercises).forEach(ex => {
         if (!ex?.code) return;
+        if (typeof ex.id === 'number') {
+          numericIdToCode.set(ex.id, ex.code);
+        }
         nodes.set(ex.code, {
           id: ex.code,
           type: 'exercise',
@@ -287,6 +332,35 @@ const useGraphStructure = (
       });
     }
 
+    // External prerequisite links
+    externalLinks.forEach(link => {
+      const targetCode = numericIdToCode.get(link.nodeId);
+      if (!targetCode || !nodes.has(targetCode)) return;
+
+      const externalNodeId = buildExternalNodeId(link);
+      if (!nodes.has(externalNodeId)) {
+        nodes.set(externalNodeId, {
+          id: externalNodeId,
+          type: link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition',
+          isExternal: true,
+          externalStatus: link.status,
+          externalDomainId: link.externalDomainId,
+          externalDomainUid: link.externalDomainUid,
+          externalNodeId: link.externalNodeId,
+          externalNodeType: link.externalNodeType,
+        });
+      }
+
+      const linkId = `${externalNodeId}-${targetCode}`;
+      links.set(linkId, {
+        id: linkId,
+        source: externalNodeId,
+        target: targetCode,
+        type: 'external',
+        weight: 1.0,
+      });
+    });
+
     console.log(`Graph structure: ${nodes.size} nodes, ${links.size} links, version ${version}`);
     
     return {
@@ -314,6 +388,10 @@ const useGraphStructure = (
     JSON.stringify(Object.fromEntries(
       Object.values(exercises).map(e => [e.code, e.prerequisiteWeights || {}])
     )),
+    externalLinks
+      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}`)
+      .sort()
+      .join('|'),
   ]);
 };
 
@@ -326,7 +404,20 @@ const useGraphMetadata = (
   codeToNumericIdMap: Map<string, number>,
   activeNodeIds: Set<string>,
   selectedNodeIds: Set<string>,
-  highlightNodes: Set<string>
+  highlightNodes: Set<string>,
+  externalNodeLookup: Map<string, {
+    id: string;
+    name: string;
+    displayId?: string;
+    type: 'definition' | 'exercise';
+    status: ExternalPrerequisiteLink['status'];
+    externalDomainId?: number;
+    externalDomainUid?: string;
+    externalNodeId?: number;
+    externalNodeType?: 'meta_definition' | 'meta_exercise';
+    externalDomainName?: string;
+    externalNodeName?: string;
+  }>
 ): GraphMetadataState => {
   return useMemo(() => {
     const nodeMetadata = new Map<string, NodeMetadata>();
@@ -339,6 +430,33 @@ const useGraphMetadata = (
 
     // Build metadata for each node
     structureNodes.forEach((nodeCore, nodeId) => {
+      const externalInfo = externalNodeLookup.get(nodeId);
+      if (externalInfo) {
+        const isExercise = externalInfo.type === 'exercise';
+        const isMissing = externalInfo.status !== 'ok';
+        const color = isMissing
+          ? 'rgba(248, 113, 113, 0.45)'
+          : (isExercise ? 'rgba(251, 146, 60, 0.28)' : 'rgba(59, 130, 246, 0.28)');
+
+        nodeMetadata.set(nodeId, {
+          name: externalInfo.name,
+          displayId: externalInfo.displayId,
+          isExternal: true,
+          externalStatus: externalInfo.status,
+          externalDomainId: externalInfo.externalDomainId,
+          externalDomainUid: externalInfo.externalDomainUid,
+          externalNodeId: externalInfo.externalNodeId,
+          externalNodeType: externalInfo.externalNodeType,
+          externalDomainName: externalInfo.externalDomainName,
+          externalNodeName: externalInfo.externalNodeName,
+          color,
+          isDue: false,
+          daysUntilReview: null,
+          progress: null,
+        });
+        return;
+      }
+
       const numericId = codeToNumericIdMap.get(nodeId);
       const progress = numericId ? srs.getNodeProgress(numericId, nodeCore.type) : null;
       
@@ -388,6 +506,10 @@ const useGraphMetadata = (
     // Track positions so we can apply them without a physics reset
     Object.values(definitions).map(d => `${d.code}:${d.xPosition ?? ''}:${d.yPosition ?? ''}`).join('|'),
     Object.values(exercises).map(e => `${e.code}:${e.xPosition ?? ''}:${e.yPosition ?? ''}`).join('|'),
+    Array.from(externalNodeLookup.values())
+      .map(node => `${node.id}:${node.status}:${node.name}:${node.displayId ?? ''}`)
+      .sort()
+      .join('|'),
   ]);
 };
 
@@ -528,6 +650,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 }) => {
   const ui = useUI();
   const srs = useSRS();
+  const router = useRouter();
   const graphRef = useRef<any>(null);
   const positionManagerRef = useRef(new PositionManager());
 
@@ -554,6 +677,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
   const [codeToNumericIdMap, setCodeToNumericIdMap] = useState<Map<string, number>>(new Map());
   const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise>>(new Map());
+  const [externalPrerequisites, setExternalPrerequisites] = useState<ExternalPrerequisiteLink[]>([]);
 
   // Modal and form state
   const [showNodeCreationModal, setShowNodeCreationModal] = useState(false);
@@ -616,11 +740,70 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const isInitializedRef = useRef<boolean>(false);
   const pendingFocusNodeIdRef = useRef<string | null>(null);
 
+  const externalNodeLookup = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      displayId?: string;
+      type: 'definition' | 'exercise';
+      status: ExternalPrerequisiteLink['status'];
+      externalDomainId?: number;
+      externalDomainUid?: string;
+      externalNodeId?: number;
+      externalNodeType?: 'meta_definition' | 'meta_exercise';
+      externalDomainName?: string;
+      externalNodeName?: string;
+    }>();
+
+    const statusRank: Record<ExternalPrerequisiteLink['status'], number> = {
+      ok: 0,
+      no_access: 1,
+      missing_node: 2,
+      missing_domain: 3,
+    };
+
+    externalPrerequisites.forEach(link => {
+      const id = buildExternalNodeId(link);
+      const displayId = link.externalNodeCode || link.externalNodeName;
+      const entry = map.get(id);
+      const next = {
+        id,
+        name: getExternalNodeLabel(link),
+        displayId,
+        type: link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition',
+        status: link.status,
+        externalDomainId: link.externalDomainId,
+        externalDomainUid: link.externalDomainUid,
+        externalNodeId: link.externalNodeId,
+        externalNodeType: link.externalNodeType,
+        externalDomainName: link.externalDomainName,
+        externalNodeName: link.externalNodeName,
+      };
+
+      if (!entry) {
+        map.set(id, next);
+        return;
+      }
+
+      if (statusRank[next.status] >= statusRank[entry.status]) {
+        map.set(id, { ...entry, ...next });
+        return;
+      }
+
+      if (!entry.displayId && next.displayId) {
+        map.set(id, { ...entry, displayId: next.displayId, name: next.name });
+      }
+    });
+
+    return map;
+  }, [externalPrerequisites]);
+
   // Build graph using architecture with true structure/metadata separation
   const graphStructure = useGraphStructure(
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
-    mode
+    mode,
+    externalPrerequisites
   );
 
   // Active node IDs from open detail windows
@@ -642,7 +825,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     codeToNumericIdMap,
     activeNodeIds,
     selectedNodeIds,
-    highlightNodes
+    highlightNodes,
+    externalNodeLookup
   );
 
   // Stable graph correctly handles structure vs metadata updates
@@ -676,16 +860,29 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setSelectedNodeIds(new Set());
   }, []);
 
+  const refreshExternalPrerequisites = useCallback(async (domainId?: number) => {
+    const resolvedId = domainId ?? parseInt(subjectMatterId, 10);
+    if (Number.isNaN(resolvedId)) return;
+    try {
+      const links = await getExternalPrerequisites(resolvedId);
+      setExternalPrerequisites(Array.isArray(links) ? links : []);
+    } catch (error) {
+      console.warn("Failed to load external prerequisites:", error);
+      setExternalPrerequisites([]);
+    }
+  }, [subjectMatterId]);
+
   // Load comprehensive domain data
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
     try {
       console.log("Loading comprehensive domain data for:", domainId);
 
-      const [allMetaDefinitions, allMetaExercises] = await Promise.all([
+      const [allMetaDefinitions, allMetaExercises, externalLinks] = await Promise.all([
         // Use meta-definitions (concept pools) as definition nodes in the graph
         getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return []; }),
         // Use meta-exercises (pools) as exercise nodes in the graph
-        getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; })
+        getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; }),
+        getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return []; })
       ]);
 
       const newCodeToNumericIdMap = new Map<string, number>();
@@ -751,6 +948,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setCodeToNumericIdMap(newCodeToNumericIdMap);
       setNodeDataCache(newNodeDataCache);
       setCurrentStructuralGraphData({ definitions: newDefinitions, exercises: newExercises });
+      setExternalPrerequisites(Array.isArray(externalLinks) ? externalLinks : []);
 
       // If the domain loads successfully but has no nodes,
       // stop showing the processing spinner so we can render an empty state.
@@ -763,6 +961,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       console.error("Error loading comprehensive domain data:", error);
       showToast("Failed to load complete domain data.", "error");
       setCurrentStructuralGraphData({ definitions: {}, exercises: {} });
+      setExternalPrerequisites([]);
     }
   }, []);
 
@@ -913,13 +1112,25 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (!nodeOnClick?.id) return;
     if (mode === 'frenzy' && isFrenzyEditMode) return;
 
+    if (nodeOnClick.isExternal) {
+      if (nodeOnClick.externalDomainId) {
+        router.push(`/graph?domainId=${nodeOnClick.externalDomainId}`);
+      } else {
+        const message = nodeOnClick.externalStatus === 'no_access'
+          ? 'Access to this external domain is no longer available.'
+          : 'External domain is unavailable.';
+        showToast(message, 'warning');
+      }
+      return;
+    }
+
     const position = {
       x: typeof window !== 'undefined' ? window.innerWidth - 500 : 800,
       y: 100 + (ui.state.windows.filter(w => w.type === 'detail').length * 30)
     };
 
     ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
-  }, [ui, mode, isFrenzyEditMode]);
+  }, [ui, mode, isFrenzyEditMode, router]);
   const handleNodeClickRef = useRef(handleNodeClick);
 
   useEffect(() => {
@@ -1154,11 +1365,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (searchQuery) {
       const lowerQuery = searchQuery.toLowerCase();
       tempNodes = tempNodes.filter(node =>
-        node.id.toLowerCase().includes(lowerQuery) || 
+        (node.displayId ?? node.id).toLowerCase().includes(lowerQuery) || 
         node.name.toLowerCase().includes(lowerQuery)
       );
     }
-    return tempNodes.sort((a, b) => a.id.localeCompare(b.id));
+    return tempNodes.sort((a, b) => (a.displayId ?? a.id).localeCompare(b.displayId ?? b.id));
   }, [stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated]);
 
   // Basic handlers
@@ -1233,7 +1444,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Available definitions for modals (as prerequisite candidates)
   const availableDefinitionsForModals = useMemo(() => {
     return stableGraph.nodes
-      .filter(node => node.type === 'definition')
+      .filter(node => node.type === 'definition' && !node.isExternal)
       .map(node => ({ 
         code: node.id, 
         name: node.name, 
@@ -2352,6 +2563,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   const handleGraphNodeClick = useCallback((node: GraphNode) => {
+    if (node.isExternal && mode === 'frenzy' && isFrenzyEditMode) {
+      showToast('External nodes cannot be edited in this domain.', 'warning');
+      return;
+    }
     if (mode === 'frenzy' && isFrenzyEditMode) {
       const now = Date.now();
       const last = frenzyLastClickRef.current;
@@ -3032,6 +3247,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   domainData={domainData}
                   onUpdateNodeData={handleSurgicalNodeUpdate}
                   onRefresh={refreshGraphAndSRSData}
+                  externalPrerequisites={externalPrerequisites}
+                  onExternalChanged={() => refreshExternalPrerequisites(domainData?.id)}
                 />
               )}
               {window.type === 'review' && (

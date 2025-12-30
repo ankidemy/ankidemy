@@ -73,6 +73,7 @@ export interface Exercise {
 
 export interface GraphNode {
   id: string; // This is the node's 'code'
+  displayId?: string;
   name: string;
   type: 'definition' | 'exercise';
   isRootDefinition?: boolean;
@@ -97,6 +98,16 @@ export interface GraphNode {
   // Working graph properties (a02e2d1)
   domainId?: number;
   prerequisites?: string[];
+
+  // External link metadata
+  isExternal?: boolean;
+  externalStatus?: 'ok' | 'missing_domain' | 'missing_node' | 'no_access';
+  externalDomainId?: number;
+  externalDomainUid?: string;
+  externalNodeId?: number;
+  externalNodeType?: 'meta_definition' | 'meta_exercise';
+  externalDomainName?: string;
+  externalNodeName?: string;
 }
 
 export interface GraphLink {

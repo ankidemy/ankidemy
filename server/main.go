@@ -71,6 +71,7 @@ func main() {
 	metaSvc := services.NewMetaExerciseService(db)
 	metaDefinitionDAO := dao.NewMetaDefinitionDAO(db)
 	metaDefSvc := services.NewMetaDefinitionService(db)
+	externalPrerequisiteDAO := dao.NewExternalPrerequisiteDAO(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -100,7 +101,8 @@ func main() {
 	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc, permissionDAO)
 	metaDefinitionHandler := handlers.NewMetaDefinitionHandler(metaDefinitionDAO, domainDAO, metaDefSvc, permissionDAO)
 	mediaHandler := handlers.NewMediaHandler(domainDAO, progressDAO, permissionDAO)
-	domainAccessHandler := handlers.NewDomainAccessHandler(domainDAO, permissionDAO, inviteDAO, userDAO)
+	domainAccessHandler := handlers.NewDomainAccessHandler(domainDAO, permissionDAO, inviteDAO, userDAO, progressDAO)
+	externalPrerequisiteHandler := handlers.NewExternalPrerequisiteHandler(domainDAO, permissionDAO, externalPrerequisiteDAO, metaDefinitionDAO, metaExerciseDAO)
 
 	// Initialize router
 	router := gin.Default()
@@ -158,6 +160,7 @@ func main() {
 			{
 				domains.GET("", domainHandler.GetDomains)
 				domains.POST("", domainHandler.CreateDomain) // Now supports import data
+				domains.GET("/accessible", domainAccessHandler.GetAccessibleDomains)
 				domains.GET("/my", domainHandler.GetMyDomains)
 				domains.GET("/archived/my", domainHandler.GetMyArchivedDomains)
 				domains.GET("/shared", domainAccessHandler.GetSharedDomains)
@@ -193,6 +196,11 @@ func main() {
 				// Meta Definitions (pools)
 				domains.GET("/:id/meta-definitions", metaDefinitionHandler.GetDomainMetaDefinitions)
 				domains.POST("/:id/meta-definitions", metaDefinitionHandler.CreateMetaDefinition)
+
+				// External prerequisites
+				domains.GET("/:id/external-prerequisites", externalPrerequisiteHandler.ListByDomain)
+				domains.POST("/:id/external-prerequisites", externalPrerequisiteHandler.Create)
+				domains.DELETE("/:id/external-prerequisites/:linkId", externalPrerequisiteHandler.Delete)
 
 				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)

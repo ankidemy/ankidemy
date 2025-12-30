@@ -42,7 +42,8 @@ import {
   MetaExercise,
   MetaDefinition,
   ExerciseVersion,
-  DefinitionVersion
+  DefinitionVersion,
+  ExternalPrerequisiteLink
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
@@ -56,6 +57,8 @@ interface DetailWindowContentProps {
   domainData?: any;
   onUpdateNodeData?: (nodeCode: string, updatedData: ApiDefinition | ApiExercise) => void; // Surgical update
   onRefresh?: () => void; // Fallback full refresh
+  externalPrerequisites?: ExternalPrerequisiteLink[];
+  onExternalChanged?: () => void;
 }
 
 export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
@@ -68,6 +71,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   domainData,
   onUpdateNodeData, // NEW: Surgical update callback
   onRefresh, // Fallback refresh
+  externalPrerequisites,
+  onExternalChanged,
 }) => {
   const srs = useSRS();
   const ui = useUI();
@@ -965,6 +970,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     nodeType={'meta_exercise'}
                     availableDefinitions={availableDefinitions}
                     canEdit={canEdit}
+                    externalLinks={externalPrerequisites}
+                    onExternalChanged={onExternalChanged}
                     onChanged={async () => {
                       // Surgical update: fetch fresh meta-exercise and update only this node
                       try {
@@ -1000,6 +1007,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     availableDefinitions={availableDefinitions}
                     allowKinds={['meta_definition']}
                     canEdit={canEdit}
+                    externalLinks={externalPrerequisites}
+                    onExternalChanged={onExternalChanged}
                     onChanged={async () => {
                       // Surgical update for concept prerequisites: reload meta-definition and apply its codes/weights
                       try {

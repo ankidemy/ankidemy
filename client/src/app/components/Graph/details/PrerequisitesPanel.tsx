@@ -9,7 +9,15 @@ import {
   updatePrerequisite,
   deletePrerequisite,
 } from '@/lib/srs-api';
-import { getDomainMetaExercises } from '@/lib/api';
+import {
+  getDomainMetaDefinitions,
+  getDomainMetaExercises,
+  getAccessibleDomains,
+  createExternalPrerequisite,
+  deleteExternalPrerequisite,
+  ExternalPrerequisiteLink,
+  AccessibleDomain,
+} from '@/lib/api';
 
 type AvailableItem = { code: string; name: string; numericId: number };
 
@@ -22,9 +30,21 @@ interface Props {
   // Control which prerequisite kinds can be added
   allowKinds?: Array<'meta_definition' | 'meta_exercise'>;
   onChanged?: () => void; // notify parent to refresh graph
+  externalLinks?: ExternalPrerequisiteLink[];
+  onExternalChanged?: () => void;
 }
 
-const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, availableDefinitions, canEdit = true, allowKinds = ['meta_definition', 'meta_exercise'], onChanged }) => {
+const PrerequisitesPanel: React.FC<Props> = ({
+  domainId,
+  nodeId,
+  nodeType,
+  availableDefinitions,
+  canEdit = true,
+  allowKinds = ['meta_definition', 'meta_exercise'],
+  onChanged,
+  externalLinks = [],
+  onExternalChanged,
+}) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Array<{ id: number; prerequisiteId: number; weight: number; type: 'meta_definition' | 'meta_exercise' }>>([]);
@@ -39,6 +59,18 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
   const [searchDef, setSearchDef] = useState('');
   const [searchMeta, setSearchMeta] = useState('');
 
+  const [externalEnabled, setExternalEnabled] = useState(false);
+  const [externalDomains, setExternalDomains] = useState<AccessibleDomain[]>([]);
+  const [externalDomainQuery, setExternalDomainQuery] = useState('');
+  const [selectedExternalDomainUid, setSelectedExternalDomainUid] = useState<string>('');
+  const [externalDefinitions, setExternalDefinitions] = useState<AvailableItem[]>([]);
+  const [externalExercises, setExternalExercises] = useState<AvailableItem[]>([]);
+  const [externalNodeType, setExternalNodeType] = useState<'meta_definition' | 'meta_exercise'>('meta_definition');
+  const [externalNodeQuery, setExternalNodeQuery] = useState('');
+  const [selectedExternalNodeId, setSelectedExternalNodeId] = useState<number | ''>('');
+  const [externalError, setExternalError] = useState<string | null>(null);
+  const [externalLoading, setExternalLoading] = useState(false);
+
   const defMap = useMemo(() => {
     const m = new Map<number, AvailableItem>();
     availableDefinitions.forEach(d => { if (typeof d.numericId === 'number') m.set(d.numericId, d); });
@@ -50,6 +82,42 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
     metaList.forEach(d => { if (typeof d.numericId === 'number') m.set(d.numericId, d); });
     return m;
   }, [metaList]);
+
+  const externalRows = useMemo(() => {
+    return externalLinks.filter(link => link.nodeId === nodeId && link.nodeType === nodeType);
+  }, [externalLinks, nodeId, nodeType]);
+
+  const selectedExternalDomain = useMemo(() => {
+    return externalDomains.find(domain => domain.domainUid === selectedExternalDomainUid) || null;
+  }, [externalDomains, selectedExternalDomainUid]);
+
+  const filteredExternalDomains = useMemo(() => {
+    const query = externalDomainQuery.trim().toLowerCase();
+    return externalDomains
+      .filter(domain => domain.id !== domainId)
+      .filter(domain => {
+        if (!query) return true;
+        return `${domain.ownerUsername} ${domain.name}`.toLowerCase().includes(query);
+      });
+  }, [externalDomains, externalDomainQuery, domainId]);
+
+  const externalNodeOptions = useMemo(() => {
+    return externalNodeType === 'meta_definition' ? externalDefinitions : externalExercises;
+  }, [externalDefinitions, externalExercises, externalNodeType]);
+
+  const filteredExternalNodeOptions = useMemo(() => {
+    const query = externalNodeQuery.trim().toLowerCase();
+    const linkedIds = new Set(
+      externalRows
+        .filter(link => link.externalDomainUid === selectedExternalDomainUid && link.externalNodeType === externalNodeType)
+        .map(link => link.externalNodeId)
+    );
+    return externalNodeOptions.filter(item => {
+      if (linkedIds.has(item.numericId)) return false;
+      if (!query) return true;
+      return `${item.code} ${item.name}`.toLowerCase().includes(query);
+    });
+  }, [externalNodeOptions, externalNodeQuery, externalRows, selectedExternalDomainUid, externalNodeType]);
 
   const load = async () => {
     try {
@@ -82,6 +150,59 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
       setMetaList(metas.map((m: any) => ({ code: m.code, name: m.name, numericId: m.id })));
     } catch {}
   })(); }, [domainId]);
+
+  useEffect(() => {
+    if (!externalEnabled) return;
+    if (externalDomains.length > 0) return;
+    (async () => {
+      try {
+        setExternalLoading(true);
+        const domains = await getAccessibleDomains();
+        setExternalDomains(domains.filter(d => d.domainUid));
+        setExternalError(null);
+      } catch (e) {
+        setExternalError(e instanceof Error ? e.message : 'Failed to load domains');
+      } finally {
+        setExternalLoading(false);
+      }
+    })();
+  }, [externalEnabled, externalDomains.length]);
+
+  useEffect(() => {
+    if (!selectedExternalDomain) {
+      setExternalDefinitions([]);
+      setExternalExercises([]);
+      return;
+    }
+    (async () => {
+      try {
+        setExternalLoading(true);
+        const [defs, exs] = await Promise.all([
+          getDomainMetaDefinitions(selectedExternalDomain.id),
+          getDomainMetaExercises(selectedExternalDomain.id),
+        ]);
+        setExternalDefinitions(defs.map((d: any) => ({ code: d.code, name: d.name, numericId: d.id })));
+        setExternalExercises(exs.map((e: any) => ({ code: e.code, name: e.name, numericId: e.id })));
+        setExternalError(null);
+      } catch (e) {
+        setExternalDefinitions([]);
+        setExternalExercises([]);
+        setExternalError(e instanceof Error ? e.message : 'Failed to load external nodes');
+      } finally {
+        setExternalLoading(false);
+      }
+    })();
+  }, [selectedExternalDomain]);
+
+  useEffect(() => {
+    setSelectedExternalNodeId('');
+  }, [selectedExternalDomainUid, externalNodeType]);
+
+  useEffect(() => {
+    if (nodeType === 'meta_definition') {
+      setExternalNodeType('meta_definition');
+    }
+  }, [nodeType]);
   const availableDefToAdd = availableDefinitions
     .filter(d => d.numericId !== nodeId)
     .filter(d => !rows.some(r => r.prerequisiteId === d.numericId));
@@ -100,6 +221,13 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
     if (!query) return true;
     return (`${item.code} ${item.name}`).toLowerCase().includes(query);
   });
+
+  const externalStatusLabels: Record<ExternalPrerequisiteLink['status'], string> = {
+    ok: 'Linked',
+    missing_domain: 'Domain missing',
+    missing_node: 'Node missing',
+    no_access: 'Access removed',
+  };
 
   const handleWeightCommit = async (rowId: number, mode: 'blur' | 'direct', rawValue?: string) => {
     if (!canEdit) return;
@@ -163,6 +291,61 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
     setExerciseWeights({});
     await load();
     onChanged?.();
+  };
+
+  const handleAddExternal = async () => {
+    if (!canEdit) return;
+    if (!selectedExternalDomain) {
+      setExternalError('Select an external domain.');
+      return;
+    }
+    const nodeIdValue = typeof selectedExternalNodeId === 'number' ? selectedExternalNodeId : parseInt(String(selectedExternalNodeId), 10);
+    if (!nodeIdValue || Number.isNaN(nodeIdValue)) {
+      setExternalError('Select an external node.');
+      return;
+    }
+
+    const exists = externalRows.some(link =>
+      link.externalDomainUid === selectedExternalDomain.domainUid &&
+      link.externalNodeId === nodeIdValue &&
+      link.externalNodeType === externalNodeType
+    );
+    if (exists) {
+      setExternalError('External prerequisite already linked.');
+      return;
+    }
+
+    try {
+      setExternalLoading(true);
+      await createExternalPrerequisite(domainId, {
+        nodeId,
+        nodeType,
+        externalDomainUid: selectedExternalDomain.domainUid,
+        externalNodeId: nodeIdValue,
+        externalNodeType,
+      });
+      setExternalError(null);
+      setSelectedExternalNodeId('');
+      setExternalNodeQuery('');
+      await onExternalChanged?.();
+    } catch (e) {
+      setExternalError(e instanceof Error ? e.message : 'Failed to create external prerequisite');
+    } finally {
+      setExternalLoading(false);
+    }
+  };
+
+  const handleRemoveExternal = async (linkId: number) => {
+    if (!canEdit) return;
+    try {
+      setExternalLoading(true);
+      await deleteExternalPrerequisite(domainId, linkId);
+      await onExternalChanged?.();
+    } catch (e) {
+      setExternalError(e instanceof Error ? e.message : 'Failed to remove external prerequisite');
+    } finally {
+      setExternalLoading(false);
+    }
   };
 
   if (loading) return <div className="text-sm text-gray-500">Loading prerequisites…</div>;
@@ -371,6 +554,142 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
             </Button>
           </div>
         </div>
+      </div>
+
+      <div className="pt-3 border-t space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-medium text-gray-600">External Prerequisites</h4>
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={externalEnabled}
+              onChange={(e) => setExternalEnabled(e.target.checked)}
+              disabled={!canEdit}
+            />
+            Enable external
+          </label>
+        </div>
+        {!canEdit && (
+          <div className="text-xs text-gray-500">Only domain owners or editors can link external prerequisites.</div>
+        )}
+        {externalRows.length === 0 ? (
+          <p className="text-sm text-gray-500">No external prerequisites linked.</p>
+        ) : (
+          <div className="space-y-2">
+            {externalRows.map(link => {
+              const nodeLabel = link.externalNodeCode
+                ? `${link.externalNodeCode}${link.externalNodeName ? `: ${link.externalNodeName}` : ''}`
+                : (link.externalNodeName || `Node #${link.externalNodeId}`);
+              const domainLabel = link.externalDomainName || link.externalDomainUid || 'Unknown domain';
+              const statusLabel = externalStatusLabels[link.status];
+              const statusClass = link.status === 'ok'
+                ? 'bg-green-50 text-green-700'
+                : 'bg-amber-50 text-amber-700';
+              return (
+                <div key={link.id} className="flex items-center justify-between p-2 border rounded">
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{nodeLabel}</div>
+                    <div className="text-xs text-gray-500">{domainLabel}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[11px] px-2 py-0.5 rounded ${statusClass}`}>{statusLabel}</span>
+                    <Button size="sm" variant="outline" onClick={() => handleRemoveExternal(link.id)} disabled={!canEdit || externalLoading}>
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {externalError && <div className="text-xs text-red-600">{externalError}</div>}
+
+        {externalEnabled && (
+          <div className="space-y-3 pt-2">
+            {externalLoading && (
+              <div className="text-xs text-gray-500">Loading external data…</div>
+            )}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">Domain</span>
+                <Input
+                  value={externalDomainQuery}
+                  onChange={(e) => setExternalDomainQuery(e.target.value)}
+                  placeholder="Search domains..."
+                  className="h-7 text-xs w-48"
+                  disabled={!canEdit}
+                />
+              </div>
+              <select
+                className="border rounded px-2 py-1 text-sm w-full h-9 disabled:bg-gray-100"
+                value={selectedExternalDomainUid}
+                disabled={!canEdit || externalLoading}
+                onChange={(e) => setSelectedExternalDomainUid(e.target.value)}
+              >
+                <option value="">Select a domain...</option>
+                {filteredExternalDomains.map(domain => (
+                  <option key={domain.domainUid} value={domain.domainUid}>
+                    {domain.ownerUsername} / {domain.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">Node</span>
+                <select
+                  className="border rounded px-2 py-1 text-xs disabled:bg-gray-100"
+                  value={externalNodeType}
+                  onChange={(e) => setExternalNodeType(e.target.value as 'meta_definition' | 'meta_exercise')}
+                  disabled={!canEdit || externalLoading || nodeType === 'meta_definition'}
+                >
+                  <option value="meta_definition">Concept</option>
+                  {nodeType === 'meta_exercise' && <option value="meta_exercise">Exercise</option>}
+                </select>
+              </div>
+              <Input
+                value={externalNodeQuery}
+                onChange={(e) => setExternalNodeQuery(e.target.value)}
+                placeholder="Search nodes..."
+                className="h-7 text-xs w-full"
+                disabled={!canEdit || !selectedExternalDomain || externalLoading}
+              />
+              <select
+                className="border rounded px-2 py-1 text-sm w-full h-28 disabled:bg-gray-100"
+                value={selectedExternalNodeId === '' ? '' : String(selectedExternalNodeId)}
+                disabled={!canEdit || !selectedExternalDomain || externalLoading}
+                onChange={(e) => {
+                  const parsed = parseInt(e.target.value, 10);
+                  setSelectedExternalNodeId(Number.isNaN(parsed) ? '' : parsed);
+                }}
+              >
+                <option value="">Select a node...</option>
+                {filteredExternalNodeOptions.map(node => (
+                  <option key={`external-${node.numericId}`} value={node.numericId}>
+                    {node.code}: {node.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="text-right">
+              <Button
+                size="sm"
+                onClick={handleAddExternal}
+                disabled={
+                  !canEdit ||
+                  !selectedExternalDomain ||
+                  selectedExternalNodeId === '' ||
+                  externalLoading
+                }
+              >
+                Link External
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

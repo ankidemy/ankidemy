@@ -95,10 +95,11 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     for (let i = 0; i < BUDGET; i++) {
       const n = graphNodes[i];
       if (!n) break;
+      const displayId = (n as GraphNode).displayId ?? n.id;
       let text = '';
-      if (labelDisplayMode === 'codes') text = n.id;
+      if (labelDisplayMode === 'codes') text = displayId;
       else if (labelDisplayMode === 'names') text = n.name;
-      else if (labelDisplayMode === 'off') text = `${n.id}: ${n.name}`; // used on hover; prewarm to avoid flicker
+      else if (labelDisplayMode === 'off') text = `${displayId}: ${n.name}`; // used on hover; prewarm to avoid flicker
       if (!text) continue;
       if (!renderer.getCache(text)) {
         renderer.render(text, scheduleRafRefresh);
@@ -165,11 +166,14 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
+    const displayId = (node as GraphNode).displayId ?? id;
     const nodeSizeBase = type === 'definition' ? 7 : 6;
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
     const isSelected = selectedNodeIds.has(id);
     const isNewlyCreated = newlyCreatedNodeId === id;
     const isHighlighted = highlightNodes.has(id);
+    const isExternal = !!(node as GraphNode).isExternal;
+    const externalStatus = (node as GraphNode).externalStatus;
 
     // Calculate final color with SRS status consideration
     let finalColor = color;
@@ -236,8 +240,13 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.strokeStyle = `rgba(${HOVER_HIGHLIGHT_COLOR}, 0.85)`;
       ctx.lineWidth = 1.5 / globalScale;
     } else {
-      ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
-      ctx.lineWidth = 1 / globalScale;
+      if (isExternal) {
+        ctx.strokeStyle = externalStatus && externalStatus !== 'ok' ? 'rgba(248, 113, 113, 0.85)' : 'rgba(148, 163, 184, 0.65)';
+        ctx.lineWidth = 1 / globalScale;
+      } else {
+        ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
+        ctx.lineWidth = 1 / globalScale;
+      }
     }
     ctx.stroke();
 
@@ -301,13 +310,13 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     if (shouldShowLabel) {
       let labelText = '';
       if (labelDisplayMode === 'codes') {
-        labelText = id;
+        labelText = displayId;
       } else if (labelDisplayMode === 'names') {
         labelText = name;
       }
       
       if (labelDisplayMode === 'off' && (isSelected || isHighlighted || isNewlyCreated)) {
-        labelText = `${id}: ${name}`;
+        labelText = `${displayId}: ${name}`;
       }
 
       if (labelText) {
@@ -350,6 +359,15 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     if (highlightLinks.has(linkId)) {
       return 'rgba(245, 158, 11, 0.9)';
     }
+
+    const sourceNode = graphNodes.find(n => n.id === sourceId);
+    if (link.type === 'external' || sourceNode?.isExternal) {
+      const status = sourceNode?.externalStatus;
+      if (status && status !== 'ok') {
+        return 'rgba(248, 113, 113, 0.45)';
+      }
+      return 'rgba(148, 163, 184, 0.35)';
+    }
     
     const sourceHighlighted = highlightNodes.has(sourceId);
     const targetHighlighted = highlightNodes.has(targetId);
@@ -387,6 +405,19 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
     const weight = link.weight || 1.0;
+
+    if (link.type === 'external') {
+      const baseWidth = 0.9;
+      if (highlightLinks.has(linkId)) {
+        return Math.max(2, baseWidth * 2.2);
+      }
+      const sourceHighlighted = highlightNodes.has(sourceId);
+      const targetHighlighted = highlightNodes.has(targetId);
+      if (sourceHighlighted || targetHighlighted) {
+        return Math.max(baseWidth, baseWidth * 1.4);
+      }
+      return baseWidth;
+    }
     
     let baseWidth = 1.0;
     const targetNode = graphNodes.find(n => n.id === targetId);
@@ -564,6 +595,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
     const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
+
+    if (link.type === 'external') {
+      return 0;
+    }
     
     if (highlightLinks.has(linkId)) {
       return 4;
@@ -583,6 +618,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
     const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
     const linkId = `${sourceId}-${targetId}`;
+
+    if (link.type === 'external') {
+      return 0;
+    }
     
     if (highlightLinks.has(linkId)) {
       return 4;

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,14 +17,16 @@ type DomainAccessHandler struct {
 	permissionDAO *dao.DomainPermissionDAO
 	inviteDAO     *dao.DomainInviteDAO
 	userDAO       *dao.UserDAO
+	progressDAO   *dao.ProgressDAO
 }
 
-func NewDomainAccessHandler(domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, inviteDAO *dao.DomainInviteDAO, userDAO *dao.UserDAO) *DomainAccessHandler {
+func NewDomainAccessHandler(domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, inviteDAO *dao.DomainInviteDAO, userDAO *dao.UserDAO, progressDAO *dao.ProgressDAO) *DomainAccessHandler {
 	return &DomainAccessHandler{
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
 		inviteDAO:     inviteDAO,
 		userDAO:       userDAO,
+		progressDAO:   progressDAO,
 	}
 }
 
@@ -65,6 +68,118 @@ func (h *DomainAccessHandler) GetSharedDomains(c *gin.Context) {
 			PermissionRole:  roleByDomain[domain.ID],
 		})
 	}
+
+	c.JSON(http.StatusOK, results)
+}
+
+// GET /api/domains/accessible
+func (h *DomainAccessHandler) GetAccessibleDomains(c *gin.Context) {
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	domainsByID := make(map[uint]models.Domain)
+	addDomains := func(domains []models.Domain) {
+		for _, domain := range domains {
+			domainsByID[domain.ID] = domain
+		}
+	}
+
+	if isAdmin {
+		all, err := h.domainDAO.GetAll()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve domains"})
+			return
+		}
+		addDomains(all)
+	} else {
+		owned, err := h.domainDAO.GetByOwnerID(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve owned domains"})
+			return
+		}
+		addDomains(owned)
+
+		publicDomains, err := h.domainDAO.GetPublicDomains()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve public domains"})
+			return
+		}
+		addDomains(publicDomains)
+
+		perms, err := h.permissionDAO.ListPermissionsForUser(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve shared domains"})
+			return
+		}
+		sharedIDs := make([]uint, 0, len(perms))
+		for _, perm := range perms {
+			sharedIDs = append(sharedIDs, perm.DomainID)
+		}
+		if len(sharedIDs) > 0 {
+			sharedDomains, err := h.domainDAO.GetByIDs(sharedIDs)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve shared domains"})
+				return
+			}
+			addDomains(sharedDomains)
+		}
+
+		progress, err := h.progressDAO.GetUserDomainProgress(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve enrolled domains"})
+			return
+		}
+		enrolledIDs := make([]uint, 0, len(progress))
+		for _, record := range progress {
+			enrolledIDs = append(enrolledIDs, record.DomainID)
+		}
+		if len(enrolledIDs) > 0 {
+			enrolledDomains, err := h.domainDAO.GetByIDs(enrolledIDs)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve enrolled domains"})
+				return
+			}
+			addDomains(enrolledDomains)
+		}
+	}
+
+	type response struct {
+		ID            uint   `json:"id"`
+		DomainUID     string `json:"domainUid"`
+		Name          string `json:"name"`
+		Privacy       string `json:"privacy"`
+		OwnerID       uint   `json:"ownerId"`
+		OwnerUsername string `json:"ownerUsername"`
+	}
+
+	results := make([]response, 0, len(domainsByID))
+	for _, domain := range domainsByID {
+		if domain.DomainUID == nil || *domain.DomainUID == "" {
+			continue
+		}
+		ownerName := ""
+		if owner, err := h.userDAO.FindUserByID(domain.OwnerID); err == nil {
+			ownerName = owner.Username
+		}
+		results = append(results, response{
+			ID:            domain.ID,
+			DomainUID:     *domain.DomainUID,
+			Name:          domain.Name,
+			Privacy:       domain.Privacy,
+			OwnerID:       domain.OwnerID,
+			OwnerUsername: ownerName,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].OwnerUsername == results[j].OwnerUsername {
+			return results[i].Name < results[j].Name
+		}
+		return results[i].OwnerUsername < results[j].OwnerUsername
+	})
 
 	c.JSON(http.StatusOK, results)
 }
