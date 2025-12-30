@@ -170,7 +170,7 @@ export default function ExplorePage() {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => router.push(`/graph?domainId=${domain.id}`)}
+                    onClick={() => router.push(`/main/domains/${domain.id}/study`)}
                   >
                     <BookOpen size={16} className="mr-1" />
                     Preview

@@ -48,7 +48,7 @@ export default function DomainPage() {
   const handleFormSuccess = (domain: Domain) => {
     if (mode === 'create') {
       // Redirect to the graph page with the new domain
-      router.push(`/graph?domainId=${domain.id}`);
+      router.push(`/main/domains/${domain.id}/study`);
     } else {
       // Go back to dashboard after editing
       router.push('/dashboard');

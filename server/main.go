@@ -201,6 +201,7 @@ func main() {
 				domains.GET("/:id/external-prerequisites", externalPrerequisiteHandler.ListByDomain)
 				domains.POST("/:id/external-prerequisites", externalPrerequisiteHandler.Create)
 				domains.DELETE("/:id/external-prerequisites/:linkId", externalPrerequisiteHandler.Delete)
+				domains.PUT("/:id/external-prerequisites/positions", externalPrerequisiteHandler.UpdatePositions)
 
 				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)

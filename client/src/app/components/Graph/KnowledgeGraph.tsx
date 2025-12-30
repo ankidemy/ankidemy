@@ -20,6 +20,7 @@ import {
   getDomainMetaDefinitions,
   getDomainMetaExercises,
   getExternalPrerequisites,
+  updateExternalPrerequisitePositions,
   MetaDefinition,
   MetaExercise,
   ExternalPrerequisiteLink,
@@ -203,10 +204,27 @@ const buildExternalNodeId = (link: ExternalPrerequisiteLink): string => {
   return `ext:${domainUid}:${link.externalNodeType}:${link.externalNodeId}`;
 };
 
+const parseExternalNodeId = (nodeId: string): {
+  externalDomainUid: string;
+  externalNodeType: 'meta_definition' | 'meta_exercise';
+  externalNodeId: number;
+} | null => {
+  if (!nodeId.startsWith('ext:')) return null;
+  const parts = nodeId.split(':');
+  if (parts.length !== 4) return null;
+  const [, domainUid, nodeType, nodeIdStr] = parts;
+  if (nodeType !== 'meta_definition' && nodeType !== 'meta_exercise') return null;
+  const parsed = parseInt(nodeIdStr, 10);
+  if (Number.isNaN(parsed)) return null;
+  return {
+    externalDomainUid: domainUid,
+    externalNodeType: nodeType,
+    externalNodeId: parsed,
+  };
+};
+
 const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
-  const nodeLabel = link.externalNodeCode
-    ? `${link.externalNodeCode}${link.externalNodeName ? `: ${link.externalNodeName}` : ''}`
-    : (link.externalNodeName || `Node ${link.externalNodeId}`);
+  const nodeLabel = link.externalNodeName || `Node ${link.externalNodeId}`;
   const domainLabel = link.externalDomainName || 'External';
   return `${domainLabel}: ${nodeLabel}`;
 };
@@ -254,7 +272,7 @@ const useGraphStructure = (
       .join('|');
 
     const externalLinkHash = externalLinks
-      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}`)
+      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}:${link.xPosition ?? ''}:${link.yPosition ?? ''}`)
       .sort()
       .join('|');
     
@@ -338,6 +356,8 @@ const useGraphStructure = (
       if (!targetCode || !nodes.has(targetCode)) return;
 
       const externalNodeId = buildExternalNodeId(link);
+      const linkX = typeof link.xPosition === 'number' ? link.xPosition : undefined;
+      const linkY = typeof link.yPosition === 'number' ? link.yPosition : undefined;
       if (!nodes.has(externalNodeId)) {
         nodes.set(externalNodeId, {
           id: externalNodeId,
@@ -348,7 +368,15 @@ const useGraphStructure = (
           externalDomainUid: link.externalDomainUid,
           externalNodeId: link.externalNodeId,
           externalNodeType: link.externalNodeType,
+          xPosition: linkX,
+          yPosition: linkY,
         });
+      } else {
+        const existing = nodes.get(externalNodeId);
+        if (existing && (existing.xPosition === undefined || existing.yPosition === undefined) && linkX !== undefined && linkY !== undefined) {
+          existing.xPosition = linkX;
+          existing.yPosition = linkY;
+        }
       }
 
       const linkId = `${externalNodeId}-${targetCode}`;
@@ -389,7 +417,7 @@ const useGraphStructure = (
       Object.values(exercises).map(e => [e.code, e.prerequisiteWeights || {}])
     )),
     externalLinks
-      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}`)
+      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}:${link.xPosition ?? ''}:${link.yPosition ?? ''}`)
       .sort()
       .join('|'),
   ]);
@@ -764,7 +792,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     externalPrerequisites.forEach(link => {
       const id = buildExternalNodeId(link);
-      const displayId = link.externalNodeCode || link.externalNodeName;
+      const displayId = link.externalNodeName || `Node ${link.externalNodeId}`;
       const entry = map.get(id);
       const next = {
         id,
@@ -1114,7 +1142,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     if (nodeOnClick.isExternal) {
       if (nodeOnClick.externalDomainId) {
-        router.push(`/graph?domainId=${nodeOnClick.externalDomainId}`);
+        router.push(`/main/domains/${nodeOnClick.externalDomainId}/study`);
       } else {
         const message = nodeOnClick.externalStatus === 'no_access'
           ? 'Access to this external domain is no longer available.'
@@ -2660,8 +2688,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     try {
       const allPositions = positionManagerRef.current.getAllPositions();
       const convertedPositions: Record<string, { x: number; y: number }> = {};
+      const externalPositions: Array<{
+        externalDomainUid: string;
+        externalNodeId: number;
+        externalNodeType: 'meta_definition' | 'meta_exercise';
+        xPosition: number;
+        yPosition: number;
+      }> = [];
       
       for (const [nodeCode, position] of allPositions.entries()) {
+        const externalInfo = parseExternalNodeId(nodeCode);
+        if (externalInfo) {
+          externalPositions.push({
+            externalDomainUid: externalInfo.externalDomainUid,
+            externalNodeId: externalInfo.externalNodeId,
+            externalNodeType: externalInfo.externalNodeType,
+            xPosition: position.x,
+            yPosition: position.y,
+          });
+          continue;
+        }
+
         const numericId = codeToNumericIdMap.get(nodeCode);
         if (numericId) {
           let nodeType = '';
@@ -2677,6 +2724,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       
       if (Object.keys(convertedPositions).length > 0) {
         await onPositionUpdate(convertedPositions);
+      }
+      if (externalPositions.length > 0) {
+        await updateExternalPrerequisitePositions(parseInt(subjectMatterId, 10), externalPositions);
+      }
+      if (Object.keys(convertedPositions).length > 0 || externalPositions.length > 0) {
         setPositionsChanged(false);
         showToast("Node positions saved.", "success");
       }

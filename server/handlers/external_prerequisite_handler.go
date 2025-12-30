@@ -45,18 +45,20 @@ type externalPrerequisiteRequest struct {
 }
 
 type externalPrerequisiteResponse struct {
-	ID                 uint   `json:"id"`
-	DomainID           uint   `json:"domainId"`
-	NodeID             uint   `json:"nodeId"`
-	NodeType           string `json:"nodeType"`
-	ExternalDomainUID  string `json:"externalDomainUid"`
-	ExternalDomainID   *uint  `json:"externalDomainId,omitempty"`
-	ExternalDomainName string `json:"externalDomainName,omitempty"`
-	ExternalNodeID     uint   `json:"externalNodeId"`
-	ExternalNodeType   string `json:"externalNodeType"`
-	ExternalNodeCode   string `json:"externalNodeCode,omitempty"`
-	ExternalNodeName   string `json:"externalNodeName,omitempty"`
-	Status             string `json:"status"`
+	ID                 uint     `json:"id"`
+	DomainID           uint     `json:"domainId"`
+	NodeID             uint     `json:"nodeId"`
+	NodeType           string   `json:"nodeType"`
+	ExternalDomainUID  string   `json:"externalDomainUid"`
+	ExternalDomainID   *uint    `json:"externalDomainId,omitempty"`
+	ExternalDomainName string   `json:"externalDomainName,omitempty"`
+	ExternalNodeID     uint     `json:"externalNodeId"`
+	ExternalNodeType   string   `json:"externalNodeType"`
+	ExternalNodeCode   string   `json:"externalNodeCode,omitempty"`
+	ExternalNodeName   string   `json:"externalNodeName,omitempty"`
+	XPosition          *float64 `json:"xPosition,omitempty"`
+	YPosition          *float64 `json:"yPosition,omitempty"`
+	Status             string   `json:"status"`
 }
 
 const (
@@ -115,6 +117,8 @@ func (h *ExternalPrerequisiteHandler) ListByDomain(c *gin.Context) {
 			ExternalNodeType:   link.ExternalNodeType,
 			ExternalNodeCode:   link.ExternalNodeCode,
 			ExternalNodeName:   link.ExternalNodeName,
+			XPosition:          link.XPosition,
+			YPosition:          link.YPosition,
 			Status:             externalStatusOK,
 		}
 
@@ -291,6 +295,8 @@ func (h *ExternalPrerequisiteHandler) Create(c *gin.Context) {
 		ExternalNodeType:   link.ExternalNodeType,
 		ExternalNodeCode:   link.ExternalNodeCode,
 		ExternalNodeName:   link.ExternalNodeName,
+		XPosition:          link.XPosition,
+		YPosition:          link.YPosition,
 		Status:             externalStatusOK,
 	}
 
@@ -348,6 +354,73 @@ func (h *ExternalPrerequisiteHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "External prerequisite removed"})
+}
+
+// PUT /api/domains/:id/external-prerequisites/positions
+func (h *ExternalPrerequisiteHandler) UpdatePositions(c *gin.Context) {
+	domainID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	domain, err := h.domainDAO.FindByID(uint(domainID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+
+	var req struct {
+		Positions []struct {
+			ExternalDomainUID string  `json:"externalDomainUid" binding:"required"`
+			ExternalNodeID    uint    `json:"externalNodeId" binding:"required"`
+			ExternalNodeType  string  `json:"externalNodeType" binding:"required"`
+			XPosition         float64 `json:"xPosition" binding:"required"`
+			YPosition         float64 `json:"yPosition" binding:"required"`
+		} `json:"positions" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	positions := make([]dao.ExternalPrerequisitePosition, 0, len(req.Positions))
+	for _, pos := range req.Positions {
+		pos.ExternalDomainUID = strings.TrimSpace(pos.ExternalDomainUID)
+		pos.ExternalNodeType = strings.TrimSpace(pos.ExternalNodeType)
+		if pos.ExternalDomainUID == "" || !isValidExternalNodeType(pos.ExternalNodeType) {
+			continue
+		}
+		positions = append(positions, dao.ExternalPrerequisitePosition{
+			ExternalDomainUID: pos.ExternalDomainUID,
+			ExternalNodeID:    pos.ExternalNodeID,
+			ExternalNodeType:  pos.ExternalNodeType,
+			XPosition:         pos.XPosition,
+			YPosition:         pos.YPosition,
+		})
+	}
+
+	if err := h.externalDAO.UpdatePositions(domain.ID, positions); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update external positions"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "External positions updated"})
 }
 
 func isValidExternalNodeType(nodeType string) bool {

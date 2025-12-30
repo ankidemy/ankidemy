@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { 
@@ -60,7 +60,10 @@ const PrerequisitesPanel: React.FC<Props> = ({
   const [searchMeta, setSearchMeta] = useState('');
 
   const [externalEnabled, setExternalEnabled] = useState(false);
+  const externalEnabledTouchedRef = useRef(false);
   const [externalDomains, setExternalDomains] = useState<AccessibleDomain[]>([]);
+  const [externalOwnerQuery, setExternalOwnerQuery] = useState('');
+  const [selectedExternalOwner, setSelectedExternalOwner] = useState('');
   const [externalDomainQuery, setExternalDomainQuery] = useState('');
   const [selectedExternalDomainUid, setSelectedExternalDomainUid] = useState<string>('');
   const [externalDefinitions, setExternalDefinitions] = useState<AvailableItem[]>([]);
@@ -91,15 +94,30 @@ const PrerequisitesPanel: React.FC<Props> = ({
     return externalDomains.find(domain => domain.domainUid === selectedExternalDomainUid) || null;
   }, [externalDomains, selectedExternalDomainUid]);
 
+  const externalOwners = useMemo(() => {
+    const owners = Array.from(new Set(externalDomains.map(domain => domain.ownerUsername).filter(Boolean)));
+    owners.sort((a, b) => a.localeCompare(b));
+    return owners;
+  }, [externalDomains]);
+
+  const filteredExternalOwners = useMemo(() => {
+    const query = externalOwnerQuery.trim().toLowerCase();
+    return externalOwners.filter(owner => {
+      if (!query) return true;
+      return owner.toLowerCase().includes(query);
+    });
+  }, [externalOwners, externalOwnerQuery]);
+
   const filteredExternalDomains = useMemo(() => {
     const query = externalDomainQuery.trim().toLowerCase();
     return externalDomains
       .filter(domain => domain.id !== domainId)
+      .filter(domain => (selectedExternalOwner ? domain.ownerUsername === selectedExternalOwner : false))
       .filter(domain => {
         if (!query) return true;
         return `${domain.ownerUsername} ${domain.name}`.toLowerCase().includes(query);
       });
-  }, [externalDomains, externalDomainQuery, domainId]);
+  }, [externalDomains, externalDomainQuery, domainId, selectedExternalOwner]);
 
   const externalNodeOptions = useMemo(() => {
     return externalNodeType === 'meta_definition' ? externalDefinitions : externalExercises;
@@ -199,10 +217,31 @@ const PrerequisitesPanel: React.FC<Props> = ({
   }, [selectedExternalDomainUid, externalNodeType]);
 
   useEffect(() => {
+    if (selectedExternalOwner === '') {
+      setSelectedExternalDomainUid('');
+      return;
+    }
+    const stillExists = externalDomains.some(domain => domain.ownerUsername === selectedExternalOwner);
+    if (!stillExists) {
+      setSelectedExternalDomainUid('');
+    }
+  }, [selectedExternalOwner, externalDomains]);
+
+  useEffect(() => {
+    setSelectedExternalDomainUid('');
+  }, [selectedExternalOwner]);
+
+  useEffect(() => {
     if (nodeType === 'meta_definition') {
       setExternalNodeType('meta_definition');
     }
   }, [nodeType]);
+
+  useEffect(() => {
+    if (!externalEnabled && externalRows.length > 0 && !externalEnabledTouchedRef.current) {
+      setExternalEnabled(true);
+    }
+  }, [externalRows.length, externalEnabled]);
   const availableDefToAdd = availableDefinitions
     .filter(d => d.numericId !== nodeId)
     .filter(d => !rows.some(r => r.prerequisiteId === d.numericId));
@@ -563,7 +602,10 @@ const PrerequisitesPanel: React.FC<Props> = ({
             <input
               type="checkbox"
               checked={externalEnabled}
-              onChange={(e) => setExternalEnabled(e.target.checked)}
+              onChange={(e) => {
+                externalEnabledTouchedRef.current = true;
+                setExternalEnabled(e.target.checked);
+              }}
               disabled={!canEdit}
             />
             Enable external
@@ -577,9 +619,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
         ) : (
           <div className="space-y-2">
             {externalRows.map(link => {
-              const nodeLabel = link.externalNodeCode
-                ? `${link.externalNodeCode}${link.externalNodeName ? `: ${link.externalNodeName}` : ''}`
-                : (link.externalNodeName || `Node #${link.externalNodeId}`);
+              const nodeLabel = link.externalNodeName || `Node #${link.externalNodeId}`;
               const domainLabel = link.externalDomainName || link.externalDomainUid || 'Unknown domain';
               const statusLabel = externalStatusLabels[link.status];
               const statusClass = link.status === 'ok'
@@ -612,25 +652,51 @@ const PrerequisitesPanel: React.FC<Props> = ({
             )}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">Domain</span>
+                <span className="text-xs font-medium text-gray-600">User</span>
                 <Input
-                  value={externalDomainQuery}
-                  onChange={(e) => setExternalDomainQuery(e.target.value)}
-                  placeholder="Search domains..."
+                  value={externalOwnerQuery}
+                  onChange={(e) => setExternalOwnerQuery(e.target.value)}
+                  placeholder="Search users..."
                   className="h-7 text-xs w-48"
                   disabled={!canEdit}
                 />
               </div>
               <select
                 className="border rounded px-2 py-1 text-sm w-full h-9 disabled:bg-gray-100"
-                value={selectedExternalDomainUid}
+                value={selectedExternalOwner}
                 disabled={!canEdit || externalLoading}
+                onChange={(e) => setSelectedExternalOwner(e.target.value)}
+              >
+                <option value="">Select a user...</option>
+                {filteredExternalOwners.map(owner => (
+                  <option key={owner} value={owner}>
+                    {owner}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">Domain</span>
+                <Input
+                  value={externalDomainQuery}
+                  onChange={(e) => setExternalDomainQuery(e.target.value)}
+                  placeholder="Search domains..."
+                  className="h-7 text-xs w-48"
+                  disabled={!canEdit || !selectedExternalOwner}
+                />
+              </div>
+              <select
+                className="border rounded px-2 py-1 text-sm w-full h-9 disabled:bg-gray-100"
+                value={selectedExternalDomainUid}
+                disabled={!canEdit || externalLoading || !selectedExternalOwner}
                 onChange={(e) => setSelectedExternalDomainUid(e.target.value)}
               >
                 <option value="">Select a domain...</option>
                 {filteredExternalDomains.map(domain => (
                   <option key={domain.domainUid} value={domain.domainUid}>
-                    {domain.ownerUsername} / {domain.name}
+                    {domain.name}
                   </option>
                 ))}
               </select>

@@ -129,6 +129,8 @@ export interface ExternalPrerequisiteLink {
   externalNodeType: 'meta_definition' | 'meta_exercise';
   externalNodeCode?: string;
   externalNodeName?: string;
+  xPosition?: number;
+  yPosition?: number;
   status: 'ok' | 'missing_domain' | 'missing_node' | 'no_access';
 }
 
@@ -768,6 +770,27 @@ export const deleteExternalPrerequisite = async (domainId: number, linkId: numbe
   const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/${linkId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const updateExternalPrerequisitePositions = async (
+  domainId: number,
+  positions: Array<{
+    externalDomainUid: string;
+    externalNodeId: number;
+    externalNodeType: 'meta_definition' | 'meta_exercise';
+    xPosition: number;
+    yPosition: number;
+  }>
+): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/positions`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ positions }),
   });
   return handleResponse(response);
 };
