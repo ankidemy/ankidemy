@@ -102,27 +102,31 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   // FIX 1: Listen for data changes and refresh current item if needed
   useEffect(() => {
     if (isFrenzyMode) return;
-    if (currentReviewItem && currentItemIdRef.current === currentReviewItem.nodeCode) {
-      // Refresh current item details when domain data changes
-      const refreshCurrentItem = async () => {
-        try {
-          let details;
-          if (currentReviewItem.nodeType === 'definition') {
-            // For definitions, nodeId refers to meta_definition id. Fetch next version to review.
-            details = await getNextMetaDefinitionVersion(currentReviewItem.nodeId);
-          } else {
-            // For exercises, nodeId refers to meta_exercise id. Fetch next version to review.
-            details = await getNextMetaExerciseVersion(currentReviewItem.nodeId);
+    if (!currentReviewItem || currentItemIdRef.current !== currentReviewItem.nodeCode) return;
+    if (!itemDetails?.id) return;
+
+    const refreshCurrentItem = async () => {
+      try {
+        if (currentReviewItem.nodeType === 'definition') {
+          const meta = await getMetaDefinition(currentReviewItem.nodeId);
+          const updated = meta.versions?.find(version => version.id === itemDetails.id);
+          if (updated) {
+            setItemDetails(prev => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
           }
-          setItemDetails(details);
-        } catch (error) {
-          console.error("Error refreshing current item:", error);
+        } else {
+          const meta = await getMetaExercise(currentReviewItem.nodeId);
+          const updated = meta.versions?.find(version => version.id === itemDetails.id);
+          if (updated) {
+            setItemDetails(prev => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
+          }
         }
-      };
-      
-      refreshCurrentItem();
-    }
-  }, [srs.state.lastUpdated, currentReviewItem, isFrenzyMode]);
+      } catch (error) {
+        console.error("Error refreshing current item:", error);
+      }
+    };
+
+    refreshCurrentItem();
+  }, [srs.state.lastUpdated, currentReviewItem, itemDetails?.id, isFrenzyMode]);
 
   // Separate cleanup effect with stable dependencies
   useEffect(() => {
@@ -299,8 +303,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     const graph = frenzyGraphRef.current;
     const poolKeys = frenzyPoolRef.current;
-    const dueKeys = new Set(pool.filter(item => item.isDue).map(item => getNodeKey(item.nodeType, item.nodeId)));
-    const targetKeys = dueKeys.size > 0 ? dueKeys : poolKeys;
+    const targetKeys = poolKeys;
     const scored = pool.map(item => ({
       item,
       dependents: getDependentCount(item, targetKeys, graph),
