@@ -9,10 +9,11 @@ import { InlineMarkdownKatex, MarkdownKatex } from '@/app/components/core/Markdo
 import ZoomableImage from '../components/ZoomableImage';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
-import { DueReview, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
+import { ReviewQueueItem, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
 import { Eye, Loader2, CheckCircle, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { getMetaDefinition, getMetaExercise, getNextMetaExerciseVersion, getNextMetaDefinitionVersion, DefinitionVersion, ExerciseVersion, MetaDefinition, MetaExercise } from '@/lib/api';
+import { getMetaDefinition, getMetaExercise, getNextMetaExerciseVersion, getNextMetaDefinitionVersion, recordMetaExerciseOutcome, DefinitionVersion, ExerciseVersion, MetaDefinition, MetaExercise } from '@/lib/api';
+import { getReviewQueue } from '@/lib/srs-api';
 
 interface ReviewWindowContentProps {
   domainId: number;
@@ -60,32 +61,35 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   
   const [sessionType, setSessionType] = useState<SessionType>('mixed');
   const [useReverseOrder, setUseReverseOrder] = useState(false);
-  const [currentReviewItem, setCurrentReviewItem] = useState<DueReview | null>(null);
-  const [reviewQueue, setReviewQueue] = useState<DueReview[]>([]);
+  const [currentReviewItem, setCurrentReviewItem] = useState<ReviewQueueItem | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([]);
   const [isLoadingItem, setIsLoadingItem] = useState(false);
   const [showAnswer, setShowAnswer] = useState(false);
   const [itemDetails, setItemDetails] = useState<any>(null);
+  const [currentExerciseMeta, setCurrentExerciseMeta] = useState<{ id: number; code: string; name: string } | null>(null);
   const [sessionStats, setSessionStats] = useState({ total: 0, completed: 0, correct: 0 });
   const [startTime, setStartTime] = useState<number | null>(null);
   const [autoNavigateToNodes, setAutoNavigateToNodes] = useState(false);
+  const [exercisesPerDefinition, setExercisesPerDefinition] = useState<number>(1);
   // User answer state for non-verifiable exercises
   const [userAnswer, setUserAnswer] = useState<string>("");
   const [answerPreview, setAnswerPreview] = useState<boolean>(false);
   const [frenzyRound, setFrenzyRound] = useState(1);
-  const [frenzyPool, setFrenzyPool] = useState<DueReview[]>([]);
   
   // FIX 1: Add refresh mechanism to update item details when nodes are edited
   const currentItemIdRef = useRef<string | null>(null);
 
   const frenzyGraphRef = useRef<Map<string, FrenzyGraphNode>>(new Map());
   const frenzyPoolRef = useRef<Set<string>>(new Set());
-  const frenzyPoolMapRef = useRef<Map<string, DueReview>>(new Map());
+  const frenzyPoolMapRef = useRef<Map<string, ReviewQueueItem>>(new Map());
+  const frenzyPoolByNodeRef = useRef<Map<string, string[]>>(new Map());
   const frenzyCreditsRef = useRef<Map<string, number>>(new Map());
   const frenzyPersistedRef = useRef<Set<string>>(new Set());
   const frenzyMetaDefinitionCacheRef = useRef<Map<number, MetaDefinition>>(new Map());
   const frenzyMetaExerciseCacheRef = useRef<Map<number, MetaExercise>>(new Map());
   const frenzyMetaDefinitionStatsRef = useRef<Map<number, FrenzyMetaDefinitionStats>>(new Map());
   const frenzyMetaExerciseStatsRef = useRef<Map<number, FrenzyMetaExerciseStats>>(new Map());
+  const reviewedDefinitionsRef = useRef<Set<string>>(new Set());
   
   // Use refs to prevent infinite loops
   const hasInitialized = useRef(false);
@@ -102,19 +106,20 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   // FIX 1: Listen for data changes and refresh current item if needed
   useEffect(() => {
     if (isFrenzyMode) return;
-    if (!currentReviewItem || currentItemIdRef.current !== currentReviewItem.nodeCode) return;
+    if (!currentReviewItem || currentItemIdRef.current !== getQueueItemKey(currentReviewItem)) return;
     if (!itemDetails?.id) return;
 
     const refreshCurrentItem = async () => {
       try {
-        if (currentReviewItem.nodeType === 'definition') {
+        if (currentReviewItem.nodeType === 'definition' && !currentExerciseMeta) {
           const meta = await getMetaDefinition(currentReviewItem.nodeId);
           const updated = meta.versions?.find(version => version.id === itemDetails.id);
           if (updated) {
             setItemDetails(prev => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
           }
         } else {
-          const meta = await getMetaExercise(currentReviewItem.nodeId);
+          const metaId = currentExerciseMeta?.id ?? currentReviewItem.nodeId;
+          const meta = await getMetaExercise(metaId);
           const updated = meta.versions?.find(version => version.id === itemDetails.id);
           if (updated) {
             setItemDetails(prev => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
@@ -126,7 +131,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     };
 
     refreshCurrentItem();
-  }, [srs.state.lastUpdated, currentReviewItem, itemDetails?.id, isFrenzyMode]);
+  }, [srs.state.lastUpdated, currentReviewItem, itemDetails?.id, isFrenzyMode, currentExerciseMeta]);
 
   // Separate cleanup effect with stable dependencies
   useEffect(() => {
@@ -148,6 +153,13 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   }, []);
 
   const getNodeKey = (nodeType: string, nodeId: number) => `${nodeType}_${nodeId}`;
+
+  const getQueueItemKey = (item: ReviewQueueItem) => {
+    if (item.exerciseMetaId) {
+      return `${getNodeKey(item.nodeType, item.nodeId)}_ex_${item.exerciseMetaId}`;
+    }
+    return getNodeKey(item.nodeType, item.nodeId);
+  };
 
   const parseNodeKey = (key: string): { id: number; type: string } | null => {
     const splitIndex = key.lastIndexOf('_');
@@ -220,37 +232,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     return graph;
   }, [srs.state.prerequisites]);
 
-  const isDueNow = (nextReview?: string | null, status?: string, isDue?: boolean) => {
-    if (typeof isDue === 'boolean') return isDue;
-    if (status !== 'grasped') return false;
-    if (!nextReview) return true;
-    const reviewTime = new Date(nextReview).getTime();
-    return Number.isFinite(reviewTime) && reviewTime <= Date.now();
-  };
-
-  const buildFrenzyPool = useCallback(() => {
-    const pool: DueReview[] = [];
-    srs.state.domainProgress.forEach((progress) => {
-      if (progress.status !== 'grasped') return;
-      if (sessionType !== 'mixed' && progress.nodeType !== sessionType) return;
-
-      const nodeCode = progress.nodeCode || `${progress.nodeType}-${progress.nodeId}`;
-      const nodeName = progress.nodeName || nodeCode;
-      pool.push({
-        nodeId: progress.nodeId,
-        nodeType: progress.nodeType,
-        nodeCode,
-        nodeName,
-        status: progress.status,
-        nextReview: progress.nextReview,
-        isDue: isDueNow(progress.nextReview, progress.status, progress.isDue),
-        daysUntilReview: progress.daysUntilReview,
-      });
-    });
-    return pool;
-  }, [srs.state.domainProgress, sessionType]);
-
-  const shuffleQueue = (items: DueReview[]) => {
+  const shuffleQueue = (items: ReviewQueueItem[]) => {
     const next = [...items];
     for (let i = next.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -259,7 +241,21 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     return next;
   };
 
-  const getDependentCount = useCallback((item: DueReview, poolKeys: Set<string>, graph: Map<string, FrenzyGraphNode>) => {
+  const groupQueueByNode = useCallback((items: ReviewQueueItem[]) => {
+    const byNode = new Map<string, ReviewQueueItem[]>();
+    const order: string[] = [];
+    items.forEach((item) => {
+      const key = getNodeKey(item.nodeType, item.nodeId);
+      if (!byNode.has(key)) {
+        byNode.set(key, []);
+        order.push(key);
+      }
+      byNode.get(key)!.push(item);
+    });
+    return { byNode, order };
+  }, []);
+
+  const getDependentCount = useCallback((item: ReviewQueueItem, poolKeys: Set<string>, graph: Map<string, FrenzyGraphNode>) => {
     const startKey = resolveGraphKey(item.nodeType, item.nodeId, graph);
     const startNode = graph.get(startKey);
     if (!startNode) return 0;
@@ -295,48 +291,49 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     return count;
   }, [resolveGraphKey]);
 
-  const buildFrenzyQueue = useCallback((pool: DueReview[], reverseOrder: boolean) => {
-    if (pool.length === 0) return [];
-    if (!reverseOrder) {
-      return shuffleQueue(pool);
-    }
-
-    const graph = frenzyGraphRef.current;
-    const poolKeys = frenzyPoolRef.current;
-    const targetKeys = poolKeys;
-    const scored = pool.map(item => ({
-      item,
-      dependents: getDependentCount(item, targetKeys, graph),
-    }));
-
-    scored.sort((a, b) => {
-      if (a.dependents !== b.dependents) {
-        return b.dependents - a.dependents;
-      }
-      return a.item.nodeCode.localeCompare(b.item.nodeCode);
-    });
-
-    return scored.map(entry => entry.item);
-  }, [getDependentCount]);
-
-  const buildReverseOrderQueue = useCallback((items: DueReview[]) => {
+  const orderQueueByDependents = useCallback((items: ReviewQueueItem[]) => {
     if (items.length === 0) return items;
     const graph = frenzyGraphRef.current.size > 0 ? frenzyGraphRef.current : buildFrenzyGraph();
-    const dueKeys = new Set(items.map(item => getNodeKey(item.nodeType, item.nodeId)));
-    const scored = items.map(item => ({
-      item,
-      dependents: getDependentCount(item, dueKeys, graph),
-    }));
+    const { byNode } = groupQueueByNode(items);
+    const nodeKeys = Array.from(byNode.keys());
+    const poolKeys = new Set(nodeKeys);
+    const scored = nodeKeys.map((key) => {
+      const reps = byNode.get(key) || [];
+      const rep = reps[0];
+      return {
+        key,
+        item: rep,
+        dependents: rep ? getDependentCount(rep, poolKeys, graph) : 0,
+      };
+    });
 
     scored.sort((a, b) => {
       if (a.dependents !== b.dependents) {
         return b.dependents - a.dependents;
       }
+      if (!a.item || !b.item) return 0;
       return a.item.nodeCode.localeCompare(b.item.nodeCode);
     });
 
-    return scored.map(entry => entry.item);
-  }, [buildFrenzyGraph, getDependentCount]);
+    const ordered: ReviewQueueItem[] = [];
+    scored.forEach((entry) => {
+      const group = byNode.get(entry.key);
+      if (group) ordered.push(...group);
+    });
+    return ordered;
+  }, [buildFrenzyGraph, getDependentCount, groupQueueByNode]);
+
+  const buildFrenzyQueue = useCallback((items: ReviewQueueItem[], reverseOrder: boolean) => {
+    if (items.length === 0) return [];
+    if (!reverseOrder) {
+      return shuffleQueue(items);
+    }
+    return orderQueueByDependents(items);
+  }, [orderQueueByDependents]);
+
+  const buildReverseOrderQueue = useCallback((items: ReviewQueueItem[]) => {
+    return orderQueueByDependents(items);
+  }, [orderQueueByDependents]);
 
   const getFrenzyDefinitionVersion = useCallback(async (metaId: number): Promise<DefinitionVersion | null> => {
     let meta = frenzyMetaDefinitionCacheRef.current.get(metaId);
@@ -425,10 +422,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
   const resetFrenzyState = useCallback(() => {
     setFrenzyRound(1);
-    setFrenzyPool([]);
     frenzyGraphRef.current = new Map();
     frenzyPoolRef.current = new Set();
     frenzyPoolMapRef.current = new Map();
+    frenzyPoolByNodeRef.current = new Map();
     frenzyCreditsRef.current = new Map();
     frenzyPersistedRef.current = new Set();
     frenzyMetaDefinitionCacheRef.current = new Map();
@@ -437,7 +434,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     frenzyMetaExerciseStatsRef.current = new Map();
   }, []);
 
-  const propagateImplicitCredits = useCallback((item: DueReview, success: boolean) => {
+  const propagateImplicitCredits = useCallback((item: ReviewQueueItem, success: boolean) => {
     const graph = frenzyGraphRef.current;
     const startKey = resolveGraphKey(item.nodeType, item.nodeId, graph);
     const startNode = graph.get(startKey);
@@ -510,12 +507,13 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     return credits;
   }, [resolveGraphKey]);
 
-  const applyFrenzyCreditsToQueue = useCallback((queue: DueReview[], credits: Array<{ key: string; credit: number }>) => {
+  const applyFrenzyCreditsToQueue = useCallback((queue: ReviewQueueItem[], credits: Array<{ key: string; credit: number }>) => {
     const poolKeys = frenzyPoolRef.current;
     const poolMap = frenzyPoolMapRef.current;
+    const poolByNode = frenzyPoolByNodeRef.current;
     const creditMap = frenzyCreditsRef.current;
     const nextQueue = [...queue];
-    const queueKeys = new Set(nextQueue.map(item => getNodeKey(item.nodeType, item.nodeId)));
+    const queueItemKeys = new Set(nextQueue.map(item => getQueueItemKey(item)));
 
     credits.forEach(({ key, credit }) => {
       if (!poolKeys.has(key)) return;
@@ -524,66 +522,30 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       creditMap.set(key, nextCredit);
 
       if (nextCredit >= 1) {
-        if (queueKeys.has(key)) {
-          queueKeys.delete(key);
-        }
+        const itemKeys = poolByNode.get(key) || [];
+        itemKeys.forEach((itemKey) => queueItemKeys.delete(itemKey));
       } else if (nextCredit <= -1) {
-        if (!queueKeys.has(key)) {
-          const item = poolMap.get(key);
+        const itemKeys = poolByNode.get(key) || [];
+        itemKeys.forEach((itemKey) => {
+          if (queueItemKeys.has(itemKey)) return;
+          const item = poolMap.get(itemKey);
           if (item) {
             nextQueue.push(item);
-            queueKeys.add(key);
+            queueItemKeys.add(itemKey);
           }
-        }
+        });
       }
     });
 
-    return nextQueue.filter(item => queueKeys.has(getNodeKey(item.nodeType, item.nodeId)));
+    return nextQueue.filter(item => queueItemKeys.has(getQueueItemKey(item)));
   }, []);
 
-  // Load review items when session starts
-  useEffect(() => {
-    if (isFrenzyMode) return;
-    if (srs.state.currentSession && srs.state.dueReviews.length > 0 && !currentReviewItem) {
-      const filteredReviews = srs.state.dueReviews.filter(review => {
-        if (sessionType === 'mixed') return true;
-        return review.nodeType === sessionType;
-      });
-      const orderedReviews = useReverseOrder
-        ? buildReverseOrderQueue(filteredReviews)
-        : filteredReviews;
-      
-      setReviewQueue(orderedReviews);
-      setSessionStats(prev => ({ 
-        ...prev, 
-        total: orderedReviews.length, 
-        completed: 0, 
-        correct: 0 
-      }));
-      
-      if (orderedReviews.length > 0) {
-        loadReviewItem(orderedReviews[0]);
-      } else {
-        showToast("No items due for this session type.", "info");
-        srs.endStudySession();
-      }
-    }
-  }, [
-    srs.state.currentSession,
-    srs.state.dueReviews,
-    sessionType,
-    currentReviewItem,
-    srs,
-    isFrenzyMode,
-    useReverseOrder,
-    buildReverseOrderQueue,
-  ]);
-
   // Load a review item
-  const loadReviewItem = useCallback(async (review: DueReview | undefined) => {
+  const loadReviewItem = useCallback(async (review: ReviewQueueItem | undefined) => {
     if (!review) {
       setCurrentReviewItem(null);
       setItemDetails(null);
+      setCurrentExerciseMeta(null);
       currentItemIdRef.current = null;
       ui.setReviewState(false, null, false);
       
@@ -598,18 +560,31 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     setShowAnswer(false);
     setUserAnswer("");
     setAnswerPreview(false);
+    setCurrentExerciseMeta(null);
     setCurrentReviewItem(review);
-    currentItemIdRef.current = review.nodeCode;
+    currentItemIdRef.current = getQueueItemKey(review);
     
     ui.setReviewState(true, review.nodeCode, false);
 
     try {
       let details;
-      if (review.nodeType === 'definition') {
+      const exerciseMetaId = review.exerciseMetaId ?? (review.nodeType === 'exercise' ? review.nodeId : undefined);
+      if (exerciseMetaId) {
+        const meta = {
+          id: exerciseMetaId,
+          code: review.exerciseMetaCode ?? review.nodeCode,
+          name: review.exerciseMetaName ?? review.nodeName,
+        };
+        setCurrentExerciseMeta(meta);
+        details = isFrenzyMode
+          ? await getFrenzyExerciseVersion(exerciseMetaId)
+          : await getNextMetaExerciseVersion(exerciseMetaId);
+      } else if (review.nodeType === 'definition') {
         details = isFrenzyMode
           ? await getFrenzyDefinitionVersion(review.nodeId)
           : await getNextMetaDefinitionVersion(review.nodeId);
       } else {
+        setCurrentExerciseMeta({ id: review.nodeId, code: review.nodeCode, name: review.nodeName });
         details = isFrenzyMode
           ? await getFrenzyExerciseVersion(review.nodeId)
           : await getNextMetaExerciseVersion(review.nodeId);
@@ -640,19 +615,70 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     isFrenzyMode,
     getFrenzyDefinitionVersion,
     getFrenzyExerciseVersion,
+    getNextMetaDefinitionVersion,
+    getNextMetaExerciseVersion,
   ]);
 
-  const startFrenzyRound = useCallback((round: number, pool: DueReview[]) => {
+  const fetchReviewQueue = useCallback(async (mode: 'normal' | 'frenzy') => {
+    const response = await getReviewQueue(domainId, {
+      sessionType,
+      mode,
+      exercisesPerDefinition,
+    });
+    return Array.isArray(response?.queue) ? response.queue : [];
+  }, [domainId, exercisesPerDefinition, sessionType]);
+
+  const startFrenzyRound = useCallback(async (round: number) => {
     frenzyCreditsRef.current = new Map();
-    const queue = buildFrenzyQueue(pool, round === 1);
-    setReviewQueue(queue);
-    setSessionStats({ total: queue.length, completed: 0, correct: 0 });
-    if (queue.length > 0) {
-      loadReviewItem(queue[0]);
+    let queue: ReviewQueueItem[] = [];
+    try {
+      queue = await fetchReviewQueue('frenzy');
+    } catch (error) {
+      console.error('Failed to load frenzy review queue:', error);
+      showToast("Failed to load review queue", "error");
+      return;
+    }
+    if (queue.length === 0) {
+      showToast("No items available for this session type.", "info");
+      setReviewQueue([]);
+      setCurrentReviewItem(null);
+      setSessionStats({ total: 0, completed: 0, correct: 0 });
+      setShowAnswer(false);
+      setItemDetails(null);
+      setCurrentExerciseMeta(null);
+      currentItemIdRef.current = null;
+      ui.setReviewState(false, null, false);
+      if (srs.state.currentSession) {
+        await srs.endStudySession();
+      }
+      resetFrenzyState();
+      return;
+    }
+    const orderedQueue = buildFrenzyQueue(queue, round === 1);
+    const poolMap = new Map<string, ReviewQueueItem>();
+    const poolByNode = new Map<string, string[]>();
+    const poolKeys = new Set<string>();
+    orderedQueue.forEach((item) => {
+      const nodeKey = getNodeKey(item.nodeType, item.nodeId);
+      const itemKey = getQueueItemKey(item);
+      poolKeys.add(nodeKey);
+      poolMap.set(itemKey, item);
+      const group = poolByNode.get(nodeKey) || [];
+      group.push(itemKey);
+      poolByNode.set(nodeKey, group);
+    });
+    frenzyPoolRef.current = poolKeys;
+    frenzyPoolMapRef.current = poolMap;
+    frenzyPoolByNodeRef.current = poolByNode;
+
+    setReviewQueue(orderedQueue);
+    setSessionStats({ total: orderedQueue.length, completed: 0, correct: 0 });
+    if (orderedQueue.length > 0) {
+      loadReviewItem(orderedQueue[0]);
     } else {
       showToast("No items available for this session type.", "info");
     }
-  }, [buildFrenzyQueue, loadReviewItem]);
+  }, [buildFrenzyQueue, fetchReviewQueue, loadReviewItem, resetFrenzyState, srs, ui]);
 
   // Handle session start
   const handleStartSession = useCallback(async () => {
@@ -662,31 +688,35 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     }
     
     try {
-      await srs.startStudySession(sessionType);
+      const session = await srs.startStudySession(sessionType);
+      if (!session) return;
       setStartTime(Date.now());
+      reviewedDefinitionsRef.current = new Set();
 
       if (isFrenzyMode) {
         resetFrenzyState();
-        if (srs.state.domainProgress.size === 0) {
+        if (srs.state.prerequisites.length === 0) {
           await srs.refreshDomainData();
         }
         buildFrenzyGraph();
-        const pool = buildFrenzyPool();
-
-        if (pool.length === 0) {
-          showToast("No grasped items available for this session type.", "info");
+        setFrenzyRound(1);
+        await startFrenzyRound(1);
+      } else {
+        if (useReverseOrder && srs.state.prerequisites.length === 0) {
+          await srs.refreshDomainData();
+        }
+        const queue = await fetchReviewQueue('normal');
+        if (queue.length === 0) {
+          showToast("No items available for this session type.", "info");
           await srs.endStudySession();
-          resetFrenzyState();
           return;
         }
-
-        setFrenzyPool(pool);
-        frenzyPoolRef.current = new Set(pool.map(item => getNodeKey(item.nodeType, item.nodeId)));
-        frenzyPoolMapRef.current = new Map(pool.map(item => [getNodeKey(item.nodeType, item.nodeId), item]));
-        setFrenzyRound(1);
-        startFrenzyRound(1, pool);
+        const orderedQueue = useReverseOrder ? buildReverseOrderQueue(queue) : queue;
+        setReviewQueue(orderedQueue);
+        setSessionStats({ total: orderedQueue.length, completed: 0, correct: 0 });
+        loadReviewItem(orderedQueue[0]);
       }
-      
+
       // Update window title
       ui.updateWindow(windowId, {
         title: `${isFrenzyMode ? 'Frenzy Session' : 'Study Session'}: ${sessionType.charAt(0).toUpperCase() + sessionType.slice(1)}`
@@ -698,14 +728,18 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   }, [
     domainId,
     sessionType,
+    exercisesPerDefinition,
     srs,
     ui,
     windowId,
     isFrenzyMode,
     resetFrenzyState,
     buildFrenzyGraph,
-    buildFrenzyPool,
+    buildReverseOrderQueue,
+    fetchReviewQueue,
     startFrenzyRound,
+    useReverseOrder,
+    loadReviewItem,
   ]);
 
   // Handle showing answer
@@ -723,6 +757,14 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     }
   }, [currentReviewItem, onNavigateToNode]);
 
+  const recordExerciseOutcome = useCallback(async (metaId: number, versionId: number, success: boolean) => {
+    try {
+      await recordMetaExerciseOutcome(metaId, { versionId, success });
+    } catch (error) {
+      console.warn("Failed to record exercise outcome:", error);
+    }
+  }, []);
+
   // Submit review
   const handleSubmitReview = useCallback(async (quality: ReviewQuality) => {
     if (!currentReviewItem || startTime === null) return;
@@ -737,7 +779,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         correct: prev.correct + (success ? 1 : 0),
       }));
 
-      if (currentReviewItem.nodeType === 'definition' && itemDetails?.id) {
+      if (currentReviewItem.nodeType === 'definition' && itemDetails?.id && !currentExerciseMeta) {
         const stats = frenzyMetaDefinitionStatsRef.current.get(currentReviewItem.nodeId) || { versionStats: new Map() };
         const versionStats = stats.versionStats.get(itemDetails.id) || { seen: 0, correct: 0 };
         if (success) versionStats.correct += 1;
@@ -745,8 +787,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         frenzyMetaDefinitionStatsRef.current.set(currentReviewItem.nodeId, stats);
       }
 
-      if (currentReviewItem.nodeType === 'exercise' && itemDetails?.id) {
-        const stats = frenzyMetaExerciseStatsRef.current.get(currentReviewItem.nodeId) || {
+      const isDefinitionExercise = currentReviewItem.nodeType === 'definition' && !!currentExerciseMeta && !!itemDetails?.id;
+      if ((currentReviewItem.nodeType === 'exercise' || isDefinitionExercise) && itemDetails?.id) {
+        const metaId = isDefinitionExercise ? currentExerciseMeta!.id : currentReviewItem.nodeId;
+        const stats = frenzyMetaExerciseStatsRef.current.get(metaId) || {
           lastCorrectDifficulty: 1,
           versionStats: new Map(),
         };
@@ -759,13 +803,16 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
           }
         }
         stats.versionStats.set(itemDetails.id, versionStats);
-        frenzyMetaExerciseStatsRef.current.set(currentReviewItem.nodeId, stats);
+        frenzyMetaExerciseStatsRef.current.set(metaId, stats);
       }
 
       const reviewKey = getNodeKey(currentReviewItem.nodeType, currentReviewItem.nodeId);
       const shouldPersist = !!currentReviewItem.isDue && !frenzyPersistedRef.current.has(reviewKey) && srs.state.currentSession;
 
       if (shouldPersist) {
+        const reviewVersionId = currentReviewItem.nodeType === 'definition' && currentExerciseMeta
+          ? undefined
+          : (itemDetails?.id ? itemDetails.id : undefined);
         const reviewData: ReviewRequest = {
           nodeId: currentReviewItem.nodeId,
           nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
@@ -773,7 +820,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
           quality,
           timeTaken,
           sessionId: srs.state.currentSession?.id,
-          versionId: itemDetails?.id ? itemDetails.id : undefined,
+          versionId: reviewVersionId,
         };
         try {
           await srs.submitReview(reviewData);
@@ -784,6 +831,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         }
       }
 
+      if (currentExerciseMeta && itemDetails?.id) {
+        recordExerciseOutcome(currentExerciseMeta.id, itemDetails.id, success);
+      }
+
       let nextQueue = reviewQueue.slice(1);
       if (!success) {
         nextQueue.push(currentReviewItem);
@@ -791,15 +842,13 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
       const credits = propagateImplicitCredits(currentReviewItem, success);
       nextQueue = applyFrenzyCreditsToQueue(nextQueue, credits);
-      const unique = new Map(nextQueue.map(item => [getNodeKey(item.nodeType, item.nodeId), item]));
-      nextQueue = Array.from(unique.values());
 
       setStartTime(Date.now());
 
       if (nextQueue.length === 0) {
         const nextRound = frenzyRound + 1;
         setFrenzyRound(nextRound);
-        startFrenzyRound(nextRound, frenzyPool);
+        await startFrenzyRound(nextRound);
         return;
       }
 
@@ -810,18 +859,36 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     if (!srs.state.currentSession) return;
 
-    const reviewData: ReviewRequest = {
-      nodeId: currentReviewItem.nodeId,
-      nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
-      success,
-      quality,
-      timeTaken,
-      sessionId: srs.state.currentSession.id,
-      versionId: itemDetails?.id ? itemDetails.id : undefined,
-    };
+    const isDefinitionExercise = currentReviewItem.nodeType === 'definition' && !!currentExerciseMeta && !!itemDetails?.id;
+    const definitionKey = currentReviewItem.nodeType === 'definition'
+      ? getNodeKey(currentReviewItem.nodeType, currentReviewItem.nodeId)
+      : null;
+    const shouldPersist = !!currentReviewItem.isDue
+      && (!definitionKey || !reviewedDefinitionsRef.current.has(definitionKey))
+      && srs.state.currentSession;
 
     try {
-      await srs.submitReview(reviewData);
+      if (shouldPersist) {
+        const reviewData: ReviewRequest = {
+          nodeId: currentReviewItem.nodeId,
+          nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
+          success,
+          quality,
+          timeTaken,
+          sessionId: srs.state.currentSession.id,
+          versionId: currentReviewItem.nodeType === 'definition' && currentExerciseMeta
+            ? undefined
+            : (itemDetails?.id ? itemDetails.id : undefined),
+        };
+        await srs.submitReview(reviewData);
+        if (definitionKey) {
+          reviewedDefinitionsRef.current.add(definitionKey);
+        }
+      }
+
+      if (currentExerciseMeta && itemDetails?.id) {
+        recordExerciseOutcome(currentExerciseMeta.id, itemDetails.id, success);
+      }
 
       setSessionStats(prev => ({
         ...prev,
@@ -846,14 +913,15 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     loadReviewItem,
     isFrenzyMode,
     frenzyRound,
-    frenzyPool,
     propagateImplicitCredits,
     applyFrenzyCreditsToQueue,
     startFrenzyRound,
     itemDetails,
+    currentExerciseMeta,
+    recordExerciseOutcome,
   ]);
 
-  const handleSkipReview = useCallback(() => {
+  const handleSkipReview = useCallback(async () => {
     if (!isFrenzyMode || !currentReviewItem) return;
 
     setSessionStats(prev => ({
@@ -861,7 +929,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       completed: prev.completed + 1,
     }));
 
-    if (currentReviewItem.nodeType === 'definition' && itemDetails?.id) {
+    if (currentReviewItem.nodeType === 'definition' && itemDetails?.id && !currentExerciseMeta) {
       const stats = frenzyMetaDefinitionStatsRef.current.get(currentReviewItem.nodeId) || { versionStats: new Map() };
       const versionStats = stats.versionStats.get(itemDetails.id) || { seen: 0, correct: 0 };
       versionStats.correct += 1;
@@ -869,8 +937,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       frenzyMetaDefinitionStatsRef.current.set(currentReviewItem.nodeId, stats);
     }
 
-    if (currentReviewItem.nodeType === 'exercise' && itemDetails?.id) {
-      const stats = frenzyMetaExerciseStatsRef.current.get(currentReviewItem.nodeId) || {
+    const isDefinitionExercise = currentReviewItem.nodeType === 'definition' && !!currentExerciseMeta && !!itemDetails?.id;
+    if ((currentReviewItem.nodeType === 'exercise' || isDefinitionExercise) && itemDetails?.id) {
+      const metaId = isDefinitionExercise ? currentExerciseMeta!.id : currentReviewItem.nodeId;
+      const stats = frenzyMetaExerciseStatsRef.current.get(metaId) || {
         lastCorrectDifficulty: 1,
         versionStats: new Map(),
       };
@@ -881,7 +951,11 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         stats.lastCorrectDifficulty = difficulty;
       }
       stats.versionStats.set(itemDetails.id, versionStats);
-      frenzyMetaExerciseStatsRef.current.set(currentReviewItem.nodeId, stats);
+      frenzyMetaExerciseStatsRef.current.set(metaId, stats);
+    }
+
+    if (currentExerciseMeta && itemDetails?.id) {
+      recordExerciseOutcome(currentExerciseMeta.id, itemDetails.id, true);
     }
 
     const nextQueue = reviewQueue.slice(1);
@@ -890,7 +964,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     if (nextQueue.length === 0) {
       const nextRound = frenzyRound + 1;
       setFrenzyRound(nextRound);
-      startFrenzyRound(nextRound, frenzyPool);
+      await startFrenzyRound(nextRound);
       return;
     }
 
@@ -902,9 +976,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     itemDetails,
     reviewQueue,
     frenzyRound,
-    frenzyPool,
     startFrenzyRound,
     loadReviewItem,
+    currentExerciseMeta,
+    recordExerciseOutcome,
   ]);
 
   // Handle session end properly
@@ -921,7 +996,9 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       setStartTime(null);
       setShowAnswer(false);
       setItemDetails(null);
+      setCurrentExerciseMeta(null);
       currentItemIdRef.current = null;
+      reviewedDefinitionsRef.current = new Set();
       resetFrenzyState();
       
       // Clear review state in UI context
@@ -944,6 +1021,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       return <p>No item to display.</p>;
     }
 
+    const displayType = currentExerciseMeta ? 'exercise' : currentReviewItem.nodeType;
+
     return (
       <div className="space-y-4">
         {/* Item header */}
@@ -952,6 +1031,16 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
             <span className="font-medium">{currentReviewItem.nodeCode}</span>
             <span>•</span>
             <span className="capitalize">{currentReviewItem.nodeType}</span>
+            {currentExerciseMeta && (
+              <>
+                <span>•</span>
+                <span className="capitalize">exercise</span>
+                <span className="font-medium">{currentExerciseMeta.code}</span>
+                {currentExerciseMeta.name && (
+                  <span className="text-gray-500">{currentExerciseMeta.name}</span>
+                )}
+              </>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <label className="flex items-center text-xs text-gray-600 cursor-pointer">
@@ -977,7 +1066,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         </div>
 
         {/* Content */}
-        {currentReviewItem.nodeType === 'definition' ? (
+        {displayType === 'definition' ? (
           <div>
             {/* Display the prompt from the definition version */}
             <h3 className="text-lg font-semibold mb-2">
@@ -1031,7 +1120,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
           <div>
             {/* Render math-enabled inline title (KaTeX) */}
             <h3 className="text-lg font-semibold mb-2">
-              Exercise: <InlineMarkdownKatex>{itemDetails.name || currentReviewItem.nodeName}</InlineMarkdownKatex>
+              Exercise: <InlineMarkdownKatex>{currentExerciseMeta?.name || itemDetails.name || currentReviewItem.nodeName}</InlineMarkdownKatex>
             </h3>
             <MarkdownKatex className="p-4 bg-gray-50 rounded-md border text-base mb-2 whitespace-pre-wrap">{itemDetails.statement || "N/A"}</MarkdownKatex>
             {itemDetails.statementImagePath && (
@@ -1167,6 +1256,21 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
                   className="mr-2"
                 />
                 Reverse order (dependents first)
+              </label>
+            )}
+            {sessionType !== 'definition' && (
+              <label className="flex items-center justify-center text-sm text-gray-600 mb-4">
+                <span className="mr-2">Exercises per definition</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={exercisesPerDefinition}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value);
+                    setExercisesPerDefinition(Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1);
+                  }}
+                  className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                />
               </label>
             )}
             <div className="space-y-2">

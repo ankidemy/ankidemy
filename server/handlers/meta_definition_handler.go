@@ -412,6 +412,79 @@ func (h *MetaDefinitionHandler) GetNextVersion(c *gin.Context) {
 	})
 }
 
+// GET /api/meta-definitions/:id/next-exercise
+func (h *MetaDefinitionHandler) GetNextExercise(c *gin.Context) {
+	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	meta, _, err := h.metaDAO.FindByID(uint(id64))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
+		return
+	}
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+
+	metaSvc := services.NewMetaExerciseService(h.metaDAO.DB)
+	metaExercise, version, err := metaSvc.SelectExerciseForDefinition(userID, meta.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to select exercise"})
+		return
+	}
+	if metaExercise == nil || version == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
+	resp := models.ExerciseSelectionResponse{
+		MetaExerciseID:   metaExercise.ID,
+		MetaExerciseCode: metaExercise.Code,
+		MetaExerciseName: metaExercise.Name,
+		Version: models.ExerciseResponse{
+			ID:                   version.ID,
+			Code:                 version.Code,
+			Name:                 version.Name,
+			Statement:            version.Statement,
+			Description:          version.Description,
+			StatementImagePath:   version.StatementImagePath,
+			DescriptionImagePath: version.DescriptionImagePath,
+			Notes:                version.Notes,
+			Hints:                version.Hints,
+			DomainID:             version.DomainID,
+			OwnerID:              version.OwnerID,
+			Verifiable:           version.Verifiable,
+			Result:               version.Result,
+			Difficulty:           version.Difficulty,
+			XPosition:            version.XPosition,
+			YPosition:            version.YPosition,
+			CreatedAt:            version.CreatedAt,
+			UpdatedAt:            version.UpdatedAt,
+		},
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
 // PUT /api/meta-definitions/:id
 func (h *MetaDefinitionHandler) UpdateMetaDefinition(c *gin.Context) {
 	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)

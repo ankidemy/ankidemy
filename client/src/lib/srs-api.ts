@@ -13,7 +13,8 @@ import {
   OptimalReviewItem,
   CreditUpdate,
   SessionType,
-  NodeStatus 
+  NodeStatus,
+  ReviewQueueItem
 } from '../types/srs';
 
 // FIX: Import required functions from api.ts
@@ -179,6 +180,27 @@ export const getDueReviews = async (
   type: SessionType = 'mixed'
 ): Promise<{ dueNodes: DueReview[] }> => {
   const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/due?type=${type}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleSRSResponse(response);
+};
+
+export const getReviewQueue = async (
+  domainId: number,
+  params: {
+    sessionType?: SessionType;
+    mode?: 'normal' | 'frenzy';
+    exercisesPerDefinition?: number;
+  } = {}
+): Promise<{ queue: ReviewQueueItem[] }> => {
+  const search = new URLSearchParams();
+  if (params.sessionType) search.set('sessionType', params.sessionType);
+  if (params.mode) search.set('mode', params.mode);
+  if (params.exercisesPerDefinition !== undefined) {
+    search.set('exercisesPerDefinition', String(params.exercisesPerDefinition));
+  }
+  const query = search.toString();
+  const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/review-queue${query ? `?${query}` : ''}`, {
     headers: getAuthHeaders(),
   });
   return handleSRSResponse(response);

@@ -3,9 +3,9 @@ package dao
 import (
 	"errors"
 	"fmt"
-	"time"
-	"myapp/server/models"
 	"gorm.io/gorm"
+	"myapp/server/models"
+	"time"
 )
 
 // SRSDao handles all SRS-related database operations
@@ -45,8 +45,8 @@ func (d *SRSDao) GetPrerequisitesByDomain(domainID uint) ([]models.NodePrerequis
 		WHERE md.domain_id = ?
 	`
 
-    // Get prerequisites for meta_exercises
-    exerciseQuery := `
+	// Get prerequisites for meta_exercises
+	exerciseQuery := `
         SELECT np.* FROM node_prerequisites np
         JOIN meta_exercises e ON (np.node_id = e.id AND np.node_type = 'meta_exercise')
            OR (np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise')
@@ -107,20 +107,20 @@ func (d *SRSDao) DeletePrerequisitesForNode(nodeID uint, nodeType string) error 
 
 // GetUserProgress gets progress for a user on a specific node
 func (d *SRSDao) GetUserProgress(userID uint, nodeID uint, nodeType string) (*models.UserNodeProgress, error) {
-    var progress models.UserNodeProgress
-    // Use Find + RowsAffected to avoid ErrRecordNotFound logs at INFO level
-    tx := d.db.Where("user_id = ? AND node_id = ? AND node_type = ?", userID, nodeID, nodeType).
-        Limit(1).
-        Find(&progress)
+	var progress models.UserNodeProgress
+	// Use Find + RowsAffected to avoid ErrRecordNotFound logs at INFO level
+	tx := d.db.Where("user_id = ? AND node_id = ? AND node_type = ?", userID, nodeID, nodeType).
+		Limit(1).
+		Find(&progress)
 
-    if tx.Error != nil {
-        return nil, tx.Error
-    }
-    if tx.RowsAffected == 0 {
-        return nil, nil // No progress found, not an error
-    }
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return nil, nil // No progress found, not an error
+	}
 
-    return &progress, nil
+	return &progress, nil
 }
 
 // CreateOrUpdateProgress creates or updates user progress
@@ -131,7 +131,7 @@ func (d *SRSDao) CreateOrUpdateProgress(progress *models.UserNodeProgress) error
 // GetDomainProgress gets all progress for a user in a domain
 func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodeProgress, error) {
 	var results []models.NodeProgress
-	
+
 	// Get definition progress (from meta_definitions, progress stored with node_type='definition')
 	defQuery := `
 		SELECT
@@ -163,9 +163,9 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
 			AND unp.node_type = 'definition' AND unp.user_id = ?
 		WHERE md.domain_id = ?
 	`
-	
-    // Get exercise (meta) progress
-    exQuery := `
+
+	// Get exercise (meta) progress
+	exQuery := `
         SELECT 
             e.id as node_id,
             'exercise' as node_type,
@@ -195,28 +195,28 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
             AND unp.node_type = 'exercise' AND unp.user_id = ?
         WHERE e.domain_id = ?
     `
-	
+
 	var defResults []models.NodeProgress
 	var exResults []models.NodeProgress
-	
+
 	if err := d.db.Raw(defQuery, userID, domainID).Scan(&defResults).Error; err != nil {
 		return nil, err
 	}
-	
+
 	if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
 		return nil, err
 	}
-	
+
 	results = append(results, defResults...)
 	results = append(results, exResults...)
-	
+
 	return results, nil
 }
 
 // GetDueReviews gets nodes due for review
 func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]models.NodeProgress, error) {
 	var results []models.NodeProgress
-	
+
 	var query string
 	if nodeType == "definition" {
 		query = `
@@ -244,8 +244,8 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
 			ORDER BY unp.next_review ASC NULLS FIRST
 		`
-    } else if nodeType == "exercise" || nodeType == "meta_exercise" {
-        query = `
+	} else if nodeType == "exercise" || nodeType == "meta_exercise" {
+		query = `
             SELECT 
                 e.id as node_id,
                 'exercise' as node_type,
@@ -296,8 +296,8 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
 			WHERE md.domain_id = ? AND unp.status = 'grasped'
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
 		`
-		
-        exQuery := `
+
+		exQuery := `
             SELECT 
                 e.id as node_id,
                 'exercise' as node_type,
@@ -321,24 +321,60 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
             WHERE e.domain_id = ? AND unp.status = 'grasped' 
                 AND (unp.next_review IS NULL OR unp.next_review <= NOW())
         `
-		
+
 		var defResults []models.NodeProgress
 		var exResults []models.NodeProgress
-		
+
 		if err := d.db.Raw(defQuery, userID, domainID).Scan(&defResults).Error; err != nil {
 			return nil, err
 		}
-		
+
 		if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
 			return nil, err
 		}
-		
+
 		results = append(results, defResults...)
 		results = append(results, exResults...)
-		
+
 		return results, nil
 	}
-	
+
+	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+}
+
+// GetGraspedDefinitions gets all grasped definitions for a domain.
+func (d *SRSDao) GetGraspedDefinitions(userID uint, domainID uint) ([]models.NodeProgress, error) {
+	var results []models.NodeProgress
+	query := `
+		SELECT
+			md.id as node_id,
+			'definition' as node_type,
+			md.code as node_code,
+			md.name as node_name,
+			unp.status,
+			unp.easiness_factor,
+			unp.interval_days,
+			unp.repetitions,
+			unp.last_review,
+			unp.next_review,
+			unp.accumulated_credit,
+			unp.credit_postponed,
+			unp.total_reviews,
+			unp.successful_reviews,
+			CASE
+				WHEN unp.next_review IS NULL THEN NULL
+				WHEN unp.next_review <= NOW() THEN 0
+				ELSE EXTRACT(days FROM (unp.next_review - NOW()))::INTEGER
+			END as days_until_review,
+			CASE
+				WHEN unp.status = 'grasped' AND (unp.next_review IS NULL OR unp.next_review <= NOW()) THEN true
+				ELSE false
+			END as is_due
+		FROM meta_definitions md
+		JOIN user_node_progress unp ON md.id = unp.node_id
+			AND unp.node_type = 'definition' AND unp.user_id = ?
+		WHERE md.domain_id = ? AND unp.status = 'grasped'
+	`
 	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
 }
 
@@ -353,11 +389,11 @@ func (d *SRSDao) CreateSession(session *models.StudySession) error {
 func (d *SRSDao) GetSession(sessionID uint) (*models.StudySession, error) {
 	var session models.StudySession
 	result := d.db.First(&session, sessionID)
-	
+
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, errors.New("session not found")
 	}
-	
+
 	return &session, result.Error
 }
 
@@ -378,11 +414,11 @@ func (d *SRSDao) EndSession(sessionID uint) error {
 func (d *SRSDao) GetUserSessions(userID uint, limit int) ([]models.StudySession, error) {
 	var sessions []models.StudySession
 	query := d.db.Where("user_id = ?", userID).Order("start_time DESC")
-	
+
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
-	
+
 	result := query.Find(&sessions)
 	return sessions, result.Error
 }
@@ -405,17 +441,17 @@ func (d *SRSDao) CreateReviewHistory(history *models.ReviewHistory) error {
 func (d *SRSDao) GetReviewHistory(userID uint, nodeID *uint, nodeType *string, limit int) ([]models.ReviewHistory, error) {
 	var history []models.ReviewHistory
 	query := d.db.Where("user_id = ?", userID)
-	
+
 	if nodeID != nil && nodeType != nil {
 		query = query.Where("node_id = ? AND node_type = ?", *nodeID, *nodeType)
 	}
-	
+
 	query = query.Order("review_time DESC")
-	
+
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
-	
+
 	result := query.Find(&history)
 	return history, result.Error
 }
@@ -426,7 +462,7 @@ func (d *SRSDao) GetReviewHistory(userID uint, nodeID *uint, nodeType *string, l
 func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgressSummary, error) {
 	var stats models.DomainProgressSummary
 	stats.DomainID = domainID
-	
+
 	// Count total nodes
 	var totalDefs int64
 	var totalExs int64
@@ -434,7 +470,7 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	d.db.Model(&models.MetaDefinition{}).Where("domain_id = ?", domainID).Count(&totalDefs)
 	d.db.Model(&models.MetaExercise{}).Where("domain_id = ?", domainID).Count(&totalExs)
 	stats.TotalNodes = int(totalDefs + totalExs)
-	
+
 	// Count by status
 	statusQuery := `
 		SELECT
@@ -449,17 +485,17 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 			AND nodes.type = unp.node_type AND unp.user_id = ?
 		GROUP BY COALESCE(unp.status, 'fresh')
 	`
-	
+
 	type statusCount struct {
 		Status string
 		Count  int
 	}
-	
+
 	var statusCounts []statusCount
 	if err := d.db.Raw(statusQuery, domainID, domainID, userID).Scan(&statusCounts).Error; err != nil {
 		return nil, err
 	}
-	
+
 	for _, sc := range statusCounts {
 		switch sc.Status {
 		case "fresh":
@@ -472,7 +508,7 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 			stats.LearnedNodes = sc.Count
 		}
 	}
-	
+
 	// Count due reviews
 	dueQuery := `
 		SELECT COUNT(*) FROM (
@@ -489,13 +525,13 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
 		) due_nodes
 	`
-	
+
 	var dueCount int64
 	if err := d.db.Raw(dueQuery, userID, domainID, userID, domainID).Count(&dueCount).Error; err != nil {
 		return nil, err
 	}
 	stats.DueReviews = int(dueCount)
-	
+
 	// Count completed today
 	todayQuery := `
 		SELECT COUNT(*) FROM review_history
@@ -507,13 +543,13 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 				SELECT id, 'exercise' FROM meta_exercises WHERE domain_id = ?
 			)
 	`
-	
+
 	var todayCount int64
 	if err := d.db.Raw(todayQuery, userID, domainID, domainID).Count(&todayCount).Error; err != nil {
 		return nil, err
 	}
 	stats.CompletedToday = int(todayCount)
-	
+
 	// Calculate success rate
 	successQuery := `
 		SELECT
@@ -527,19 +563,19 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 				SELECT id, 'exercise' FROM meta_exercises WHERE domain_id = ?
 			)
 	`
-	
+
 	var successStats struct {
 		Total      int64
 		Successful int64
 	}
-	
+
 	if err := d.db.Raw(successQuery, userID, domainID, domainID).Scan(&successStats).Error; err != nil {
 		return nil, err
 	}
-	
+
 	if successStats.Total > 0 {
 		stats.SuccessRate = float64(successStats.Successful) / float64(successStats.Total)
 	}
-	
+
 	return &stats, nil
 }

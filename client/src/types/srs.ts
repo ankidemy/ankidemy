@@ -128,6 +128,18 @@ export interface DueReview {
   daysUntilReview?: number;
 }
 
+// Review queue item for practice/mixed sessions
+export interface ReviewQueueItem {
+  nodeId: number;
+  nodeType: 'definition' | 'exercise';
+  nodeCode: string;
+  nodeName: string;
+  isDue: boolean;
+  exerciseMetaId?: number;
+  exerciseMetaCode?: string;
+  exerciseMetaName?: string;
+}
+
 // Study mode statistics
 export interface StudyModeStats {
   definitions: number;

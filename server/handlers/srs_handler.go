@@ -134,6 +134,57 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"dueNodes": dueNodes})
 }
 
+// GetReviewQueue gets a practice review queue with exercise selections
+func (h *SRSHandler) GetReviewQueue(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+
+	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	sessionType := c.Query("sessionType")
+	if sessionType == "" {
+		sessionType = "mixed"
+	}
+	if sessionType != "definition" && sessionType != "exercise" && sessionType != "mixed" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session type. Must be one of: definition, exercise, mixed"})
+		return
+	}
+
+	mode := c.Query("mode")
+	if mode == "" {
+		mode = "normal"
+	}
+	if mode != "normal" && mode != "frenzy" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid mode. Must be normal or frenzy"})
+		return
+	}
+
+	exCount := 1
+	if val := c.Query("exercisesPerDefinition"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil {
+			exCount = parsed
+		}
+	}
+	if exCount < 1 {
+		exCount = 1
+	}
+
+	queue, err := h.srsService.GetReviewQueue(userID.(uint), uint(domainID), sessionType, mode, exCount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"queue": queue})
+}
+
 // GetReviewHistory gets review history for a user
 func (h *SRSHandler) GetReviewHistory(c *gin.Context) {
 	userID, exists := c.Get("userID")

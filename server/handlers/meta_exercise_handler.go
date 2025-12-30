@@ -348,6 +348,63 @@ func (h *MetaExerciseHandler) GetNextVersion(c *gin.Context) {
 	})
 }
 
+// POST /api/meta-exercises/:id/record-outcome
+func (h *MetaExerciseHandler) RecordOutcome(c *gin.Context) {
+	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		VersionID uint `json:"versionId" binding:"required"`
+		Success   bool `json:"success"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	meta, _, err := h.metaDAO.FindByID(uint(id64))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Meta exercise not found"})
+		return
+	}
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+
+	version, err := h.metaDAO.FindVersionByID(req.VersionID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
+		return
+	}
+	if version.MetaExerciseID != meta.ID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Version does not belong to this meta exercise"})
+		return
+	}
+
+	difficulty := version.Difficulty
+	h.service.RecordVersionOutcome(userID, meta.ID, &version.ID, req.Success, &difficulty)
+	c.JSON(http.StatusOK, gin.H{"message": "Outcome recorded"})
+}
+
 // PUT /api/meta-exercises/:id
 func (h *MetaExerciseHandler) UpdateMetaExercise(c *gin.Context) {
 	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)

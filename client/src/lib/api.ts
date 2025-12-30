@@ -1299,6 +1299,23 @@ export const getNextMetaDefinitionVersion = async (id: number): Promise<Definiti
   return handleResponse(response);
 };
 
+export interface DefinitionExerciseSelection {
+  metaExerciseId: number;
+  metaExerciseCode: string;
+  metaExerciseName: string;
+  version: ExerciseVersion;
+}
+
+export const getNextMetaDefinitionExercise = async (id: number): Promise<DefinitionExerciseSelection | null> => {
+  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/next-exercise`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 204) {
+    return null;
+  }
+  return handleResponse(response);
+};
+
 // Exercise API
 export const getDomainExercises = async (domainId: number): Promise<Exercise[]> => {
   const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
@@ -1381,6 +1398,15 @@ export const deleteMetaExerciseVersion = async (metaId: number, versionId: numbe
 export const getNextMetaExerciseVersion = async (metaId: number): Promise<ExerciseVersion & { code?: string; name?: string }> => {
   const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/next-version`, { headers: getAuthHeaders() });
   return handleResponse(response);
+};
+
+export const recordMetaExerciseOutcome = async (metaId: number, payload: { versionId: number; success: boolean }): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/record-outcome`, {
+    method: 'POST',
+    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  await handleResponse(response);
 };
 
 export const createExercise = async (domainId: number, exercise: ExerciseRequest): Promise<Exercise> => {

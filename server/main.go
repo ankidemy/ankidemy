@@ -271,6 +271,7 @@ func main() {
 				metas.PUT("/:id", metaExerciseHandler.UpdateMetaExercise)
 				metas.DELETE("/:id", metaExerciseHandler.DeleteMetaExercise)
 				metas.GET("/:id/next-version", metaExerciseHandler.GetNextVersion)
+				metas.POST("/:id/record-outcome", metaExerciseHandler.RecordOutcome)
 				metas.POST("/:id/versions", metaExerciseHandler.AddVersion)
 				metas.PUT("/:id/versions/:versionId", metaExerciseHandler.UpdateVersion)
 				metas.DELETE("/:id/versions/:versionId", metaExerciseHandler.DeleteVersion)
@@ -283,6 +284,7 @@ func main() {
 				metaDefs.PUT("/:id", metaDefinitionHandler.UpdateMetaDefinition)
 				metaDefs.DELETE("/:id", metaDefinitionHandler.DeleteMetaDefinition)
 				metaDefs.GET("/:id/next-version", metaDefinitionHandler.GetNextVersion)
+				metaDefs.GET("/:id/next-exercise", metaDefinitionHandler.GetNextExercise)
 				metaDefs.POST("/:id/versions", metaDefinitionHandler.AddVersion)
 				metaDefs.PUT("/:id/versions/:versionId", metaDefinitionHandler.UpdateVersion)
 				metaDefs.DELETE("/:id/versions/:versionId", metaDefinitionHandler.DeleteVersion)
@@ -314,6 +316,7 @@ func main() {
 				// Review endpoints
 				srs.POST("/reviews", srsHandler.SubmitReview)
 				srs.GET("/domains/:domainId/due", srsHandler.GetDueReviews)
+				srs.GET("/domains/:domainId/review-queue", srsHandler.GetReviewQueue)
 				srs.GET("/reviews/history", srsHandler.GetReviewHistory)
 
 				// Progress endpoints
