@@ -25,6 +25,13 @@ type ImportService struct {
 	userDAO       *dao.UserDAO
 }
 
+type DuplicateStrategy string
+
+const (
+	DuplicateStrategyRename DuplicateStrategy = "rename"
+	DuplicateStrategyUpdate DuplicateStrategy = "update"
+)
+
 // FlexibleStringArray handles both string and []string for JSON unmarshaling
 type FlexibleStringArray []string
 
@@ -124,13 +131,15 @@ type ImportExerciseNode struct {
 
 // ImportExerciseVersion represents a single version in a meta-exercise
 type ImportExerciseVersion struct {
-	Statement   string `json:"statement"`
-	Description string `json:"description,omitempty"`
-	Hints       string `json:"hints,omitempty"`
-	Verifiable  bool   `json:"verifiable,omitempty"`
-	Result      string `json:"result,omitempty"`
-	Difficulty  int    `json:"difficulty,omitempty"`
-	Notes       string `json:"notes,omitempty"`
+	Statement            string `json:"statement"`
+	Description          string `json:"description,omitempty"`
+	Hints                string `json:"hints,omitempty"`
+	Verifiable           bool   `json:"verifiable,omitempty"`
+	Result               string `json:"result,omitempty"`
+	Difficulty           int    `json:"difficulty,omitempty"`
+	Notes                string `json:"notes,omitempty"`
+	StatementImagePath   string `json:"statementImagePath,omitempty"`
+	DescriptionImagePath string `json:"descriptionImagePath,omitempty"`
 }
 
 // ImportMetaExerciseNode represents a pool of versions sharing code/name
@@ -146,11 +155,13 @@ type ImportMetaExerciseNode struct {
 
 // ImportMetaDefinitionVersion represents a single definition version in a meta-definition pool
 type ImportMetaDefinitionVersion struct {
-	Prompt      string   `json:"prompt"`
-	Type        string   `json:"type,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Notes       string   `json:"notes,omitempty"`
-	References  []string `json:"references,omitempty"`
+	Prompt               string   `json:"prompt"`
+	Type                 string   `json:"type,omitempty"`
+	Description          string   `json:"description,omitempty"`
+	Notes                string   `json:"notes,omitempty"`
+	References           []string `json:"references,omitempty"`
+	PromptImagePath      string   `json:"promptImagePath,omitempty"`
+	DescriptionImagePath string   `json:"descriptionImagePath,omitempty"`
 }
 
 // ImportMetaDefinitionNode represents a concept pool of definition versions
@@ -217,7 +228,7 @@ func (s *ImportService) CreateDomainWithImport(userID uint, name, privacy, descr
 		domain = createdDomain
 
 		// Import data into the new domain
-		if err := s.importDataToDomain(tx, domain, userID, data); err != nil {
+		if err := s.importDataToDomain(tx, domain, userID, data, DuplicateStrategyUpdate); err != nil {
 			return fmt.Errorf("failed to import data: %v", err)
 		}
 
@@ -235,7 +246,7 @@ func (s *ImportService) CreateDomainWithImport(userID uint, name, privacy, descr
 }
 
 // ImportToDomain imports data into an existing domain
-func (s *ImportService) ImportToDomain(domainID uint, data *ImportData) error {
+func (s *ImportService) ImportToDomain(domainID uint, data *ImportData, strategy DuplicateStrategy) error {
 	// Validate import data first
 	if err := s.ValidateImportData(data); err != nil {
 		return fmt.Errorf("import data validation failed: %v", err)
@@ -249,7 +260,7 @@ func (s *ImportService) ImportToDomain(domainID uint, data *ImportData) error {
 		}
 
 		// Import data into the domain
-		return s.importDataToDomain(tx, domain, domain.OwnerID, data)
+		return s.importDataToDomain(tx, domain, domain.OwnerID, data, strategy)
 	})
 }
 
@@ -310,11 +321,13 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			}
 
 			vnodes = append(vnodes, ImportMetaDefinitionVersion{
-				Prompt:      v.Prompt,
-				Type:        v.Type,
-				Description: v.Description,
-				Notes:       v.Notes,
-				References:  refStrings,
+				Prompt:               v.Prompt,
+				Type:                 v.Type,
+				Description:          v.Description,
+				Notes:                v.Notes,
+				References:           refStrings,
+				PromptImagePath:      v.PromptImagePath,
+				DescriptionImagePath: v.DescriptionImagePath,
 			})
 		}
 		exportData.MetaDefinitions[md.Code] = ImportMetaDefinitionNode{
@@ -341,13 +354,15 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		vnodes := make([]ImportExerciseVersion, 0, len(versions))
 		for _, v := range versions {
 			vnodes = append(vnodes, ImportExerciseVersion{
-				Statement:   v.Statement,
-				Description: v.Description,
-				Hints:       v.Hints,
-				Verifiable:  v.Verifiable,
-				Result:      v.Result,
-				Difficulty:  v.Difficulty,
-				Notes:       v.Notes,
+				Statement:            v.Statement,
+				Description:          v.Description,
+				Hints:                v.Hints,
+				Verifiable:           v.Verifiable,
+				Result:               v.Result,
+				Difficulty:           v.Difficulty,
+				Notes:                v.Notes,
+				StatementImagePath:   v.StatementImagePath,
+				DescriptionImagePath: v.DescriptionImagePath,
 			})
 		}
 		exportData.MetaExercises[me.Code] = ImportMetaExerciseNode{
@@ -666,16 +681,16 @@ func (s *ImportService) ImportTutorialIfNotExists() error {
 	return nil
 }
 
-// loadExistingCodes loads all existing codes from a domain (both definitions and meta-exercises)
+// loadExistingCodes loads all existing codes from a domain (meta-definitions + meta-exercises)
 func (s *ImportService) loadExistingCodes(domainID uint) (map[string]bool, error) {
 	codesInUse := make(map[string]bool)
 
-	// Load definition codes
-	var definitions []models.Definition
-	if err := s.db.Select("code").Where("domain_id = ?", domainID).Find(&definitions).Error; err != nil {
+	// Load meta-definition codes
+	var metaDefinitions []models.MetaDefinition
+	if err := s.db.Select("code").Where("domain_id = ?", domainID).Find(&metaDefinitions).Error; err != nil {
 		return nil, err
 	}
-	for _, def := range definitions {
+	for _, def := range metaDefinitions {
 		codesInUse[def.Code] = true
 	}
 
@@ -691,6 +706,29 @@ func (s *ImportService) loadExistingCodes(domainID uint) (map[string]bool, error
 	return codesInUse, nil
 }
 
+func (s *ImportService) loadExistingMetaMaps(domainID uint) (map[string]*models.MetaDefinition, map[string]*models.MetaExercise, error) {
+	metaDefs := make(map[string]*models.MetaDefinition)
+	metaExs := make(map[string]*models.MetaExercise)
+
+	var defs []models.MetaDefinition
+	if err := s.db.Where("domain_id = ?", domainID).Find(&defs).Error; err != nil {
+		return nil, nil, err
+	}
+	for i := range defs {
+		metaDefs[defs[i].Code] = &defs[i]
+	}
+
+	var exs []models.MetaExercise
+	if err := s.db.Where("domain_id = ?", domainID).Find(&exs).Error; err != nil {
+		return nil, nil, err
+	}
+	for i := range exs {
+		metaExs[exs[i].Code] = &exs[i]
+	}
+
+	return metaDefs, metaExs, nil
+}
+
 // uniqueCodeFor finds a unique code by appending .1, .2, etc. if the base code is taken
 func uniqueCodeFor(base string, used map[string]bool) string {
 	if !used[base] {
@@ -702,6 +740,15 @@ func uniqueCodeFor(base string, used map[string]bool) string {
 		if !used[candidate] {
 			return candidate
 		}
+	}
+}
+
+func normalizeDuplicateStrategy(strategy DuplicateStrategy) DuplicateStrategy {
+	switch strategy {
+	case DuplicateStrategyRename, DuplicateStrategyUpdate:
+		return strategy
+	default:
+		return DuplicateStrategyUpdate
 	}
 }
 
@@ -845,11 +892,16 @@ func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, 
 }
 
 // importDataToDomain handles the core import logic for definitions and exercises
-func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, ownerID uint, data *ImportData) error {
+func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, ownerID uint, data *ImportData, strategy DuplicateStrategy) error {
+	strategy = normalizeDuplicateStrategy(strategy)
 	// Load existing codes in the target domain
 	codesInUse, err := s.loadExistingCodes(domain.ID)
 	if err != nil {
 		return fmt.Errorf("failed to load existing codes: %v", err)
+	}
+	existingMetaDefs, existingMetaExs, err := s.loadExistingMetaMaps(domain.ID)
+	if err != nil {
+		return fmt.Errorf("failed to load existing nodes: %v", err)
 	}
 
 	// Build code assignment maps for collision-safe renaming
@@ -912,7 +964,10 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		if baseCode == "" {
 			baseCode = code
 		}
-		assigned := uniqueCodeFor(baseCode, codesInUse)
+		assigned := baseCode
+		if !(strategy == DuplicateStrategyUpdate && existingMetaDefs[baseCode] != nil) {
+			assigned = uniqueCodeFor(baseCode, codesInUse)
+		}
 		metaDefAssigned[code] = assigned
 		codesInUse[assigned] = true
 	}
@@ -934,7 +989,10 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		if baseCode == "" {
 			baseCode = code
 		}
-		assignedCode := uniqueCodeFor(baseCode, codesInUse)
+		assignedCode := baseCode
+		if !(strategy == DuplicateStrategyUpdate && existingMetaExs[baseCode] != nil) {
+			assignedCode = uniqueCodeFor(baseCode, codesInUse)
+		}
 		metaAssigned[code] = assignedCode
 		codesInUse[assignedCode] = true
 	}
@@ -946,7 +1004,27 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	// Create meta-definitions first (with no prerequisites)
 	metaDefs := make(map[string]*models.MetaDefinition)
 	for code, node := range data.MetaDefinitions {
+		baseCode := node.Code
+		if baseCode == "" {
+			baseCode = code
+		}
 		assigned := metaDefAssigned[code]
+		if strategy == DuplicateStrategyUpdate {
+			if existing, ok := existingMetaDefs[assigned]; ok {
+				existing.Name = node.Name
+				existing.XPosition = node.XPosition
+				existing.YPosition = node.YPosition
+				if err := tx.Save(existing).Error; err != nil {
+					return fmt.Errorf("failed to update metaDefinition %s: %v", assigned, err)
+				}
+				metaDefs[assigned] = existing
+				if assigned != baseCode {
+					log.Printf("Updated meta-definition: %s (ID: %d) [renamed from %s]", existing.Name, existing.ID, code)
+				}
+				continue
+			}
+		}
+
 		md := &models.MetaDefinition{
 			Code:      assigned,
 			Name:      node.Name,
@@ -959,7 +1037,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			return fmt.Errorf("failed to create metaDefinition %s: %v", assigned, err)
 		}
 		metaDefs[assigned] = md
-		if assigned != code {
+		if assigned != baseCode {
 			log.Printf("Created meta-definition: %s (ID: %d) [renamed from %s]", md.Name, md.ID, code)
 		}
 	}
@@ -970,13 +1048,35 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	for code, node := range data.MetaDefinitions {
 		assigned := metaDefAssigned[code]
 		md := metaDefs[assigned]
+		if strategy == DuplicateStrategyUpdate {
+			if _, ok := existingMetaDefs[assigned]; ok {
+				var versionIDs []uint
+				if err := tx.Model(&models.Definition{}).
+					Where("meta_definition_id = ?", md.ID).
+					Pluck("id", &versionIDs).Error; err != nil {
+					return fmt.Errorf("failed to load existing versions for %s: %v", assigned, err)
+				}
+				if len(versionIDs) > 0 {
+					if err := tx.Where("definition_id IN ?", versionIDs).
+						Delete(&models.Reference{}).Error; err != nil {
+						return fmt.Errorf("failed to clear references for %s: %v", assigned, err)
+					}
+				}
+				if err := tx.Where("meta_definition_id = ?", md.ID).
+					Delete(&models.Definition{}).Error; err != nil {
+					return fmt.Errorf("failed to clear versions for %s: %v", assigned, err)
+				}
+			}
+		}
 		for idx, v := range node.Versions {
 			def, err := metaDefDAO.AddVersion(md.ID, &models.DefinitionVersionRequest{
-				Prompt:      v.Prompt,
-				Type:        v.Type,
-				Description: v.Description,
-				Notes:       v.Notes,
-				References:  v.References,
+				Prompt:               v.Prompt,
+				Type:                 v.Type,
+				Description:          v.Description,
+				Notes:                v.Notes,
+				References:           v.References,
+				PromptImagePath:      v.PromptImagePath,
+				DescriptionImagePath: v.DescriptionImagePath,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create version for %s: %v", assigned, err)
@@ -989,9 +1089,6 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 	// Attach concept prerequisites (meta_definition → meta_definition)
 	for code, node := range data.MetaDefinitions {
-		if len(node.Prerequisites) == 0 {
-			continue
-		}
 		assigned := metaDefAssigned[code]
 		md := metaDefs[assigned]
 		var ids []uint
@@ -1016,7 +1113,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				log.Printf("Warning: Unknown prerequisite code %s for metaDefinition %s", pcode, assigned)
 			}
 		}
-		if len(ids) > 0 {
+		if len(ids) > 0 || strategy == DuplicateStrategyUpdate {
 			if err := metaDefDAO.Update(md, ids, weights); err != nil {
 				return fmt.Errorf("failed to attach prerequisites for %s: %v", assigned, err)
 			}
@@ -1028,23 +1125,52 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	// Create meta-exercises and then attach prerequisites + versions
 	metas := make(map[string]*models.MetaExercise) // map by assigned code
 	for code, me := range data.MetaExercises {
+		baseCode := me.Code
+		if baseCode == "" {
+			baseCode = code
+		}
 		assignedCode := metaAssigned[code]
+		if strategy == DuplicateStrategyUpdate {
+			if existing, ok := existingMetaExs[assignedCode]; ok {
+				existing.Name = me.Name
+				existing.XPosition = me.XPosition
+				existing.YPosition = me.YPosition
+				if err := tx.Save(existing).Error; err != nil {
+					return fmt.Errorf("failed to update metaExercise %s: %v", assignedCode, err)
+				}
+				metas[assignedCode] = existing
+				if assignedCode != baseCode {
+					log.Printf("Updated meta-exercise: %s (ID: %d) [renamed from %s]", existing.Name, existing.ID, code)
+				}
+				continue
+			}
+		}
+
 		meta := &models.MetaExercise{Code: assignedCode, Name: me.Name, DomainID: domain.ID, OwnerID: ownerID, XPosition: me.XPosition, YPosition: me.YPosition}
 		if err := tx.Create(meta).Error; err != nil {
 			return fmt.Errorf("failed to create metaExercise %s: %v", assignedCode, err)
 		}
 		metas[assignedCode] = meta
-		if assignedCode != code {
+		if assignedCode != baseCode {
 			log.Printf("Created meta-exercise: %s (ID: %d) [renamed from %s]", meta.Name, meta.ID, code)
 		}
 	}
 
 	// Attach meta prerequisites (can reference definitions or other metas) after all metas exist
 	for code, me := range data.MetaExercises {
+		assignedCode := metaAssigned[code]
+		meta := metas[assignedCode]
+		if strategy == DuplicateStrategyUpdate {
+			if _, ok := existingMetaExs[assignedCode]; ok {
+				if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "meta_exercise").
+					Delete(&models.NodePrerequisite{}).Error; err != nil {
+					return fmt.Errorf("failed to clear prerequisites for %s: %v", assignedCode, err)
+				}
+			}
+		}
 		if len(me.Prerequisites) == 0 {
 			continue
 		}
-		assignedCode := metaAssigned[code]
 		// Deduplicate in case input contains duplicates
 		seen := map[string]struct{}{}
 		for _, pcode := range me.Prerequisites {
@@ -1060,10 +1186,6 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				resolvedMetaDefCode = pcode
 			}
 			resolvedMetaExCode := metaAssigned[pcode]
-			resolvedDefCode := defAssigned[pcode]
-			if resolvedDefCode == "" {
-				resolvedDefCode = pcode
-			}
 
 			// 1. Try to find in imported meta-definitions (concepts) - preferred for graph
 			if metaDef, ok := metaDefs[resolvedMetaDefCode]; ok {
@@ -1126,11 +1248,21 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	for code, me := range data.MetaExercises {
 		assignedCode := metaAssigned[code]
 		meta := metas[assignedCode]
+		if strategy == DuplicateStrategyUpdate {
+			if _, ok := existingMetaExs[assignedCode]; ok {
+				if err := tx.Where("meta_exercise_id = ?", meta.ID).
+					Delete(&models.Exercise{}).Error; err != nil {
+					return fmt.Errorf("failed to clear versions for %s: %v", assignedCode, err)
+				}
+			}
+		}
 		for _, v := range me.Versions {
 			vv := &models.Exercise{
 				Code: assignedCode, Name: me.Name, Statement: v.Statement, Description: v.Description, Hints: v.Hints, Notes: v.Notes,
 				DomainID: domain.ID, OwnerID: ownerID, MetaExerciseID: meta.ID, Verifiable: v.Verifiable, Result: v.Result, Difficulty: v.Difficulty,
 				XPosition: me.XPosition, YPosition: me.YPosition,
+				StatementImagePath:   v.StatementImagePath,
+				DescriptionImagePath: v.DescriptionImagePath,
 			}
 			if err := tx.Create(vv).Error; err != nil {
 				return fmt.Errorf("failed to create version for %s: %v", assignedCode, err)
@@ -1232,11 +1364,14 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}
 		return out
 	}
-	toMemberSlice := func(groupID uint, memberSet map[string]models.NodeGroupMember) []models.NodeGroupMember {
-		out := make([]models.NodeGroupMember, 0, len(memberSet))
-		for _, member := range memberSet {
-			member.GroupID = groupID
-			out = append(out, member)
+	toMemberSlice := func(groupID uint, seedSet map[string]models.NodeGroupSeed) []models.NodeGroupMember {
+		out := make([]models.NodeGroupMember, 0, len(seedSet))
+		for _, seed := range seedSet {
+			out = append(out, models.NodeGroupMember{
+				GroupID:  groupID,
+				NodeID:   seed.NodeID,
+				NodeType: seed.NodeType,
+			})
 		}
 		return out
 	}
@@ -1245,7 +1380,6 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	if err := tx.Where("domain_id = ?", domain.ID).Find(&existingGroups).Error; err != nil {
 		return fmt.Errorf("failed to load existing groups: %v", err)
 	}
-	groupIDs := make([]uint, 0, len(existingGroups))
 	groupsByName := make(map[string]*models.NodeGroup, len(existingGroups))
 	for i := range existingGroups {
 		group := &existingGroups[i]
@@ -1253,38 +1387,8 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		if groupKey == "" {
 			continue
 		}
-		groupIDs = append(groupIDs, group.ID)
 		if _, exists := groupsByName[groupKey]; !exists {
 			groupsByName[groupKey] = group
-		}
-	}
-
-	seedMap := make(map[uint]map[string]models.NodeGroupSeed)
-	memberMap := make(map[uint]map[string]models.NodeGroupMember)
-	if len(groupIDs) > 0 {
-		var seeds []models.NodeGroupSeed
-		if err := tx.Where("group_id IN ?", groupIDs).Find(&seeds).Error; err != nil {
-			return fmt.Errorf("failed to load group seeds: %v", err)
-		}
-		var members []models.NodeGroupMember
-		if err := tx.Where("group_id IN ?", groupIDs).Find(&members).Error; err != nil {
-			return fmt.Errorf("failed to load group members: %v", err)
-		}
-		for _, seed := range seeds {
-			set := seedMap[seed.GroupID]
-			if set == nil {
-				set = make(map[string]models.NodeGroupSeed)
-				seedMap[seed.GroupID] = set
-			}
-			set[buildGroupKey(seed.NodeType, seed.NodeID)] = seed
-		}
-		for _, member := range members {
-			set := memberMap[member.GroupID]
-			if set == nil {
-				set = make(map[string]models.NodeGroupMember)
-				memberMap[member.GroupID] = set
-			}
-			set[buildGroupKey(member.NodeType, member.NodeID)] = member
 		}
 	}
 
@@ -1301,51 +1405,31 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		incomingMembers := resolveGroupRefs(group.Members)
 
 		if existing, exists := groupsByName[name]; exists {
-			seedSet := seedMap[existing.ID]
-			if seedSet == nil {
-				seedSet = make(map[string]models.NodeGroupSeed)
+			existing.IsExact = group.IsExact
+			existing.XPosition = group.XPosition
+			existing.YPosition = group.YPosition
+			if err := tx.Save(existing).Error; err != nil {
+				return fmt.Errorf("failed to update group %s: %v", name, err)
 			}
-			for key, seed := range incomingSeeds {
-				seedSet[key] = seed
-			}
-			if !existing.IsExact && len(incomingMembers) > 0 {
-				for key, member := range incomingMembers {
-					seedSet[key] = member
-				}
-			}
-			seedMap[existing.ID] = seedSet
-
-			seeds := toSeedSlice(existing.ID, seedSet)
 			if err := tx.Where("group_id = ?", existing.ID).Delete(&models.NodeGroupSeed{}).Error; err != nil {
 				return fmt.Errorf("failed to update group seeds for %s: %v", name, err)
 			}
-			if err := tx.Create(&seeds).Error; err != nil {
-				return fmt.Errorf("failed to update group seeds for %s: %v", name, err)
+			if err := tx.Where("group_id = ?", existing.ID).Delete(&models.NodeGroupMember{}).Error; err != nil {
+				return fmt.Errorf("failed to update group members for %s: %v", name, err)
+			}
+
+			seeds := toSeedSlice(existing.ID, incomingSeeds)
+			if len(seeds) > 0 {
+				if err := tx.Create(&seeds).Error; err != nil {
+					return fmt.Errorf("failed to update group seeds for %s: %v", name, err)
+				}
 			}
 
 			if existing.IsExact {
-				memberSet := memberMap[existing.ID]
-				if memberSet == nil {
-					memberSet = make(map[string]models.NodeGroupMember)
-				}
 				if len(incomingMembers) == 0 {
-					for key, seed := range incomingSeeds {
-						memberSet[key] = models.NodeGroupMember{NodeID: seed.NodeID, NodeType: seed.NodeType}
-					}
-				} else {
-					for key, member := range incomingMembers {
-						memberSet[key] = models.NodeGroupMember{NodeID: member.NodeID, NodeType: member.NodeType}
-					}
+					incomingMembers = incomingSeeds
 				}
-				for key, seed := range seedSet {
-					memberSet[key] = models.NodeGroupMember{NodeID: seed.NodeID, NodeType: seed.NodeType}
-				}
-				memberMap[existing.ID] = memberSet
-
-				members := toMemberSlice(existing.ID, memberSet)
-				if err := tx.Where("group_id = ?", existing.ID).Delete(&models.NodeGroupMember{}).Error; err != nil {
-					return fmt.Errorf("failed to update group members for %s: %v", name, err)
-				}
+				members := toMemberSlice(existing.ID, incomingMembers)
 				if len(members) > 0 {
 					if err := tx.Create(&members).Error; err != nil {
 						return fmt.Errorf("failed to update group members for %s: %v", name, err)
@@ -1376,23 +1460,16 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		if err := tx.Create(&seeds).Error; err != nil {
 			return fmt.Errorf("failed to create group seeds for %s: %v", name, err)
 		}
-		seedMap[groupModel.ID] = incomingSeeds
-
 		if group.IsExact {
 			if len(incomingMembers) == 0 {
 				incomingMembers = incomingSeeds
 			}
-			memberSet := make(map[string]models.NodeGroupMember)
-			for key, member := range incomingMembers {
-				memberSet[key] = models.NodeGroupMember{NodeID: member.NodeID, NodeType: member.NodeType}
-			}
-			members := toMemberSlice(groupModel.ID, memberSet)
+			members := toMemberSlice(groupModel.ID, incomingMembers)
 			if len(members) > 0 {
 				if err := tx.Create(&members).Error; err != nil {
 					return fmt.Errorf("failed to create group members for %s: %v", name, err)
 				}
 			}
-			memberMap[groupModel.ID] = memberSet
 		}
 	}
 

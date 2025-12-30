@@ -218,6 +218,9 @@ func main() {
 				domains.POST("/:id/import-graph", graphHandler.ImportDomain)
 				// ImportService import/export (round-trip compatible format)
 				domains.GET("/:id/export-data", domainHandler.ExportImportData)
+				// Full backup import/export (zip)
+				domains.GET("/:id/backup", domainHandler.ExportBackup)
+				domains.POST("/:id/import-backup", domainHandler.ImportBackup)
 				// Import is handled by domainHandler.ImportToDomain above
 			}
 

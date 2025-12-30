@@ -12,7 +12,7 @@ import {
   updateDomain, 
   getDomain,
   createDomainWithImport,
-  uploadJsonFile,
+  importDomainBackup,
   validateImportData,
   Domain,
   DomainExportData
@@ -43,9 +43,10 @@ const DomainForm: React.FC<DomainFormProps> = ({
   const [initialLoadDone, setInitialLoadDone] = useState(!isEditing);
 
   // NEW: Import-related state
-  const [importMode, setImportMode] = useState(false);
+  const [importMode, setImportMode] = useState(allowImport);
   const [importData, setImportData] = useState<DomainExportData | null>(null);
-  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importIsZip, setImportIsZip] = useState(false);
   const [importPreview, setImportPreview] = useState<{
     definitions: number;
     exercises: number; // counts metaExercises if present, otherwise legacy exercises
@@ -78,11 +79,32 @@ const DomainForm: React.FC<DomainFormProps> = ({
     }
   }, [domainId, isEditing]);
 
-  // NEW: Handle file upload
-  const handleFileUpload = async () => {
+  // NEW: Handle file selection (JSON or ZIP)
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setImportData(null);
+      setImportPreview(null);
+      setImportFile(null);
+      setImportIsZip(false);
+      return;
+    }
+
+    setError(null);
+    setImportFile(file);
+
+    const isZip = file.name.toLowerCase().endsWith('.zip');
+    setImportIsZip(isZip);
+    if (isZip) {
+      setImportData(null);
+      setImportPreview(null);
+      showToast('ZIP backup loaded. Ready to import.', 'success');
+      return;
+    }
+
     try {
-      setError(null);
-      const fileData = await uploadJsonFile();
+      const text = await file.text();
+      const fileData = JSON.parse(text) as DomainExportData;
       
       // Validate the data
       const validation = validateImportData(fileData);
@@ -92,7 +114,6 @@ const DomainForm: React.FC<DomainFormProps> = ({
       }
 
       setImportData(fileData);
-      setImportFileName('imported-domain.json'); // We don't have access to the actual filename
 
       // Generate preview (support metaDefinitions and metaExercises preferred path)
       const metaDefKeys = Object.keys(fileData.metaDefinitions || {});
@@ -129,9 +150,9 @@ const DomainForm: React.FC<DomainFormProps> = ({
   // NEW: Clear import data
   const clearImportData = () => {
     setImportData(null);
-    setImportFileName(null);
     setImportPreview(null);
-    setImportMode(false);
+    setImportFile(null);
+    setImportIsZip(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -142,9 +163,9 @@ const DomainForm: React.FC<DomainFormProps> = ({
       return;
     }
 
-    // For import mode, validate that we have import data
-    if (importMode && !importData) {
-      setError("Please select a JSON file to import");
+    // For import mode, validate that we have import data or a zip file
+    if (importMode && !importData && !(importIsZip && importFile)) {
+      setError("Please select a JSON or ZIP file to import");
       return;
     }
     
@@ -161,8 +182,16 @@ const DomainForm: React.FC<DomainFormProps> = ({
           description: description.trim() || undefined,
           privacy
         });
+      } else if (importMode && importIsZip && importFile) {
+        // Create domain then apply ZIP backup
+        domain = await createDomain({
+          name,
+          description: description.trim() || undefined,
+          privacy
+        });
+        await importDomainBackup(domain.id, importFile);
       } else if (importMode && importData) {
-        // Create domain with import data
+        // Create domain with JSON import data
         domain = await createDomainWithImport(name, privacy, description.trim(), importData);
       } else {
         // Create regular domain without import
@@ -243,7 +272,7 @@ const DomainForm: React.FC<DomainFormProps> = ({
               onClick={() => setImportMode(true)}
             >
               <Upload size={14} className="mr-1" />
-              Import from JSON
+              Import File
             </Button>
           </div>
         )}
@@ -261,8 +290,8 @@ const DomainForm: React.FC<DomainFormProps> = ({
           {importMode && !isEditing && (
             <div className="space-y-4 p-4 bg-blue-50 rounded-md border border-blue-200">
               <div className="flex items-center justify-between">
-                <h3 className="font-medium text-blue-900">Import JSON Data</h3>
-                {importData && (
+                <h3 className="font-medium text-blue-900">Import File</h3>
+                {(importData || importFile) && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -275,30 +304,30 @@ const DomainForm: React.FC<DomainFormProps> = ({
                   </Button>
                 )}
               </div>
-              
-              {!importData ? (
-                <div className="text-center py-6">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleFileUpload}
-                    className="border-dashed border-2 border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                  >
-                    <Upload size={16} className="mr-2" />
-                    Select JSON File
-                  </Button>
-                  <p className="text-xs text-blue-600 mt-2">
-                    Choose a domain export file (.json)
+
+              {!importData && !importFile ? (
+                <div className="text-center py-6 space-y-3">
+                  <Input
+                    type="file"
+                    accept=".json,.zip"
+                    onChange={handleFileChange}
+                    disabled={isLoading}
+                    className="border-dashed border-2 border-blue-300 bg-blue-50 text-blue-700"
+                  />
+                  <p className="text-xs text-blue-600">
+                    Choose a domain export JSON or full backup ZIP
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center text-green-700 bg-green-50 p-2 rounded">
                     <FileText size={16} className="mr-2" />
-                    <span className="text-sm font-medium">File loaded successfully</span>
+                    <span className="text-sm font-medium">
+                      {importIsZip ? 'ZIP backup loaded' : 'JSON file loaded'}
+                    </span>
                   </div>
-                  
-                  {importPreview && (
+
+                  {!importIsZip && importPreview && (
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div className="bg-white p-3 rounded border">
                         <div className="font-medium text-blue-900">Definitions</div>
@@ -408,7 +437,7 @@ const DomainForm: React.FC<DomainFormProps> = ({
           </Button>
           <Button 
             type="submit"
-            disabled={isLoading || (importMode && !importData)}
+            disabled={isLoading || (importMode && !importData && !(importIsZip && importFile))}
           >
             {isLoading 
               ? isEditing ? "Updating..." : (importMode ? "Creating with Import..." : "Creating...")

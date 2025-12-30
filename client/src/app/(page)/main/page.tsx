@@ -54,7 +54,8 @@ export default function MainPage() {
   const [copyPrivacy, setCopyPrivacy] = useState<'public' | 'private'>('private');
   const [copying, setCopying] = useState(false);
 
-  // NEW: Import dialog state
+  // NEW: Create/Import dialog state
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
 
   const router = useRouter();
@@ -311,6 +312,20 @@ export default function MainPage() {
     router.push(`/main/domains/${domain.id}/study`);
   };
 
+  const handleCreateSuccess = (domain: Domain) => {
+    setShowCreateDialog(false);
+    showToast(`Domain "${domain.name}" created successfully!`, 'success');
+
+    if (currentUser) {
+      setMyDomains(prev => [...prev, domain]);
+      if (domain.privacy === 'public') {
+        setPublicDomains(prev => [...prev, domain]);
+      }
+    }
+
+    router.push(`/main/domains/${domain.id}/study`);
+  };
+
   // No sidebar on Main page anymore; use Navbar dropdown menu
   const openSidebar = () => setSidebarOpen(false);
   const closeSidebar = () => setSidebarOpen(false);
@@ -393,7 +408,7 @@ export default function MainPage() {
                       handleDomainAccess(domain);
                     }
                   }}
-                  onCreateSubjectMatter={currentUser ? () => router.push('/main/domains/create') : undefined}
+                  onCreateSubjectMatter={currentUser ? () => setShowCreateDialog(true) : undefined}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-gray-400">
@@ -442,19 +457,20 @@ export default function MainPage() {
           {/* NEW: Create Domain and Import Buttons */}
           {currentUser && (
             <div className="flex items-center gap-3 mb-6">
-              <Link href="/main/domains/create">
-                <Button className="flex items-center">
-                  <Plus size={16} className="mr-1" />
-                  Create Domain
-                </Button>
-              </Link>
+              <Button
+                className="flex items-center"
+                onClick={() => setShowCreateDialog(true)}
+              >
+                <Plus size={16} className="mr-1" />
+                Create Domain
+              </Button>
               <Button 
                 variant="outline" 
                 onClick={() => setShowImportDialog(true)}
                 className="flex items-center"
               >
                 <Upload size={16} className="mr-1" />
-                Import from JSON
+                Import
               </Button>
               <div className="ml-auto">
                 <Link href="/main/domains/archived">
@@ -494,11 +510,9 @@ export default function MainPage() {
 
               {activeTab === 'my' && currentUser && (
                 <div className="flex justify-center gap-3 mt-4">
-                  <Link href="/main/domains/create">
-                    <Button>
-                      Create Your First Domain
-                    </Button>
-                  </Link>
+                  <Button onClick={() => setShowCreateDialog(true)}>
+                    Create Your First Domain
+                  </Button>
                   <Link href="/main/domains/archived">
                     <Button variant="outline">
                       Archived Domains
@@ -509,7 +523,7 @@ export default function MainPage() {
                     onClick={() => setShowImportDialog(true)}
                   >
                     <Upload size={16} className="mr-1" />
-                    Import from JSON
+                    Import
                   </Button>
                 </div>
               )}
@@ -634,6 +648,26 @@ export default function MainPage() {
           {/* Graph was moved above */}
         </div>
       </div>
+
+      {/* NEW: Create Dialog */}
+      {showCreateDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowCreateDialog(false)}
+              className="absolute top-4 right-4 z-10"
+            >
+              <X size={20} />
+            </Button>
+            <DomainForm
+              onSuccess={handleCreateSuccess}
+              onCancel={() => setShowCreateDialog(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* NEW: Import Dialog */}
       {showImportDialog && (

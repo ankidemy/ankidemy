@@ -1,9 +1,19 @@
 package handlers
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
@@ -264,8 +274,16 @@ func (h *DomainHandler) ImportToDomain(c *gin.Context) {
 		return
 	}
 
+	strategy := services.DuplicateStrategyUpdate
+	strategyParam := strings.ToLower(strings.TrimSpace(c.Query("onDuplicate")))
+	if strategyParam == string(services.DuplicateStrategyRename) {
+		strategy = services.DuplicateStrategyRename
+	} else if strategyParam == string(services.DuplicateStrategyUpdate) {
+		strategy = services.DuplicateStrategyUpdate
+	}
+
 	// Import data to domain
-	if err := h.importService.ImportToDomain(uint(id), &importData); err != nil {
+	if err := h.importService.ImportToDomain(uint(id), &importData, strategy); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import data: " + err.Error()})
 		return
 	}
@@ -308,6 +326,258 @@ func (h *DomainHandler) ExportImportData(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, data)
+}
+
+// ExportBackup exports a full domain backup as a zip file (JSON + media + optional SRS progress).
+func (h *DomainHandler) ExportBackup(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	domain, err := h.domainDAO.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	if userID != domain.OwnerID && !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to export this backup"})
+		return
+	}
+
+	backup, err := h.importService.ExportDomainBackup(domain.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export backup: " + err.Error()})
+		return
+	}
+
+	payload, err := json.MarshalIndent(backup, "", "  ")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encode backup JSON"})
+		return
+	}
+
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+
+	jsonWriter, err := zw.Create("backup.json")
+	if err != nil {
+		_ = zw.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create backup archive"})
+		return
+	}
+	if _, err := jsonWriter.Write(payload); err != nil {
+		_ = zw.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write backup JSON"})
+		return
+	}
+
+	mediaPaths := services.CollectImportMediaPaths(&backup.Data)
+	for _, mediaPath := range mediaPaths {
+		filePath, err := services.MediaURLToPath(mediaPath)
+		if err != nil || filePath == "" {
+			continue
+		}
+		file, err := os.Open(filePath)
+		if err != nil {
+			continue
+		}
+		zipName := strings.TrimPrefix(filepath.ToSlash(filePath), "/")
+		writer, err := zw.Create(zipName)
+		if err == nil {
+			_, _ = io.Copy(writer, file)
+		}
+		_ = file.Close()
+	}
+
+	if err := zw.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize backup archive"})
+		return
+	}
+
+	timestamp := time.Now().UTC().Format("20060102-150405")
+	filename := fmt.Sprintf("%s-backup-%s.zip", sanitizeFilename(domain.Name), timestamp)
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Data(http.StatusOK, "application/zip", buf.Bytes())
+}
+
+// ImportBackup imports a full domain backup from a zip archive.
+func (h *DomainHandler) ImportBackup(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	domain, err := h.domainDAO.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	if userID != domain.OwnerID && !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to import this backup"})
+		return
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		return
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read uploaded file"})
+		return
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read backup archive"})
+		return
+	}
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup archive"})
+		return
+	}
+
+	filesByName := make(map[string]*zip.File, len(zr.File))
+	var backupJSON []byte
+	var domainJSON []byte
+	for _, zf := range zr.File {
+		filesByName[zf.Name] = zf
+		switch zf.Name {
+		case "backup.json":
+			backupJSON, _ = readZipFile(zf)
+		case "domain.json":
+			domainJSON, _ = readZipFile(zf)
+		}
+	}
+
+	var backup *services.DomainBackup
+	var importData *services.ImportData
+	if len(backupJSON) > 0 {
+		var parsed services.DomainBackup
+		if err := json.Unmarshal(backupJSON, &parsed); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse backup.json"})
+			return
+		}
+		backup = &parsed
+		importData = &parsed.Data
+	} else if len(domainJSON) > 0 {
+		var parsed services.ImportData
+		if err := json.Unmarshal(domainJSON, &parsed); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse domain.json"})
+			return
+		}
+		importData = &parsed
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Backup archive is missing backup.json"})
+		return
+	}
+
+	visibility := "public"
+	if domain.Privacy != "public" {
+		visibility = "private"
+	}
+	domainFolder := services.BuildDomainFolder(domain.ID, domain.Name)
+	mediaDir := services.BuildMediaDir(domain.OwnerID, visibility, domainFolder)
+	mediaMap := make(map[string]string)
+	usedNames := make(map[string]bool)
+
+	resolveMedia := func(oldPath string) (string, error) {
+		trimmed := strings.TrimSpace(oldPath)
+		if trimmed == "" {
+			return trimmed, nil
+		}
+		if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+			return trimmed, nil
+		}
+		if mapped, ok := mediaMap[trimmed]; ok {
+			return mapped, nil
+		}
+		filePath, err := services.MediaURLToPath(trimmed)
+		if err != nil || filePath == "" {
+			return trimmed, nil
+		}
+		zipKey := strings.TrimPrefix(filepath.ToSlash(filePath), "/")
+		zf, ok := filesByName[zipKey]
+		if !ok {
+			return trimmed, nil
+		}
+		ext := filepath.Ext(filePath)
+		if ext == "" {
+			ext = ".img"
+		}
+		filename := randomFilename(16) + ext
+		for usedNames[filename] {
+			filename = randomFilename(16) + ext
+		}
+		usedNames[filename] = true
+
+		if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+			return "", err
+		}
+		destPath := filepath.Join(mediaDir, filename)
+		rc, err := zf.Open()
+		if err != nil {
+			return "", err
+		}
+		defer rc.Close()
+		out, err := os.Create(destPath)
+		if err != nil {
+			return "", err
+		}
+		if _, err := io.Copy(out, rc); err != nil {
+			_ = out.Close()
+			return "", err
+		}
+		if err := out.Close(); err != nil {
+			return "", err
+		}
+
+		newPath := services.BuildMediaURL(domain.OwnerID, visibility, domainFolder, filename)
+		mediaMap[trimmed] = newPath
+		return newPath, nil
+	}
+
+	if err := services.RewriteImportMediaPaths(importData, resolveMedia); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore media files"})
+		return
+	}
+
+	if err := h.importService.ImportToDomain(domain.ID, importData, services.DuplicateStrategyUpdate); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import backup: " + err.Error()})
+		return
+	}
+
+	if backup != nil && backup.SRS != nil && backup.SRS.Username != "" {
+		userDAO := dao.NewUserDAO(h.domainDAO.DB())
+		currentUser, err := userDAO.FindUserByID(userID)
+		if err == nil && currentUser.Username == backup.SRS.Username {
+			if err := h.importService.ImportDomainSRSProgress(domain.ID, userID, backup.SRS.Progress); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import SRS progress: " + err.Error()})
+				return
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Backup imported successfully"})
 }
 
 // CopyDomain creates a new domain by copying content from an existing domain.
@@ -615,6 +885,46 @@ func (h *DomainHandler) GetMyArchivedDomains(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, domains)
+}
+
+func readZipFile(zf *zip.File) ([]byte, error) {
+	rc, err := zf.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(rc)
+}
+
+func randomFilename(length int) string {
+	if length <= 0 {
+		length = 16
+	}
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%x", b)
+	}
+	return hex.EncodeToString(b)
+}
+
+func sanitizeFilename(input string) string {
+	if input == "" {
+		return "domain"
+	}
+	var b strings.Builder
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+			b.WriteByte(ch)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "domain"
+	}
+	return out
 }
 
 // RestoreDomain unarchives a soft-deleted domain

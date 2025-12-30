@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { X, Upload, AlertCircle, CheckCircle2, Info } from 'lucide-react';
-import { importToDomain, DomainExportData } from '@/lib/api';
+import { importToDomain, importDomainBackup, DomainExportData } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
 interface ImportDialogProps {
@@ -43,7 +43,8 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [allowDuplicates, setAllowDuplicates] = useState(true);
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
+  const [isZipFile, setIsZipFile] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +66,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       setValidation(null);
       setIsValidating(false);
       setIsImporting(false);
+      setIsZipFile(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -227,10 +229,30 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       setSelectedFile(null);
       setImportData(null);
       setValidation(null);
+      setIsZipFile(false);
       return;
     }
 
     setSelectedFile(file);
+    const isZip = file.name.toLowerCase().endsWith('.zip');
+    setIsZipFile(isZip);
+
+    if (isZip) {
+      setImportData(null);
+      setValidation({
+        isValid: true,
+        errors: [],
+        definitionCount: 0,
+        metaDefinitionCount: 0,
+        exerciseCount: 0,
+        metaExerciseCount: 0,
+        versionCount: 0,
+        definitionVersionCount: 0,
+        groupCount: 0,
+      });
+      return;
+    }
+
     setIsValidating(true);
 
     try {
@@ -265,16 +287,20 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
   };
 
   const handleImport = async () => {
-    if (!importData || !validation?.isValid) return;
+    if ((!isZipFile && (!importData || !validation?.isValid)) || !selectedFile) return;
 
     setIsImporting(true);
 
     try {
-      const strategy = allowDuplicates ? 'rename' : 'update';
-      // Save preference
-      localStorage.setItem(STORAGE_KEY, strategy);
+      if (isZipFile) {
+        await importDomainBackup(domainId, selectedFile);
+      } else {
+        const strategy = allowDuplicates ? 'rename' : 'update';
+        // Save preference
+        localStorage.setItem(STORAGE_KEY, strategy);
 
-      await importToDomain(domainId, importData, { onDuplicate: strategy });
+        await importToDomain(domainId, importData as ImportData, { onDuplicate: strategy });
+      }
 
       showToast(`Successfully imported data into "${domainName}"`, 'success');
       onSuccess?.();
@@ -296,7 +322,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center border-b p-4">
-          <h2 className="text-xl font-bold">Import Domain JSON</h2>
+          <h2 className="text-xl font-bold">Import Domain File</h2>
           <Button
             variant="ghost"
             size="icon"
@@ -311,13 +337,13 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           {/* File Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select JSON File *
+              Select JSON or ZIP File *
             </label>
             <div className="flex items-center gap-2">
               <Input
                 ref={fileInputRef}
                 type="file"
-                accept=".json"
+                accept=".json,.zip"
                 onChange={handleFileChange}
                 disabled={isImporting}
                 className="flex-1"
@@ -327,7 +353,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
               )}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Export format with definitions + exercises/metaExercises
+              Import JSON graph data or a full ZIP backup
             </p>
           </div>
 
@@ -343,28 +369,32 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                 <div className="flex-1">
                   {validation.isValid ? (
                     <div>
-                      <p className="text-sm font-medium text-green-800 mb-2">File is valid and ready to import</p>
-                      <div className="text-xs text-green-700 space-y-1">
-                        {validation.metaDefinitionCount > 0 ? (
-                          <>
-                            <p>• {validation.metaDefinitionCount} concept pool{validation.metaDefinitionCount !== 1 ? 's' : ''} (meta-definitions)</p>
-                            <p>• {validation.definitionVersionCount} definition version{validation.definitionVersionCount !== 1 ? 's' : ''}</p>
-                          </>
-                        ) : validation.definitionCount > 0 ? (
-                          <p>• {validation.definitionCount} definition{validation.definitionCount !== 1 ? 's' : ''} (legacy format)</p>
-                        ) : null}
-                        {validation.metaExerciseCount > 0 ? (
-                          <>
-                            <p>• {validation.metaExerciseCount} exercise pool{validation.metaExerciseCount !== 1 ? 's' : ''} (meta-exercises)</p>
-                            <p>• {validation.versionCount} exercise version{validation.versionCount !== 1 ? 's' : ''}</p>
-                          </>
-                        ) : validation.exerciseCount > 0 ? (
-                          <p>• {validation.exerciseCount} exercise{validation.exerciseCount !== 1 ? 's' : ''} (legacy format)</p>
-                        ) : null}
-                        {validation.groupCount > 0 && (
-                          <p>• {validation.groupCount} group{validation.groupCount !== 1 ? 's' : ''}</p>
-                        )}
-                      </div>
+                      <p className="text-sm font-medium text-green-800 mb-2">
+                        {isZipFile ? 'ZIP backup ready to import' : 'File is valid and ready to import'}
+                      </p>
+                      {!isZipFile && (
+                        <div className="text-xs text-green-700 space-y-1">
+                          {validation.metaDefinitionCount > 0 ? (
+                            <>
+                              <p>• {validation.metaDefinitionCount} concept pool{validation.metaDefinitionCount !== 1 ? 's' : ''} (meta-definitions)</p>
+                              <p>• {validation.definitionVersionCount} definition version{validation.definitionVersionCount !== 1 ? 's' : ''}</p>
+                            </>
+                          ) : validation.definitionCount > 0 ? (
+                            <p>• {validation.definitionCount} definition{validation.definitionCount !== 1 ? 's' : ''} (legacy format)</p>
+                          ) : null}
+                          {validation.metaExerciseCount > 0 ? (
+                            <>
+                              <p>• {validation.metaExerciseCount} exercise pool{validation.metaExerciseCount !== 1 ? 's' : ''} (meta-exercises)</p>
+                              <p>• {validation.versionCount} exercise version{validation.versionCount !== 1 ? 's' : ''}</p>
+                            </>
+                          ) : validation.exerciseCount > 0 ? (
+                            <p>• {validation.exerciseCount} exercise{validation.exerciseCount !== 1 ? 's' : ''} (legacy format)</p>
+                          ) : null}
+                          {validation.groupCount > 0 && (
+                            <p>• {validation.groupCount} group{validation.groupCount !== 1 ? 's' : ''}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div>
@@ -382,43 +412,45 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           )}
 
           {/* Duplicate Strategy Checkbox */}
-          <div className="border-t pt-4">
-            <div className="flex items-start gap-3">
-              <input
-                id="allowDuplicates"
-                type="checkbox"
-                checked={allowDuplicates}
-                onChange={(e) => setAllowDuplicates(e.target.checked)}
-                disabled={isImporting}
-                className="mt-1 h-4 w-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <label htmlFor="allowDuplicates" className="text-sm font-medium text-gray-700 cursor-pointer">
-                    Allow duplicate codes (auto-rename)
-                  </label>
-                  <button
-                    type="button"
-                    onMouseEnter={() => setShowTooltip(true)}
-                    onMouseLeave={() => setShowTooltip(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <Info size={16} />
-                  </button>
-                </div>
-                {showTooltip && (
-                  <div className="mt-2 p-3 bg-gray-100 rounded text-xs text-gray-700 space-y-2">
-                    <p>
-                      <strong>Checked:</strong> Existing nodes keep their content. Imported nodes with the same code are added as new with a numeric suffix (.1, .2, etc.).
-                    </p>
-                    <p>
-                      <strong>Unchecked:</strong> Existing nodes with the same code and type are updated with imported content. If a same-code node of a different type exists, the import is added with a numeric suffix.
-                    </p>
+          {!isZipFile && (
+            <div className="border-t pt-4">
+              <div className="flex items-start gap-3">
+                <input
+                  id="allowDuplicates"
+                  type="checkbox"
+                  checked={allowDuplicates}
+                  onChange={(e) => setAllowDuplicates(e.target.checked)}
+                  disabled={isImporting}
+                  className="mt-1 h-4 w-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="allowDuplicates" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Allow duplicate codes (auto-rename)
+                    </label>
+                    <button
+                      type="button"
+                      onMouseEnter={() => setShowTooltip(true)}
+                      onMouseLeave={() => setShowTooltip(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <Info size={16} />
+                    </button>
                   </div>
-                )}
+                  {showTooltip && (
+                    <div className="mt-2 p-3 bg-gray-100 rounded text-xs text-gray-700 space-y-2">
+                      <p>
+                        <strong>Checked:</strong> Existing nodes keep their content. Imported nodes with the same code are added as new with a numeric suffix (.1, .2, etc.).
+                      </p>
+                      <p>
+                        <strong>Unchecked:</strong> Existing nodes with the same code and type are updated with imported content. If a same-code node of a different type exists, the import is added with a numeric suffix.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -432,7 +464,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           </Button>
           <Button
             onClick={handleImport}
-            disabled={!validation?.isValid || isImporting}
+            disabled={!validation?.isValid || isImporting || !selectedFile}
             className="min-w-[100px]"
           >
             {isImporting ? (

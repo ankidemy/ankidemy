@@ -3,7 +3,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload, Zap, List, RefreshCw, GitBranch } from 'lucide-react';
+import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload, Zap, List, RefreshCw, GitBranch, MoreVertical } from 'lucide-react';
 import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
@@ -11,7 +11,9 @@ import DomainSelector from './DomainSelector';
 import { LabelDisplayMode } from '../utils/GraphContainer';
 import {
   exportDomainAsJson,
-  downloadJsonFile
+  downloadJsonFile,
+  fetchDomainBackup,
+  downloadZipFile
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 import ImportDialog from '../ImportDialog';
@@ -120,7 +122,9 @@ const TopControls: React.FC<TopControlsProps> = ({
 
   // NEW: Import/Export state
   const [isExporting, setIsExporting] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [showReviewQueue, setShowReviewQueue] = useState(false);
   const [hasNewDue, setHasNewDue] = useState(false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -129,9 +133,13 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
   const reviewQueueRef = useRef<HTMLDivElement>(null);
   const groupMenuRef = useRef<HTMLDivElement>(null);
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
   const lastSeenReviewIdsRef = useRef<Set<string>>(new Set());
   const wasReviewQueueOpenRef = useRef(false);
   const canEdit = canEditProp ?? isOwner;
+  const canImport = Boolean(isOwner && isEnrolled);
+  const canBackup = Boolean(isOwner);
+  const canShare = Boolean(isOwner && onManageAccess);
 
   const dueReviews = srs.state.dueReviews;
   const dueCount = isEnrolled ? dueReviews.length : 0;
@@ -232,6 +240,19 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showGroupMenu]);
 
   useEffect(() => {
+    if (!showOptionsMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target as Node)) {
+        setShowOptionsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showOptionsMenu]);
+
+  useEffect(() => {
     if (groups.length === 0) {
       setDeleteGroupId(null);
       return;
@@ -321,7 +342,7 @@ const TopControls: React.FC<TopControlsProps> = ({
 
     setIsExporting(true);
     try {
-      showToast('Exporting domain...', 'info', 2000);
+      showToast('Exporting graph...', 'info', 2000);
       const exportData = await exportDomainAsJson(currentDomainId);
       
       // Generate filename with domain name and timestamp
@@ -338,6 +359,32 @@ const TopControls: React.FC<TopControlsProps> = ({
       );
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleBackup = async () => {
+    if (!currentDomainId || !currentDomainName) {
+      showToast('No domain selected for backup', 'error');
+      return;
+    }
+
+    setIsBackingUp(true);
+    try {
+      showToast('Preparing backup...', 'info', 2000);
+      const blob = await fetchDomainBackup(currentDomainId);
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const safeBase = currentDomainName.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `${safeBase}_backup_${timestamp}.zip`;
+      downloadZipFile(blob, filename);
+      showToast(`Backup for "${currentDomainName}" downloaded.`, 'success');
+    } catch (error) {
+      console.error('Backup error:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to download backup',
+        'error'
+      );
+    } finally {
+      setIsBackingUp(false);
     }
   };
 
@@ -365,6 +412,83 @@ const TopControls: React.FC<TopControlsProps> = ({
         </Link>
 
         <DomainSelector currentDomainName={subjectMatterId} />
+
+        {currentDomainId && (
+          <div className="relative" ref={optionsMenuRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowOptionsMenu(prev => !prev)}
+              className="h-7 px-2 text-xs"
+            >
+              <MoreVertical size={12} className="mr-1" />
+              Options
+            </Button>
+            {showOptionsMenu && (
+              <div className="absolute left-0 mt-2 w-40 rounded-md border border-gray-200 bg-white shadow-lg z-50 py-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    handleOpenImportDialog();
+                  }}
+                  disabled={!canImport}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                  title={!canImport ? 'Only enrolled owners can import data' : 'Import JSON or ZIP'}
+                >
+                  <Upload size={14} />
+                  Import
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    handleExport();
+                  }}
+                  disabled={isExporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isExporting ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <Download size={14} />
+                  )}
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    handleBackup();
+                  }}
+                  disabled={!canBackup || isBackingUp}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                  title={!canBackup ? 'Only owners can download backups' : 'Download full backup'}
+                >
+                  {isBackingUp ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <Download size={14} />
+                  )}
+                  Backup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    onManageAccess?.();
+                  }}
+                  disabled={!canShare}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                  title={!canShare ? 'Only owners can manage access' : 'Manage access'}
+                >
+                  <Users size={14} />
+                  Share
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* NEW: Graph space indicator (only in dev mode) */}
         {process.env.NODE_ENV === 'development' && graphDimensions && (
@@ -520,53 +644,6 @@ const TopControls: React.FC<TopControlsProps> = ({
       {/* Right: View/Action Buttons */}
       <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
         <NotificationCenter suppressDomainId={currentDomainId} />
-
-        {/* NEW: Import/Export buttons */}
-        {currentDomainId && (
-          <div className="flex items-center space-x-1 border rounded-md p-1 mr-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleExport}
-              disabled={isExporting}
-              title="Export domain to JSON file"
-              className="h-7 px-2 text-xs"
-            >
-              {isExporting ? (
-                <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-gray-600 mr-1"></div>
-              ) : (
-                <Download size={12} className="mr-1" />
-              )}
-              Export
-            </Button>
-            
-            {isOwner && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleOpenImportDialog}
-                disabled={!isEnrolled}
-                title={!isEnrolled ? "Enroll in domain to import data" : "Import JSON file to domain"}
-                className="h-7 px-2 text-xs disabled:bg-gray-100 disabled:text-gray-400"
-              >
-                <Upload size={12} className="mr-1" />
-                Import
-              </Button>
-            )}
-            {isOwner && onManageAccess && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onManageAccess}
-                title="Manage access"
-                className="h-7 px-2 text-xs"
-              >
-                <Users size={12} className="mr-1" />
-                Share
-              </Button>
-            )}
-          </div>
-        )}
 
         {/* NEW: Enhanced view controls */}
         <div className="flex items-center space-x-1 border rounded-md p-1">

@@ -415,6 +415,8 @@ export interface DomainExportData {
         description?: string;
         notes?: string;
         references?: string[];
+        promptImagePath?: string;
+        descriptionImagePath?: string;
       }>;
     };
   };
@@ -451,6 +453,8 @@ export interface DomainExportData {
         result?: string;
         difficulty?: number;
         notes?: string;
+        statementImagePath?: string;
+        descriptionImagePath?: string;
       }>;
     };
   };
@@ -1688,15 +1692,55 @@ export const importDomain = async (domainId: number, graphData: GraphData): Prom
 // NEW: Import/Export API Functions
 
 /**
- * Exports a domain as JSON data
+ * Exports a domain as graph JSON data
  * @param domainId The ID of the domain to export
  * @returns Promise resolving to the export data
  */
-export const exportDomainAsJson = async (domainId: number): Promise<DomainExportData> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/export-data`, {
+export const exportDomainAsJson = async (domainId: number): Promise<GraphData> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/export`, {
     headers: getAuthHeaders(),
   });
   
+  return handleResponse(response);
+};
+
+/**
+ * Downloads a full domain backup (zip)
+ */
+export const fetchDomainBackup = async (domainId: number): Promise<Blob> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/backup`, {
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    let errorMessage = 'Failed to download backup';
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch (e) {
+      errorMessage = response.statusText || `HTTP error ${response.status}`;
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.blob();
+};
+
+/**
+ * Imports a full domain backup from a zip file
+ */
+export const importDomainBackup = async (domainId: number, file: File): Promise<void> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/import-backup`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+    },
+    body: formData,
+  });
+
   return handleResponse(response);
 };
 
@@ -1785,6 +1829,20 @@ export const downloadJsonFile = (data: any, filename: string): void => {
 };
 
 /**
+ * Downloads a binary blob as a file
+ */
+export const downloadZipFile = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+/**
  * UPDATED: Enhanced JSON file upload with format standardization
  * @returns Promise resolving to the parsed and standardized JSON data
  */
@@ -1845,6 +1903,8 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
                   description: v.description || '',
                   notes: v.notes || '',
                   references: Array.isArray(v.references) ? v.references : [],
+                  promptImagePath: v.promptImagePath || undefined,
+                  descriptionImagePath: v.descriptionImagePath || undefined,
                 }))
               };
             }
@@ -1904,6 +1964,8 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
                   result: vv.result || '',
                   difficulty: typeof vv.difficulty === 'number' ? vv.difficulty : (parseInt(vv.difficulty, 10) || 3),
                   notes: vv.notes || '',
+                  statementImagePath: vv.statementImagePath || undefined,
+                  descriptionImagePath: vv.descriptionImagePath || undefined,
                 }))
               };
             }
