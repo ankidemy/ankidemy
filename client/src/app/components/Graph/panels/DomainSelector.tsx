@@ -4,8 +4,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from "@/app/components/core/button";
-import { ChevronDown, Globe, Users, Lock } from 'lucide-react';
-import { getMyDomains, getEnrolledDomains, getPublicDomains, Domain } from '@/lib/api';
+import { ChevronDown, Globe, Users, Lock, UserCheck } from 'lucide-react';
+import { getMyDomains, getEnrolledDomains, getPublicDomains, getSharedDomains, Domain } from '@/lib/api';
 
 interface DomainSelectorProps {
   currentDomainName: string;
@@ -14,7 +14,7 @@ interface DomainSelectorProps {
 const DomainSelector: React.FC<DomainSelectorProps> = ({ currentDomainName }) => {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
-  const [domains, setDomains] = useState<(Domain & { source: 'my' | 'enrolled' | 'public' })[]>([]);
+  const [domains, setDomains] = useState<(Domain & { source: 'my' | 'enrolled' | 'public' | 'shared' })[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -23,13 +23,14 @@ const DomainSelector: React.FC<DomainSelectorProps> = ({ currentDomainName }) =>
       
       setLoading(true);
       try {
-        const [myDomains, enrolledDomains, publicDomains] = await Promise.allSettled([
+        const [myDomains, enrolledDomains, sharedDomains, publicDomains] = await Promise.allSettled([
           getMyDomains(),
           getEnrolledDomains(), 
+          getSharedDomains(),
           getPublicDomains()
         ]);
 
-        const allDomains: (Domain & { source: 'my' | 'enrolled' | 'public' })[] = [];
+        const allDomains: (Domain & { source: 'my' | 'enrolled' | 'public' | 'shared' })[] = [];
         
         if (myDomains.status === 'fulfilled') {
           allDomains.push(...myDomains.value.map(d => ({ ...d, source: 'my' as const })));
@@ -40,6 +41,14 @@ const DomainSelector: React.FC<DomainSelectorProps> = ({ currentDomainName }) =>
             // Don't duplicate domains the user owns
             if (!allDomains.some(d => d.id === domain.id)) {
               allDomains.push({ ...domain, source: 'enrolled' as const });
+            }
+          });
+        }
+
+        if (sharedDomains.status === 'fulfilled') {
+          sharedDomains.value.forEach(domain => {
+            if (!allDomains.some(d => d.id === domain.id)) {
+              allDomains.push({ ...domain, source: 'shared' as const });
             }
           });
         }
@@ -71,21 +80,24 @@ const DomainSelector: React.FC<DomainSelectorProps> = ({ currentDomainName }) =>
     router.push(`/main/domains/${domain.id}/study`);
   };
 
-  const getSourceIcon = (source: 'my' | 'enrolled' | 'public') => {
+  const getSourceIcon = (source: 'my' | 'enrolled' | 'public' | 'shared') => {
     switch (source) {
       case 'my':
         return <Lock size={12} className="text-purple-600" />;
       case 'enrolled':
         return <Users size={12} className="text-green-600" />;
+      case 'shared':
+        return <UserCheck size={12} className="text-amber-600" />;
       case 'public':
         return <Globe size={12} className="text-blue-600" />;
     }
   };
 
-  const getSourceLabel = (source: 'my' | 'enrolled' | 'public') => {
+  const getSourceLabel = (source: 'my' | 'enrolled' | 'public' | 'shared') => {
     switch (source) {
       case 'my': return 'Owned';
       case 'enrolled': return 'Enrolled';
+      case 'shared': return 'Shared';
       case 'public': return 'Public';
     }
   };

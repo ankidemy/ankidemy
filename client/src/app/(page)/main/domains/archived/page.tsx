@@ -75,7 +75,10 @@ export default function ArchivedDomainsPage() {
   return (
     <div>
       {/* Reuse Navbar dropdown menu like main/dashboard */}
-      <Navbar extraMenuItems={[{ href: '/main/domains/archived', label: 'Archived Domains' }]} />
+      <Navbar extraMenuItems={[
+        { href: '/main/domains/invitations', label: 'Invitations' },
+        { href: '/main/domains/archived', label: 'Archived Domains' },
+      ]} />
 
       <div className="min-h-screen bg-white w-full mt-16">
         <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8">

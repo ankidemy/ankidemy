@@ -1,28 +1,30 @@
 package handlers
 
 import (
-    "net/http"
-    "strconv"
+	"net/http"
+	"strconv"
 
-    "github.com/gin-gonic/gin"
-    "myapp/server/dao"
-    "myapp/server/models"
-    "myapp/server/services"
+	"github.com/gin-gonic/gin"
+	"myapp/server/dao"
+	"myapp/server/models"
+	"myapp/server/services"
 )
 
 // handlers/exercise_handler.go - Fixed type issues
 
 // ExerciseHandler handles exercise-related HTTP requests
 type ExerciseHandler struct {
-	exerciseDAO *dao.ExerciseDAO
-	domainDAO   *dao.DomainDAO
+	exerciseDAO   *dao.ExerciseDAO
+	domainDAO     *dao.DomainDAO
+	permissionDAO *dao.DomainPermissionDAO
 }
 
 // NewExerciseHandler creates a new ExerciseHandler
-func NewExerciseHandler(exerciseDAO *dao.ExerciseDAO, domainDAO *dao.DomainDAO) *ExerciseHandler {
+func NewExerciseHandler(exerciseDAO *dao.ExerciseDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO) *ExerciseHandler {
 	return &ExerciseHandler{
-		exerciseDAO: exerciseDAO,
-		domainDAO:   domainDAO,
+		exerciseDAO:   exerciseDAO,
+		domainDAO:     domainDAO,
+		permissionDAO: permissionDAO,
 	}
 }
 
@@ -41,16 +43,19 @@ func (h *ExerciseHandler) GetDomainExercises(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	exercises, err := h.exerciseDAO.GetByDomainID(uint(domainID))
@@ -83,14 +88,19 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != domain.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to add exercises to this domain"})
-			return
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to add exercises to this domain"})
+		return
 	}
 
 	// Bind request data
@@ -106,40 +116,40 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		return
 	}
 
-    // Create exercise version under an existing meta_exercise if provided
-    if req.MetaExerciseID == 0 {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "metaExerciseId is required to create an exercise version"})
-        return
-    }
-    // Mirror code/name from meta (best-effort)
-    var meta models.MetaExercise
-    if err := h.domainDAO.DB().First(&meta, req.MetaExerciseID).Error; err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid metaExerciseId"})
-        return
-    }
-    exercise := &models.Exercise{
-        Code:        meta.Code,
-        Name:        meta.Name,
-        Statement:   req.Statement,
-        Description: req.Description,
-        Notes:       req.Notes,
-        Hints:       req.Hints,
-        StatementImagePath: req.StatementImagePath,
-        DescriptionImagePath: req.DescriptionImagePath,
-        DomainID:    meta.DomainID,
-        OwnerID:     userID.(uint),
-        MetaExerciseID: meta.ID,
-        Verifiable:  req.Verifiable,
-        Result:      req.Result,
-        Difficulty:  req.Difficulty,
-        XPosition:   meta.XPosition,
-        YPosition:   meta.YPosition,
-    }
+	// Create exercise version under an existing meta_exercise if provided
+	if req.MetaExerciseID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metaExerciseId is required to create an exercise version"})
+		return
+	}
+	// Mirror code/name from meta (best-effort)
+	var meta models.MetaExercise
+	if err := h.domainDAO.DB().First(&meta, req.MetaExerciseID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid metaExerciseId"})
+		return
+	}
+	exercise := &models.Exercise{
+		Code:                 meta.Code,
+		Name:                 meta.Name,
+		Statement:            req.Statement,
+		Description:          req.Description,
+		Notes:                req.Notes,
+		Hints:                req.Hints,
+		StatementImagePath:   req.StatementImagePath,
+		DescriptionImagePath: req.DescriptionImagePath,
+		DomainID:             meta.DomainID,
+		OwnerID:              userID,
+		MetaExerciseID:       meta.ID,
+		Verifiable:           req.Verifiable,
+		Result:               req.Result,
+		Difficulty:           req.Difficulty,
+		XPosition:            meta.XPosition,
+		YPosition:            meta.YPosition,
+	}
 
-    if err := h.domainDAO.DB().Create(exercise).Error; err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exercise version"})
-        return
-    }
+	if err := h.domainDAO.DB().Create(exercise).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create exercise version"})
+		return
+	}
 
 	// Get the created exercise with prerequisites
 	createdEx, err := h.exerciseDAO.FindByIDWithPrerequisites(exercise.ID)
@@ -166,23 +176,26 @@ func (h *ExerciseHandler) GetExercise(c *gin.Context) {
 	}
 
 	// Check access to the domain
-    domain, err := h.domainDAO.FindByID(exercise.DomainID)
-    if err != nil {
-        // Surface a 404 when the domain is missing instead of 500
-        c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-        return
-    }
+	domain, err := h.domainDAO.FindByID(exercise.DomainID)
+	if err != nil {
+		// Surface a 404 when the domain is missing instead of 500
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
 
-	// Check if the domain is public or the user is the owner
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this exercise"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this exercise"})
+		return
 	}
 
 	c.JSON(http.StatusOK, h.exerciseDAO.ConvertToResponse(exercise))
@@ -203,14 +216,24 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != exercise.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this exercise"})
-			return
-		}
+	domain, err := h.domainDAO.FindByID(exercise.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this exercise"})
+		return
 	}
 
 	// Bind update data
@@ -257,14 +280,14 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 	if req.YPosition != 0 {
 		exercise.YPosition = req.YPosition
 	}
-    // Code/Name mirror meta; ignore direct changes
+	// Code/Name mirror meta; ignore direct changes
 	exercise.Verifiable = req.Verifiable
 
 	// Update exercise
-    if err := h.exerciseDAO.Update(exercise, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update exercise"})
-        return
-    }
+	if err := h.exerciseDAO.Update(exercise, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update exercise"})
+		return
+	}
 
 	if req.StatementImagePath != "" && req.StatementImagePath != oldStatementImage {
 		_ = services.DeleteMediaFile(oldStatementImage)
@@ -298,14 +321,24 @@ func (h *ExerciseHandler) DeleteExercise(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != exercise.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this exercise"})
-			return
-		}
+	domain, err := h.domainDAO.FindByID(exercise.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this exercise"})
+		return
 	}
 
 	// Delete exercise
@@ -319,7 +352,7 @@ func (h *ExerciseHandler) DeleteExercise(c *gin.Context) {
 
 // GetExerciseByCode returns exercises by code
 func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
-    code := c.Param("code")
+	code := c.Param("code")
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid exercise code"})
 		return
@@ -328,20 +361,39 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 	// Get domain ID from query parameter
 	domainID, _ := strconv.ParseUint(c.Query("domainId"), 10, 32)
 
-    var exercises []*models.ExerciseWithPrerequisites
-    var err error
+	var exercises []*models.ExerciseWithPrerequisites
+	var err error
 
 	// If domain ID is provided, get specific exercise by code and domain
-    if domainID > 0 {
-        var exercise *models.ExerciseWithPrerequisites
-        exercise, err = h.exerciseDAO.FindByCodeAndDomain(code, uint(domainID))
-        if err == nil {
-            exercises = []*models.ExerciseWithPrerequisites{exercise}
-        }
-    } else {
-        // Otherwise get all exercises with the given code
-        exercises, err = h.exerciseDAO.FindByCode(code)
-    }
+	if domainID > 0 {
+		var exercise *models.ExerciseWithPrerequisites
+		exercise, err = h.exerciseDAO.FindByCodeAndDomain(code, uint(domainID))
+		if err == nil {
+			domain, dErr := h.domainDAO.FindByID(uint(domainID))
+			if dErr != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+				return
+			}
+			userID, isAdmin, ok := getUserContext(c)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+				return
+			}
+			canView, vErr := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+			if vErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+				return
+			}
+			if !canView {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+				return
+			}
+			exercises = []*models.ExerciseWithPrerequisites{exercise}
+		}
+	} else {
+		// Otherwise get all exercises with the given code
+		exercises, err = h.exerciseDAO.FindByCode(code)
+	}
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Exercise not found"})
@@ -349,8 +401,8 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 	}
 
 	// Filter by access permissions and convert to response format
-    var responses []models.ExerciseResponse
-    for _, exercise := range exercises {
+	var responses []models.ExerciseResponse
+	for _, exercise := range exercises {
 		// Check domain access
 		domain, err := h.domainDAO.FindByID(exercise.DomainID)
 		if err != nil {
@@ -358,25 +410,23 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 		}
 
 		// Add to response if domain is public or user has access
-        if domain.Privacy == "public" {
-            resp := h.exerciseDAO.ConvertToResponse(exercise)
-            responses = append(responses, resp)
-            continue
-        }
+		if domain.Privacy == "public" {
+			resp := h.exerciseDAO.ConvertToResponse(exercise)
+			responses = append(responses, resp)
+			continue
+		}
 
-		userID, exists := c.Get("userID")
-		if exists && userID.(uint) == domain.OwnerID {
-            resp := h.exerciseDAO.ConvertToResponse(exercise)
-            responses = append(responses, resp)
-            continue
-        }
-
-		isAdmin, adminExists := c.Get("isAdmin")
-		if adminExists && isAdmin.(bool) {
-            resp := h.exerciseDAO.ConvertToResponse(exercise)
-            responses = append(responses, resp)
-        }
-    }
+		userID, isAdmin, ok := getUserContext(c)
+		if !ok {
+			continue
+		}
+		canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+		if err != nil || !canView {
+			continue
+		}
+		resp := h.exerciseDAO.ConvertToResponse(exercise)
+		responses = append(responses, resp)
+	}
 
 	if len(responses) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to any exercises with this code"})

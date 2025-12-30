@@ -18,11 +18,13 @@ import {
   getPublicDomains,
   getMyDomains,
   getEnrolledDomains,
+  getSharedDomains,
   enrollInDomain,
   getCurrentUser,
   User,
   exportDomainAsJson,
-  downloadJsonFile
+  downloadJsonFile,
+  copyDomain
 } from '@/lib/api';
 import { archiveDomain } from '@/lib/api';
 
@@ -32,19 +34,25 @@ export default function MainPage() {
   // State
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'my' | 'enrolled' | 'community'>('community');
+  const [activeTab, setActiveTab] = useState<'my' | 'shared' | 'enrolled' | 'community'>('community');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
   // Domain data
   const [publicDomains, setPublicDomains] = useState<Domain[]>([]);
   const [myDomains, setMyDomains] = useState<Domain[]>([]);
   const [enrolledDomains, setEnrolledDomains] = useState<Domain[]>([]);
+  const [sharedDomains, setSharedDomains] = useState<Domain[]>([]);
   const [displayDomains, setDisplayDomains] = useState<Domain[]>([]);
   
   // UI state
   const [enrolling, setEnrolling] = useState<Set<number>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const [copyDomainSource, setCopyDomainSource] = useState<Domain | null>(null);
+  const [copyName, setCopyName] = useState('');
+  const [copyDescription, setCopyDescription] = useState('');
+  const [copyPrivacy, setCopyPrivacy] = useState<'public' | 'private'>('private');
+  const [copying, setCopying] = useState(false);
 
   // NEW: Import dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -87,13 +95,16 @@ export default function MainPage() {
         
         if (currentUser) {
           try {
-            const [myResult, enrolledResult] = await Promise.allSettled([
+            const [myResult, sharedResult, enrolledResult] = await Promise.allSettled([
               getMyDomains(),
+              getSharedDomains(),
               getEnrolledDomains()
             ]);
             
             myDomainsResponse = myResult.status === 'fulfilled' ? myResult.value : [];
+            const sharedDomainsResponse = sharedResult.status === 'fulfilled' ? sharedResult.value : [];
             enrolledDomainsResponse = enrolledResult.status === 'fulfilled' ? enrolledResult.value : [];
+            setSharedDomains(sharedDomainsResponse);
           } catch (error) {
             console.error("Failed to load user domains:", error);
           }
@@ -125,27 +136,34 @@ export default function MainPage() {
     [enrolledNonOwned]
   );
 
+  const sharedDomainIds = useMemo(() =>
+    new Set(sharedDomains.map(d => d.id)),
+    [sharedDomains]
+  );
+
   // Compute communityDomains (public domains that user doesn't own and isn't enrolled in)
   const communityDomains = useMemo(() =>
     publicDomains.filter(d =>
-      d.ownerId !== currentUser?.id && !enrolledNonOwnedIds.has(d.id)
+      d.ownerId !== currentUser?.id && !enrolledNonOwnedIds.has(d.id) && !sharedDomainIds.has(d.id)
     ),
-    [publicDomains, currentUser, enrolledNonOwnedIds]
+    [publicDomains, currentUser, enrolledNonOwnedIds, sharedDomainIds]
   );
 
   // Update display domains when data changes or tab changes
   useEffect(() => {
     if (activeTab === 'my') {
       setDisplayDomains(myDomains);
+    } else if (activeTab === 'shared') {
+      setDisplayDomains(sharedDomains);
     } else if (activeTab === 'enrolled') {
       setDisplayDomains(enrolledNonOwned);
     } else if (activeTab === 'community') {
       setDisplayDomains(communityDomains);
     }
-  }, [activeTab, myDomains, enrolledNonOwned, communityDomains]);
+  }, [activeTab, myDomains, sharedDomains, enrolledNonOwned, communityDomains]);
 
   // Handle tab change
-  const handleTabChange = (tab: 'my' | 'enrolled' | 'community') => {
+  const handleTabChange = (tab: 'my' | 'shared' | 'enrolled' | 'community') => {
     setActiveTab(tab);
   };
 
@@ -200,9 +218,10 @@ export default function MainPage() {
     // Check if user owns the domain
     const currentUserId = currentUser?.id;
     const isOwned = !!currentUserId && domain.ownerId === currentUserId;
+    const isShared = !!domain.permissionRole && !isOwned;
     const isEnrolled = enrolledNonOwnedIds.has(domain.id);
 
-    if (isOwned || isEnrolled) {
+    if (isOwned || isEnrolled || isShared) {
       // Direct access for owned or enrolled domains
       router.push(`/main/domains/${domain.id}/study`);
     } else if (domain.privacy === 'public') {
@@ -235,6 +254,7 @@ export default function MainPage() {
   const getDomainStatus = (domain: Domain) => {
     const currentUserId = currentUser?.id;
     const isOwned = !!currentUserId && domain.ownerId === currentUserId;
+    const isShared = !!domain.permissionRole && !isOwned;
     const isEnrolled = enrolledNonOwnedIds.has(domain.id);
 
     if (isOwned) {
@@ -242,6 +262,13 @@ export default function MainPage() {
         icon: <UserCheck size={14} className="text-purple-600" />,
         label: 'Owned',
         className: 'bg-purple-100 text-purple-700'
+      };
+    } else if (isShared) {
+      const label = domain.permissionRole === 'editor' ? 'Editor' : 'Viewer';
+      return {
+        icon: <Users size={14} className="text-amber-600" />,
+        label,
+        className: 'bg-amber-100 text-amber-700'
       };
     } else if (isEnrolled) {
       return {
@@ -288,6 +315,50 @@ export default function MainPage() {
   const openSidebar = () => setSidebarOpen(false);
   const closeSidebar = () => setSidebarOpen(false);
 
+  const openCopyDialog = (domain: Domain) => {
+    setCopyDomainSource(domain);
+    setCopyName(`${domain.name} (Copy)`);
+    setCopyDescription(domain.description || '');
+    setCopyPrivacy('private');
+  };
+
+  const closeCopyDialog = () => {
+    setCopyDomainSource(null);
+    setCopyName('');
+    setCopyDescription('');
+    setCopyPrivacy('private');
+    setCopying(false);
+  };
+
+  const handleCopyDomain = async () => {
+    if (!copyDomainSource) return;
+    if (!currentUser) {
+      showToast('Please log in to copy domains', 'error');
+      router.push('/login');
+      return;
+    }
+
+    setCopying(true);
+    try {
+      const created = await copyDomain(copyDomainSource.id, {
+        name: copyName.trim(),
+        description: copyDescription.trim(),
+        privacy: copyPrivacy,
+      });
+      setMyDomains(prev => [...prev, created]);
+      if (created.privacy === 'public') {
+        setPublicDomains(prev => [...prev, created]);
+      }
+      showToast(`Copied "${copyDomainSource.name}"`, 'success');
+      closeCopyDialog();
+      router.push(`/main/domains/${created.id}/study`);
+    } catch (error: any) {
+      console.error('Failed to copy domain:', error);
+      showToast(error?.message || 'Failed to copy domain', 'error');
+      setCopying(false);
+    }
+  };
+
   return (
     <div>
       {/* Use Navbar's built-in hamburger dropdown (no slide-over sidebar) */}
@@ -295,6 +366,7 @@ export default function MainPage() {
         // Do not pass onMenuClick so the Navbar shows its dropdown
         // Provide extra menu items we previously had in the right panel
         extraMenuItems={[
+          { href: '/main/domains/invitations', label: 'Invitations' },
           { href: '/main/domains/archived', label: 'Archived Domains' },
         ]}
       />
@@ -329,6 +401,7 @@ export default function MainPage() {
                     <p className="text-4xl mb-2">📚</p>
                     <p className="text-sm">
                       {activeTab === 'my' && "No domains created yet"}
+                      {activeTab === 'shared' && "No shared domains yet"}
                       {activeTab === 'enrolled' && "No enrolled domains yet"}
                       {activeTab === 'community' && "No community domains available"}
                     </p>
@@ -345,6 +418,12 @@ export default function MainPage() {
               onClick={() => handleTabChange('my')}
             >
               My Domains ({myDomains.length})
+            </button>
+            <button
+              className={`px-4 py-2 font-medium ${activeTab === 'shared' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
+              onClick={() => handleTabChange('shared')}
+            >
+              Shared Domains ({sharedDomains.length})
             </button>
             <button
               className={`px-4 py-2 font-medium ${activeTab === 'enrolled' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'}`}
@@ -405,6 +484,8 @@ export default function MainPage() {
               <p className="text-gray-500">
                 {activeTab === 'my'
                   ? "You haven't created any domains yet."
+                  : activeTab === 'shared'
+                  ? "You don't have any shared domains yet."
                   : activeTab === 'enrolled'
                   ? "You haven't enrolled in any domains yet."
                   : "There are no community domains available."
@@ -440,6 +521,7 @@ export default function MainPage() {
                 const isEnrolling = enrolling.has(domain.id);
                 const currentUserId = currentUser?.id;
                 const isOwned = !!currentUserId && domain.ownerId === currentUserId;
+                const isShared = !!domain.permissionRole && !isOwned;
                 const isEnrolled = enrolledNonOwnedIds.has(domain.id);
 
                 return (
@@ -468,6 +550,12 @@ export default function MainPage() {
                             onClick={() => { setMenuOpenId(null); handleDomainAccess(domain); }}
                           >
                             Open
+                          </button>
+                          <button
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                            onClick={() => { setMenuOpenId(null); openCopyDialog(domain); }}
+                          >
+                            Copy
                           </button>
                           <button
                             className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
@@ -508,7 +596,7 @@ export default function MainPage() {
                           Export
                         </Button>
                         {/* Enrollment button for public domains */}
-                        {domain.privacy === 'public' && !isOwned && !isEnrolled && currentUser && (
+                        {domain.privacy === 'public' && !isOwned && !isEnrolled && !isShared && currentUser && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -564,6 +652,75 @@ export default function MainPage() {
               onSuccess={handleImportSuccess}
               onCancel={() => setShowImportDialog(false)}
             />
+          </div>
+        </div>
+      )}
+
+      {copyDomainSource && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full p-6 relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={closeCopyDialog}
+              className="absolute top-3 right-3"
+            >
+              <X size={18} />
+            </Button>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Copy Domain</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Name</label>
+                <input
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  value={copyName}
+                  onChange={(e) => setCopyName(e.target.value)}
+                  placeholder="New domain name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Description</label>
+                <textarea
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  value={copyDescription}
+                  onChange={(e) => setCopyDescription(e.target.value)}
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">Privacy</label>
+                <div className="flex items-center gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="copyPrivacy"
+                      value="private"
+                      checked={copyPrivacy === 'private'}
+                      onChange={() => setCopyPrivacy('private')}
+                    />
+                    Private
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="copyPrivacy"
+                      value="public"
+                      checked={copyPrivacy === 'public'}
+                      onChange={() => setCopyPrivacy('public')}
+                    />
+                    Public
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={closeCopyDialog} disabled={copying}>
+                Cancel
+              </Button>
+              <Button onClick={handleCopyDomain} disabled={copying}>
+                {copying ? 'Copying...' : 'Create Copy'}
+              </Button>
+            </div>
           </div>
         </div>
       )}

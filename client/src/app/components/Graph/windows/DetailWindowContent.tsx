@@ -344,13 +344,19 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     if (ownerId == null || userId == null) {
       return false;
     }
-    return Number(ownerId) === Number(userId);
-  }, [domainData?.ownerId, currentUser?.id]);
+    if (Number(ownerId) === Number(userId)) {
+      return true;
+    }
+    if (currentUser?.isAdmin) {
+      return true;
+    }
+    return domainData?.permissionRole === 'editor' || domainData?.permissionRole === 'owner';
+  }, [domainData?.ownerId, domainData?.permissionRole, currentUser?.id, currentUser?.isAdmin]);
 
   // Edit mode toggle
   const toggleEditMode = useCallback(() => {
     if (!canEdit && !isEditMode) {
-      showToast('You can only edit nodes in domains you own', 'warning');
+      showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
     }
     setIsEditMode(!isEditMode);
@@ -360,7 +366,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const handleSubmitEdit = useCallback(async () => {
     if (!nodeDetails) return;
     
-    // Check domain ownership (client-side hint; server enforces auth)
+    // Check domain permissions (client-side hint; server enforces auth)
     if (!canEdit) {
       showToast("You don't have permission to edit nodes in this domain.", "error");
       setIsEditMode(false);
@@ -684,7 +690,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           className="h-8 w-8"
           title={
             !canEdit
-              ? "Only domain owners can edit nodes"
+              ? "Only domain owners or editors can edit nodes"
               : isEditMode
               ? "View Mode"
               : "Edit Mode"

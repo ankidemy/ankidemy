@@ -62,11 +62,41 @@ export interface Domain {
   description: string;
   createdAt: string;
   updatedAt: string;
+  domainUid?: string;
+  copiedFromDomainId?: number;
+  copiedFromUserId?: number;
+  permissionRole?: 'owner' | 'editor' | 'viewer';
   // Optional aggregate counts used by graph UIs
   nodeCount?: number;
   exerciseCount?: number;
   definitions?: Definition[];
   exercises?: Exercise[];
+}
+
+export interface DomainPermissionInfo {
+  userId: number;
+  username: string;
+  role: 'editor' | 'viewer';
+  createdAt: string;
+}
+
+export interface DomainPermissionList {
+  owner: {
+    userId: number;
+    username: string;
+  };
+  permissions: DomainPermissionInfo[];
+}
+
+export interface DomainInvite {
+  id: number;
+  domainId: number;
+  domainName: string;
+  invitedBy: number;
+  invitedByUsername: string;
+  role: 'editor' | 'viewer';
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: string;
 }
 
 // NEW: Domain network link types
@@ -639,11 +669,44 @@ export const getEnrolledDomains = async (): Promise<Domain[]> => {
   }
 };
 
+export const getSharedDomains = async (): Promise<Domain[]> => {
+  try {
+    const response = await fetch(`${API_URL}/api/domains/shared`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      console.warn(`Failed to fetch shared domains: ${response.status}`);
+      return [];
+    }
+    const result = await handleResponse(response);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.warn('Error fetching shared domains:', error);
+    return [];
+  }
+};
+
 export const getDomain = async (id: number): Promise<Domain> => {
   const response = await fetch(`${API_URL}/api/domains/${id}`, {
     headers: getAuthHeaders(),
   });
   
+  return handleResponse(response);
+};
+
+export const copyDomain = async (id: number, payload: {
+  name?: string;
+  privacy?: 'public' | 'private';
+  description?: string;
+}): Promise<Domain> => {
+  const response = await fetch(`${API_URL}/api/domains/${id}/copy`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
   return handleResponse(response);
 };
 
@@ -696,6 +759,60 @@ export const updateDomain = async (id: number, domain: {
   });
   
   return handleResponse(response);
+};
+
+export const getDomainPermissions = async (id: number): Promise<DomainPermissionList> => {
+  const response = await fetch(`${API_URL}/api/domains/${id}/permissions`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const createDomainInvite = async (id: number, payload: {
+  username: string;
+  role: 'editor' | 'viewer';
+}): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${id}/invites`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  await handleResponse(response);
+};
+
+export const removeDomainPermission = async (id: number, userId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${id}/permissions/${userId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  await handleResponse(response);
+};
+
+export const getPendingDomainInvites = async (): Promise<DomainInvite[]> => {
+  const response = await fetch(`${API_URL}/api/domain-invites`, {
+    headers: getAuthHeaders(),
+  });
+  const result = await handleResponse(response);
+  return Array.isArray(result) ? result : [];
+};
+
+export const acceptDomainInvite = async (inviteId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domain-invites/${inviteId}/accept`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  await handleResponse(response);
+};
+
+export const declineDomainInvite = async (inviteId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domain-invites/${inviteId}/decline`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  await handleResponse(response);
 };
 
 export const deleteDomain = async (id: number): Promise<void> => {

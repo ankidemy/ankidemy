@@ -64,6 +64,7 @@ import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
+import DomainAccessModal from '@/app/components/Domain/DomainAccessModal';
 import { PositionManager } from './utils/PositionManager';
 import { getNextDotCode as getNextDotCodeFromUtils, getNextExerciseCode as getNextExerciseCodeFromUtils } from './utils/codeGeneration';
 
@@ -559,6 +560,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [nodeCreationType, setNodeCreationType] = useState<'definition' | 'exercise'>('definition');
   const [nodeCreationPosition, setNodeCreationPosition] = useState<{x: number, y: number} | undefined>(undefined);
   const [showEnrollmentModal, setShowEnrollmentModal] = useState(false);
+  const [showAccessModal, setShowAccessModal] = useState(false);
 
   // Domain state
   const [domainName, setDomainName] = useState<string>(subjectMatterId);
@@ -566,6 +568,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const isDomainOwner = !!(currentUser && domainData && domainData.ownerId === currentUser.id);
+  const canEdit = !!(
+    currentUser &&
+    domainData &&
+    (currentUser.isAdmin || isDomainOwner || domainData.permissionRole === 'editor' || domainData.permissionRole === 'owner')
+  );
+
+  useEffect(() => {
+    setShowAccessModal(false);
+  }, [domainData?.id]);
 
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
@@ -972,14 +983,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
-    if (!isDomainOwner) {
-      showToast('Only domain owners can create nodes.', 'warning');
-      return;
-    }
-    if (!hasAccess) {
-      if (domainData && domainData.privacy === 'public') {
-        setShowEnrollmentModal(true);
-      }
+    if (!canEdit) {
+      showToast('Only domain owners or editors can create nodes.', 'warning');
       return;
     }
 
@@ -1002,7 +1007,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, [hasAccess, domainData, isDomainOwner]);
+  }, [canEdit]);
 
   const insertCreatedNode = useCallback((
     nodeCode: string,
@@ -1334,8 +1339,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [subjectMatterId, numericIdToCodeMap]);
 
   const toggleFrenzyEditMode = useCallback(async () => {
-    if (!isDomainOwner) {
-      showToast('Only domain owners can edit nodes.', 'warning');
+    if (!canEdit) {
+      showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
     }
     if (!isFrenzyEditMode) {
@@ -1353,7 +1358,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setIsDraggingFrenzyNote(false);
     }
     setIsFrenzyEditMode(prev => !prev);
-  }, [isDomainOwner, isFrenzyEditMode, loadFrenzyPrerequisites, ui]);
+  }, [canEdit, isFrenzyEditMode, loadFrenzyPrerequisites, ui]);
 
   const applyPrerequisiteUpdate = useCallback((
     sourceCode: string,
@@ -1457,8 +1462,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [frenzyPrerequisiteMap, applyPrerequisiteUpdate]);
 
   const openFrenzyNote = useCallback(async (node: GraphNode, metaIdOverride?: number) => {
-    if (!isDomainOwner) {
-      showToast('Only domain owners can edit nodes.', 'warning');
+    if (!canEdit) {
+      showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
     }
     const metaId = metaIdOverride ?? codeToNumericIdMap.get(node.id);
@@ -1546,11 +1551,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       console.error('Failed to load frenzy note:', error);
       showToast('Failed to load node content.', 'error');
     }
-  }, [isDomainOwner, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+  }, [canEdit, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
 
   const createFrenzyNode = useCallback(async (type: 'definition' | 'exercise') => {
-    if (!isDomainOwner) {
-      showToast('Only domain owners can create nodes.', 'warning');
+    if (!canEdit) {
+      showToast('Only domain owners or editors can create nodes.', 'warning');
       return;
     }
     const domainId = parseInt(subjectMatterId, 10);
@@ -1637,7 +1642,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Failed to create node.', 'error');
     }
   }, [
-    isDomainOwner,
+    canEdit,
     subjectMatterId,
     getNextDotCode,
     getNextExerciseCode,
@@ -2019,8 +2024,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [currentStructuralGraphData]);
 
   const deleteFrenzyNode = useCallback(async (node: GraphNode) => {
-    if (!isDomainOwner) {
-      showToast('Only domain owners can delete nodes.', 'warning');
+    if (!canEdit) {
+      showToast('Only domain owners or editors can delete nodes.', 'warning');
       return;
     }
     const metaId = codeToNumericIdMap.get(node.id);
@@ -2139,7 +2144,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Failed to delete node.', 'error');
     }
   }, [
-    isDomainOwner,
+    canEdit,
     codeToNumericIdMap,
     currentStructuralGraphData,
     pendingLinkSourceId,
@@ -2172,8 +2177,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const undoFrenzyDelete = useCallback(async () => {
     if (!lastDeletedNode) return;
-    if (!isDomainOwner) {
-      showToast('Only domain owners can restore nodes.', 'warning');
+    if (!canEdit) {
+      showToast('Only domain owners or editors can restore nodes.', 'warning');
       return;
     }
     const domainId = parseInt(subjectMatterId, 10);
@@ -2289,7 +2294,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [
     lastDeletedNode,
-    isDomainOwner,
+    canEdit,
     subjectMatterId,
     getGraphCenter,
     insertCreatedNode,
@@ -2531,6 +2536,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onContinueWithoutEnrollment={handleContinueWithoutEnrollment}
         />
 
+        {domainData && (
+          <DomainAccessModal
+            isOpen={showAccessModal}
+            domainId={domainData.id}
+            domainName={domainData.name}
+            onClose={() => setShowAccessModal(false)}
+          />
+        )}
+
         {/* Top Controls */}
         <TopControls
           subjectMatterId={domainName}
@@ -2555,9 +2569,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           currentDomainId={parseInt(subjectMatterId, 10)}
           currentDomainName={domainName}
           isOwner={currentUser && domainData && domainData.ownerId === currentUser.id}
+          canEdit={canEdit}
           isEnrolled={hasAccess ?? undefined}
           onDataImported={refreshGraphAndSRSData}
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
+          onManageAccess={() => setShowAccessModal(true)}
         />
 
         {/* Main Content */}
@@ -2594,15 +2610,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
                 <p className="text-lg">This domain is empty.</p>
                 <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
-                {!isDomainOwner && (
-                  <p className="mt-1 text-sm text-gray-400">Only domain owners can create nodes.</p>
+                {!canEdit && (
+                  <p className="mt-1 text-sm text-gray-400">Only domain owners or editors can create nodes.</p>
                 )}
                 <div className="mt-4 flex items-center gap-2">
                   <Button
                     onClick={() => createNewNode('definition')}
                     size="sm"
-                    disabled={!isDomainOwner}
-                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Definition'}
+                    disabled={!canEdit}
+                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
                   >
                     Create Definition
                   </Button>
@@ -2610,8 +2626,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     onClick={() => createNewNode('exercise')}
                     variant="outline"
                     size="sm"
-                    disabled={!isDomainOwner}
-                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Exercise'}
+                    disabled={!canEdit}
+                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
                   >
                     Create Exercise
                   </Button>
@@ -2646,15 +2662,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
                 <p className="text-lg">No graph data to display for this domain.</p>
                 <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
-                {!isDomainOwner && (
-                  <p className="mt-1 text-sm text-gray-400">Only domain owners can create nodes.</p>
+                {!canEdit && (
+                  <p className="mt-1 text-sm text-gray-400">Only domain owners or editors can create nodes.</p>
                 )}
                 <div className="mt-4 flex items-center gap-2">
                   <Button
                     onClick={() => createNewNode('definition')}
                     size="sm"
-                    disabled={!isDomainOwner}
-                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Definition'}
+                    disabled={!canEdit}
+                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
                   >
                     Create Definition
                   </Button>
@@ -2662,8 +2678,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     onClick={() => createNewNode('exercise')}
                     variant="outline"
                     size="sm"
-                    disabled={!isDomainOwner}
-                    title={!isDomainOwner ? 'Only domain owners can create nodes' : 'Create Exercise'}
+                    disabled={!canEdit}
+                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
                   >
                     Create Exercise
                   </Button>
@@ -2684,8 +2700,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   variant={isFrenzyEditMode ? 'default' : 'outline'}
                   size="sm"
                   onClick={toggleFrenzyEditMode}
-                  disabled={!isDomainOwner}
-                  title={isDomainOwner ? 'Toggle edit tools' : 'Only domain owners can edit'}
+                  disabled={!canEdit}
+                  title={canEdit ? 'Toggle edit tools' : 'Only domain owners or editors can edit'}
                   className="h-8 px-3"
                 >
                   {isFrenzyEditMode ? 'Editing' : 'Edit'}

@@ -1,4 +1,4 @@
-export type NotificationKind = 'domain-review-due';
+export type NotificationKind = 'domain-review-due' | 'domain-invite';
 
 export interface NotificationItem {
   id: string;
@@ -10,5 +10,6 @@ export interface NotificationItem {
   meta?: {
     domainId?: number;
     dueCount?: number;
+    inviteId?: number;
   };
 }

@@ -3,14 +3,14 @@
 package handlers
 
 import (
-    "fmt"
-    "net/http"
-    "strconv"
+	"fmt"
+	"net/http"
+	"strconv"
 
-    "github.com/gin-gonic/gin"
-    "myapp/server/dao"
-    "myapp/server/models"
-    "myapp/server/services"
+	"github.com/gin-gonic/gin"
+	"myapp/server/dao"
+	"myapp/server/models"
+	"myapp/server/services"
 )
 
 // DefinitionHandler handles definition-related HTTP requests
@@ -18,14 +18,16 @@ type DefinitionHandler struct {
 	definitionDAO     *dao.DefinitionDAO
 	domainDAO         *dao.DomainDAO
 	metaDefinitionDAO *dao.MetaDefinitionDAO
+	permissionDAO     *dao.DomainPermissionDAO
 }
 
 // NewDefinitionHandler creates a new DefinitionHandler
-func NewDefinitionHandler(definitionDAO *dao.DefinitionDAO, domainDAO *dao.DomainDAO, metaDefinitionDAO *dao.MetaDefinitionDAO) *DefinitionHandler {
+func NewDefinitionHandler(definitionDAO *dao.DefinitionDAO, domainDAO *dao.DomainDAO, metaDefinitionDAO *dao.MetaDefinitionDAO, permissionDAO *dao.DomainPermissionDAO) *DefinitionHandler {
 	return &DefinitionHandler{
 		definitionDAO:     definitionDAO,
 		domainDAO:         domainDAO,
 		metaDefinitionDAO: metaDefinitionDAO,
+		permissionDAO:     permissionDAO,
 	}
 }
 
@@ -44,16 +46,19 @@ func (h *DefinitionHandler) GetDomainDefinitions(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	definitions, err := h.definitionDAO.GetByDomainID(uint(domainID))
@@ -86,14 +91,19 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != domain.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to add definitions to this domain"})
-			return
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to add definitions to this domain"})
+		return
 	}
 
 	// Bind request data
@@ -138,7 +148,7 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 			Code:      req.Code,
 			Name:      req.Name,
 			DomainID:  uint(domainID),
-			OwnerID:   userID.(uint),
+			OwnerID:   userID,
 			XPosition: req.XPosition,
 			YPosition: req.YPosition,
 		}
@@ -154,12 +164,12 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 
 	// Create the definition version
 	versionReq := &models.DefinitionVersionRequest{
-		Prompt:      req.Prompt,
-		Type:        req.Type,
-		Description: req.Description,
-		Notes:       req.Notes,
-		References:  req.References,
-		PromptImagePath: req.PromptImagePath,
+		Prompt:               req.Prompt,
+		Type:                 req.Type,
+		Description:          req.Description,
+		Notes:                req.Notes,
+		References:           req.References,
+		PromptImagePath:      req.PromptImagePath,
 		DescriptionImagePath: req.DescriptionImagePath,
 	}
 
@@ -200,16 +210,19 @@ func (h *DefinitionHandler) GetDefinition(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this definition"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this definition"})
+		return
 	}
 
 	c.JSON(http.StatusOK, h.definitionDAO.ConvertToResponse(definition))
@@ -230,14 +243,24 @@ func (h *DefinitionHandler) UpdateDefinition(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != definition.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this definition"})
-			return
-		}
+	domain, err := h.domainDAO.FindByID(definition.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this definition"})
+		return
 	}
 
 	// Bind update data
@@ -314,14 +337,24 @@ func (h *DefinitionHandler) DeleteDefinition(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != definition.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this definition"})
-			return
-		}
+	domain, err := h.domainDAO.FindByID(definition.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this definition"})
+		return
 	}
 
 	// Delete definition
@@ -335,7 +368,7 @@ func (h *DefinitionHandler) DeleteDefinition(c *gin.Context) {
 
 // GetDefinitionByCode returns definitions by code
 func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
-    code := c.Param("code")
+	code := c.Param("code")
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid definition code"})
 		return
@@ -344,20 +377,39 @@ func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
 	// Get domain ID from query parameter
 	domainID, _ := strconv.ParseUint(c.Query("domainId"), 10, 32)
 
-    var definitions []*models.DefinitionWithPrerequisites
-    var err error
+	var definitions []*models.DefinitionWithPrerequisites
+	var err error
 
 	// If domain ID is provided, get specific definition by code and domain
-    if domainID > 0 {
-        var definition *models.DefinitionWithPrerequisites
-        definition, err = h.definitionDAO.FindByCodeAndDomain(code, uint(domainID))
-        if err == nil {
-            definitions = []*models.DefinitionWithPrerequisites{definition}
-        }
-    } else {
-        // Otherwise get all definitions with the given code
-        definitions, err = h.definitionDAO.FindByCode(code)
-    }
+	if domainID > 0 {
+		var definition *models.DefinitionWithPrerequisites
+		definition, err = h.definitionDAO.FindByCodeAndDomain(code, uint(domainID))
+		if err == nil {
+			domain, dErr := h.domainDAO.FindByID(uint(domainID))
+			if dErr != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+				return
+			}
+			userID, isAdmin, ok := getUserContext(c)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+				return
+			}
+			canView, vErr := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+			if vErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+				return
+			}
+			if !canView {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+				return
+			}
+			definitions = []*models.DefinitionWithPrerequisites{definition}
+		}
+	} else {
+		// Otherwise get all definitions with the given code
+		definitions, err = h.definitionDAO.FindByCode(code)
+	}
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Definition not found"})
@@ -365,8 +417,8 @@ func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
 	}
 
 	// Filter by access permissions and convert to response format
-    var responses []models.DefinitionResponse
-    for _, definition := range definitions {
+	var responses []models.DefinitionResponse
+	for _, definition := range definitions {
 		// Check domain access
 		domain, err := h.domainDAO.FindByID(definition.DomainID)
 		if err != nil {
@@ -374,25 +426,23 @@ func (h *DefinitionHandler) GetDefinitionByCode(c *gin.Context) {
 		}
 
 		// Add to response if domain is public or user has access
-        if domain.Privacy == "public" {
-            resp := h.definitionDAO.ConvertToResponse(definition)
-            responses = append(responses, resp)
-            continue
-        }
+		if domain.Privacy == "public" {
+			resp := h.definitionDAO.ConvertToResponse(definition)
+			responses = append(responses, resp)
+			continue
+		}
 
-		userID, exists := c.Get("userID")
-		if exists && userID.(uint) == domain.OwnerID {
-            resp := h.definitionDAO.ConvertToResponse(definition)
-            responses = append(responses, resp)
-            continue
-        }
-
-		isAdmin, adminExists := c.Get("isAdmin")
-		if adminExists && isAdmin.(bool) {
-            resp := h.definitionDAO.ConvertToResponse(definition)
-            responses = append(responses, resp)
-        }
-    }
+		userID, isAdmin, ok := getUserContext(c)
+		if !ok {
+			continue
+		}
+		canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+		if err != nil || !canView {
+			continue
+		}
+		resp := h.definitionDAO.ConvertToResponse(definition)
+		responses = append(responses, resp)
+	}
 
 	if len(responses) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to any definitions with this code"})

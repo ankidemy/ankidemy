@@ -12,20 +12,22 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"mime/multipart"
 	"myapp/server/dao"
 	"myapp/server/services"
-	"mime/multipart"
 )
 
 type MediaHandler struct {
-	domainDAO   *dao.DomainDAO
-	progressDAO *dao.ProgressDAO
+	domainDAO     *dao.DomainDAO
+	progressDAO   *dao.ProgressDAO
+	permissionDAO *dao.DomainPermissionDAO
 }
 
-func NewMediaHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO) *MediaHandler {
+func NewMediaHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO, permissionDAO *dao.DomainPermissionDAO) *MediaHandler {
 	return &MediaHandler{
-		domainDAO:   domainDAO,
-		progressDAO: progressDAO,
+		domainDAO:     domainDAO,
+		progressDAO:   progressDAO,
+		permissionDAO: permissionDAO,
 	}
 }
 
@@ -59,8 +61,11 @@ func (h *MediaHandler) UploadImage(c *gin.Context) {
 	}
 
 	if domain.OwnerID != userIDVal.(uint) && !isAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to upload media to this domain"})
-		return
+		role, exists, err := h.permissionDAO.GetRole(domain.ID, userIDVal.(uint))
+		if err != nil || !exists || role != "editor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to upload media to this domain"})
+			return
+		}
 	}
 
 	nodeType := c.PostForm("nodeType")
@@ -161,8 +166,11 @@ func (h *MediaHandler) GetImage(c *gin.Context) {
 		if domain.OwnerID != userID.(uint) && !isAdmin {
 			enrolled, err := h.progressDAO.IsUserEnrolled(userID.(uint), domain.ID)
 			if err != nil || !enrolled {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this media"})
-				return
+				role, exists, permErr := h.permissionDAO.GetRole(domain.ID, userID.(uint))
+				if permErr != nil || !exists || role == "" {
+					c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this media"})
+					return
+				}
 			}
 		}
 	}

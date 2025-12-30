@@ -12,13 +12,14 @@ import (
 )
 
 type MetaDefinitionHandler struct {
-	metaDAO   *dao.MetaDefinitionDAO
-	domainDAO *dao.DomainDAO
-	service   *services.MetaDefinitionService
+	metaDAO       *dao.MetaDefinitionDAO
+	domainDAO     *dao.DomainDAO
+	service       *services.MetaDefinitionService
+	permissionDAO *dao.DomainPermissionDAO
 }
 
-func NewMetaDefinitionHandler(dbDao *dao.MetaDefinitionDAO, domainDAO *dao.DomainDAO, svc *services.MetaDefinitionService) *MetaDefinitionHandler {
-	return &MetaDefinitionHandler{metaDAO: dbDao, domainDAO: domainDAO, service: svc}
+func NewMetaDefinitionHandler(dbDao *dao.MetaDefinitionDAO, domainDAO *dao.DomainDAO, svc *services.MetaDefinitionService, permissionDAO *dao.DomainPermissionDAO) *MetaDefinitionHandler {
+	return &MetaDefinitionHandler{metaDAO: dbDao, domainDAO: domainDAO, service: svc, permissionDAO: permissionDAO}
 }
 
 // POST /api/domains/:id/meta-definitions
@@ -33,13 +34,17 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
 		return
 	}
-	userIDv, ok := c.Get("userID")
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userIDv.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -66,7 +71,7 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 		Code:      req.Code,
 		Name:      req.Name,
 		DomainID:  uint(domainID64),
-		OwnerID:   userIDv.(uint),
+		OwnerID:   userID,
 		XPosition: req.XPosition,
 		YPosition: req.YPosition,
 	}
@@ -111,17 +116,19 @@ func (h *MetaDefinitionHandler) GetMetaDefinition(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
 		return
 	}
-	if domain.Privacy != "public" {
-		userIDv, ok := c.Get("userID")
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
-		isAdmin, adminExists := c.Get("isAdmin")
-		if userIDv.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-			return
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
 	}
 	resp, _ := h.metaDAO.ConvertToResponse(meta, versions, true)
 	c.JSON(http.StatusOK, resp)
@@ -139,17 +146,19 @@ func (h *MetaDefinitionHandler) GetDomainMetaDefinitions(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
 		return
 	}
-	if domain.Privacy != "public" {
-		userIDv, ok := c.Get("userID")
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
-		isAdmin, adminExists := c.Get("isAdmin")
-		if userIDv.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-			return
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
 	}
 	metas, err := h.metaDAO.GetByDomainID(uint(id64))
 	if err != nil {
@@ -177,13 +186,22 @@ func (h *MetaDefinitionHandler) AddVersion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
 		return
 	}
-	userIDv, ok := c.Get("userID")
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userIDv.(uint) != meta.OwnerID && (!adminExists || !isAdmin.(bool)) {
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -239,13 +257,22 @@ func (h *MetaDefinitionHandler) UpdateVersion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
 		return
 	}
-	userIDv, ok := c.Get("userID")
+	domain, err := h.domainDAO.FindByID(existing.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userIDv.(uint) != existing.OwnerID && (!adminExists || !isAdmin.(bool)) {
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -307,13 +334,22 @@ func (h *MetaDefinitionHandler) DeleteVersion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
 		return
 	}
-	userIDv, ok := c.Get("userID")
+	domain, err := h.domainDAO.FindByID(existing.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userIDv.(uint) != existing.OwnerID && (!adminExists || !isAdmin.(bool)) {
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -399,8 +435,11 @@ func (h *MetaDefinitionHandler) UpdateMetaDefinition(c *gin.Context) {
 	}
 	isAdmin, adminExists := c.Get("isAdmin")
 	if userIDv.(uint) != meta.OwnerID && (!adminExists || !isAdmin.(bool)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
+		role, exists, rErr := h.permissionDAO.GetRole(meta.DomainID, userIDv.(uint))
+		if rErr != nil || !exists || role != "editor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 	}
 
 	// Parse request
@@ -493,8 +532,11 @@ func (h *MetaDefinitionHandler) DeleteMetaDefinition(c *gin.Context) {
 	}
 	isAdmin, adminExists := c.Get("isAdmin")
 	if userIDv.(uint) != meta.OwnerID && (!adminExists || !isAdmin.(bool)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
+		role, exists, rErr := h.permissionDAO.GetRole(meta.DomainID, userIDv.(uint))
+		if rErr != nil || !exists || role != "editor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 	}
 
 	if err := h.metaDAO.Delete(uint(id64)); err != nil {

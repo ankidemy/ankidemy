@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
@@ -12,26 +13,34 @@ import (
 
 // DomainHandler handles domain-related HTTP requests
 type DomainHandler struct {
-    domainDAO     *dao.DomainDAO
-    progressDAO   *dao.ProgressDAO
-    importService *services.ImportService
+	domainDAO     *dao.DomainDAO
+	progressDAO   *dao.ProgressDAO
+	importService *services.ImportService
+	permissionDAO *dao.DomainPermissionDAO
 }
 
 // NewDomainHandler creates a new DomainHandler
-func NewDomainHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO, importService *services.ImportService) *DomainHandler {
+func NewDomainHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO, importService *services.ImportService, permissionDAO *dao.DomainPermissionDAO) *DomainHandler {
 	return &DomainHandler{
 		domainDAO:     domainDAO,
 		progressDAO:   progressDAO,
 		importService: importService,
+		permissionDAO: permissionDAO,
 	}
 }
 
 // CreateDomainRequest represents the request for creating a domain with optional import
 type CreateDomainRequest struct {
-	Name        string                       `json:"name" binding:"required"`
-	Privacy     string                       `json:"privacy" binding:"required"`
-	Description string                       `json:"description"`
-	ImportData  *services.ImportData         `json:"importData,omitempty"`
+	Name        string               `json:"name" binding:"required"`
+	Privacy     string               `json:"privacy" binding:"required"`
+	Description string               `json:"description"`
+	ImportData  *services.ImportData `json:"importData,omitempty"`
+}
+
+type CopyDomainRequest struct {
+	Name        string `json:"name"`
+	Privacy     string `json:"privacy"`
+	Description string `json:"description"`
 }
 
 // GetDomains returns all domains (without stats)
@@ -123,19 +132,34 @@ func (h *DomainHandler) GetDomain(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner
-	if domainWithStats.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domainWithStats.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(&domainWithStats.Domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
-	c.JSON(http.StatusOK, domainWithStats)
+	resp := struct {
+		dao.DomainWithStats
+		PermissionRole string `json:"permissionRole,omitempty"`
+	}{
+		DomainWithStats: *domainWithStats,
+	}
+	if userID == domainWithStats.OwnerID {
+		resp.PermissionRole = "owner"
+	} else if role, exists, _ := h.permissionDAO.GetRole(domainWithStats.ID, userID); exists {
+		resp.PermissionRole = role
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // CreateDomain creates a new domain and returns it with stats
@@ -188,6 +212,13 @@ func (h *DomainHandler) CreateDomain(c *gin.Context) {
 		// Enroll the owner in the domain
 		if err := h.progressDAO.EnrollUserInDomain(userID.(uint), domain.ID); err != nil {
 			// Just log the error, don't fail the request
+		}
+	}
+
+	if domain.DomainUID == nil || *domain.DomainUID == "" {
+		if uid, err := services.GenerateDomainUID(userID.(uint), domain.ID); err == nil {
+			domain.DomainUID = &uid
+			_ = h.domainDAO.Update(domain)
 		}
 	}
 
@@ -244,36 +275,232 @@ func (h *DomainHandler) ImportToDomain(c *gin.Context) {
 
 // ExportImportData exports a domain in ImportService format (definitions + metaExercises)
 func (h *DomainHandler) ExportImportData(c *gin.Context) {
-    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-        return
-    }
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
 
-    // Access control: public or owner
-    domain, err := h.domainDAO.FindByID(uint(id))
-    if err != nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-        return
-    }
-    if domain.Privacy != "public" {
-        userID, ok := c.Get("userID")
-        if !ok || userID.(uint) != domain.OwnerID {
-            isAdmin, ok2 := c.Get("isAdmin")
-            if !ok2 || !isAdmin.(bool) {
-                c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-                return
-            }
-        }
-    }
+	domain, err := h.domainDAO.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
+	}
 
-    data, err := h.importService.ExportDomain(uint(id))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export domain: " + err.Error()})
-        return
-    }
+	data, err := h.importService.ExportDomain(uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export domain: " + err.Error()})
+		return
+	}
 
-    c.JSON(http.StatusOK, data)
+	c.JSON(http.StatusOK, data)
+}
+
+// CopyDomain creates a new domain by copying content from an existing domain.
+func (h *DomainHandler) CopyDomain(c *gin.Context) {
+	sourceID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
+
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+
+	sourceDomain, err := h.domainDAO.FindByID(uint(sourceID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	canView, err := canViewDomain(sourceDomain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
+	}
+
+	var req CopyDomainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = sourceDomain.Name + " (Copy)"
+	}
+	privacy := strings.TrimSpace(req.Privacy)
+	if privacy == "" {
+		privacy = "private"
+	}
+	if privacy != "public" && privacy != "private" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "privacy must be public or private"})
+		return
+	}
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		description = sourceDomain.Description
+	}
+
+	data, err := h.importService.ExportDomain(uint(sourceID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export domain"})
+		return
+	}
+
+	newDomain, err := h.importService.CreateDomainWithImport(userID, name, privacy, description, data)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy domain"})
+		return
+	}
+
+	if newDomain.DomainUID == nil || *newDomain.DomainUID == "" {
+		uid, err := services.GenerateDomainUID(userID, newDomain.ID)
+		if err == nil {
+			newDomain.DomainUID = &uid
+		}
+	}
+	newDomain.CopiedFromDomainID = &sourceDomain.ID
+	sourceOwner := sourceDomain.OwnerID
+	newDomain.CopiedFromUserID = &sourceOwner
+	_ = h.domainDAO.Update(newDomain)
+
+	if err := h.copyUserProgress(userID, sourceDomain.ID, newDomain.ID); err != nil {
+		// Progress copy is best-effort; the domain copy itself is already created.
+	}
+
+	domainWithStats, err := h.domainDAO.FindByIDWithStats(newDomain.ID)
+	if err != nil {
+		c.JSON(http.StatusCreated, newDomain)
+		return
+	}
+
+	c.JSON(http.StatusCreated, domainWithStats)
+}
+
+func (h *DomainHandler) copyUserProgress(userID, sourceDomainID, newDomainID uint) error {
+	db := h.domainDAO.DB()
+
+	type nodeRow struct {
+		ID   uint
+		Code string
+	}
+
+	var sourceDefs []nodeRow
+	var newDefs []nodeRow
+	if err := db.Model(&models.MetaDefinition{}).
+		Select("id, code").
+		Where("domain_id = ?", sourceDomainID).
+		Find(&sourceDefs).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&models.MetaDefinition{}).
+		Select("id, code").
+		Where("domain_id = ?", newDomainID).
+		Find(&newDefs).Error; err != nil {
+		return err
+	}
+
+	sourceDefCodeByID := make(map[uint]string, len(sourceDefs))
+	newDefIDByCode := make(map[string]uint, len(newDefs))
+	for _, row := range sourceDefs {
+		sourceDefCodeByID[row.ID] = row.Code
+	}
+	for _, row := range newDefs {
+		newDefIDByCode[row.Code] = row.ID
+	}
+
+	var sourceExercises []nodeRow
+	var newExercises []nodeRow
+	if err := db.Model(&models.MetaExercise{}).
+		Select("id, code").
+		Where("domain_id = ?", sourceDomainID).
+		Find(&sourceExercises).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&models.MetaExercise{}).
+		Select("id, code").
+		Where("domain_id = ?", newDomainID).
+		Find(&newExercises).Error; err != nil {
+		return err
+	}
+
+	sourceExerciseCodeByID := make(map[uint]string, len(sourceExercises))
+	newExerciseIDByCode := make(map[string]uint, len(newExercises))
+	for _, row := range sourceExercises {
+		sourceExerciseCodeByID[row.ID] = row.Code
+	}
+	for _, row := range newExercises {
+		newExerciseIDByCode[row.Code] = row.ID
+	}
+
+	defIDs := make([]uint, 0, len(sourceDefs))
+	for _, row := range sourceDefs {
+		defIDs = append(defIDs, row.ID)
+	}
+	exIDs := make([]uint, 0, len(sourceExercises))
+	for _, row := range sourceExercises {
+		exIDs = append(exIDs, row.ID)
+	}
+
+	var progresses []models.UserNodeProgress
+	if len(defIDs) > 0 {
+		if err := db.Where("user_id = ? AND node_type = ? AND node_id IN ?", userID, "definition", defIDs).
+			Find(&progresses).Error; err != nil {
+			return err
+		}
+	}
+	if len(exIDs) > 0 {
+		var exProgress []models.UserNodeProgress
+		if err := db.Where("user_id = ? AND node_type = ? AND node_id IN ?", userID, "exercise", exIDs).
+			Find(&exProgress).Error; err != nil {
+			return err
+		}
+		progresses = append(progresses, exProgress...)
+	}
+
+	for _, prog := range progresses {
+		newNodeID := uint(0)
+		switch prog.NodeType {
+		case "definition":
+			code := sourceDefCodeByID[prog.NodeID]
+			newNodeID = newDefIDByCode[code]
+		case "exercise":
+			code := sourceExerciseCodeByID[prog.NodeID]
+			newNodeID = newExerciseIDByCode[code]
+		}
+		if newNodeID == 0 {
+			continue
+		}
+		clone := prog
+		clone.ID = 0
+		clone.NodeID = newNodeID
+		if err := db.Create(&clone).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // UpdateDomain updates a domain and returns it with stats
@@ -371,92 +598,92 @@ func (h *DomainHandler) DeleteDomain(c *gin.Context) {
 		return
 	}
 
-    c.JSON(http.StatusOK, gin.H{"message": "Domain deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Domain deleted successfully"})
 }
 
 // GetMyArchivedDomains returns archived (soft-deleted) domains owned by the current user with stats
 func (h *DomainHandler) GetMyArchivedDomains(c *gin.Context) {
-    userID, exists := c.Get("userID")
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-        return
-    }
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
 
-    domains, err := h.domainDAO.GetArchivedByOwnerIDWithStats(userID.(uint))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve archived domains"})
-        return
-    }
-    c.JSON(http.StatusOK, domains)
+	domains, err := h.domainDAO.GetArchivedByOwnerIDWithStats(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve archived domains"})
+		return
+	}
+	c.JSON(http.StatusOK, domains)
 }
 
 // RestoreDomain unarchives a soft-deleted domain
 func (h *DomainHandler) RestoreDomain(c *gin.Context) {
-    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-        return
-    }
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
 
-    // We must check ownership/admin using Unscoped find
-    domain, err := h.domainDAO.FindByID(uint(id))
-    if err != nil {
-        // Try unscoped load for deleted records to check owner
-        var d models.Domain
-        if e := h.domainDAO.DB().Unscoped().First(&d, uint(id)).Error; e != nil {
-            c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-            return
-        }
-        domain = &d
-    }
+	// We must check ownership/admin using Unscoped find
+	domain, err := h.domainDAO.FindByID(uint(id))
+	if err != nil {
+		// Try unscoped load for deleted records to check owner
+		var d models.Domain
+		if e := h.domainDAO.DB().Unscoped().First(&d, uint(id)).Error; e != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+			return
+		}
+		domain = &d
+	}
 
-    userID, exists := c.Get("userID")
-    if !exists || userID.(uint) != domain.OwnerID {
-        isAdmin, adminExists := c.Get("isAdmin")
-        if !adminExists || !isAdmin.(bool) {
-            c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to restore this domain"})
-            return
-        }
-    }
+	userID, exists := c.Get("userID")
+	if !exists || userID.(uint) != domain.OwnerID {
+		isAdmin, adminExists := c.Get("isAdmin")
+		if !adminExists || !isAdmin.(bool) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to restore this domain"})
+			return
+		}
+	}
 
-    if err := h.domainDAO.Restore(uint(id)); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore domain"})
-        return
-    }
+	if err := h.domainDAO.Restore(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore domain"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{"message": "Domain restored successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Domain restored successfully"})
 }
 
 // PurgeDomain permanently deletes a domain and all related data
 func (h *DomainHandler) PurgeDomain(c *gin.Context) {
-    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-        return
-    }
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+		return
+	}
 
-    // Load unscoped to check ownership when soft-deleted
-    var domain models.Domain
-    if err := h.domainDAO.DB().Unscoped().First(&domain, uint(id)).Error; err != nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-        return
-    }
+	// Load unscoped to check ownership when soft-deleted
+	var domain models.Domain
+	if err := h.domainDAO.DB().Unscoped().First(&domain, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
 
-    userID, exists := c.Get("userID")
-    if !exists || userID.(uint) != domain.OwnerID {
-        isAdmin, adminExists := c.Get("isAdmin")
-        if !adminExists || !isAdmin.(bool) {
-            c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this domain"})
-            return
-        }
-    }
+	userID, exists := c.Get("userID")
+	if !exists || userID.(uint) != domain.OwnerID {
+		isAdmin, adminExists := c.Get("isAdmin")
+		if !adminExists || !isAdmin.(bool) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this domain"})
+			return
+		}
+	}
 
-    if err := h.domainDAO.HardDeleteCascade(uint(id)); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to permanently delete domain"})
-        return
-    }
+	if err := h.domainDAO.HardDeleteCascade(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to permanently delete domain"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{"message": "Domain permanently deleted"})
+	c.JSON(http.StatusOK, gin.H{"message": "Domain permanently deleted"})
 }
 
 // EnrollInDomain enrolls the current user in a domain
@@ -481,12 +708,18 @@ func (h *DomainHandler) EnrollInDomain(c *gin.Context) {
 		return
 	}
 
-	if domain.Privacy != "public" && userID.(uint) != domain.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-			return
-		}
+	isAdmin := false
+	if adminVal, adminExists := c.Get("isAdmin"); adminExists {
+		isAdmin, _ = adminVal.(bool)
+	}
+	canView, err := canViewDomain(domain, userID.(uint), isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	// Enroll user
@@ -513,17 +746,19 @@ func (h *DomainHandler) GetComments(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner or enrolled
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				// We should check enrollment here
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	// Get comments
@@ -558,14 +793,18 @@ func (h *DomainHandler) AddComment(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner or enrolled
-	if domain.Privacy != "public" && userID.(uint) != domain.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			// We should check enrollment here
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-			return
-		}
+	isAdmin := false
+	if adminVal, adminExists := c.Get("isAdmin"); adminExists {
+		isAdmin, _ = adminVal.(bool)
+	}
+	canView, err := canViewDomain(domain, userID.(uint), isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	// Bind comment data
@@ -633,20 +872,20 @@ func (h *DomainHandler) RegisterRoutes(router *gin.RouterGroup) {
 	authorized := router.Group("/")
 	{
 		domains := authorized.Group("/domains")
-        {
-            domains.GET("", h.GetDomains)
-            domains.POST("", h.CreateDomain) // Now supports import data
-            domains.GET("/my", h.GetMyDomains)
-            domains.GET("/archived/my", h.GetMyArchivedDomains)
-            domains.GET("/enrolled", h.GetEnrolledDomains)
-            domains.GET("/:id", h.GetDomain)
-            domains.PUT("/:id", h.UpdateDomain)
-            domains.DELETE("/:id", h.DeleteDomain)
-            domains.POST("/:id/restore", h.RestoreDomain)
-            domains.DELETE("/:id/purge", h.PurgeDomain)
-            domains.POST("/:id/enroll", h.EnrollInDomain)
-            domains.POST("/:id/import", h.ImportToDomain) // NEW: Import to existing domain
-			
+		{
+			domains.GET("", h.GetDomains)
+			domains.POST("", h.CreateDomain) // Now supports import data
+			domains.GET("/my", h.GetMyDomains)
+			domains.GET("/archived/my", h.GetMyArchivedDomains)
+			domains.GET("/enrolled", h.GetEnrolledDomains)
+			domains.GET("/:id", h.GetDomain)
+			domains.PUT("/:id", h.UpdateDomain)
+			domains.DELETE("/:id", h.DeleteDomain)
+			domains.POST("/:id/restore", h.RestoreDomain)
+			domains.DELETE("/:id/purge", h.PurgeDomain)
+			domains.POST("/:id/enroll", h.EnrollInDomain)
+			domains.POST("/:id/import", h.ImportToDomain) // NEW: Import to existing domain
+
 			// Domain comments
 			domains.GET("/:id/comments", h.GetComments)
 			domains.POST("/:id/comments", h.AddComment)

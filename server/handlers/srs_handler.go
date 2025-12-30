@@ -15,36 +15,38 @@ import (
 
 // SRSHandler handles SRS-related HTTP requests
 type SRSHandler struct {
-	db         *gorm.DB
-	srsService *services.SRSService
-	srsDao     *dao.SRSDao
+	db            *gorm.DB
+	srsService    *services.SRSService
+	srsDao        *dao.SRSDao
+	permissionDAO *dao.DomainPermissionDAO
 }
 
 // NewSRSHandler creates a new SRSHandler
-func NewSRSHandler(db *gorm.DB) *SRSHandler {
+func NewSRSHandler(db *gorm.DB, permissionDAO *dao.DomainPermissionDAO) *SRSHandler {
 	return &SRSHandler{
-		db:         db,
-		srsService: services.NewSRSService(db),
-		srsDao:     dao.NewSRSDao(db),
+		db:            db,
+		srsService:    services.NewSRSService(db),
+		srsDao:        dao.NewSRSDao(db),
+		permissionDAO: permissionDAO,
 	}
 }
 
-func (h *SRSHandler) getMetaOwner(nodeType string, nodeID uint) (uint, error) {
+func (h *SRSHandler) getMetaDomainInfo(nodeType string, nodeID uint) (uint, uint, error) {
 	switch nodeType {
 	case "meta_definition":
 		var meta models.MetaDefinition
-		if err := h.db.Select("owner_id").First(&meta, nodeID).Error; err != nil {
-			return 0, err
+		if err := h.db.Select("owner_id", "domain_id").First(&meta, nodeID).Error; err != nil {
+			return 0, 0, err
 		}
-		return meta.OwnerID, nil
+		return meta.DomainID, meta.OwnerID, nil
 	case "meta_exercise":
 		var meta models.MetaExercise
-		if err := h.db.Select("owner_id").First(&meta, nodeID).Error; err != nil {
-			return 0, err
+		if err := h.db.Select("owner_id", "domain_id").First(&meta, nodeID).Error; err != nil {
+			return 0, 0, err
 		}
-		return meta.OwnerID, nil
+		return meta.DomainID, meta.OwnerID, nil
 	default:
-		return 0, fmt.Errorf("unsupported node type: %s", nodeType)
+		return 0, 0, fmt.Errorf("unsupported node type: %s", nodeType)
 	}
 }
 
@@ -448,15 +450,18 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-	ownerID, err := h.getMetaOwner(request.NodeType, request.NodeID)
+	domainID, ownerID, err := h.getMetaDomainInfo(request.NodeType, request.NodeID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
 	isAdmin, adminExists := c.Get("isAdmin")
 	if userID.(uint) != ownerID && (!adminExists || !isAdmin.(bool)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
+		role, exists, pErr := h.permissionDAO.GetRole(domainID, userID.(uint))
+		if pErr != nil || !exists || role != "editor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 	}
 
 	// Validate weight
@@ -524,17 +529,19 @@ func (h *SRSHandler) GetPrerequisites(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
 		return
 	}
-	if domain.Privacy != "public" {
-		userID, ok := c.Get("userID")
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-			return
-		}
-		isAdmin, adminExists := c.Get("isAdmin")
-		if userID.(uint) != domain.OwnerID && (!adminExists || !isAdmin.(bool)) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-			return
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(&domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
 	}
 
 	prerequisites, err := h.srsDao.GetPrerequisitesByDomain(uint(domainID))
@@ -563,15 +570,18 @@ func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Prerequisite not found"})
 		return
 	}
-	ownerID, err := h.getMetaOwner(existing.NodeType, existing.NodeID)
+	domainID, ownerID, err := h.getMetaDomainInfo(existing.NodeType, existing.NodeID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
 	isAdmin, adminExists := c.Get("isAdmin")
 	if userID.(uint) != ownerID && (!adminExists || !isAdmin.(bool)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
+		role, exists, pErr := h.permissionDAO.GetRole(domainID, userID.(uint))
+		if pErr != nil || !exists || role != "editor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 	}
 	var req struct {
 		Weight   *float64 `json:"weight"`
@@ -623,15 +633,18 @@ func (h *SRSHandler) DeletePrerequisite(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Prerequisite not found"})
 		return
 	}
-	ownerID, err := h.getMetaOwner(existing.NodeType, existing.NodeID)
+	domainID, ownerID, err := h.getMetaDomainInfo(existing.NodeType, existing.NodeID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
 	isAdmin, adminExists := c.Get("isAdmin")
 	if userID.(uint) != ownerID && (!adminExists || !isAdmin.(bool)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
+		role, exists, pErr := h.permissionDAO.GetRole(domainID, userID.(uint))
+		if pErr != nil || !exists || role != "editor" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 	}
 
 	if err := h.db.Delete(&models.NodePrerequisite{}, prerequisiteID).Error; err != nil {

@@ -7,19 +7,22 @@ import (
 )
 
 type Domain struct {
-    ID          uint           `gorm:"primaryKey" json:"id"`
-    CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
-    UpdatedAt   time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
-    DeletedAt   gorm.DeletedAt `gorm:"column:deleted_at;index" json:"-"`
-    Name        string         `gorm:"column:name;not null" json:"name"`
-    Privacy     string         `gorm:"column:privacy;not null" json:"privacy"`
-    OwnerID     uint           `gorm:"column:owner_id;not null" json:"ownerId"`
-    Description string         `gorm:"column:description" json:"description"`
-    
-    // Relationships
-    Owner       *User        `gorm:"foreignKey:OwnerID" json:"-"`
-    Definitions []Definition `json:"definitions,omitempty"`
-    Exercises   []Exercise   `json:"exercises,omitempty"`
+	ID                 uint           `gorm:"primaryKey" json:"id"`
+	CreatedAt          time.Time      `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt          time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+	DeletedAt          gorm.DeletedAt `gorm:"column:deleted_at;index" json:"-"`
+	Name               string         `gorm:"column:name;not null" json:"name"`
+	Privacy            string         `gorm:"column:privacy;not null" json:"privacy"`
+	OwnerID            uint           `gorm:"column:owner_id;not null" json:"ownerId"`
+	Description        string         `gorm:"column:description" json:"description"`
+	DomainUID          *string        `gorm:"column:domain_uid;uniqueIndex" json:"domainUid,omitempty"`
+	CopiedFromDomainID *uint          `gorm:"column:copied_from_domain_id" json:"copiedFromDomainId,omitempty"`
+	CopiedFromUserID   *uint          `gorm:"column:copied_from_user_id" json:"copiedFromUserId,omitempty"`
+
+	// Relationships
+	Owner       *User        `gorm:"foreignKey:OwnerID" json:"-"`
+	Definitions []Definition `json:"definitions,omitempty"`
+	Exercises   []Exercise   `json:"exercises,omitempty"`
 }
 
 // TableName overrides the table name

@@ -1,9 +1,10 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { getEnrolledDomains, getMyDomains } from "@/lib/api";
+import { getEnrolledDomains, getMyDomains, getPendingDomainInvites } from "@/lib/api";
 import { getDomainStats } from "@/lib/srs-api";
 import type { Domain } from "@/lib/api";
+import type { DomainInvite } from "@/lib/api";
 import type { NotificationItem } from "@/types/notifications";
 
 interface NotificationContextValue {
@@ -20,13 +21,29 @@ interface NotificationContextValue {
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
 
-const buildNotifications = (domains: Domain[], stats: Array<number | null>): {
+const buildNotifications = (domains: Domain[], stats: Array<number | null>, invites: DomainInvite[]): {
   notifications: NotificationItem[];
   domainDueCounts: Record<number, number>;
+  inviteCount: number;
 } => {
   const domainDueCounts: Record<number, number> = {};
   const notifications: NotificationItem[] = [];
   const timestamp = new Date().toISOString();
+
+  invites.forEach(invite => {
+    notifications.push({
+      id: `invite-${invite.id}`,
+      kind: "domain-invite",
+      title: `Invitation to ${invite.domainName}`,
+      description: `Role: ${invite.role} · From ${invite.invitedByUsername}`,
+      href: `/main/domains/invitations`,
+      createdAt: invite.createdAt || timestamp,
+      meta: {
+        domainId: invite.domainId,
+        inviteId: invite.id,
+      },
+    });
+  });
 
   stats.forEach((dueCount, index) => {
     const domain = domains[index];
@@ -49,15 +66,20 @@ const buildNotifications = (domains: Domain[], stats: Array<number | null>): {
     }
   });
 
-  notifications.sort((a, b) => (b.meta?.dueCount || 0) - (a.meta?.dueCount || 0));
+  notifications.sort((a, b) => {
+    if (a.kind === "domain-invite" && b.kind !== "domain-invite") return -1;
+    if (b.kind === "domain-invite" && a.kind !== "domain-invite") return 1;
+    return (b.meta?.dueCount || 0) - (a.meta?.dueCount || 0);
+  });
 
-  return { notifications, domainDueCounts };
+  return { notifications, domainDueCounts, inviteCount: invites.length };
 };
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [domainDueCounts, setDomainDueCounts] = useState<Record<number, number>>({});
   const [readCounts, setReadCounts] = useState<Record<number, number>>({});
+  const [pendingInviteCount, setPendingInviteCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const refreshInFlight = useRef(false);
@@ -70,6 +92,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setNotifications([]);
       setDomainDueCounts({});
       setReadCounts({});
+      setPendingInviteCount(0);
       setLastUpdated(Date.now());
       return;
     }
@@ -77,9 +100,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     refreshInFlight.current = true;
     setLoading(true);
     try {
-      const [myResult, enrolledResult] = await Promise.allSettled([
+      const [myResult, enrolledResult, inviteResult] = await Promise.allSettled([
         getMyDomains(),
         getEnrolledDomains(),
+        getPendingDomainInvites(),
       ]);
 
       const domainMap = new Map<number, Domain>();
@@ -91,10 +115,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
 
       const domains = Array.from(domainMap.values());
-      if (domains.length === 0) {
+      const invites = inviteResult.status === "fulfilled" ? inviteResult.value : [];
+      if (domains.length === 0 && invites.length === 0) {
         setNotifications([]);
         setDomainDueCounts({});
         setReadCounts({});
+        setPendingInviteCount(0);
         setLastUpdated(Date.now());
         return;
       }
@@ -108,9 +134,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         return typeof result.value?.dueReviews === "number" ? result.value.dueReviews : 0;
       });
 
-      const { notifications, domainDueCounts } = buildNotifications(domains, dueCounts);
+      const { notifications, domainDueCounts, inviteCount } = buildNotifications(domains, dueCounts, invites);
       setNotifications(notifications);
       setDomainDueCounts(domainDueCounts);
+      setPendingInviteCount(inviteCount);
       setReadCounts(prev => {
         const next: Record<number, number> = {};
         Object.entries(domainDueCounts).forEach(([id, dueCount]) => {
@@ -144,12 +171,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [domainDueCounts]);
 
   const unreadCount = useMemo(() => {
-    return Object.entries(domainDueCounts).reduce((sum, [id, dueCount]) => {
+    const dueUnread = Object.entries(domainDueCounts).reduce((sum, [id, dueCount]) => {
       const numericId = Number(id);
       const lastRead = readCounts[numericId] ?? 0;
       return sum + (dueCount > lastRead ? dueCount : 0);
     }, 0);
-  }, [domainDueCounts, readCounts]);
+    return dueUnread + pendingInviteCount;
+  }, [domainDueCounts, readCounts, pendingInviteCount]);
 
   const markAllAsRead = useCallback(() => {
     setReadCounts(prev => {

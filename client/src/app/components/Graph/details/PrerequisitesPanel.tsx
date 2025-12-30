@@ -227,7 +227,7 @@ const PrerequisitesPanel: React.FC<Props> = ({ domainId, nodeId, nodeType, avail
       <div className="pt-2 border-t">
         <h4 className="text-xs font-medium text-gray-600 mb-1">Add Prerequisite</h4>
         {!canEdit && (
-          <div className="text-xs text-gray-500 mb-2">Only domain owners can edit prerequisites.</div>
+          <div className="text-xs text-gray-500 mb-2">Only domain owners or editors can edit prerequisites.</div>
         )}
         <div className="space-y-3">
           {allowKinds.includes('meta_definition') && (

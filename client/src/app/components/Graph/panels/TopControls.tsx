@@ -48,8 +48,10 @@ interface TopControlsProps {
   currentDomainId?: number;
   currentDomainName?: string;
   isOwner?: boolean;
+  canEdit?: boolean;
   onDataImported?: () => void;
   onNavigateToNode?: (nodeCode: string) => void;
+  onManageAccess?: () => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -77,8 +79,10 @@ const TopControls: React.FC<TopControlsProps> = ({
   currentDomainId,
   currentDomainName,
   isOwner = false,
+  canEdit: canEditProp,
   onDataImported,
   onNavigateToNode,
+  onManageAccess,
 }) => {
   const srs = useSRS();
 
@@ -90,7 +94,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   const reviewQueueRef = useRef<HTMLDivElement>(null);
   const lastSeenReviewIdsRef = useRef<Set<string>>(new Set());
   const wasReviewQueueOpenRef = useRef(false);
-  const canEdit = isOwner;
+  const canEdit = canEditProp ?? isOwner;
 
   const dueReviews = srs.state.dueReviews;
   const dueCount = isEnrolled ? dueReviews.length : 0;
@@ -452,6 +456,18 @@ const TopControls: React.FC<TopControlsProps> = ({
                 Import
               </Button>
             )}
+            {isOwner && onManageAccess && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onManageAccess}
+                title="Manage access"
+                className="h-7 px-2 text-xs"
+              >
+                <Users size={12} className="mr-1" />
+                Share
+              </Button>
+            )}
           </div>
         )}
 
@@ -506,13 +522,13 @@ const TopControls: React.FC<TopControlsProps> = ({
           )}
         </div>
 
-        {/* Creation buttons - disabled if not enrolled */}
+        {/* Creation buttons - disabled if no edit access */}
         <Button
           variant="outline"
           size="sm"
           onClick={onCreateDefinition}
           disabled={!canEdit}
-          title={!canEdit ? "Only domain owners can create definitions" : "Add Definition"}
+          title={!canEdit ? "Only domain owners or editors can create definitions" : "Add Definition"}
           className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
         >
           <Plus size={14} className="mr-1" /> Def
@@ -523,7 +539,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             size="sm"
             onClick={onCreateExercise}
             disabled={!canEdit}
-            title={!canEdit ? "Only domain owners can create exercises" : "Add Exercise"}
+            title={!canEdit ? "Only domain owners or editors can create exercises" : "Add Exercise"}
             className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
           >
             <Plus size={14} className="mr-1" /> Ex
@@ -538,7 +554,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             onClick={onSavePositions}
             disabled={isSavingPositions || !canEdit}
             className="flex items-center bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
-            title={!canEdit ? "Only domain owners can save positions" : "Save current node positions"}
+            title={!canEdit ? "Only domain owners or editors can save positions" : "Save current node positions"}
           >
             {isSavingPositions ? (
               <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-yellow-600 mr-1"></div>

@@ -10,15 +10,17 @@ import (
 
 // GraphHandler handles graph-related HTTP requests
 type GraphHandler struct {
-	graphDAO  *dao.GraphDAO
-	domainDAO *dao.DomainDAO
+	graphDAO      *dao.GraphDAO
+	domainDAO     *dao.DomainDAO
+	permissionDAO *dao.DomainPermissionDAO
 }
 
 // NewGraphHandler creates a new GraphHandler
-func NewGraphHandler(graphDAO *dao.GraphDAO, domainDAO *dao.DomainDAO) *GraphHandler {
+func NewGraphHandler(graphDAO *dao.GraphDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO) *GraphHandler {
 	return &GraphHandler{
-		graphDAO:  graphDAO,
-		domainDAO: domainDAO,
+		graphDAO:      graphDAO,
+		domainDAO:     domainDAO,
+		permissionDAO: permissionDAO,
 	}
 }
 
@@ -37,16 +39,19 @@ func (h *GraphHandler) GetVisualGraph(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	// Get the visual graph
@@ -74,14 +79,19 @@ func (h *GraphHandler) UpdatePositions(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != domain.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this domain"})
-			return
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this domain"})
+		return
 	}
 
 	// Bind the positions
@@ -115,16 +125,19 @@ func (h *GraphHandler) ExportDomain(c *gin.Context) {
 		return
 	}
 
-	// Check if the domain is public or the user is the owner
-	if domain.Privacy != "public" {
-		userID, exists := c.Get("userID")
-		if !exists || userID.(uint) != domain.OwnerID {
-			isAdmin, adminExists := c.Get("isAdmin")
-			if !adminExists || !isAdmin.(bool) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
-				return
-			}
-		}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
+		return
 	}
 
 	// Export the domain

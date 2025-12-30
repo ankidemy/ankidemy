@@ -45,6 +45,8 @@ func InitDB() (*gorm.DB, error) {
 	models := []interface{}{
 		&models.User{},
 		&models.Domain{},
+		&models.DomainPermission{},
+		&models.DomainInvite{},
 		&models.DomainComment{},
 		&models.Definition{},
 		&models.Reference{},
