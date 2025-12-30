@@ -167,7 +167,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const displayId = (node as GraphNode).displayId ?? id;
-    const nodeSizeBase = type === 'definition' ? 7 : 6;
+    const isGroup = type === 'group';
+    const nodeSizeBase = isGroup ? 10 : (type === 'definition' ? 7 : 6);
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
     const isSelected = selectedNodeIds.has(id);
     const isNewlyCreated = newlyCreatedNodeId === id;
@@ -179,7 +180,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     let finalColor = color;
     if (!finalColor) {
       let baseColor;
-      if (type === 'definition') {
+      if (isGroup) {
+        baseColor = '#111827';
+      } else if (type === 'definition') {
         baseColor = node.isRootDefinition ? '#28a745' : '#007bff';
       } else {
         const difficultyColors = ['#66bb6a', '#9ccc65', '#d4e157', '#ffee58', '#ffa726', '#ff7043', '#ef5350'];
@@ -192,7 +195,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
         baseColor = difficultyColors[difficultyLevel];
       }
-      finalColor = status ? getSRSStatusColor(status) : baseColor;
+      finalColor = isGroup ? baseColor : (status ? getSRSStatusColor(status) : baseColor);
     }
 
     // Render newly created highlight
@@ -240,7 +243,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.strokeStyle = `rgba(${HOVER_HIGHLIGHT_COLOR}, 0.85)`;
       ctx.lineWidth = 1.5 / globalScale;
     } else {
-      if (isExternal) {
+      if (isGroup) {
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.lineWidth = 1.5 / globalScale;
+      } else if (isExternal) {
         ctx.strokeStyle = externalStatus && externalStatus !== 'ok' ? 'rgba(248, 113, 113, 0.85)' : 'rgba(148, 163, 184, 0.65)';
         ctx.lineWidth = 1 / globalScale;
       } else {
@@ -251,7 +257,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     ctx.stroke();
 
     // Due indicator animation
-    if (isDue) {
+    if (isDue && !isGroup) {
       const isGraspedDue = status === 'grasped';
       const time = Date.now();
       const pulseRadius = nodeSize + 2.5 / globalScale;
@@ -645,7 +651,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         nodeId="id"
         linkSource="source"
         linkTarget="target"
-        nodeVal={node => (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.3 : 1)}
+        nodeVal={node => {
+          if (node.type === 'group') return 10;
+          return (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.3 : 1);
+        }}
         nodeCanvasObject={nodeCanvasObject}
         
         linkCanvasObject={linkCanvasObject}

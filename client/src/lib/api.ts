@@ -303,6 +303,48 @@ export interface VisualGraph {
   }[];
 }
 
+export interface GroupNodeRef {
+  nodeId: number;
+  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeCode: string;
+  nodeName: string;
+}
+
+export interface GroupData {
+  id: number;
+  domainId: number;
+  name: string;
+  isExact: boolean;
+  xPosition?: number;
+  yPosition?: number;
+  seeds: GroupNodeRef[];
+  members?: GroupNodeRef[];
+  collapsed?: boolean;
+}
+
+export interface GroupNodeRefRequest {
+  nodeId: number;
+  nodeType: 'meta_definition' | 'meta_exercise';
+}
+
+export interface GroupCreateRequest {
+  name: string;
+  isExact?: boolean;
+  xPosition?: number;
+  yPosition?: number;
+  seeds: GroupNodeRefRequest[];
+  members?: GroupNodeRefRequest[];
+}
+
+export interface GroupUpdateRequest {
+  name?: string;
+  isExact?: boolean;
+  xPosition?: number;
+  yPosition?: number;
+  seeds?: GroupNodeRefRequest[];
+  members?: GroupNodeRefRequest[];
+}
+
 export interface GraphData {
   definitions: Record<string, {
     code: string;
@@ -331,6 +373,14 @@ export interface GraphData {
     xPosition?: number;
     yPosition?: number;
     domainId?: number;
+  }>;
+  groups?: Array<{
+    name: string;
+    isExact: boolean;
+    xPosition?: number;
+    yPosition?: number;
+    seeds: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
+    members?: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
   }>;
 }
 
@@ -404,6 +454,14 @@ export interface DomainExportData {
       }>;
     };
   };
+  groups?: Array<{
+    name: string;
+    isExact: boolean;
+    xPosition?: number;
+    yPosition?: number;
+    seeds: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
+    members?: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
+  }>;
 }
 
 export interface CreateDomainWithImportRequest {
@@ -1533,6 +1591,76 @@ export const updateGraphPositions = async (domainId: number, positions: Record<s
     body: JSON.stringify(positions),
   });
   
+  return handleResponse(response);
+};
+
+// Group API
+export const getDomainGroups = async (domainId: number): Promise<GroupData[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/groups`, {
+    headers: getAuthHeaders(),
+  });
+
+  return handleResponse(response);
+};
+
+export const createDomainGroup = async (domainId: number, payload: GroupCreateRequest): Promise<GroupData> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/groups`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleResponse(response);
+};
+
+export const updateGroup = async (groupId: number, payload: GroupUpdateRequest): Promise<GroupData> => {
+  const response = await fetch(`${API_URL}/api/groups/${groupId}`, {
+    method: 'PATCH',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleResponse(response);
+};
+
+export const deleteGroup = async (groupId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/groups/${groupId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+
+  return handleResponse(response);
+};
+
+export const updateGroupState = async (groupId: number, collapsed: boolean): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/groups/${groupId}/state`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ collapsed }),
+  });
+
+  return handleResponse(response);
+};
+
+export const updateGroupPositions = async (domainId: number, positions: Record<string, { x: number; y: number }>): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/groups/positions`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(positions),
+  });
+
   return handleResponse(response);
 };
 

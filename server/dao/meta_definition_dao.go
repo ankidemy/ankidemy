@@ -2,14 +2,23 @@ package dao
 
 import (
 	"errors"
-	"myapp/server/models"
 	"gorm.io/gorm"
+	"myapp/server/models"
 )
 
 // MetaDefinitionDAO handles DB operations for meta definitions and versions
 type MetaDefinitionDAO struct{ DB *gorm.DB }
 
 func NewMetaDefinitionDAO(db *gorm.DB) *MetaDefinitionDAO { return &MetaDefinitionDAO{DB: db} }
+
+// ListByDomain returns all meta definitions for a domain.
+func (d *MetaDefinitionDAO) ListByDomain(domainID uint) ([]models.MetaDefinition, error) {
+	var defs []models.MetaDefinition
+	if err := d.DB.Where("domain_id = ?", domainID).Find(&defs).Error; err != nil {
+		return nil, err
+	}
+	return defs, nil
+}
 
 // Create a meta definition and its prerequisites
 func (d *MetaDefinitionDAO) Create(meta *models.MetaDefinition, prerequisiteIDs []uint, weights map[uint]float64) error {
@@ -170,19 +179,19 @@ func (d *MetaDefinitionDAO) AddVersion(metaID uint, req *models.DefinitionVersio
 	}
 
 	def := &models.Definition{
-		Code:             meta.Code,
-		Name:             meta.Name,
-		Prompt:           prompt,
-		Type:             defType,
-		Description:      req.Description,
-		Notes:            req.Notes,
-		PromptImagePath:  req.PromptImagePath,
+		Code:                 meta.Code,
+		Name:                 meta.Name,
+		Prompt:               prompt,
+		Type:                 defType,
+		Description:          req.Description,
+		Notes:                req.Notes,
+		PromptImagePath:      req.PromptImagePath,
 		DescriptionImagePath: req.DescriptionImagePath,
-		DomainID:         meta.DomainID,
-		OwnerID:          meta.OwnerID,
-		MetaDefinitionID: meta.ID,
-		XPosition:        meta.XPosition,
-		YPosition:        meta.YPosition,
+		DomainID:             meta.DomainID,
+		OwnerID:              meta.OwnerID,
+		MetaDefinitionID:     meta.ID,
+		XPosition:            meta.XPosition,
+		YPosition:            meta.YPosition,
 	}
 
 	err := d.DB.Transaction(func(tx *gorm.DB) error {
@@ -359,34 +368,34 @@ func (d *MetaDefinitionDAO) GetByDomainID(domainID uint) ([]models.MetaDefinitio
 // ConvertToResponse builds a response including prerequisite codes/weights and optionally versions
 // Only includes concept prerequisites (definition and meta_definition)
 func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versions []models.Definition, includeVersions bool) (models.MetaDefinitionResponse, error) {
-    // Collect prerequisite codes from concept type only (meta_definition)
-    var metaDefCodes []string
-    if err := d.DB.Raw(`
+	// Collect prerequisite codes from concept type only (meta_definition)
+	var metaDefCodes []string
+	if err := d.DB.Raw(`
         SELECT md.code FROM node_prerequisites np
         JOIN meta_definitions md ON md.id = np.prerequisite_id
         WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
         ORDER BY md.code`, meta.ID).Scan(&metaDefCodes).Error; err != nil {
-        return models.MetaDefinitionResponse{}, err
-    }
+		return models.MetaDefinitionResponse{}, err
+	}
 
 	// Weights for concept prerequisites only
 	type row struct {
 		Code   string
 		Weight float64
 	}
-    var metaDefRows []row
-    if err := d.DB.Raw(`
+	var metaDefRows []row
+	if err := d.DB.Raw(`
         SELECT md.code, np.weight FROM node_prerequisites np
         JOIN meta_definitions md ON md.id = np.prerequisite_id
         WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
         ORDER BY md.code`, meta.ID).Scan(&metaDefRows).Error; err != nil {
-        return models.MetaDefinitionResponse{}, err
-    }
-    
-    weights := make(map[string]float64, len(metaDefRows))
-    for _, r := range metaDefRows {
-        weights[r.Code] = r.Weight
-    }
+		return models.MetaDefinitionResponse{}, err
+	}
+
+	weights := make(map[string]float64, len(metaDefRows))
+	for _, r := range metaDefRows {
+		weights[r.Code] = r.Weight
+	}
 
 	resp := models.MetaDefinitionResponse{
 		ID:                  meta.ID,
@@ -398,10 +407,10 @@ func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versi
 		YPosition:           meta.YPosition,
 		CreatedAt:           meta.CreatedAt,
 		UpdatedAt:           meta.UpdatedAt,
-        Prerequisites:       metaDefCodes,
-        PrerequisiteWeights: weights,
-        VersionCount:        len(versions),
-    }
+		Prerequisites:       metaDefCodes,
+		PrerequisiteWeights: weights,
+		VersionCount:        len(versions),
+	}
 
 	if includeVersions {
 		resp.Versions = make([]models.DefinitionResponse, 0, len(versions))
@@ -415,23 +424,23 @@ func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versi
 			}
 
 			resp.Versions = append(resp.Versions, models.DefinitionResponse{
-				ID:               v.ID,
-				Code:             v.Code,
-				Name:             v.Name,
-				Prompt:           v.Prompt,
-				PromptImagePath:  v.PromptImagePath,
+				ID:                   v.ID,
+				Code:                 v.Code,
+				Name:                 v.Name,
+				Prompt:               v.Prompt,
+				PromptImagePath:      v.PromptImagePath,
 				DescriptionImagePath: v.DescriptionImagePath,
-				Type:             v.Type,
-				Description:      v.Description,
-				Notes:            v.Notes,
-				References:       refStrings,
-				DomainID:         v.DomainID,
-				OwnerID:          v.OwnerID,
-				MetaDefinitionID: v.MetaDefinitionID,
-				XPosition:        v.XPosition,
-				YPosition:        v.YPosition,
-				CreatedAt:        v.CreatedAt,
-				UpdatedAt:        v.UpdatedAt,
+				Type:                 v.Type,
+				Description:          v.Description,
+				Notes:                v.Notes,
+				References:           refStrings,
+				DomainID:             v.DomainID,
+				OwnerID:              v.OwnerID,
+				MetaDefinitionID:     v.MetaDefinitionID,
+				XPosition:            v.XPosition,
+				YPosition:            v.YPosition,
+				CreatedAt:            v.CreatedAt,
+				UpdatedAt:            v.UpdatedAt,
 			})
 		}
 	}

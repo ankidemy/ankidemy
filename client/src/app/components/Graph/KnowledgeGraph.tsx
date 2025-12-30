@@ -21,6 +21,14 @@ import {
   getDomainMetaExercises,
   getExternalPrerequisites,
   updateExternalPrerequisitePositions,
+  getDomainGroups,
+  createDomainGroup,
+  updateGroup,
+  deleteGroup,
+  updateGroupState,
+  updateGroupPositions,
+  GroupData,
+  GroupNodeRefRequest,
   MetaDefinition,
   MetaExercise,
   ExternalPrerequisiteLink,
@@ -79,7 +87,7 @@ import { getNextDotCode as getNextDotCodeFromUtils, getNextExerciseCode as getNe
 // Structure only contains topology data - no names or visual properties
 interface GraphNodeCore {
   id: string;
-  type: 'definition' | 'exercise';
+  type: 'definition' | 'exercise' | 'group';
   prerequisites?: string[];
   domainId?: number;
   xPosition?: number;
@@ -90,6 +98,10 @@ interface GraphNodeCore {
   externalDomainUid?: string;
   externalNodeId?: number;
   externalNodeType?: 'meta_definition' | 'meta_exercise';
+  groupId?: number;
+  groupMemberIds?: string[];
+  groupMemberCount?: number;
+  groupIsExact?: boolean;
 }
 
 interface GraphLinkCore {
@@ -126,6 +138,10 @@ interface NodeMetadata {
   externalNodeType?: 'meta_definition' | 'meta_exercise';
   externalDomainName?: string;
   externalNodeName?: string;
+  groupId?: number;
+  groupMemberIds?: string[];
+  groupMemberCount?: number;
+  groupIsExact?: boolean;
 }
 
 interface LinkMetadata {
@@ -221,6 +237,54 @@ const parseExternalNodeId = (nodeId: string): {
     externalNodeType: nodeType,
     externalNodeId: parsed,
   };
+};
+
+const buildGroupNodeId = (groupId: number) => `group:${groupId}`;
+
+const parseGroupNodeId = (nodeId: string): number | null => {
+  if (!nodeId.startsWith('group:')) return null;
+  const parsed = parseInt(nodeId.slice('group:'.length), 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const collectReachable = (startNodes: string[], adjacency: Map<string, Set<string>>) => {
+  const visited = new Set<string>();
+  const stack = [...startNodes];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || visited.has(node)) continue;
+    visited.add(node);
+    const neighbors = adjacency.get(node);
+    if (!neighbors) continue;
+    neighbors.forEach(next => {
+      if (!visited.has(next)) stack.push(next);
+    });
+  }
+  return visited;
+};
+
+const computeConvexClosure = (
+  seeds: string[],
+  outgoing: Map<string, Set<string>>,
+  incoming: Map<string, Set<string>>
+) => {
+  if (seeds.length === 0) return new Set<string>();
+  const desc = collectReachable(seeds, outgoing);
+  const anc = collectReachable(seeds, incoming);
+  const closure = new Set<string>();
+  desc.forEach(node => {
+    if (anc.has(node)) closure.add(node);
+  });
+  return closure;
+};
+
+const intersects = (a: Set<string>, b: Set<string>) => {
+  if (a.size === 0 || b.size === 0) return false;
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  for (const item of small) {
+    if (large.has(item)) return true;
+  }
+  return false;
 };
 
 const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
@@ -433,6 +497,7 @@ const useGraphMetadata = (
   activeNodeIds: Set<string>,
   selectedNodeIds: Set<string>,
   highlightNodes: Set<string>,
+  groupNodeMetadata: Map<string, NodeMetadata>,
   externalNodeLookup: Map<string, {
     id: string;
     name: string;
@@ -458,6 +523,12 @@ const useGraphMetadata = (
 
     // Build metadata for each node
     structureNodes.forEach((nodeCore, nodeId) => {
+      const groupMeta = groupNodeMetadata.get(nodeId);
+      if (groupMeta) {
+        nodeMetadata.set(nodeId, groupMeta);
+        return;
+      }
+
       const externalInfo = externalNodeLookup.get(nodeId);
       if (externalInfo) {
         const isExercise = externalInfo.type === 'exercise';
@@ -534,6 +605,10 @@ const useGraphMetadata = (
     // Track positions so we can apply them without a physics reset
     Object.values(definitions).map(d => `${d.code}:${d.xPosition ?? ''}:${d.yPosition ?? ''}`).join('|'),
     Object.values(exercises).map(e => `${e.code}:${e.xPosition ?? ''}:${e.yPosition ?? ''}`).join('|'),
+    Array.from(groupNodeMetadata.entries())
+      .map(([id, meta]) => `${id}:${meta.name}:${meta.groupMemberCount ?? ''}:${meta.groupIsExact ? '1' : '0'}`)
+      .sort()
+      .join('|'),
     Array.from(externalNodeLookup.values())
       .map(node => `${node.id}:${node.status}:${node.name}:${node.displayId ?? ''}`)
       .sort()
@@ -706,6 +781,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [codeToNumericIdMap, setCodeToNumericIdMap] = useState<Map<string, number>>(new Map());
   const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise>>(new Map());
   const [externalPrerequisites, setExternalPrerequisites] = useState<ExternalPrerequisiteLink[]>([]);
+  const [domainGroups, setDomainGroups] = useState<GroupData[]>([]);
 
   // Modal and form state
   const [showNodeCreationModal, setShowNodeCreationModal] = useState(false);
@@ -826,13 +902,201 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return map;
   }, [externalPrerequisites]);
 
+  const localAdjacency = useMemo(() => {
+    const outgoing = new Map<string, Set<string>>();
+    const incoming = new Map<string, Set<string>>();
+
+    const addEdge = (source: string, target: string) => {
+      if (!source || !target) return;
+      if (!outgoing.has(source)) outgoing.set(source, new Set());
+      if (!incoming.has(target)) incoming.set(target, new Set());
+      outgoing.get(source)?.add(target);
+      incoming.get(target)?.add(source);
+    };
+
+    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
+      (def.prerequisites || []).forEach(prereq => {
+        addEdge(prereq, def.code);
+      });
+    });
+    Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
+      (ex.prerequisites || []).forEach(prereq => {
+        addEdge(prereq, ex.code);
+      });
+    });
+
+    return { outgoing, incoming };
+  }, [currentStructuralGraphData]);
+
+  const groupMembersById = useMemo(() => {
+    const map = new Map<number, Set<string>>();
+    domainGroups.forEach(group => {
+      const seedCodes = (group.seeds || [])
+        .map(seed => seed.nodeCode)
+        .filter(Boolean);
+      let members: Set<string>;
+      if (group.isExact) {
+        const memberCodes = (group.members && group.members.length > 0 ? group.members : group.seeds)
+          .map(member => member.nodeCode)
+          .filter(Boolean);
+        members = new Set(memberCodes);
+      } else {
+        members = computeConvexClosure(seedCodes, localAdjacency.outgoing, localAdjacency.incoming);
+      }
+      map.set(group.id, members);
+    });
+    return map;
+  }, [domainGroups, localAdjacency]);
+
+  const collapsedGroupIds = useMemo(() => {
+    return new Set(domainGroups.filter(group => group.collapsed).map(group => group.id));
+  }, [domainGroups]);
+
+  const groupNodeMetadata = useMemo(() => {
+    const map = new Map<string, NodeMetadata>();
+    domainGroups.forEach(group => {
+      const members = groupMembersById.get(group.id) ?? new Set<string>();
+      const memberCount = members.size;
+      const label = memberCount > 0 ? `${group.name} (${memberCount})` : group.name;
+      map.set(buildGroupNodeId(group.id), {
+        name: label,
+        displayId: group.name,
+        color: '#111827',
+        isDue: false,
+        daysUntilReview: null,
+        progress: null,
+        groupId: group.id,
+        groupMemberIds: Array.from(members),
+        groupMemberCount: memberCount,
+        groupIsExact: group.isExact,
+      });
+    });
+    return map;
+  }, [domainGroups, groupMembersById]);
+
+  const groupSummaries = useMemo(() => {
+    return domainGroups.map(group => ({
+      id: group.id,
+      name: group.name,
+      collapsed: !!group.collapsed,
+      isExact: group.isExact,
+      memberCount: groupMembersById.get(group.id)?.size ?? 0,
+    }));
+  }, [domainGroups, groupMembersById]);
+
   // Build graph using architecture with true structure/metadata separation
-  const graphStructure = useGraphStructure(
+  const baseGraphStructure = useGraphStructure(
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
     mode,
     externalPrerequisites
   );
+
+  const groupedGraphStructure = useMemo(() => {
+    if (collapsedGroupIds.size === 0) {
+      return baseGraphStructure;
+    }
+
+    const nodes = new Map<string, GraphNodeCore>();
+    const links = new Map<string, GraphLinkCore>();
+    const nodeToGroup = new Map<string, number>();
+
+    collapsedGroupIds.forEach(groupId => {
+      const members = groupMembersById.get(groupId);
+      if (!members) return;
+      members.forEach(memberId => {
+        if (baseGraphStructure.nodes.has(memberId)) {
+          nodeToGroup.set(memberId, groupId);
+        }
+      });
+    });
+
+    baseGraphStructure.nodes.forEach((nodeCore, nodeId) => {
+      if (nodeToGroup.has(nodeId)) return;
+      nodes.set(nodeId, nodeCore);
+    });
+
+    collapsedGroupIds.forEach(groupId => {
+      const group = domainGroups.find(g => g.id === groupId);
+      if (!group) return;
+      const members = groupMembersById.get(groupId) ?? new Set<string>();
+      const memberIds = Array.from(members).filter(memberId => baseGraphStructure.nodes.has(memberId));
+      if (memberIds.length === 0) return;
+
+      let sumX = 0;
+      let sumY = 0;
+      let count = 0;
+      memberIds.forEach(memberId => {
+        const nodeCore = baseGraphStructure.nodes.get(memberId);
+        if (nodeCore && typeof nodeCore.xPosition === 'number' && typeof nodeCore.yPosition === 'number') {
+          sumX += nodeCore.xPosition;
+          sumY += nodeCore.yPosition;
+          count++;
+        }
+      });
+
+      const fallbackX = count > 0 ? sumX / count : undefined;
+      const fallbackY = count > 0 ? sumY / count : undefined;
+      const xPosition = typeof group.xPosition === 'number' ? group.xPosition : fallbackX;
+      const yPosition = typeof group.yPosition === 'number' ? group.yPosition : fallbackY;
+
+      const groupNodeId = buildGroupNodeId(groupId);
+      nodes.set(groupNodeId, {
+        id: groupNodeId,
+        type: 'group',
+        xPosition,
+        yPosition,
+        groupId,
+        groupMemberIds: memberIds,
+        groupMemberCount: memberIds.length,
+        groupIsExact: group.isExact,
+      });
+    });
+
+    const aggregated = new Map<string, GraphLinkCore>();
+    baseGraphStructure.links.forEach(link => {
+      const sourceGroup = nodeToGroup.get(link.source);
+      const targetGroup = nodeToGroup.get(link.target);
+
+      let nextSource = link.source;
+      let nextTarget = link.target;
+      if (sourceGroup) nextSource = buildGroupNodeId(sourceGroup);
+      if (targetGroup) nextTarget = buildGroupNodeId(targetGroup);
+      if (sourceGroup && targetGroup && sourceGroup === targetGroup) return;
+      if (!nodes.has(nextSource) || !nodes.has(nextTarget)) return;
+
+      const id = `${nextSource}-${nextTarget}`;
+      const existing = aggregated.get(id);
+      const weight = link.weight ?? 1.0;
+      if (existing) {
+        if (weight > existing.weight) existing.weight = weight;
+      } else {
+        aggregated.set(id, {
+          id,
+          source: nextSource,
+          target: nextTarget,
+          type: link.type,
+          weight,
+        });
+      }
+    });
+
+    aggregated.forEach(link => links.set(link.id, link));
+
+    const groupVersion = Array.from(collapsedGroupIds).sort().join(',');
+    const membershipVersion = Array.from(groupMembersById.entries())
+      .map(([id, members]) => `${id}:${Array.from(members).sort().join(',')}`)
+      .sort()
+      .join('|');
+    const version = hashString([baseGraphStructure.version, groupVersion, membershipVersion].join('::'));
+
+    return {
+      nodes,
+      links,
+      version,
+      lastStructuralChange: Date.now(),
+    };
+  }, [baseGraphStructure, collapsedGroupIds, domainGroups, groupMembersById]);
 
   // Active node IDs from open detail windows
   const activeNodeIds = useMemo(() =>
@@ -846,7 +1110,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Metadata hook tracks names and visual properties
   const graphMetadata = useGraphMetadata(
-    graphStructure.nodes,
+    groupedGraphStructure.nodes,
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
     srs,
@@ -854,11 +1118,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     activeNodeIds,
     selectedNodeIds,
     highlightNodes,
+    groupNodeMetadata,
     externalNodeLookup
   );
 
   // Stable graph correctly handles structure vs metadata updates
-  const stableGraph = useStableGraph(graphStructure, graphMetadata, positionManagerRef.current);
+  const stableGraph = useStableGraph(groupedGraphStructure, graphMetadata, positionManagerRef.current);
+  const stableGraphRef = useRef<typeof stableGraph | null>(null);
+  stableGraphRef.current = stableGraph;
 
   const graphHighlightedNodes = useMemo(() => {
     const combined = new Set<string>();
@@ -900,17 +1167,129 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId]);
 
+  const resolveGroupNodeRef = useCallback((nodeCode: string): GroupNodeRefRequest | null => {
+    const numericId = codeToNumericIdMap.get(nodeCode);
+    if (!numericId) return null;
+    if (currentStructuralGraphData.definitions?.[nodeCode]) {
+      return { nodeId: numericId, nodeType: 'meta_definition' };
+    }
+    if (currentStructuralGraphData.exercises?.[nodeCode]) {
+      return { nodeId: numericId, nodeType: 'meta_exercise' };
+    }
+    return null;
+  }, [codeToNumericIdMap, currentStructuralGraphData]);
+
+  const updateGroupLocal = useCallback((updated: GroupData) => {
+    setDomainGroups(prev => {
+      const exists = prev.some(group => group.id === updated.id);
+      if (!exists) return [...prev, updated];
+      return prev.map(group => (group.id === updated.id ? { ...group, ...updated } : group));
+    });
+  }, []);
+
+  const createGroupFromNodes = useCallback(async (name: string, seedCodes: string[], isExact: boolean, memberCodes?: string[]) => {
+    const seeds = seedCodes
+      .map(code => resolveGroupNodeRef(code))
+      .filter((ref): ref is GroupNodeRefRequest => !!ref);
+    if (seeds.length === 0) {
+      showToast('Group seeds are missing node IDs.', 'error');
+      return null;
+    }
+
+    const members = memberCodes
+      ? memberCodes
+          .map(code => resolveGroupNodeRef(code))
+          .filter((ref): ref is GroupNodeRefRequest => !!ref)
+      : undefined;
+
+    const created = await createDomainGroup(parseInt(subjectMatterId, 10), {
+      name,
+      isExact,
+      seeds,
+      members,
+    });
+    updateGroupLocal(created);
+    return created;
+  }, [resolveGroupNodeRef, subjectMatterId, updateGroupLocal]);
+
+  const updateGroupData = useCallback(async (groupId: number, payload: { name?: string; isExact?: boolean; seedCodes?: string[]; memberCodes?: string[]; xPosition?: number; yPosition?: number }) => {
+    const updatePayload: any = {};
+    if (payload.name !== undefined) updatePayload.name = payload.name;
+    if (payload.isExact !== undefined) updatePayload.isExact = payload.isExact;
+    if (payload.xPosition !== undefined) updatePayload.xPosition = payload.xPosition;
+    if (payload.yPosition !== undefined) updatePayload.yPosition = payload.yPosition;
+    if (payload.seedCodes) {
+      const seeds = payload.seedCodes
+        .map(code => resolveGroupNodeRef(code))
+        .filter((ref): ref is GroupNodeRefRequest => !!ref);
+      if (seeds.length === 0) {
+        showToast('Group seeds are missing node IDs.', 'error');
+        return null;
+      }
+      updatePayload.seeds = seeds;
+    }
+    if (payload.memberCodes) {
+      const members = payload.memberCodes
+        .map(code => resolveGroupNodeRef(code))
+        .filter((ref): ref is GroupNodeRefRequest => !!ref);
+      if (members.length === 0) {
+        showToast('Group members are missing node IDs.', 'error');
+        return null;
+      }
+      updatePayload.members = members;
+    }
+
+    const updated = await updateGroup(groupId, updatePayload);
+    updateGroupLocal(updated);
+    return updated;
+  }, [resolveGroupNodeRef, updateGroupLocal]);
+
+  const deleteGroupById = useCallback(async (groupId: number) => {
+    await deleteGroup(groupId);
+    setDomainGroups(prev => prev.filter(group => group.id !== groupId));
+  }, []);
+
+  const toggleGroupCollapse = useCallback(async (groupId: number, nextCollapsed: boolean) => {
+    const targetMembers = groupMembersById.get(groupId) ?? new Set<string>();
+    const updates: Array<{ id: number; collapsed: boolean }> = [{ id: groupId, collapsed: nextCollapsed }];
+
+    if (nextCollapsed) {
+      domainGroups.forEach(group => {
+        if (group.id === groupId || !group.collapsed) return;
+        const members = groupMembersById.get(group.id);
+        if (members && intersects(members, targetMembers)) {
+          updates.push({ id: group.id, collapsed: false });
+        }
+      });
+    }
+
+    setDomainGroups(prev =>
+      prev.map(group => {
+        const update = updates.find(next => next.id === group.id);
+        if (!update) return group;
+        return { ...group, collapsed: update.collapsed };
+      })
+    );
+
+    await Promise.all(
+      updates.map(update => updateGroupState(update.id, update.collapsed).catch(err => {
+        console.warn('Failed to update group state:', err);
+      }))
+    );
+  }, [domainGroups, groupMembersById]);
+
   // Load comprehensive domain data
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
     try {
       console.log("Loading comprehensive domain data for:", domainId);
 
-      const [allMetaDefinitions, allMetaExercises, externalLinks] = await Promise.all([
+      const [allMetaDefinitions, allMetaExercises, externalLinks, groups] = await Promise.all([
         // Use meta-definitions (concept pools) as definition nodes in the graph
         getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return []; }),
         // Use meta-exercises (pools) as exercise nodes in the graph
         getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; }),
-        getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return []; })
+        getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return []; }),
+        getDomainGroups(domainId).catch(err => { console.warn("Failed to load groups:", err); return []; }),
       ]);
 
       const newCodeToNumericIdMap = new Map<string, number>();
@@ -977,6 +1356,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setNodeDataCache(newNodeDataCache);
       setCurrentStructuralGraphData({ definitions: newDefinitions, exercises: newExercises });
       setExternalPrerequisites(Array.isArray(externalLinks) ? externalLinks : []);
+      setDomainGroups(Array.isArray(groups) ? groups : []);
 
       // If the domain loads successfully but has no nodes,
       // stop showing the processing spinner so we can render an empty state.
@@ -1115,13 +1495,37 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Handle node drag end with position manager
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
-    if (node?.id && typeof node.x === 'number' && typeof node.y === 'number') {
-      positionManagerRef.current.fixPosition(node.id, node.x, node.y);
-      setPositionsChanged(true);
-      (node as any).fx = node.x;
-      (node as any).fy = node.y;
+    if (!node?.id || typeof node.x !== 'number' || typeof node.y !== 'number') return;
+
+    const groupId = node.groupId ?? parseGroupNodeId(node.id);
+    if (groupId) {
+      const previous = positionManagerRef.current.getPosition(node.id);
+      const prevX = previous?.x ?? (node.xPosition ?? node.x);
+      const prevY = previous?.y ?? (node.yPosition ?? node.y);
+      const dx = node.x - prevX;
+      const dy = node.y - prevY;
+      const members = groupMembersById.get(groupId);
+
+      if (members && (dx !== 0 || dy !== 0)) {
+        const stableNodes = stableGraphRef.current?.nodes ?? [];
+        stableNodes.forEach(member => {
+          if (!members.has(member.id)) return;
+          const nextX = (member.x ?? 0) + dx;
+          const nextY = (member.y ?? 0) + dy;
+          member.x = nextX;
+          member.y = nextY;
+          member.fx = nextX;
+          member.fy = nextY;
+          positionManagerRef.current.fixPosition(member.id, nextX, nextY);
+        });
+      }
     }
-  }, []);
+
+    positionManagerRef.current.fixPosition(node.id, node.x, node.y);
+    setPositionsChanged(true);
+    (node as any).fx = node.x;
+    (node as any).fy = node.y;
+  }, [groupMembersById]);
 
   // Enhanced engine stop handler with initial zoom
   const handleEngineStop = useCallback(() => {
@@ -1386,7 +1790,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Filtered nodes for left panel
   const filteredGraphNodes = useMemo(() => {
-    let tempNodes = [...stableGraph.nodes];
+    let tempNodes = stableGraph.nodes.filter(node => node.type !== 'group');
     if (filteredNodeType !== 'all') {
       tempNodes = tempNodes.filter(node => node.type === filteredNodeType);
     }
@@ -2591,6 +2995,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   const handleGraphNodeClick = useCallback((node: GraphNode) => {
+    if (node.type === 'group') {
+      const groupId = node.groupId ?? parseGroupNodeId(node.id);
+      const group = domainGroups.find(entry => entry.id === groupId);
+      if (groupId && group) {
+        toggleGroupCollapse(groupId, !group.collapsed);
+      }
+      return;
+    }
+
     if (node.isExternal && mode === 'frenzy' && isFrenzyEditMode) {
       showToast('External nodes cannot be edited in this domain.', 'warning');
       return;
@@ -2626,7 +3039,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     handleNodeClick(node, false, 'click');
-  }, [mode, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick]);
+  }, [domainGroups, mode, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick, toggleGroupCollapse]);
 
   const handleGraphLinkClick = useCallback((link: GraphLink) => {
     if (!(mode === 'frenzy' && isFrenzyEditMode && frenzyTool === 'unlink')) return;
@@ -2695,6 +3108,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         xPosition: number;
         yPosition: number;
       }> = [];
+      const groupPositions: Record<string, { x: number; y: number }> = {};
       
       for (const [nodeCode, position] of allPositions.entries()) {
         const externalInfo = parseExternalNodeId(nodeCode);
@@ -2706,6 +3120,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             xPosition: position.x,
             yPosition: position.y,
           });
+          continue;
+        }
+
+        const groupId = parseGroupNodeId(nodeCode);
+        if (groupId !== null) {
+          groupPositions[String(groupId)] = { x: position.x, y: position.y };
           continue;
         }
 
@@ -2728,7 +3148,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       if (externalPositions.length > 0) {
         await updateExternalPrerequisitePositions(parseInt(subjectMatterId, 10), externalPositions);
       }
-      if (Object.keys(convertedPositions).length > 0 || externalPositions.length > 0) {
+      if (Object.keys(groupPositions).length > 0) {
+        await updateGroupPositions(parseInt(subjectMatterId, 10), groupPositions);
+      }
+      if (Object.keys(convertedPositions).length > 0 || externalPositions.length > 0 || Object.keys(groupPositions).length > 0) {
         setPositionsChanged(false);
         showToast("Node positions saved.", "success");
       }
@@ -2841,6 +3264,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onDataImported={refreshGraphAndSRSData}
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
           onManageAccess={() => setShowAccessModal(true)}
+          groups={groupSummaries}
+          onToggleGroupCollapse={toggleGroupCollapse}
         />
 
         {/* Main Content */}
@@ -3301,6 +3726,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   onRefresh={refreshGraphAndSRSData}
                   externalPrerequisites={externalPrerequisites}
                   onExternalChanged={() => refreshExternalPrerequisites(domainData?.id)}
+                  groups={domainGroups}
+                  groupMembersById={groupMembersById}
+                  onCreateGroup={createGroupFromNodes}
+                  onUpdateGroup={updateGroupData}
+                  onDeleteGroup={deleteGroupById}
                 />
               )}
               {window.type === 'review' && (

@@ -52,6 +52,16 @@ interface TopControlsProps {
   onDataImported?: () => void;
   onNavigateToNode?: (nodeCode: string) => void;
   onManageAccess?: () => void;
+
+  // Group controls
+  groups?: Array<{
+    id: number;
+    name: string;
+    collapsed: boolean;
+    isExact: boolean;
+    memberCount: number;
+  }>;
+  onToggleGroupCollapse?: (groupId: number, collapsed: boolean) => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -83,6 +93,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   onDataImported,
   onNavigateToNode,
   onManageAccess,
+  groups = [],
+  onToggleGroupCollapse,
 }) => {
   const srs = useSRS();
 
@@ -91,6 +103,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showReviewQueue, setShowReviewQueue] = useState(false);
   const [hasNewDue, setHasNewDue] = useState(false);
+  const [showGroupMenu, setShowGroupMenu] = useState(false);
   const reviewQueueRef = useRef<HTMLDivElement>(null);
   const lastSeenReviewIdsRef = useRef<Set<string>>(new Set());
   const wasReviewQueueOpenRef = useRef(false);
@@ -482,6 +495,42 @@ const TopControls: React.FC<TopControlsProps> = ({
           >
             <LabelIconComponent size={12} className="mr-1" /> {labelButtonText}
           </Button>
+
+          {groups.length > 0 && onToggleGroupCollapse && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowGroupMenu(prev => !prev)}
+                title="Collapse or expand groups"
+                className="h-7 px-2 text-xs"
+              >
+                <List size={12} className="mr-1" /> Groups
+              </Button>
+
+              {showGroupMenu && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg border z-30 overflow-hidden">
+                  <div className="px-3 py-2 border-b text-xs font-semibold text-gray-700">Groups</div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {groups.map(group => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                        onClick={() => onToggleGroupCollapse(group.id, !group.collapsed)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" readOnly checked={group.collapsed} />
+                          <span className="truncate">{group.name}</span>
+                        </div>
+                        <span className="text-[10px] text-gray-500">{group.memberCount}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           
           <div className="w-px h-4 bg-gray-300"></div>
           

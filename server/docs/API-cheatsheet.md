@@ -128,6 +128,12 @@
 | `/api/domains/:id/graph/positions`| `PUT`  | Yes           | Update graph positions| `{nodeId: {x, y}}`          |
 | `/api/domains/:id/export`        | `GET`  | Yes           | Export domain         | -                           |
 | `/api/domains/:id/import`        | `POST` | Yes           | Import domain         | `definitions`, `exercises`  |
+| `/api/domains/:id/groups`        | `GET`  | Yes           | List node groups      | -                           |
+| `/api/domains/:id/groups`        | `POST` | Yes           | Create node group     | `name`, `seeds`, `isExact`  |
+| `/api/domains/:id/groups/positions`| `PUT`| Yes           | Update group positions| `{groupId: {x, y}}`         |
+| `/api/groups/:id`               | `PATCH`| Yes           | Update node group     | `name`, `seeds`, `members`  |
+| `/api/groups/:id`               | `DELETE`| Yes          | Delete node group     | -                           |
+| `/api/groups/:id/state`         | `PUT`  | Yes           | Update group collapse | `collapsed`                 |
 
 ## Authentication Header Format
 For all authenticated requests, include:

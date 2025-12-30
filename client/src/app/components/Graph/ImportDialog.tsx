@@ -26,6 +26,7 @@ interface ValidationResult {
   metaExerciseCount: number;
   versionCount: number;
   definitionVersionCount: number;
+  groupCount: number;
 }
 
 const STORAGE_KEY = 'ankidemy.import.onDuplicate';
@@ -78,6 +79,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     let metaExerciseCount = 0;
     let versionCount = 0;
     let definitionVersionCount = 0;
+    let groupCount = 0;
 
     // Collect all codes to check for duplicates within the import
     const allCodes = new Map<string, string>();
@@ -179,6 +181,33 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       }
     }
 
+    if (Array.isArray(data.groups)) {
+      groupCount = data.groups.length;
+      data.groups.forEach((group, idx) => {
+        if (!group.name) {
+          errors.push(`Group ${idx + 1} has empty name`);
+        }
+        if (!group.seeds || group.seeds.length === 0) {
+          errors.push(`Group ${group.name || idx + 1} has no seeds`);
+        } else {
+          group.seeds.forEach((seed) => {
+            if (!seed.code) {
+              errors.push(`Group ${group.name || idx + 1} has seed with empty code`);
+            } else if (!allCodes.has(seed.code)) {
+              errors.push(`Group ${group.name || idx + 1} references unknown code ${seed.code}`);
+            }
+          });
+        }
+        (group.members || []).forEach((member) => {
+          if (!member.code) {
+            errors.push(`Group ${group.name || idx + 1} has member with empty code`);
+          } else if (!allCodes.has(member.code)) {
+            errors.push(`Group ${group.name || idx + 1} references unknown code ${member.code}`);
+          }
+        });
+      });
+    }
+
     return {
       isValid: errors.length === 0,
       errors,
@@ -187,7 +216,8 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       exerciseCount,
       metaExerciseCount,
       versionCount,
-      definitionVersionCount
+      definitionVersionCount,
+      groupCount
     };
   };
 
@@ -212,6 +242,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         metaDefinitions: raw.metaDefinitions,
         exercises: raw.exercises,
         metaExercises: raw.metaExercises,
+        groups: raw.groups,
       };
       setImportData(standardized);
       const validationResult = validateImportData(standardized);
@@ -330,6 +361,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                         ) : validation.exerciseCount > 0 ? (
                           <p>• {validation.exerciseCount} exercise{validation.exerciseCount !== 1 ? 's' : ''} (legacy format)</p>
                         ) : null}
+                        {validation.groupCount > 0 && (
+                          <p>• {validation.groupCount} group{validation.groupCount !== 1 ? 's' : ''}</p>
+                        )}
                       </div>
                     </div>
                   ) : (

@@ -1940,6 +1940,80 @@ The legacy system provides simpler progress tracking with basic spaced repetitio
   }
   ```
 
+### Node Groups
+
+#### List Groups
+- **URL**: `/domains/:id/groups`
+- **Method**: `GET`
+- **Auth Required**: Yes
+- **URL Parameters**: `id` - Domain ID
+- **Response**: `200 OK`
+  ```json
+  [
+    {
+      "id": 1,
+      "domainId": 1,
+      "name": "Trig integrals",
+      "isExact": false,
+      "xPosition": 0,
+      "yPosition": 0,
+      "seeds": [{"nodeId": 12, "nodeType": "meta_definition", "nodeCode": "trig_intro"}],
+      "members": [],
+      "collapsed": false
+    }
+  ]
+  ```
+
+#### Create Group
+- **URL**: `/domains/:id/groups`
+- **Method**: `POST`
+- **Auth Required**: Yes
+- **Request Body**:
+  ```json
+  {
+    "name": "Trig integrals",
+    "isExact": false,
+    "seeds": [
+      { "nodeId": 12, "nodeType": "meta_definition" },
+      { "nodeId": 42, "nodeType": "meta_exercise" }
+    ],
+    "members": [
+      { "nodeId": 12, "nodeType": "meta_definition" }
+    ]
+  }
+  ```
+
+#### Update Group
+- **URL**: `/groups/:id`
+- **Method**: `PATCH`
+- **Auth Required**: Yes
+- **Request Body**: Any of `name`, `isExact`, `seeds`, `members`, `xPosition`, `yPosition`.
+
+#### Delete Group
+- **URL**: `/groups/:id`
+- **Method**: `DELETE`
+- **Auth Required**: Yes
+
+#### Update Group Collapse State
+- **URL**: `/groups/:id/state`
+- **Method**: `PUT`
+- **Auth Required**: Yes
+- **Request Body**:
+  ```json
+  { "collapsed": true }
+  ```
+
+#### Update Group Positions
+- **URL**: `/domains/:id/groups/positions`
+- **Method**: `PUT`
+- **Auth Required**: Yes
+- **Request Body**:
+  ```json
+  {
+    "1": {"x": 100, "y": 200}
+  }
+  ```
+
 ### Export Domain
 
 - **URL**: `/domains/:id/export`

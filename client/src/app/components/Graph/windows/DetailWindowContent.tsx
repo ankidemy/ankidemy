@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
+import { Input } from "@/app/components/core/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
 import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
@@ -43,7 +44,8 @@ import {
   MetaDefinition,
   ExerciseVersion,
   DefinitionVersion,
-  ExternalPrerequisiteLink
+  ExternalPrerequisiteLink,
+  GroupData
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
@@ -59,6 +61,11 @@ interface DetailWindowContentProps {
   onRefresh?: () => void; // Fallback full refresh
   externalPrerequisites?: ExternalPrerequisiteLink[];
   onExternalChanged?: () => void;
+  groups?: GroupData[];
+  groupMembersById?: Map<number, Set<string>>;
+  onCreateGroup?: (name: string, seedCodes: string[], isExact: boolean, memberCodes?: string[]) => Promise<GroupData | null>;
+  onUpdateGroup?: (groupId: number, payload: { name?: string; isExact?: boolean; seedCodes?: string[]; memberCodes?: string[] }) => Promise<GroupData | null>;
+  onDeleteGroup?: (groupId: number) => Promise<void>;
 }
 
 export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
@@ -73,6 +80,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   onRefresh, // Fallback refresh
   externalPrerequisites,
   onExternalChanged,
+  groups = [],
+  groupMembersById = new Map(),
+  onCreateGroup,
+  onUpdateGroup,
+  onDeleteGroup: _onDeleteGroup,
 }) => {
   const srs = useSRS();
   const ui = useUI();
@@ -108,7 +120,88 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'versions' | 'prerequisites' | 'srs'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'versions' | 'prerequisites' | 'srs' | 'groups'>('details');
+
+  // Group UI state
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const [groupExactDraft, setGroupExactDraft] = useState(false);
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+
+  const handleCreateGroup = useCallback(async () => {
+    if (!onCreateGroup) return;
+    const name = groupNameDraft.trim();
+    if (!name) {
+      showToast('Group name is required.', 'warning');
+      return;
+    }
+    setIsSavingGroup(true);
+    try {
+      const seedCodes = [currentNode.id];
+      const memberCodes = groupExactDraft ? [currentNode.id] : undefined;
+      await onCreateGroup(name, seedCodes, groupExactDraft, memberCodes);
+      setGroupNameDraft('');
+      setGroupExactDraft(false);
+      showToast('Group created.', 'success');
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      showToast('Failed to create group.', 'error');
+    } finally {
+      setIsSavingGroup(false);
+    }
+  }, [onCreateGroup, groupNameDraft, groupExactDraft, currentNode.id]);
+
+  const handleToggleGroupExact = useCallback(async (group: GroupData, nextExact: boolean) => {
+    if (!onUpdateGroup) return;
+    const members = groupMembersById.get(group.id) ?? new Set<string>();
+    const memberCodes = nextExact ? Array.from(members) : undefined;
+    try {
+      await onUpdateGroup(group.id, { isExact: nextExact, memberCodes });
+      showToast(`Group ${nextExact ? 'pinned' : 'unpinned'}.`, 'success');
+    } catch (error) {
+      console.error('Failed to update group:', error);
+      showToast('Failed to update group.', 'error');
+    }
+  }, [groupMembersById, onUpdateGroup]);
+
+  const handleAddNodeToGroup = useCallback(async (group: GroupData) => {
+    if (!onUpdateGroup) return;
+    const nodeCode = currentNode.id;
+    if (group.isExact) {
+      const existing = (group.members && group.members.length > 0)
+        ? group.members.map(member => member.nodeCode)
+        : Array.from(groupMembersById.get(group.id) ?? []);
+      const memberCodes = Array.from(new Set([...existing, nodeCode]));
+      await onUpdateGroup(group.id, { memberCodes });
+      return;
+    }
+
+    const seedCodes = Array.from(new Set([...(group.seeds || []).map(seed => seed.nodeCode), nodeCode]));
+    await onUpdateGroup(group.id, { seedCodes });
+  }, [currentNode.id, groupMembersById, onUpdateGroup]);
+
+  const handleRemoveNodeFromGroup = useCallback(async (group: GroupData) => {
+    if (!onUpdateGroup) return;
+    const nodeCode = currentNode.id;
+    if (group.isExact) {
+      const existing = (group.members && group.members.length > 0)
+        ? group.members.map(member => member.nodeCode)
+        : Array.from(groupMembersById.get(group.id) ?? []);
+      const memberCodes = existing.filter(code => code !== nodeCode);
+      if (memberCodes.length === 0) {
+        showToast('Group must contain at least one member.', 'warning');
+        return;
+      }
+      await onUpdateGroup(group.id, { memberCodes });
+      return;
+    }
+
+    const seedCodes = (group.seeds || []).map(seed => seed.nodeCode).filter(code => code !== nodeCode);
+    if (seedCodes.length === 0) {
+      showToast('Group must contain at least one seed.', 'warning');
+      return;
+    }
+    await onUpdateGroup(group.id, { seedCodes });
+  }, [currentNode.id, groupMembersById, onUpdateGroup]);
 
   // Load node details
   const loadNodeDetails = useCallback(async (node: GraphNode) => {
@@ -913,7 +1006,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           )
         ) : (
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
-            <TabsList className={`grid w-full ${currentNode.type === 'exercise' ? 'grid-cols-4' : 'grid-cols-4'} h-9`}>
+            <TabsList className="grid w-full grid-cols-5 h-9">
               <TabsTrigger value="details" className="text-sm h-8">Details</TabsTrigger>
               {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
                 <TabsTrigger value="versions" className="text-sm h-8">Versions</TabsTrigger>
@@ -925,6 +1018,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
               )}
               <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
+              <TabsTrigger value="groups" className="text-sm h-8">Groups</TabsTrigger>
             </TabsList>
             {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
               <TabsContent value="versions" className="mt-3">
@@ -1157,6 +1251,98 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="groups" className="mt-3 space-y-4">
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-gray-800">Create group</div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={groupNameDraft}
+                    onChange={(e) => setGroupNameDraft(e.target.value)}
+                    placeholder="Group name"
+                    className="h-8 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleCreateGroup}
+                    disabled={!onCreateGroup || isSavingGroup}
+                  >
+                    Create
+                  </Button>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={groupExactDraft}
+                    onChange={(e) => setGroupExactDraft(e.target.checked)}
+                  />
+                  Pin exact membership (test)
+                </label>
+              </div>
+
+              <div className="border-t pt-3 space-y-2">
+                <div className="text-sm font-semibold text-gray-800">Groups</div>
+                {groups.length === 0 ? (
+                  <div className="text-xs text-gray-500">No groups yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {groups.map(group => {
+                      const members = groupMembersById.get(group.id) ?? new Set<string>();
+                      const isMember = members.has(currentNode.id);
+                      const isSeed = (group.seeds || []).some(seed => seed.nodeCode === currentNode.id);
+                      const isExact = group.isExact;
+                      const isDerived = isMember && !isSeed && !isExact;
+                      const canRemove = isExact || isSeed;
+                      const actionLabel = isMember ? (canRemove ? 'Remove' : 'Derived') : 'Add';
+
+                      return (
+                        <div key={group.id} className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-xs">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-800">{group.name}</span>
+                              <span className="text-[10px] text-gray-500">{members.size}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                                {isExact ? 'Exact' : 'Convex'}
+                              </span>
+                              {isSeed && <span className="text-[10px] text-blue-600">Seed</span>}
+                              {isDerived && <span className="text-[10px] text-gray-400">Derived</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {onUpdateGroup && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleToggleGroupExact(group, !group.isExact)}
+                              >
+                                {group.isExact ? 'Unpin' : 'Pin'}
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant={isMember ? 'outline' : 'default'}
+                              disabled={isMember && !canRemove}
+                              onClick={() => {
+                                if (!onUpdateGroup) return;
+                                if (isMember) {
+                                  handleRemoveNodeFromGroup(group);
+                                } else {
+                                  handleAddNodeToGroup(group);
+                                }
+                              }}
+                            >
+                              {actionLabel}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

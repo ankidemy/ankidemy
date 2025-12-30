@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -70,6 +71,24 @@ type ImportData struct {
 	// Pooled content
 	MetaExercises   map[string]ImportMetaExerciseNode   `json:"metaExercises,omitempty"`
 	MetaDefinitions map[string]ImportMetaDefinitionNode `json:"metaDefinitions,omitempty"`
+	// Optional node groups
+	Groups []ImportGroupData `json:"groups,omitempty"`
+}
+
+// ImportGroupNodeRef represents a node reference inside a group (code-based).
+type ImportGroupNodeRef struct {
+	NodeType string `json:"nodeType"`
+	Code     string `json:"code"`
+}
+
+// ImportGroupData represents a node group in import/export format.
+type ImportGroupData struct {
+	Name      string               `json:"name"`
+	IsExact   bool                 `json:"isExact"`
+	XPosition float64              `json:"xPosition,omitempty"`
+	YPosition float64              `json:"yPosition,omitempty"`
+	Seeds     []ImportGroupNodeRef `json:"seeds"`
+	Members   []ImportGroupNodeRef `json:"members,omitempty"`
 }
 
 // ImportDefinitionNode represents a definition in the import/export format
@@ -342,6 +361,72 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		}
 	}
 
+	// Export node groups (code-based)
+	var groups []models.NodeGroup
+	if err := s.db.Where("domain_id = ?", domainID).Find(&groups).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch groups: %v", err)
+	}
+	if len(groups) > 0 {
+		groupIDs := make([]uint, 0, len(groups))
+		for _, g := range groups {
+			groupIDs = append(groupIDs, g.ID)
+		}
+		var seeds []models.NodeGroupSeed
+		if err := s.db.Where("group_id IN ?", groupIDs).Find(&seeds).Error; err != nil {
+			return nil, fmt.Errorf("failed to fetch group seeds: %v", err)
+		}
+		var members []models.NodeGroupMember
+		if err := s.db.Where("group_id IN ?", groupIDs).Find(&members).Error; err != nil {
+			return nil, fmt.Errorf("failed to fetch group members: %v", err)
+		}
+
+		metaDefCodes := make(map[uint]string, len(metaDefs))
+		for _, md := range metaDefs {
+			metaDefCodes[md.ID] = md.Code
+		}
+		metaExCodes := make(map[uint]string, len(metas))
+		for _, me := range metas {
+			metaExCodes[me.ID] = me.Code
+		}
+
+		seedsByGroup := make(map[uint][]ImportGroupNodeRef)
+		for _, s := range seeds {
+			ref := ImportGroupNodeRef{NodeType: s.NodeType}
+			if s.NodeType == "meta_definition" {
+				ref.Code = metaDefCodes[s.NodeID]
+			} else if s.NodeType == "meta_exercise" {
+				ref.Code = metaExCodes[s.NodeID]
+			}
+			if ref.Code != "" {
+				seedsByGroup[s.GroupID] = append(seedsByGroup[s.GroupID], ref)
+			}
+		}
+		membersByGroup := make(map[uint][]ImportGroupNodeRef)
+		for _, m := range members {
+			ref := ImportGroupNodeRef{NodeType: m.NodeType}
+			if m.NodeType == "meta_definition" {
+				ref.Code = metaDefCodes[m.NodeID]
+			} else if m.NodeType == "meta_exercise" {
+				ref.Code = metaExCodes[m.NodeID]
+			}
+			if ref.Code != "" {
+				membersByGroup[m.GroupID] = append(membersByGroup[m.GroupID], ref)
+			}
+		}
+
+		exportData.Groups = make([]ImportGroupData, 0, len(groups))
+		for _, g := range groups {
+			exportData.Groups = append(exportData.Groups, ImportGroupData{
+				Name:      g.Name,
+				IsExact:   g.IsExact,
+				XPosition: g.XPosition,
+				YPosition: g.YPosition,
+				Seeds:     seedsByGroup[g.ID],
+				Members:   membersByGroup[g.ID],
+			})
+		}
+	}
+
 	return exportData, nil
 }
 
@@ -488,6 +573,32 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 				if !allCodes[prereq] {
 					return fmt.Errorf("exercise %s references unknown prerequisite: %s", code, prereq)
 				}
+			}
+		}
+	}
+
+	// Validate groups (optional)
+	for _, group := range data.Groups {
+		if strings.TrimSpace(group.Name) == "" {
+			return fmt.Errorf("group has empty name")
+		}
+		if len(group.Seeds) == 0 {
+			return fmt.Errorf("group %s has no seeds", group.Name)
+		}
+		for _, seed := range group.Seeds {
+			if seed.NodeType != "meta_definition" && seed.NodeType != "meta_exercise" {
+				return fmt.Errorf("group %s has invalid nodeType %s", group.Name, seed.NodeType)
+			}
+			if seed.Code == "" || !allCodes[seed.Code] {
+				return fmt.Errorf("group %s references unknown code %s", group.Name, seed.Code)
+			}
+		}
+		for _, member := range group.Members {
+			if member.NodeType != "meta_definition" && member.NodeType != "meta_exercise" {
+				return fmt.Errorf("group %s has invalid nodeType %s", group.Name, member.NodeType)
+			}
+			if member.Code == "" || !allCodes[member.Code] {
+				return fmt.Errorf("group %s references unknown code %s", group.Name, member.Code)
 			}
 		}
 	}
@@ -1081,6 +1192,126 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}
 
 		log.Printf("Created exercise: %s (ID: %d)", exercise.Name, exercise.ID)
+	}
+
+	// Import node groups (code-based)
+	for _, group := range data.Groups {
+		name := strings.TrimSpace(group.Name)
+		if name == "" || len(group.Seeds) == 0 {
+			continue
+		}
+
+		groupModel := models.NodeGroup{
+			DomainID:  domain.ID,
+			Name:      name,
+			IsExact:   group.IsExact,
+			XPosition: group.XPosition,
+			YPosition: group.YPosition,
+			CreatedBy: ownerID,
+		}
+		if err := tx.Create(&groupModel).Error; err != nil {
+			return fmt.Errorf("failed to create group %s: %v", name, err)
+		}
+
+		seedSet := make(map[string]struct{})
+		seeds := make([]models.NodeGroupSeed, 0, len(group.Seeds))
+		for _, seed := range group.Seeds {
+			switch seed.NodeType {
+			case "meta_definition":
+				resolved := metaDefAssigned[seed.Code]
+				if resolved == "" {
+					resolved = seed.Code
+				}
+				if md, ok := metaDefs[resolved]; ok {
+					key := "meta_definition:" + strconv.Itoa(int(md.ID))
+					if _, exists := seedSet[key]; exists {
+						continue
+					}
+					seedSet[key] = struct{}{}
+					seeds = append(seeds, models.NodeGroupSeed{
+						GroupID:  groupModel.ID,
+						NodeID:   md.ID,
+						NodeType: "meta_definition",
+					})
+				}
+			case "meta_exercise":
+				resolved := metaAssigned[seed.Code]
+				if resolved == "" {
+					resolved = seed.Code
+				}
+				if me, ok := metas[resolved]; ok {
+					key := "meta_exercise:" + strconv.Itoa(int(me.ID))
+					if _, exists := seedSet[key]; exists {
+						continue
+					}
+					seedSet[key] = struct{}{}
+					seeds = append(seeds, models.NodeGroupSeed{
+						GroupID:  groupModel.ID,
+						NodeID:   me.ID,
+						NodeType: "meta_exercise",
+					})
+				}
+			}
+		}
+		if len(seeds) == 0 {
+			_ = tx.Delete(&groupModel).Error
+			continue
+		}
+		if err := tx.Create(&seeds).Error; err != nil {
+			return fmt.Errorf("failed to create group seeds for %s: %v", name, err)
+		}
+
+		if group.IsExact {
+			memberRefs := group.Members
+			if len(memberRefs) == 0 {
+				memberRefs = group.Seeds
+			}
+			memberSet := make(map[string]struct{})
+			members := make([]models.NodeGroupMember, 0, len(memberRefs))
+			for _, member := range memberRefs {
+				switch member.NodeType {
+				case "meta_definition":
+					resolved := metaDefAssigned[member.Code]
+					if resolved == "" {
+						resolved = member.Code
+					}
+					if md, ok := metaDefs[resolved]; ok {
+						key := "meta_definition:" + strconv.Itoa(int(md.ID))
+						if _, exists := memberSet[key]; exists {
+							continue
+						}
+						memberSet[key] = struct{}{}
+						members = append(members, models.NodeGroupMember{
+							GroupID:  groupModel.ID,
+							NodeID:   md.ID,
+							NodeType: "meta_definition",
+						})
+					}
+				case "meta_exercise":
+					resolved := metaAssigned[member.Code]
+					if resolved == "" {
+						resolved = member.Code
+					}
+					if me, ok := metas[resolved]; ok {
+						key := "meta_exercise:" + strconv.Itoa(int(me.ID))
+						if _, exists := memberSet[key]; exists {
+							continue
+						}
+						memberSet[key] = struct{}{}
+						members = append(members, models.NodeGroupMember{
+							GroupID:  groupModel.ID,
+							NodeID:   me.ID,
+							NodeType: "meta_exercise",
+						})
+					}
+				}
+			}
+			if len(members) > 0 {
+				if err := tx.Create(&members).Error; err != nil {
+					return fmt.Errorf("failed to create group members for %s: %v", name, err)
+				}
+			}
+		}
 	}
 
 	return nil

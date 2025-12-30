@@ -75,7 +75,7 @@ export interface GraphNode {
   id: string; // This is the node's 'code'
   displayId?: string;
   name: string;
-  type: 'definition' | 'exercise';
+  type: 'definition' | 'exercise' | 'group';
   isRootDefinition?: boolean;
   difficulty?: number; // For exercises
   color?: string;
@@ -108,6 +108,12 @@ export interface GraphNode {
   externalNodeType?: 'meta_definition' | 'meta_exercise';
   externalDomainName?: string;
   externalNodeName?: string;
+
+  // Group metadata (for collapsed nodes)
+  groupId?: number;
+  groupMemberIds?: string[];
+  groupMemberCount?: number;
+  groupIsExact?: boolean;
 }
 
 export interface GraphLink {
@@ -123,7 +129,7 @@ export interface GraphData {
 }
 
 // For filtering nodes
-export type FilteredNodeType = 'all' | 'definition' | 'exercise';
+export type FilteredNodeType = 'all' | 'definition' | 'exercise' | 'group';
 
 // Mode types
 export type AppMode = 'study' | 'practice' | 'frenzy';

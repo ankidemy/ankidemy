@@ -116,6 +116,55 @@ CREATE TABLE IF NOT EXISTS node_prerequisites (
 );
 
 -- ============================================================================
+-- NODE GROUPS (Graph clustering / collapse)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS node_groups (
+    id SERIAL PRIMARY KEY,
+    domain_id INT NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    is_exact BOOLEAN DEFAULT FALSE,
+    x_position DECIMAL(10,2) DEFAULT 0,
+    y_position DECIMAL(10,2) DEFAULT 0,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS node_group_seeds (
+    id SERIAL PRIMARY KEY,
+    group_id INT NOT NULL,
+    node_id INT NOT NULL,
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('meta_definition', 'meta_exercise')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id, node_id, node_type),
+    FOREIGN KEY (group_id) REFERENCES node_groups(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS node_group_members (
+    id SERIAL PRIMARY KEY,
+    group_id INT NOT NULL,
+    node_id INT NOT NULL,
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('meta_definition', 'meta_exercise')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id, node_id, node_type),
+    FOREIGN KEY (group_id) REFERENCES node_groups(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_group_states (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    group_id INT NOT NULL,
+    collapsed BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, group_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES node_groups(id) ON DELETE CASCADE
+);
+
+-- ============================================================================
 -- SRS SYSTEM TABLES
 -- ============================================================================
 
@@ -311,3 +360,7 @@ CREATE INDEX IF NOT EXISTS idx_definitions_domain ON definitions(domain_id);
 CREATE INDEX IF NOT EXISTS idx_exercises_domain ON exercises(domain_id);
 CREATE INDEX IF NOT EXISTS idx_definitions_code_domain ON definitions(code, domain_id);
 CREATE INDEX IF NOT EXISTS idx_exercises_code_domain ON exercises(code, domain_id);
+CREATE INDEX IF NOT EXISTS idx_node_groups_domain ON node_groups(domain_id);
+CREATE INDEX IF NOT EXISTS idx_group_seeds_group ON node_group_seeds(group_id);
+CREATE INDEX IF NOT EXISTS idx_group_members_group ON node_group_members(group_id);
+CREATE INDEX IF NOT EXISTS idx_user_group_states_user ON user_group_states(user_id);

@@ -72,6 +72,7 @@ func main() {
 	metaDefinitionDAO := dao.NewMetaDefinitionDAO(db)
 	metaDefSvc := services.NewMetaDefinitionService(db)
 	externalPrerequisiteDAO := dao.NewExternalPrerequisiteDAO(db)
+	groupDAO := dao.NewGroupDAO(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -103,6 +104,7 @@ func main() {
 	mediaHandler := handlers.NewMediaHandler(domainDAO, progressDAO, permissionDAO)
 	domainAccessHandler := handlers.NewDomainAccessHandler(domainDAO, permissionDAO, inviteDAO, userDAO, progressDAO)
 	externalPrerequisiteHandler := handlers.NewExternalPrerequisiteHandler(domainDAO, permissionDAO, externalPrerequisiteDAO, metaDefinitionDAO, metaExerciseDAO)
+	groupHandler := handlers.NewGroupHandler(groupDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO)
 
 	// Initialize router
 	router := gin.Default()
@@ -203,6 +205,11 @@ func main() {
 				domains.DELETE("/:id/external-prerequisites/:linkId", externalPrerequisiteHandler.Delete)
 				domains.PUT("/:id/external-prerequisites/positions", externalPrerequisiteHandler.UpdatePositions)
 
+				// Node groups
+				domains.GET("/:id/groups", groupHandler.ListByDomain)
+				domains.POST("/:id/groups", groupHandler.Create)
+				domains.PUT("/:id/groups/positions", groupHandler.UpdatePositions)
+
 				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)
 				domains.PUT("/:id/graph/positions", graphHandler.UpdatePositions)
@@ -212,6 +219,14 @@ func main() {
 				// ImportService import/export (round-trip compatible format)
 				domains.GET("/:id/export-data", domainHandler.ExportImportData)
 				// Import is handled by domainHandler.ImportToDomain above
+			}
+
+			// Group routes
+			groups := authorized.Group("/groups")
+			{
+				groups.PATCH("/:id", groupHandler.Update)
+				groups.DELETE("/:id", groupHandler.Delete)
+				groups.PUT("/:id/state", groupHandler.UpdateState)
 			}
 
 			// Domain network routes (user-defined links between domains)
