@@ -287,6 +287,82 @@ const intersects = (a: Set<string>, b: Set<string>) => {
   return false;
 };
 
+type CycleGroup = {
+  id: string;
+  members: Set<string>;
+};
+
+const buildAdjacencyFromLinks = (
+  nodes: string[],
+  links: Map<string, GraphLinkCore>
+) => {
+  const outgoing = new Map<string, Set<string>>();
+  const selfLoops = new Set<string>();
+  nodes.forEach(nodeId => {
+    outgoing.set(nodeId, new Set());
+  });
+  links.forEach(link => {
+    if (!outgoing.has(link.source)) return;
+    outgoing.get(link.source)?.add(link.target);
+    if (link.source === link.target) {
+      selfLoops.add(link.source);
+    }
+  });
+  return { outgoing, selfLoops };
+};
+
+const computeStronglyConnectedComponents = (
+  nodes: string[],
+  outgoing: Map<string, Set<string>>
+) => {
+  let index = 0;
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const indices = new Map<string, number>();
+  const lowlinks = new Map<string, number>();
+  const components: string[][] = [];
+
+  const strongConnect = (nodeId: string) => {
+    indices.set(nodeId, index);
+    lowlinks.set(nodeId, index);
+    index++;
+    stack.push(nodeId);
+    onStack.add(nodeId);
+
+    const neighbors = outgoing.get(nodeId) || new Set<string>();
+    neighbors.forEach(neighbor => {
+      if (!indices.has(neighbor)) {
+        strongConnect(neighbor);
+        const nextLow = Math.min(lowlinks.get(nodeId) ?? 0, lowlinks.get(neighbor) ?? 0);
+        lowlinks.set(nodeId, nextLow);
+      } else if (onStack.has(neighbor)) {
+        const nextLow = Math.min(lowlinks.get(nodeId) ?? 0, indices.get(neighbor) ?? 0);
+        lowlinks.set(nodeId, nextLow);
+      }
+    });
+
+    if (lowlinks.get(nodeId) === indices.get(nodeId)) {
+      const component: string[] = [];
+      while (stack.length > 0) {
+        const w = stack.pop();
+        if (!w) break;
+        onStack.delete(w);
+        component.push(w);
+        if (w === nodeId) break;
+      }
+      components.push(component);
+    }
+  };
+
+  nodes.forEach(nodeId => {
+    if (!indices.has(nodeId)) {
+      strongConnect(nodeId);
+    }
+  });
+
+  return components;
+};
+
 const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
   const nodeLabel = link.externalNodeName || `Node ${link.externalNodeId}`;
   const domainLabel = link.externalDomainName || 'External';
@@ -765,6 +841,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // UI state
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
+  const [dagModeEnabled, setDagModeEnabled] = useState(false);
+  const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>('td');
+  const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
@@ -805,6 +884,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   useEffect(() => {
     setShowAccessModal(false);
   }, [domainData?.id]);
+
+  useEffect(() => {
+    if (!graphRef.current) return;
+    positionManagerRef.current.markUnstable();
+    graphRef.current?.d3ReheatSimulation?.();
+  }, [dagModeEnabled, dagOrientation]);
+
+  useEffect(() => {
+    if (!dagModeEnabled) {
+      setExpandedCycleIds(new Set());
+    }
+  }, [dagModeEnabled]);
 
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
@@ -1098,6 +1189,155 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     };
   }, [baseGraphStructure, collapsedGroupIds, domainGroups, groupMembersById]);
 
+  const cycleGroups = useMemo(() => {
+    if (!dagModeEnabled) return [] as CycleGroup[];
+    const nodeIds = Array.from(groupedGraphStructure.nodes.keys());
+    if (nodeIds.length === 0) return [] as CycleGroup[];
+    const { outgoing, selfLoops } = buildAdjacencyFromLinks(nodeIds, groupedGraphStructure.links);
+    const components = computeStronglyConnectedComponents(nodeIds, outgoing);
+    const cycles = components.filter(component => {
+      if (component.length > 1) return true;
+      return component.length === 1 && selfLoops.has(component[0]);
+    });
+
+    const idCounts = new Map<string, number>();
+    return cycles
+      .map(component => {
+        const sorted = [...component].sort();
+        const hash = hashString(sorted.join('|'));
+        let id = `cycle:${hash}`;
+        const count = idCounts.get(id) ?? 0;
+        if (count > 0) id = `${id}-${count + 1}`;
+        idCounts.set(`cycle:${hash}`, count + 1);
+        return { id, members: new Set(sorted) };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [dagModeEnabled, groupedGraphStructure]);
+
+  const collapsedCycleGroups = useMemo(() => {
+    if (expandedCycleIds.size === 0) return cycleGroups;
+    return cycleGroups.filter(group => !expandedCycleIds.has(group.id));
+  }, [cycleGroups, expandedCycleIds]);
+
+  const cycleNodeMetadata = useMemo(() => {
+    const map = new Map<string, NodeMetadata>();
+    collapsedCycleGroups.forEach(group => {
+      const memberCount = group.members.size;
+      const label = memberCount > 0 ? `Cycle (${memberCount})` : 'Cycle';
+      map.set(group.id, {
+        name: label,
+        displayId: 'Cycle',
+        color: '#4b5563',
+        isDue: false,
+        daysUntilReview: null,
+        progress: null,
+        groupMemberIds: Array.from(group.members),
+        groupMemberCount: memberCount,
+        groupIsExact: false,
+      });
+    });
+    return map;
+  }, [collapsedCycleGroups]);
+
+  const combinedGroupNodeMetadata = useMemo(() => {
+    return new Map<string, NodeMetadata>([...groupNodeMetadata, ...cycleNodeMetadata]);
+  }, [cycleNodeMetadata, groupNodeMetadata]);
+
+  const dagGraphStructure = useMemo(() => {
+    if (!dagModeEnabled || collapsedCycleGroups.length === 0) {
+      return groupedGraphStructure;
+    }
+
+    const nodes = new Map<string, GraphNodeCore>();
+    const links = new Map<string, GraphLinkCore>();
+    const nodeToCycle = new Map<string, string>();
+
+    collapsedCycleGroups.forEach(group => {
+      group.members.forEach(memberId => {
+        if (groupedGraphStructure.nodes.has(memberId)) {
+          nodeToCycle.set(memberId, group.id);
+        }
+      });
+    });
+
+    groupedGraphStructure.nodes.forEach((nodeCore, nodeId) => {
+      if (nodeToCycle.has(nodeId)) return;
+      nodes.set(nodeId, nodeCore);
+    });
+
+    collapsedCycleGroups.forEach(group => {
+      const memberIds = Array.from(group.members).filter(memberId => groupedGraphStructure.nodes.has(memberId));
+      if (memberIds.length === 0) return;
+
+      let sumX = 0;
+      let sumY = 0;
+      let count = 0;
+      memberIds.forEach(memberId => {
+        const nodeCore = groupedGraphStructure.nodes.get(memberId);
+        if (nodeCore && typeof nodeCore.xPosition === 'number' && typeof nodeCore.yPosition === 'number') {
+          sumX += nodeCore.xPosition;
+          sumY += nodeCore.yPosition;
+          count++;
+        }
+      });
+      const fallbackX = count > 0 ? sumX / count : undefined;
+      const fallbackY = count > 0 ? sumY / count : undefined;
+
+      nodes.set(group.id, {
+        id: group.id,
+        type: 'group',
+        xPosition: fallbackX,
+        yPosition: fallbackY,
+        groupMemberIds: memberIds,
+        groupMemberCount: memberIds.length,
+        groupIsExact: false,
+      });
+    });
+
+    const aggregated = new Map<string, GraphLinkCore>();
+    groupedGraphStructure.links.forEach(link => {
+      const sourceCycle = nodeToCycle.get(link.source);
+      const targetCycle = nodeToCycle.get(link.target);
+
+      let nextSource = link.source;
+      let nextTarget = link.target;
+      if (sourceCycle) nextSource = sourceCycle;
+      if (targetCycle) nextTarget = targetCycle;
+      if (nextSource === nextTarget) return;
+      if (!nodes.has(nextSource) || !nodes.has(nextTarget)) return;
+
+      const id = `${nextSource}-${nextTarget}`;
+      const existing = aggregated.get(id);
+      const weight = link.weight ?? 1.0;
+      if (existing) {
+        if (weight > existing.weight) existing.weight = weight;
+      } else {
+        aggregated.set(id, {
+          id,
+          source: nextSource,
+          target: nextTarget,
+          type: link.type,
+          weight,
+        });
+      }
+    });
+
+    aggregated.forEach(link => links.set(link.id, link));
+
+    const cycleVersion = collapsedCycleGroups
+      .map(group => `${group.id}:${Array.from(group.members).sort().join(',')}`)
+      .sort()
+      .join('|');
+    const version = hashString([groupedGraphStructure.version, cycleVersion].join('::'));
+
+    return {
+      nodes,
+      links,
+      version,
+      lastStructuralChange: Date.now(),
+    };
+  }, [collapsedCycleGroups, dagModeEnabled, groupedGraphStructure]);
+
   // Active node IDs from open detail windows
   const activeNodeIds = useMemo(() =>
     new Set(
@@ -1110,7 +1350,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Metadata hook tracks names and visual properties
   const graphMetadata = useGraphMetadata(
-    groupedGraphStructure.nodes,
+    dagGraphStructure.nodes,
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
     srs,
@@ -1118,14 +1358,23 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     activeNodeIds,
     selectedNodeIds,
     highlightNodes,
-    groupNodeMetadata,
+    combinedGroupNodeMetadata,
     externalNodeLookup
   );
 
   // Stable graph correctly handles structure vs metadata updates
-  const stableGraph = useStableGraph(groupedGraphStructure, graphMetadata, positionManagerRef.current);
+  const stableGraph = useStableGraph(dagGraphStructure, graphMetadata, positionManagerRef.current);
   const stableGraphRef = useRef<typeof stableGraph | null>(null);
   stableGraphRef.current = stableGraph;
+
+  const handleDagError = useCallback((loop: string[]) => {
+    console.warn('DAG layout error (cycle detected):', loop);
+  }, []);
+
+  const dagMode = dagModeEnabled && expandedCycleIds.size === 0 ? dagOrientation : null;
+  const collapseAllCycles = useCallback(() => {
+    setExpandedCycleIds(new Set());
+  }, []);
 
   const graphHighlightedNodes = useMemo(() => {
     const combined = new Set<string>();
@@ -3037,6 +3286,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const group = domainGroups.find(entry => entry.id === groupId);
       if (groupId && group) {
         toggleGroupCollapse(groupId, !group.collapsed);
+        return;
+      }
+      if (dagModeEnabled && node.id.startsWith('cycle:')) {
+        setExpandedCycleIds(prev => {
+          const next = new Set(prev);
+          if (next.has(node.id)) {
+            next.delete(node.id);
+            showToast('Cycle collapsed.', 'info');
+          } else {
+            next.add(node.id);
+            showToast('Cycle expanded. DAG layout paused.', 'info');
+          }
+          return next;
+        });
       }
       return;
     }
@@ -3076,7 +3339,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     handleNodeClick(node, false, 'click');
-  }, [domainGroups, mode, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick, toggleGroupCollapse]);
+  }, [dagModeEnabled, domainGroups, mode, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick, toggleGroupCollapse]);
 
   const handleGraphLinkClick = useCallback((link: GraphLink) => {
     if (!(mode === 'frenzy' && isFrenzyEditMode && frenzyTool === 'unlink')) return;
@@ -3310,6 +3573,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onDeleteGroup={async (groupId) => {
             await deleteGroupById(groupId);
           }}
+          dagModeEnabled={dagModeEnabled}
+          onToggleDagMode={() => setDagModeEnabled(prev => !prev)}
+          dagOrientation={dagOrientation}
+          onDagOrientationChange={(orientation) => setDagOrientation(orientation)}
+          expandedCycleCount={expandedCycleIds.size}
+          onCollapseCycles={collapseAllCycles}
         />
 
         {/* Main Content */}
@@ -3393,6 +3662,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 creditFlowAnimations={enhancedCreditFlowAnimations}
                 requiresPhysicsReset={stableGraph.requiresPhysicsReset}
                 structureVersion={stableGraph.structureVersion}
+                dagMode={dagMode}
+                onDagError={handleDagError}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">

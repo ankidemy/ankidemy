@@ -40,6 +40,8 @@ interface GraphContainerProps {
   creditFlowAnimations?: CreditFlowAnimation[];
   requiresPhysicsReset?: boolean;
   structureVersion?: number;
+  dagMode?: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin' | null;
+  onDagError?: (loop: string[]) => void;
 }
 
 // Pure renderer with memoized calculations
@@ -62,6 +64,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   creditFlowAnimations = [],
   requiresPhysicsReset = false,
   structureVersion,
+  dagMode = null,
+  onDagError,
 }) => {
   // Position tracking and incremental repaint scheduling
   const nodePositions = useRef(new Map<string, {x: number, y: number}>());
@@ -651,6 +655,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         nodeId="id"
         linkSource="source"
         linkTarget="target"
+        dagMode={dagMode || undefined}
+        dagLevelDistance={dagMode ? 220 : undefined}
+        onDagError={onDagError}
         nodeVal={node => {
           if (node.type === 'group') return 10;
           return (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.3 : 1);
@@ -728,7 +735,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.onBackgroundClick === nextProps.onBackgroundClick &&
     prevProps.creditFlowAnimations === nextProps.creditFlowAnimations &&
     prevProps.requiresPhysicsReset === nextProps.requiresPhysicsReset &&
-    prevProps.structureVersion === nextProps.structureVersion
+    prevProps.structureVersion === nextProps.structureVersion &&
+    prevProps.dagMode === nextProps.dagMode &&
+    prevProps.onDagError === nextProps.onDagError
   );
 });
 

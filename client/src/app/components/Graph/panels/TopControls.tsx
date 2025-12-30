@@ -3,7 +3,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload, Zap, List, RefreshCw } from 'lucide-react';
+import { Book, BarChart, EyeOff, Eye, ZoomIn, Plus, Play, Users, AlertTriangle, Type, Maximize, Download, Upload, Zap, List, RefreshCw, GitBranch } from 'lucide-react';
 import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
@@ -65,6 +65,14 @@ interface TopControlsProps {
   onCreateGroup?: (name: string, seedCodes: string[], isExact: boolean, memberCodes?: string[]) => Promise<void>;
   onToggleGroupCollapse?: (groupId: number, collapsed: boolean) => void;
   onDeleteGroup?: (groupId: number) => Promise<void>;
+
+  // DAG toggle
+  dagModeEnabled?: boolean;
+  onToggleDagMode?: () => void;
+  dagOrientation?: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin';
+  onDagOrientationChange?: (orientation: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin') => void;
+  expandedCycleCount?: number;
+  onCollapseCycles?: () => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -101,6 +109,12 @@ const TopControls: React.FC<TopControlsProps> = ({
   onCreateGroup,
   onToggleGroupCollapse,
   onDeleteGroup,
+  dagModeEnabled = false,
+  onToggleDagMode,
+  dagOrientation = 'td',
+  onDagOrientationChange,
+  expandedCycleCount = 0,
+  onCollapseCycles,
 }) => {
   const srs = useSRS();
 
@@ -256,7 +270,9 @@ const TopControls: React.FC<TopControlsProps> = ({
       labelButtonTitle = "Cycle label display";
   }
 
-  const selectedGroupSeeds = selectedNodeIds.filter(nodeId => !nodeId.startsWith('group:') && !nodeId.startsWith('ext:'));
+  const selectedGroupSeeds = selectedNodeIds.filter(nodeId => (
+    !nodeId.startsWith('group:') && !nodeId.startsWith('cycle:') && !nodeId.startsWith('ext:')
+  ));
 
   const handleCreateGroup = async () => {
     if (!onCreateGroup) return;
@@ -563,6 +579,47 @@ const TopControls: React.FC<TopControlsProps> = ({
           >
             <LabelIconComponent size={12} className="mr-1" /> {labelButtonText}
           </Button>
+
+          {onToggleDagMode && (
+            <Button
+              variant={dagModeEnabled ? "secondary" : "ghost"}
+              size="sm"
+              onClick={onToggleDagMode}
+              title={dagModeEnabled ? "DAG layout enabled" : "Switch to DAG layout"}
+              className="h-7 px-2 text-xs"
+            >
+              <GitBranch size={12} className="mr-1" /> DAG
+            </Button>
+          )}
+
+          {onDagOrientationChange && (
+            <select
+              value={dagOrientation}
+              onChange={(event) => onDagOrientationChange(event.target.value as any)}
+              disabled={!dagModeEnabled}
+              className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 disabled:bg-gray-100"
+              title="DAG orientation"
+            >
+              <option value="td">Top-down</option>
+              <option value="bu">Bottom-up</option>
+              <option value="lr">Left-right</option>
+              <option value="rl">Right-left</option>
+              <option value="radialout">Radial out</option>
+              <option value="radialin">Radial in</option>
+            </select>
+          )}
+
+          {expandedCycleCount > 0 && onCollapseCycles && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onCollapseCycles}
+              title="Collapse expanded cycles"
+              className="h-7 px-2 text-xs"
+            >
+              Collapse ({expandedCycleCount})
+            </Button>
+          )}
 
           {(onCreateGroup || onToggleGroupCollapse || onDeleteGroup) && (
             <div className="relative" ref={groupMenuRef}>
