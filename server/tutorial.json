@@ -4,12 +4,12 @@
       "code": "MATH_EX_001",
       "name": "Irrationality of $\\sqrt{2} + \\sqrt{3}$",
       "prerequisites": [
-        "MATH_016",
-        "MATH_017"
+        "MATH_017",
+        "MATH_016"
       ],
       "prerequisiteWeights": {
-        "MATH_016": 1.0,
-        "MATH_017": 1.0
+        "MATH_016": 1,
+        "MATH_017": 1
       },
       "xPosition": 350,
       "yPosition": 700,
@@ -44,12 +44,12 @@
       "code": "MATH_EX_002",
       "name": "Irrationality of $\\log_2 (3)$",
       "prerequisites": [
-        "MATH_016",
-        "MATH_017"
+        "MATH_017",
+        "MATH_016"
       ],
       "prerequisiteWeights": {
-        "MATH_016": 1.0,
-        "MATH_017": 1.0
+        "MATH_016": 1,
+        "MATH_017": 1
       },
       "xPosition": 350,
       "yPosition": 850,
@@ -87,7 +87,7 @@
         "MATH_018"
       ],
       "prerequisiteWeights": {
-        "MATH_018": 1.0
+        "MATH_018": 1
       },
       "xPosition": 350,
       "yPosition": 1000,
@@ -123,9 +123,8 @@
     "MATH_001": {
       "code": "MATH_001",
       "name": "Set",
-      "xPosition": 100,
-      "yPosition": 100,
-      "prerequisites": [],
+      "xPosition": 411.96869054734634,
+      "yPosition": 390.8580272772251,
       "versions": [
         {
           "prompt": "Define a **Set** and state its key properties.",
@@ -138,14 +137,14 @@
     "MATH_002": {
       "code": "MATH_002",
       "name": "Subset",
-      "xPosition": 350,
-      "yPosition": 100,
       "prerequisites": [
         "MATH_001"
       ],
       "prerequisiteWeights": {
-        "MATH_001": 1.0
+        "MATH_001": 1
       },
+      "xPosition": 280.62944845394964,
+      "yPosition": 170.36828201158227,
       "versions": [
         {
           "prompt": "Define **Subset** and give the standard notation.",
@@ -158,14 +157,14 @@
     "MATH_003": {
       "code": "MATH_003",
       "name": "Empty Set",
-      "xPosition": 350,
-      "yPosition": 250,
       "prerequisites": [
         "MATH_002"
       ],
       "prerequisiteWeights": {
-        "MATH_002": 1.0
+        "MATH_002": 1
       },
+      "xPosition": 217.8438657151136,
+      "yPosition": -115.20866475013352,
       "versions": [
         {
           "prompt": "Define the **Empty Set** and its notation. What is its relationship to any other set?",
@@ -178,14 +177,14 @@
     "MATH_004": {
       "code": "MATH_004",
       "name": "Cartesian Product",
-      "xPosition": 350,
-      "yPosition": 400,
       "prerequisites": [
         "MATH_001"
       ],
       "prerequisiteWeights": {
-        "MATH_001": 1.0
+        "MATH_001": 1
       },
+      "xPosition": 463.1796204416217,
+      "yPosition": 104.72839286446609,
       "versions": [
         {
           "prompt": "Define the **Cartesian Product** of two sets $A$ and $B$.",
@@ -198,14 +197,14 @@
     "MATH_005": {
       "code": "MATH_005",
       "name": "Power Set",
-      "xPosition": 350,
-      "yPosition": 550,
       "prerequisites": [
         "MATH_002"
       ],
       "prerequisiteWeights": {
-        "MATH_002": 1.0
+        "MATH_002": 1
       },
+      "xPosition": 123.33847983709839,
+      "yPosition": -61.448631043274716,
       "versions": [
         {
           "prompt": "Define the **Power Set** of a set $S$. How many elements does it have if $S$ has $n$ elements?",
@@ -218,14 +217,14 @@
     "MATH_006": {
       "code": "MATH_006",
       "name": "Mapping (Function)",
-      "xPosition": 600,
-      "yPosition": 100,
       "prerequisites": [
         "MATH_001"
       ],
       "prerequisiteWeights": {
-        "MATH_001": 1.0
+        "MATH_001": 1
       },
+      "xPosition": 191.7966404212961,
+      "yPosition": 219.7479199320254,
       "versions": [
         {
           "prompt": "Define a **Mapping (Function)** from a set $A$ to a set $B$. What are the domain and codomain?",
@@ -238,14 +237,14 @@
     "MATH_007": {
       "code": "MATH_007",
       "name": "Injective Mapping",
-      "xPosition": 850,
-      "yPosition": 100,
       "prerequisites": [
         "MATH_006"
       ],
       "prerequisiteWeights": {
-        "MATH_006": 1.0
+        "MATH_006": 1
       },
+      "xPosition": -52.68814999681505,
+      "yPosition": 43.108486361030494,
       "versions": [
         {
           "prompt": "Define an **Injective Mapping**.",
@@ -258,14 +257,14 @@
     "MATH_008": {
       "code": "MATH_008",
       "name": "Surjective Mapping",
-      "xPosition": 850,
-      "yPosition": 250,
       "prerequisites": [
         "MATH_006"
       ],
       "prerequisiteWeights": {
-        "MATH_006": 1.0
+        "MATH_006": 1
       },
+      "xPosition": 40.083525545333444,
+      "yPosition": -15.031322079500178,
       "versions": [
         {
           "prompt": "Define a **Surjective Mapping**.",
@@ -278,16 +277,16 @@
     "MATH_009": {
       "code": "MATH_009",
       "name": "Bijective Mapping",
-      "xPosition": 850,
-      "yPosition": 400,
       "prerequisites": [
         "MATH_007",
         "MATH_008"
       ],
       "prerequisiteWeights": {
-        "MATH_007": 1.0,
-        "MATH_008": 1.0
+        "MATH_007": 1,
+        "MATH_008": 1
       },
+      "xPosition": -231.69102828405553,
+      "yPosition": -246.7223503635556,
       "versions": [
         {
           "prompt": "Define a **Bijective Mapping**.",
@@ -300,14 +299,14 @@
     "MATH_010": {
       "code": "MATH_010",
       "name": "Category",
-      "xPosition": 1100,
-      "yPosition": 100,
       "prerequisites": [
         "MATH_006"
       ],
       "prerequisiteWeights": {
-        "MATH_006": 1.0
+        "MATH_006": 1
       },
+      "xPosition": -146.3111003737333,
+      "yPosition": 95.19868369653915,
       "versions": [
         {
           "prompt": "What is a **Category** in mathematics?",
@@ -320,16 +319,16 @@
     "MATH_011": {
       "code": "MATH_011",
       "name": "Isomorphism",
-      "xPosition": 1100,
-      "yPosition": 250,
       "prerequisites": [
-        "MATH_010",
-        "MATH_009"
+        "MATH_009",
+        "MATH_010"
       ],
       "prerequisiteWeights": {
-        "MATH_010": 1.0,
-        "MATH_009": 1.0
+        "MATH_009": 1,
+        "MATH_010": 1
       },
+      "xPosition": -447.08982369846143,
+      "yPosition": -486.27443365137617,
       "versions": [
         {
           "prompt": "Define an **Isomorphism** in category theory.",
@@ -342,16 +341,16 @@
     "MATH_012": {
       "code": "MATH_012",
       "name": "Monomorphism",
-      "xPosition": 1350,
-      "yPosition": 100,
       "prerequisites": [
-        "MATH_010",
-        "MATH_007"
+        "MATH_007",
+        "MATH_010"
       ],
       "prerequisiteWeights": {
-        "MATH_010": 1.0,
-        "MATH_007": 1.0
+        "MATH_007": 1,
+        "MATH_010": 1
       },
+      "xPosition": -435.4489498061671,
+      "yPosition": -61.336044716388585,
       "versions": [
         {
           "prompt": "Define a **Monomorphism** in category theory.",
@@ -364,16 +363,16 @@
     "MATH_013": {
       "code": "MATH_013",
       "name": "Epimorphism",
-      "xPosition": 1350,
-      "yPosition": 250,
       "prerequisites": [
-        "MATH_010",
-        "MATH_008"
+        "MATH_008",
+        "MATH_010"
       ],
       "prerequisiteWeights": {
-        "MATH_010": 1.0,
-        "MATH_008": 1.0
+        "MATH_008": 1,
+        "MATH_010": 1
       },
+      "xPosition": -31.2734005573883,
+      "yPosition": -331.89984214738917,
       "versions": [
         {
           "prompt": "Define an **Epimorphism** in category theory.",
@@ -386,34 +385,35 @@
     "MATH_014": {
       "code": "MATH_014",
       "name": "Functor",
-      "xPosition": 1350,
-      "yPosition": 400,
       "prerequisites": [
         "MATH_010"
       ],
       "prerequisiteWeights": {
-        "MATH_010": 1.0
+        "MATH_010": 1
       },
+      "xPosition": -340.25057663600023,
+      "yPosition": -143.17324270477764,
       "versions": [
         {
           "prompt": "Define a **Functor**.",
           "type": "open_ended",
           "description": "A **functor** is a _mapping between categories_. It maps **objects** to **objects** and **morphisms** to **morphisms** in a way that _preserves_ **composition** and **identity**. Functors are the **'morphisms' of categories**, allowing us to compare them.",
-          "notes": "If categories are _worlds_ of mathematical structures, functors are the **portals** between them."
+          "notes": "If categories are _worlds_ of mathematical structures, functors are the **portals** between them.",
+          "descriptionImagePath": "/api/media/1/public/1-tutorial-introduction-to-learning/8634fed0dd89ca469b9550ccdf6bc400.png"
         }
       ]
     },
     "MATH_015": {
       "code": "MATH_015",
       "name": "Number Theory",
-      "xPosition": 100,
-      "yPosition": 400,
       "prerequisites": [
         "MATH_001"
       ],
       "prerequisiteWeights": {
-        "MATH_001": 1.0
+        "MATH_001": 1
       },
+      "xPosition": 140.3371090452827,
+      "yPosition": 264.3377260345758,
       "versions": [
         {
           "prompt": "What is **Number Theory** and what does it study?",
@@ -426,14 +426,14 @@
     "MATH_016": {
       "code": "MATH_016",
       "name": "Rational & Irrational Numbers",
-      "xPosition": 100,
-      "yPosition": 550,
       "prerequisites": [
         "MATH_015"
       ],
       "prerequisiteWeights": {
-        "MATH_015": 1.0
+        "MATH_015": 1
       },
+      "xPosition": -99.3537822327109,
+      "yPosition": 208.51162129680387,
       "versions": [
         {
           "prompt": "Define **rational** and **irrational numbers**.",
@@ -446,9 +446,8 @@
     "MATH_017": {
       "code": "MATH_017",
       "name": "Proof by Contradiction",
-      "xPosition": 100,
-      "yPosition": 700,
-      "prerequisites": [],
+      "xPosition": -279.94274508822514,
+      "yPosition": 367.14453320723834,
       "versions": [
         {
           "prompt": "Describe the method of **Proof by Contradiction**.",
@@ -461,14 +460,14 @@
     "MATH_018": {
       "code": "MATH_018",
       "name": "Pythagorean Theorem",
-      "xPosition": 100,
-      "yPosition": 850,
       "prerequisites": [
         "MATH_001"
       ],
       "prerequisiteWeights": {
-        "MATH_001": 1.0
+        "MATH_001": 1
       },
+      "xPosition": 233.3766667255482,
+      "yPosition": 354.55861675337894,
       "versions": [
         {
           "prompt": "State the **Pythagorean Theorem**.",
