@@ -54,6 +54,12 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	req.Code = strings.TrimSpace(req.Code)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Code == "" || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Code and name are required"})
+		return
+	}
 
 	// Check for cross-type code uniqueness (definitions + meta-exercises in the same domain)
 	codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, uint(domainID64))
@@ -73,9 +79,10 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
 		return
 	}
 
-	// Optional initial version
+	// Ensure an initial version exists
+	versionReq := &models.ExerciseVersionRequest{}
 	if req.InitialVersion != nil {
-		_, _ = h.metaDAO.AddVersion(meta.ID, &models.ExerciseVersionRequest{
+		versionReq = &models.ExerciseVersionRequest{
 			Statement:            req.InitialVersion.Statement,
 			Description:          req.InitialVersion.Description,
 			Notes:                req.InitialVersion.Notes,
@@ -85,7 +92,17 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
 			Difficulty:           req.InitialVersion.Difficulty,
 			StatementImagePath:   req.InitialVersion.StatementImagePath,
 			DescriptionImagePath: req.InitialVersion.DescriptionImagePath,
-		})
+		}
+	}
+	if strings.TrimSpace(versionReq.Statement) == "" {
+		versionReq.Statement = "Solve: " + req.Name
+	}
+	if versionReq.Difficulty < 1 || versionReq.Difficulty > 7 {
+		versionReq.Difficulty = 3
+	}
+	if _, err := h.metaDAO.AddVersion(meta.ID, versionReq); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create initial exercise version"})
+		return
 	}
 
 	_, versions, _ := h.metaDAO.FindByID(meta.ID)

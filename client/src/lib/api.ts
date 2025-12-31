@@ -475,6 +475,182 @@ export interface CreateDomainWithImportRequest {
   importData?: DomainExportData;
 }
 
+const normalizeImportText = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+
+const normalizeImportCode = (value: unknown, fallback: string): string => {
+  const code = normalizeImportText(value);
+  if (code) return code;
+  return normalizeImportText(fallback);
+};
+
+const normalizeImportName = (value: unknown, fallback: string): string => {
+  const name = normalizeImportText(value);
+  if (name) return name;
+  const fallbackName = normalizeImportText(fallback);
+  if (fallbackName) return fallbackName;
+  return 'Unnamed';
+};
+
+const fallbackDefinitionPrompt = (name: string): string => {
+  const clean = normalizeImportText(name);
+  return clean ? `Define ${clean}` : 'Define the concept';
+};
+
+const fallbackExerciseStatement = (name: string): string => {
+  const clean = normalizeImportText(name);
+  return clean ? `Solve: ${clean}` : 'No statement';
+};
+
+const clampDifficulty = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 7) {
+    return parsed;
+  }
+  return 3;
+};
+
+export const standardizeImportData = (rawData: any): DomainExportData => {
+  if (!rawData || typeof rawData !== 'object') {
+    throw new Error('Invalid JSON format: expected an object');
+  }
+
+  const hasDefs = rawData.definitions && typeof rawData.definitions === 'object';
+  const hasMetaDefs = rawData.metaDefinitions && typeof rawData.metaDefinitions === 'object';
+  const hasEx = rawData.exercises && typeof rawData.exercises === 'object';
+  const hasMetaEx = rawData.metaExercises && typeof rawData.metaExercises === 'object';
+  if ((!hasDefs && !hasMetaDefs) || (!hasEx && !hasMetaEx)) {
+    throw new Error('Invalid JSON format: missing definitions/metaDefinitions and either exercises/metaExercises');
+  }
+
+  const standardized: DomainExportData = {
+    definitions: undefined,
+    metaDefinitions: undefined,
+    exercises: undefined,
+    metaExercises: undefined,
+    groups: Array.isArray(rawData.groups) ? rawData.groups : undefined,
+  };
+
+  if (hasMetaDefs) {
+    standardized.metaDefinitions = {};
+    for (const [key, md] of Object.entries(rawData.metaDefinitions || {})) {
+      const node = md as any;
+      const code = normalizeImportCode(node.code, key);
+      const name = normalizeImportName(node.name, code);
+      const rawVersions = Array.isArray(node.versions) ? node.versions : [];
+      const versions = (rawVersions.length > 0 ? rawVersions : [{}]).map((v: any) => ({
+        prompt: normalizeImportText(v.prompt) || fallbackDefinitionPrompt(name),
+        type: normalizeImportText(v.type) || 'open_ended',
+        description: normalizeImportText(v.description),
+        notes: normalizeImportText(v.notes),
+        references: Array.isArray(v.references) ? v.references : [],
+        promptImagePath: normalizeImportText(v.promptImagePath) || undefined,
+        descriptionImagePath: normalizeImportText(v.descriptionImagePath) || undefined,
+      }));
+      (standardized.metaDefinitions as any)[key] = {
+        code,
+        name,
+        prerequisites: Array.isArray(node.prerequisites) ? node.prerequisites : [],
+        prerequisiteWeights: (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') ? node.prerequisiteWeights : undefined,
+        xPosition: Number(node.xPosition) || 0,
+        yPosition: Number(node.yPosition) || 0,
+        versions,
+      };
+    }
+  } else if (hasDefs) {
+    standardized.definitions = {};
+    for (const [key, def] of Object.entries(rawData.definitions || {})) {
+      const definition = def as any;
+      const code = normalizeImportCode(definition.code, key);
+      const name = normalizeImportName(definition.name, code);
+      let descriptions: string[] = [];
+
+      if (Array.isArray(definition.description)) {
+        descriptions = definition.description.map((item: any) => normalizeImportText(item)).filter(Boolean);
+      } else if (typeof definition.description === 'string') {
+        if (definition.description.includes('|||')) {
+          descriptions = definition.description.split('|||').map((item: string) => item.trim()).filter(Boolean);
+        } else {
+          const desc = normalizeImportText(definition.description);
+          if (desc) descriptions = [desc];
+        }
+      }
+      if (descriptions.length === 0) {
+        descriptions = ['No description'];
+      }
+
+      const defWeights = (definition.prerequisiteWeights && typeof definition.prerequisiteWeights === 'object') ? definition.prerequisiteWeights as Record<string, number> : undefined;
+      (standardized.definitions as any)[key] = {
+        code,
+        name,
+        description: descriptions,
+        notes: normalizeImportText(definition.notes),
+        references: Array.isArray(definition.references) ? definition.references : [],
+        prerequisites: Array.isArray(definition.prerequisites) ? definition.prerequisites : [],
+        prerequisiteWeights: defWeights,
+        xPosition: Number(definition.xPosition) || 0,
+        yPosition: Number(definition.yPosition) || 0,
+      };
+    }
+  }
+
+  if (hasMetaEx) {
+    standardized.metaExercises = {};
+    for (const [key, me] of Object.entries(rawData.metaExercises || {})) {
+      const node = me as any;
+      const code = normalizeImportCode(node.code, key);
+      const name = normalizeImportName(node.name, code);
+      const rawVersions = Array.isArray(node.versions) ? node.versions : [];
+      const versions = (rawVersions.length > 0 ? rawVersions : [{}]).map((vv: any) => ({
+        statement: normalizeImportText(vv.statement) || fallbackExerciseStatement(name),
+        description: normalizeImportText(vv.description),
+        hints: normalizeImportText(vv.hints),
+        verifiable: Boolean(vv.verifiable),
+        result: normalizeImportText(vv.result),
+        difficulty: clampDifficulty(vv.difficulty),
+        notes: normalizeImportText(vv.notes),
+        statementImagePath: normalizeImportText(vv.statementImagePath) || undefined,
+        descriptionImagePath: normalizeImportText(vv.descriptionImagePath) || undefined,
+      }));
+      (standardized.metaExercises as any)[key] = {
+        code,
+        name,
+        prerequisites: Array.isArray(node.prerequisites) ? node.prerequisites : [],
+        prerequisiteWeights: (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') ? node.prerequisiteWeights : undefined,
+        xPosition: Number(node.xPosition) || 0,
+        yPosition: Number(node.yPosition) || 0,
+        versions,
+      };
+    }
+  } else if (hasEx) {
+    standardized.exercises = {};
+    for (const [key, ex] of Object.entries(rawData.exercises || {})) {
+      const exercise = ex as any;
+      const code = normalizeImportCode(exercise.code, key);
+      const name = normalizeImportName(exercise.name, code);
+      const exWeights = (exercise.prerequisiteWeights && typeof exercise.prerequisiteWeights === 'object') ? exercise.prerequisiteWeights as Record<string, number> : undefined;
+      (standardized.exercises as any)[key] = {
+        code,
+        name,
+        statement: normalizeImportText(exercise.statement) || fallbackExerciseStatement(name),
+        description: normalizeImportText(exercise.description),
+        hints: normalizeImportText(exercise.hints),
+        difficulty: clampDifficulty(exercise.difficulty),
+        verifiable: Boolean(exercise.verifiable),
+        result: normalizeImportText(exercise.result),
+        prerequisites: Array.isArray(exercise.prerequisites) ? exercise.prerequisites : [],
+        prerequisiteWeights: exWeights,
+        xPosition: Number(exercise.xPosition) || 0,
+        yPosition: Number(exercise.yPosition) || 0,
+      };
+    }
+  }
+
+  return standardized;
+};
+
 // Helper functions
 const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('token');
@@ -1718,12 +1894,12 @@ export const importDomain = async (domainId: number, graphData: GraphData): Prom
 // NEW: Import/Export API Functions
 
 /**
- * Exports a domain as graph JSON data
+ * Exports a domain in the standardized import/export format
  * @param domainId The ID of the domain to export
  * @returns Promise resolving to the export data
  */
-export const exportDomainAsJson = async (domainId: number): Promise<GraphData> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/export`, {
+export const exportDomainAsJson = async (domainId: number): Promise<DomainExportData> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/export-data`, {
     headers: getAuthHeaders(),
   });
   
@@ -1896,130 +2072,7 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
           const text = e.target?.result as string;
           const rawData = JSON.parse(text);
           
-          // Basic validation (accepts metaDefinitions or definitions, and metaExercises or exercises)
-          if ((!rawData.definitions && !rawData.metaDefinitions) || (!rawData.exercises && !rawData.metaExercises)) {
-            reject(new Error('Invalid JSON format: missing definitions/metaDefinitions and either exercises/metaExercises'));
-            return;
-          }
-          
-          // STANDARDIZE THE DATA FORMAT
-          const standardizedData: DomainExportData = {
-            definitions: undefined,
-            metaDefinitions: undefined,
-            exercises: undefined,
-            metaExercises: undefined,
-          } as any;
-
-          // Process metaDefinitions (preferred) or legacy definitions
-          if (rawData.metaDefinitions && typeof rawData.metaDefinitions === 'object') {
-            standardizedData.metaDefinitions = {};
-            for (const [key, md] of Object.entries(rawData.metaDefinitions)) {
-              const node = md as any;
-              const vlist: any[] = Array.isArray(node.versions) ? node.versions : [];
-              standardizedData.metaDefinitions[key] = {
-                code: node.code || key,
-                name: node.name || 'Unnamed',
-                prerequisites: Array.isArray(node.prerequisites) ? node.prerequisites : [],
-                prerequisiteWeights: (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') ? node.prerequisiteWeights : undefined,
-                xPosition: Number(node.xPosition) || 0,
-                yPosition: Number(node.yPosition) || 0,
-                versions: vlist.map((v: any) => ({
-                  prompt: v.prompt || 'No prompt',
-                  type: v.type || 'open_ended',
-                  description: v.description || '',
-                  notes: v.notes || '',
-                  references: Array.isArray(v.references) ? v.references : [],
-                  promptImagePath: v.promptImagePath || undefined,
-                  descriptionImagePath: v.descriptionImagePath || undefined,
-                }))
-              };
-            }
-          } else if (rawData.definitions && typeof rawData.definitions === 'object') {
-            // Legacy definitions - keep for backward compatibility
-            standardizedData.definitions = {};
-            for (const [key, def] of Object.entries(rawData.definitions || {})) {
-              const definition = def as any;
-              let descriptions: string[] = [];
-
-              if (Array.isArray(definition.description)) {
-                descriptions = definition.description;
-              } else if (typeof definition.description === 'string') {
-                // Check if it contains the ||| delimiter
-                if (definition.description.includes('|||')) {
-                  descriptions = definition.description.split('|||');
-                } else {
-                  descriptions = [definition.description];
-                }
-              } else {
-                descriptions = ['No description'];
-              }
-
-              const defWeights = (definition.prerequisiteWeights && typeof definition.prerequisiteWeights === 'object') ? definition.prerequisiteWeights as Record<string, number> : undefined;
-              standardizedData.definitions[key] = {
-                code: definition.code || key,
-                name: definition.name || 'Unnamed',
-                description: descriptions, // Always array
-                notes: definition.notes || '',
-                references: Array.isArray(definition.references) ? definition.references : [],
-                prerequisites: Array.isArray(definition.prerequisites) ? definition.prerequisites : [],
-                prerequisiteWeights: defWeights,
-                xPosition: Number(definition.xPosition) || 0,
-                yPosition: Number(definition.yPosition) || 0,
-              };
-            }
-          }
-          
-          if (rawData.metaExercises && typeof rawData.metaExercises === 'object') {
-            // Prefer metaExercises if provided
-            standardizedData.metaExercises = {};
-            for (const [key, me] of Object.entries(rawData.metaExercises || {})) {
-              const node = me as any;
-              const vlist: any[] = Array.isArray(node.versions) ? node.versions : [];
-              standardizedData.metaExercises[key] = {
-                code: node.code || key,
-                name: node.name || 'Unnamed',
-                prerequisites: Array.isArray(node.prerequisites) ? node.prerequisites : [],
-                prerequisiteWeights: (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') ? node.prerequisiteWeights : undefined,
-                xPosition: Number(node.xPosition) || 0,
-                yPosition: Number(node.yPosition) || 0,
-                versions: vlist.map((vv: any) => ({
-                  statement: vv.statement || 'No statement',
-                  description: vv.description || '',
-                  hints: vv.hints || '',
-                  verifiable: Boolean(vv.verifiable),
-                  result: vv.result || '',
-                  difficulty: typeof vv.difficulty === 'number' ? vv.difficulty : (parseInt(vv.difficulty, 10) || 3),
-                  notes: vv.notes || '',
-                  statementImagePath: vv.statementImagePath || undefined,
-                  descriptionImagePath: vv.descriptionImagePath || undefined,
-                }))
-              };
-            }
-          } else {
-            // Legacy flat exercises
-            standardizedData.exercises = {};
-            for (const [key, ex] of Object.entries(rawData.exercises || {})) {
-              const exercise = ex as any;
-              let difficulty: number = 3; // Default
-              if (typeof exercise.difficulty === 'number') difficulty = exercise.difficulty; else if (typeof exercise.difficulty === 'string') { const parsed = parseInt(exercise.difficulty, 10); if (!isNaN(parsed) && parsed >= 1 && parsed <= 7) difficulty = parsed; }
-              const exWeights = (exercise.prerequisiteWeights && typeof exercise.prerequisiteWeights === 'object') ? exercise.prerequisiteWeights as Record<string, number> : undefined;
-              (standardizedData.exercises as any)[key] = {
-                code: exercise.code || key,
-                name: exercise.name || 'Unnamed',
-                statement: exercise.statement || 'No statement',
-                description: exercise.description || '',
-                hints: exercise.hints || '',
-                difficulty,
-                verifiable: Boolean(exercise.verifiable),
-                result: exercise.result || '',
-                prerequisites: Array.isArray(exercise.prerequisites) ? exercise.prerequisites : [],
-                prerequisiteWeights: exWeights,
-                xPosition: Number(exercise.xPosition) || 0,
-                yPosition: Number(exercise.yPosition) || 0,
-              };
-            }
-          }
-          
+          const standardizedData = standardizeImportData(rawData);
           resolve(standardizedData);
         } catch (error) {
           reject(new Error('Invalid JSON file: ' + (error instanceof Error ? error.message : 'Unknown error')));
@@ -2062,7 +2115,7 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
   if (data.definitions) {
     for (const [key, def] of Object.entries(data.definitions)) {
       const definition = def as any;
-      if (!definition.code || !definition.name) {
+      if (!normalizeImportText(definition.code) || !normalizeImportText(definition.name)) {
         errors.push(`Definition ${key} is missing required fields (code, name)`);
       }
       
@@ -2070,11 +2123,12 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
       if (!definition.description) {
         errors.push(`Definition ${key} is missing description`);
       } else if (Array.isArray(definition.description)) {
-        if (definition.description.length === 0) {
+        const cleaned = definition.description.map((item: string) => normalizeImportText(item)).filter(Boolean);
+        if (cleaned.length === 0) {
           errors.push(`Definition ${key} has empty description array`);
         }
       } else if (typeof definition.description === 'string') {
-        if (!definition.description.trim()) {
+        if (!normalizeImportText(definition.description)) {
           errors.push(`Definition ${key} has empty description string`);
         }
       } else {
@@ -2095,7 +2149,7 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
   if (data.metaDefinitions) {
     for (const [key, md] of Object.entries(data.metaDefinitions)) {
       const metaDef = md as any;
-      if (!metaDef.code || !metaDef.name) {
+      if (!normalizeImportText(metaDef.code) || !normalizeImportText(metaDef.name)) {
         errors.push(`Meta-definition ${key} is missing required fields (code, name)`);
       }
       if (!Array.isArray(metaDef.versions) || metaDef.versions.length === 0) {
@@ -2103,7 +2157,7 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
       } else {
         // Validate each version
         metaDef.versions.forEach((v: any, idx: number) => {
-          if (!v.prompt) {
+          if (!normalizeImportText(v.prompt)) {
             errors.push(`Meta-definition ${key} version ${idx} is missing prompt`);
           }
         });
@@ -2127,11 +2181,17 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
   // Validate metaExercises or legacy exercises
   if (data.metaExercises) {
     for (const [key, node] of Object.entries<any>(data.metaExercises)) {
-      if (!node.code || !node.name) {
+      if (!normalizeImportText(node.code) || !normalizeImportText(node.name)) {
         errors.push(`Meta-exercise ${key} is missing required fields (code, name)`);
       }
       if (!Array.isArray(node.versions) || node.versions.length === 0) {
         errors.push(`Meta-exercise ${key} has no versions`);
+      } else {
+        node.versions.forEach((v: any, idx: number) => {
+          if (!normalizeImportText(v.statement)) {
+            errors.push(`Meta-exercise ${key} version ${idx} has empty statement`);
+          }
+        });
       }
       if (node.prerequisiteWeights && typeof node.prerequisiteWeights === 'object') {
         for (const [pcode, w] of Object.entries(node.prerequisiteWeights)) {
@@ -2152,7 +2212,7 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
   } else if (data.exercises) {
     for (const [key, ex] of Object.entries(data.exercises)) {
       const exercise = ex as any;
-      if (!exercise.code || !exercise.name || !exercise.statement) {
+      if (!normalizeImportText(exercise.code) || !normalizeImportText(exercise.name) || !normalizeImportText(exercise.statement)) {
         errors.push(`Exercise ${key} is missing required fields (code, name, statement)`);
       }
       if (exercise.difficulty !== undefined) {

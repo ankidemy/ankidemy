@@ -2,6 +2,7 @@ package dao
 
 import (
 	"errors"
+	"strings"
 	"gorm.io/gorm"
 	"myapp/server/models"
 )
@@ -137,6 +138,15 @@ func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionReq
 	if err := d.db.First(&meta, metaID).Error; err != nil {
 		return nil, err
 	}
+	statement := strings.TrimSpace(req.Statement)
+	if statement == "" {
+		name := strings.TrimSpace(meta.Name)
+		if name == "" {
+			statement = "No statement"
+		} else {
+			statement = "Solve: " + name
+		}
+	}
 	// Ensure difficulty within valid bounds (default to 3 if missing/invalid)
 	diff := req.Difficulty
 	if diff < 1 || diff > 7 {
@@ -145,7 +155,7 @@ func (d *MetaExerciseDAO) AddVersion(metaID uint, req *models.ExerciseVersionReq
 	ex := &models.Exercise{
 		Code:                 meta.Code,
 		Name:                 meta.Name,
-		Statement:            req.Statement,
+		Statement:            statement,
 		Description:          req.Description,
 		Notes:                req.Notes,
 		Hints:                req.Hints,
@@ -172,8 +182,9 @@ func (d *MetaExerciseDAO) UpdateVersion(versionID uint, req *models.ExerciseVers
 	if err := d.db.First(&ex, versionID).Error; err != nil {
 		return nil, err
 	}
-	if req.Statement != "" {
-		ex.Statement = req.Statement
+	statement := strings.TrimSpace(req.Statement)
+	if statement != "" {
+		ex.Statement = statement
 	}
 	ex.Description = req.Description
 	ex.Notes = req.Notes

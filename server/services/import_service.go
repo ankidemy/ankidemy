@@ -186,9 +186,153 @@ func NewImportService(db *gorm.DB) *ImportService {
 	}
 }
 
+func normalizeImportText(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func fallbackDefinitionPrompt(name string) string {
+	clean := strings.TrimSpace(name)
+	if clean == "" {
+		return "Define the concept"
+	}
+	return "Define " + clean
+}
+
+func fallbackExerciseStatement(name string) string {
+	clean := strings.TrimSpace(name)
+	if clean == "" {
+		return "No statement"
+	}
+	return "Solve: " + clean
+}
+
+func normalizeDescriptionArray(desc FlexibleStringArray) FlexibleStringArray {
+	items := desc.ToStringSlice()
+	cleaned := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 {
+		cleaned = []string{"No description"}
+	}
+	return FlexibleStringArray(cleaned)
+}
+
+func normalizeOptionalText(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func normalizeImportName(name string, fallback string) string {
+	clean := strings.TrimSpace(name)
+	if clean != "" {
+		return clean
+	}
+	cleanFallback := strings.TrimSpace(fallback)
+	if cleanFallback != "" {
+		return cleanFallback
+	}
+	return "Unnamed"
+}
+
+func normalizeImportCode(code string, key string) string {
+	clean := strings.TrimSpace(code)
+	if clean != "" {
+		return clean
+	}
+	return strings.TrimSpace(key)
+}
+
+func ensureMetaDefinitionVersions(name string, versions []ImportMetaDefinitionVersion) []ImportMetaDefinitionVersion {
+	if len(versions) == 0 {
+		return []ImportMetaDefinitionVersion{
+			{
+				Prompt: fallbackDefinitionPrompt(name),
+				Type:   "open_ended",
+			},
+		}
+	}
+	for i := range versions {
+		versions[i].Prompt = normalizeImportText(versions[i].Prompt)
+		if versions[i].Prompt == "" {
+			versions[i].Prompt = fallbackDefinitionPrompt(name)
+		}
+		versions[i].Type = normalizeOptionalText(versions[i].Type)
+		if versions[i].Type == "" {
+			versions[i].Type = "open_ended"
+		}
+	}
+	return versions
+}
+
+func ensureMetaExerciseVersions(name string, versions []ImportExerciseVersion) []ImportExerciseVersion {
+	if len(versions) == 0 {
+		return []ImportExerciseVersion{
+			{
+				Statement:  fallbackExerciseStatement(name),
+				Difficulty: 3,
+			},
+		}
+	}
+	for i := range versions {
+		versions[i].Statement = normalizeImportText(versions[i].Statement)
+		if versions[i].Statement == "" {
+			versions[i].Statement = fallbackExerciseStatement(name)
+		}
+		if versions[i].Difficulty < 1 || versions[i].Difficulty > 7 {
+			versions[i].Difficulty = 3
+		}
+	}
+	return versions
+}
+
+func (s *ImportService) NormalizeImportData(data *ImportData) {
+	if data == nil {
+		return
+	}
+
+	for key, md := range data.MetaDefinitions {
+		md.Code = normalizeImportCode(md.Code, key)
+		md.Name = normalizeImportName(md.Name, md.Code)
+		md.Versions = ensureMetaDefinitionVersions(md.Name, md.Versions)
+		data.MetaDefinitions[key] = md
+	}
+
+	for key, def := range data.Definitions {
+		def.Code = normalizeImportCode(def.Code, key)
+		def.Name = normalizeImportName(def.Name, def.Code)
+		def.Description = normalizeDescriptionArray(def.Description)
+		def.Notes = normalizeOptionalText(def.Notes)
+		data.Definitions[key] = def
+	}
+
+	for key, me := range data.MetaExercises {
+		me.Code = normalizeImportCode(me.Code, key)
+		me.Name = normalizeImportName(me.Name, me.Code)
+		me.Versions = ensureMetaExerciseVersions(me.Name, me.Versions)
+		data.MetaExercises[key] = me
+	}
+
+	for key, ex := range data.Exercises {
+		ex.Code = normalizeImportCode(ex.Code, key)
+		ex.Name = normalizeImportName(ex.Name, ex.Code)
+		ex.Statement = normalizeImportText(ex.Statement)
+		if ex.Statement == "" {
+			ex.Statement = fallbackExerciseStatement(ex.Name)
+		}
+		ex.Description = normalizeOptionalText(ex.Description)
+		ex.Hints = normalizeOptionalText(ex.Hints)
+		ex.Result = normalizeOptionalText(ex.Result)
+		data.Exercises[key] = ex
+	}
+}
+
 // CreateDomainWithImport creates a new domain and imports data into it
 func (s *ImportService) CreateDomainWithImport(userID uint, name, privacy, description string, data *ImportData) (*models.Domain, error) {
 	// Validate import data first
+	s.NormalizeImportData(data)
 	if err := s.ValidateImportData(data); err != nil {
 		return nil, fmt.Errorf("import data validation failed: %v", err)
 	}
@@ -248,6 +392,7 @@ func (s *ImportService) CreateDomainWithImport(userID uint, name, privacy, descr
 // ImportToDomain imports data into an existing domain
 func (s *ImportService) ImportToDomain(domainID uint, data *ImportData, strategy DuplicateStrategy) error {
 	// Validate import data first
+	s.NormalizeImportData(data)
 	if err := s.ValidateImportData(data); err != nil {
 		return fmt.Errorf("import data validation failed: %v", err)
 	}
@@ -320,14 +465,28 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 				refStrings = append(refStrings, r.Reference)
 			}
 
+			prompt := normalizeImportText(v.Prompt)
+			if prompt == "" {
+				prompt = fallbackDefinitionPrompt(md.Name)
+			}
+			versionType := normalizeOptionalText(v.Type)
+			if versionType == "" {
+				versionType = "open_ended"
+			}
 			vnodes = append(vnodes, ImportMetaDefinitionVersion{
-				Prompt:               v.Prompt,
-				Type:                 v.Type,
+				Prompt:               prompt,
+				Type:                 versionType,
 				Description:          v.Description,
 				Notes:                v.Notes,
 				References:           refStrings,
 				PromptImagePath:      v.PromptImagePath,
 				DescriptionImagePath: v.DescriptionImagePath,
+			})
+		}
+		if len(vnodes) == 0 {
+			vnodes = append(vnodes, ImportMetaDefinitionVersion{
+				Prompt: fallbackDefinitionPrompt(md.Name),
+				Type:   "open_ended",
 			})
 		}
 		exportData.MetaDefinitions[md.Code] = ImportMetaDefinitionNode{
@@ -353,16 +512,30 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		}
 		vnodes := make([]ImportExerciseVersion, 0, len(versions))
 		for _, v := range versions {
+			statement := normalizeImportText(v.Statement)
+			if statement == "" {
+				statement = fallbackExerciseStatement(me.Name)
+			}
+			diff := v.Difficulty
+			if diff < 1 || diff > 7 {
+				diff = 3
+			}
 			vnodes = append(vnodes, ImportExerciseVersion{
-				Statement:            v.Statement,
+				Statement:            statement,
 				Description:          v.Description,
 				Hints:                v.Hints,
 				Verifiable:           v.Verifiable,
 				Result:               v.Result,
-				Difficulty:           v.Difficulty,
+				Difficulty:           diff,
 				Notes:                v.Notes,
 				StatementImagePath:   v.StatementImagePath,
 				DescriptionImagePath: v.DescriptionImagePath,
+			})
+		}
+		if len(vnodes) == 0 {
+			vnodes = append(vnodes, ImportExerciseVersion{
+				Statement:  fallbackExerciseStatement(me.Name),
+				Difficulty: 3,
 			})
 		}
 		exportData.MetaExercises[me.Code] = ImportMetaExerciseNode{
@@ -498,14 +671,19 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 
 	// Validate meta-definitions (preferred path)
 	for code, md := range data.MetaDefinitions {
-		if md.Code == "" {
+		if strings.TrimSpace(md.Code) == "" {
 			return fmt.Errorf("metaDefinition %s has empty code", code)
 		}
-		if md.Name == "" {
+		if strings.TrimSpace(md.Name) == "" {
 			return fmt.Errorf("metaDefinition %s has empty name", code)
 		}
 		if len(md.Versions) == 0 {
 			return fmt.Errorf("metaDefinition %s has no versions", code)
+		}
+		for idx, v := range md.Versions {
+			if strings.TrimSpace(v.Prompt) == "" {
+				return fmt.Errorf("metaDefinition %s version %d has empty prompt", code, idx)
+			}
 		}
 		if allCodes[md.Code] {
 			return fmt.Errorf("duplicate code found: %s", md.Code)
@@ -515,13 +693,21 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 
 	// Validate definitions (legacy, optional)
 	for code, def := range data.Definitions {
-		if def.Code == "" {
+		if strings.TrimSpace(def.Code) == "" {
 			return fmt.Errorf("definition %s has empty code", code)
 		}
-		if def.Name == "" {
+		if strings.TrimSpace(def.Name) == "" {
 			return fmt.Errorf("definition %s has empty name", code)
 		}
-		if len(def.Description.ToStringSlice()) == 0 {
+		descItems := def.Description.ToStringSlice()
+		hasDescription := false
+		for _, item := range descItems {
+			if strings.TrimSpace(item) != "" {
+				hasDescription = true
+				break
+			}
+		}
+		if !hasDescription {
 			return fmt.Errorf("definition %s has empty description", code)
 		}
 		if allCodes[def.Code] {
@@ -533,14 +719,19 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 	// Validate metaExercises or legacy exercises
 	if len(data.MetaExercises) > 0 {
 		for code, me := range data.MetaExercises {
-			if me.Code == "" {
+			if strings.TrimSpace(me.Code) == "" {
 				return fmt.Errorf("metaExercise %s has empty code", code)
 			}
-			if me.Name == "" {
+			if strings.TrimSpace(me.Name) == "" {
 				return fmt.Errorf("metaExercise %s has empty name", code)
 			}
 			if len(me.Versions) == 0 {
 				return fmt.Errorf("metaExercise %s has no versions", code)
+			}
+			for idx, v := range me.Versions {
+				if strings.TrimSpace(v.Statement) == "" {
+					return fmt.Errorf("metaExercise %s version %d has empty statement", code, idx)
+				}
 			}
 			if allCodes[me.Code] {
 				return fmt.Errorf("duplicate code found: %s", me.Code)
@@ -549,13 +740,13 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 		}
 	} else {
 		for code, ex := range data.Exercises {
-			if ex.Code == "" {
+			if strings.TrimSpace(ex.Code) == "" {
 				return fmt.Errorf("exercise %s has empty code", code)
 			}
-			if ex.Name == "" {
+			if strings.TrimSpace(ex.Name) == "" {
 				return fmt.Errorf("exercise %s has empty name", code)
 			}
-			if ex.Statement == "" {
+			if strings.TrimSpace(ex.Statement) == "" {
 				return fmt.Errorf("exercise %s has empty statement", code)
 			}
 			if allCodes[ex.Code] {
@@ -841,7 +1032,6 @@ func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, 
 		Code   string
 		Weight float64
 	}
-	var allRows []row
 
 	// Get meta_definition prerequisites
 	query1 := `
@@ -854,7 +1044,6 @@ func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, 
 	if err := s.db.Raw(query1, nodeID).Scan(&mdRows).Error; err != nil {
 		return nil, nil, err
 	}
-	allRows = append(allRows, mdRows...)
 
 	// Get meta_exercise prerequisites
 	query2 := `
@@ -867,7 +1056,6 @@ func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, 
 	if err := s.db.Raw(query2, nodeID).Scan(&meRows).Error; err != nil {
 		return nil, nil, err
 	}
-	allRows = append(allRows, meRows...)
 
 	// Get legacy definition prerequisites (for backward compatibility)
 	query3 := `
@@ -880,14 +1068,36 @@ func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, 
 	if err := s.db.Raw(query3, nodeID).Scan(&defRows).Error; err != nil {
 		return nil, nil, err
 	}
-	allRows = append(allRows, defRows...)
 
-	codes := make([]string, 0, len(allRows))
-	weights := make(map[string]float64, len(allRows))
-	for _, r := range allRows {
+	codes := make([]string, 0, len(mdRows)+len(meRows)+len(defRows))
+	weights := make(map[string]float64, len(mdRows)+len(meRows)+len(defRows))
+	seen := make(map[string]bool, len(mdRows)+len(meRows)+len(defRows))
+
+	for _, r := range mdRows {
+		if r.Code == "" || seen[r.Code] {
+			continue
+		}
+		seen[r.Code] = true
 		codes = append(codes, r.Code)
 		weights[r.Code] = r.Weight
 	}
+	for _, r := range meRows {
+		if r.Code == "" || seen[r.Code] {
+			continue
+		}
+		seen[r.Code] = true
+		codes = append(codes, r.Code)
+		weights[r.Code] = r.Weight
+	}
+	for _, r := range defRows {
+		if r.Code == "" || seen[r.Code] {
+			continue
+		}
+		seen[r.Code] = true
+		codes = append(codes, r.Code)
+		weights[r.Code] = r.Weight
+	}
+
 	return codes, weights, nil
 }
 
@@ -907,6 +1117,43 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	// Build code assignment maps for collision-safe renaming
 	defAssigned := make(map[string]string)  // original -> assigned
 	metaAssigned := make(map[string]string) // original -> assigned
+
+	// Convert legacy definitions to metaDefinitions so graph nodes are always created.
+	if len(data.MetaDefinitions) == 0 && len(data.Definitions) > 0 {
+		data.MetaDefinitions = make(map[string]ImportMetaDefinitionNode)
+		for key, def := range data.Definitions {
+			name := normalizeImportName(def.Name, def.Code)
+			descItems := def.Description.ToStringSlice()
+			cleaned := make([]string, 0, len(descItems))
+			for _, item := range descItems {
+				trimmed := strings.TrimSpace(item)
+				if trimmed != "" {
+					cleaned = append(cleaned, trimmed)
+				}
+			}
+			if len(cleaned) == 0 {
+				cleaned = []string{"No description"}
+			}
+			data.MetaDefinitions[key] = ImportMetaDefinitionNode{
+				Code:                def.Code,
+				Name:                name,
+				Prerequisites:       def.Prerequisites,
+				PrerequisiteWeights: def.PrerequisiteWeights,
+				XPosition:           def.XPosition,
+				YPosition:           def.YPosition,
+				Versions: []ImportMetaDefinitionVersion{
+					{
+						Prompt:      fallbackDefinitionPrompt(name),
+						Type:        "open_ended",
+						Description: strings.Join(cleaned, "|||"),
+						Notes:       def.Notes,
+						References:  def.References,
+					},
+				},
+			}
+		}
+		data.Definitions = nil
+	}
 
 	// IMPORTANT: Convert legacy exercises to metaExercises BEFORE assigning meta codes
 	// so that metaAssigned gets populated for the generated meta entries.
@@ -1000,6 +1247,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	// Create DAOs for the transaction
 	exerciseDAO := dao.NewExerciseDAO(tx)
 	metaDefDAO := dao.NewMetaDefinitionDAO(tx)
+	metaExDAO := dao.NewMetaExerciseDAO(tx)
 
 	// Create meta-definitions first (with no prerequisites)
 	metaDefs := make(map[string]*models.MetaDefinition)
@@ -1257,14 +1505,18 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			}
 		}
 		for _, v := range me.Versions {
-			vv := &models.Exercise{
-				Code: assignedCode, Name: me.Name, Statement: v.Statement, Description: v.Description, Hints: v.Hints, Notes: v.Notes,
-				DomainID: domain.ID, OwnerID: ownerID, MetaExerciseID: meta.ID, Verifiable: v.Verifiable, Result: v.Result, Difficulty: v.Difficulty,
-				XPosition: me.XPosition, YPosition: me.YPosition,
+			_, err := metaExDAO.AddVersion(meta.ID, &models.ExerciseVersionRequest{
+				Statement:            v.Statement,
+				Description:          v.Description,
+				Hints:                v.Hints,
+				Verifiable:           v.Verifiable,
+				Result:               v.Result,
+				Difficulty:           v.Difficulty,
+				Notes:                v.Notes,
 				StatementImagePath:   v.StatementImagePath,
 				DescriptionImagePath: v.DescriptionImagePath,
-			}
-			if err := tx.Create(vv).Error; err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("failed to create version for %s: %v", assignedCode, err)
 			}
 		}

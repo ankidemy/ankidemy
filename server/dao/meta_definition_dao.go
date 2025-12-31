@@ -2,6 +2,7 @@ package dao
 
 import (
 	"errors"
+	"strings"
 	"gorm.io/gorm"
 	"myapp/server/models"
 )
@@ -173,9 +174,14 @@ func (d *MetaDefinitionDAO) AddVersion(metaID uint, req *models.DefinitionVersio
 	}
 
 	// Set default prompt if not provided
-	prompt := req.Prompt
+	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		prompt = "Define " + meta.Name
+		name := strings.TrimSpace(meta.Name)
+		if name == "" {
+			prompt = "Define the concept"
+		} else {
+			prompt = "Define " + name
+		}
 	}
 
 	def := &models.Definition{

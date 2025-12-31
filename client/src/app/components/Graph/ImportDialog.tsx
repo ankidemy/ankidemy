@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { X, Upload, AlertCircle, CheckCircle2, Info } from 'lucide-react';
-import { importToDomain, importDomainBackup, DomainExportData } from '@/lib/api';
+import { importToDomain, importDomainBackup, DomainExportData, standardizeImportData } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
 interface ImportDialogProps {
@@ -258,14 +258,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     try {
       const text = await file.text();
       const raw = JSON.parse(text) as any;
-      // Minimal standardization to match DomainExportData shape
-      const standardized: ImportData = {
-        definitions: raw.definitions,
-        metaDefinitions: raw.metaDefinitions,
-        exercises: raw.exercises,
-        metaExercises: raw.metaExercises,
-        groups: raw.groups,
-      };
+      const standardized: ImportData = standardizeImportData(raw);
       setImportData(standardized);
       const validationResult = validateImportData(standardized);
       setValidation(validationResult);

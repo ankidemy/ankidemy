@@ -17,6 +17,22 @@ type GraphDAO struct {
 	db *gorm.DB
 }
 
+func fallbackGraphDefinitionDescription(value string) string {
+	clean := strings.TrimSpace(value)
+	if clean == "" {
+		return "No description"
+	}
+	return clean
+}
+
+func fallbackGraphExerciseStatement(name string) string {
+	clean := strings.TrimSpace(name)
+	if clean == "" {
+		return "No statement"
+	}
+	return "Solve: " + clean
+}
+
 // NewGraphDAO creates a new GraphDAO instance
 func NewGraphDAO(db *gorm.DB) *GraphDAO {
 	return &GraphDAO{db: db}
@@ -287,6 +303,7 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 				references = append(references, ref.Reference)
 			}
 		}
+		description = fallbackGraphDefinitionDescription(description)
 
 		// Get prerequisite codes and weights
 		prerequisiteCodes, err := d.getPrerequisiteCodes(metaDef.ID, "meta_definition")
@@ -314,6 +331,30 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 
 	// Add meta_exercises using CODE as key (FIXED)
 	for _, ex := range exercises {
+		var firstVersion models.Exercise
+		var statement, description, hints, result string
+		var verifiable bool
+		var difficulty int
+
+		exErr := d.db.Where("meta_exercise_id = ?", ex.ID).
+			Order("id ASC").
+			Limit(1).
+			First(&firstVersion).Error
+		if exErr == nil {
+			statement = strings.TrimSpace(firstVersion.Statement)
+			description = firstVersion.Description
+			hints = firstVersion.Hints
+			result = firstVersion.Result
+			verifiable = firstVersion.Verifiable
+			difficulty = firstVersion.Difficulty
+		}
+		if statement == "" {
+			statement = fallbackGraphExerciseStatement(ex.Name)
+		}
+		if difficulty < 1 || difficulty > 7 {
+			difficulty = 3
+		}
+
 		// Get prerequisite codes and weights
 		prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "meta_exercise")
 		if err != nil {
@@ -326,9 +367,14 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 
 		// Use exercise CODE as key, not ID
 		graphData.Exercises[ex.Code] = ExerciseNode{
-			Code: ex.Code,
-			Name: ex.Name,
-			// meta nodes: omit version-specific fields in export format
+			Code:                ex.Code,
+			Name:                ex.Name,
+			Statement:           statement,
+			Description:         description,
+			Hints:               hints,
+			Verifiable:          verifiable,
+			Result:              result,
+			Difficulty:          difficulty,
 			Prerequisites:       prerequisiteCodes,
 			PrerequisiteWeights: prereqWeights,
 			XPosition:           ex.XPosition,
@@ -417,18 +463,67 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 // Helper function to get prerequisite codes for a node
 func (d *GraphDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string, error) {
 	if nodeType == "meta_exercise" {
-		// Exercises depend on definitions (legacy)
-		query := `
+		// Exercises can depend on meta_definitions, meta_exercises, or legacy definitions.
+		codes := make([]string, 0)
+		seen := make(map[string]bool)
+
+		mdQuery := `
+            SELECT md.code
+            FROM node_prerequisites np
+            JOIN meta_definitions md ON np.prerequisite_id = md.id
+            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
+            ORDER BY md.code
+        `
+		var mdCodes []string
+		if err := d.db.Raw(mdQuery, nodeID).Scan(&mdCodes).Error; err != nil {
+			return nil, err
+		}
+		for _, code := range mdCodes {
+			if code == "" || seen[code] {
+				continue
+			}
+			seen[code] = true
+			codes = append(codes, code)
+		}
+
+		meQuery := `
+            SELECT me.code
+            FROM node_prerequisites np
+            JOIN meta_exercises me ON np.prerequisite_id = me.id
+            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+            ORDER BY me.code
+        `
+		var meCodes []string
+		if err := d.db.Raw(meQuery, nodeID).Scan(&meCodes).Error; err != nil {
+			return nil, err
+		}
+		for _, code := range meCodes {
+			if code == "" || seen[code] {
+				continue
+			}
+			seen[code] = true
+			codes = append(codes, code)
+		}
+
+		legacyQuery := `
             SELECT d.code
             FROM node_prerequisites np
             JOIN definitions d ON np.prerequisite_id = d.id
             WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
             ORDER BY d.code
         `
-		var codes []string
-		if err := d.db.Raw(query, nodeID).Scan(&codes).Error; err != nil {
+		var legacyCodes []string
+		if err := d.db.Raw(legacyQuery, nodeID).Scan(&legacyCodes).Error; err != nil {
 			return nil, err
 		}
+		for _, code := range legacyCodes {
+			if code == "" || seen[code] {
+				continue
+			}
+			seen[code] = true
+			codes = append(codes, code)
+		}
+
 		return codes, nil
 	}
 	if nodeType == "meta_definition" {
@@ -456,7 +551,43 @@ func (d *GraphDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[str
 		Weight float64
 	}
 	if nodeType == "meta_exercise" {
-		query := `
+		weights := make(map[string]float64)
+
+		mdQuery := `
+            SELECT md.code, np.weight
+            FROM node_prerequisites np
+            JOIN meta_definitions md ON np.prerequisite_id = md.id
+            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
+            ORDER BY md.code
+        `
+		var mdRows []row
+		if err := d.db.Raw(mdQuery, nodeID).Scan(&mdRows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range mdRows {
+			if r.Code != "" {
+				weights[r.Code] = r.Weight
+			}
+		}
+
+		meQuery := `
+            SELECT me.code, np.weight
+            FROM node_prerequisites np
+            JOIN meta_exercises me ON np.prerequisite_id = me.id
+            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+            ORDER BY me.code
+        `
+		var meRows []row
+		if err := d.db.Raw(meQuery, nodeID).Scan(&meRows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range meRows {
+			if r.Code != "" {
+				weights[r.Code] = r.Weight
+			}
+		}
+
+		legacyQuery := `
             SELECT d.code, np.weight
             FROM node_prerequisites np
             JOIN definitions d ON np.prerequisite_id = d.id
@@ -464,14 +595,18 @@ func (d *GraphDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[str
             ORDER BY d.code
         `
 		var rows []row
-		if err := d.db.Raw(query, nodeID).Scan(&rows).Error; err != nil {
+		if err := d.db.Raw(legacyQuery, nodeID).Scan(&rows).Error; err != nil {
 			return nil, err
 		}
-		res := make(map[string]float64, len(rows))
 		for _, r := range rows {
-			res[r.Code] = r.Weight
+			if r.Code == "" {
+				continue
+			}
+			if _, exists := weights[r.Code]; !exists {
+				weights[r.Code] = r.Weight
+			}
 		}
-		return res, nil
+		return weights, nil
 	}
 	if nodeType == "meta_definition" {
 		query := `
@@ -504,6 +639,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		}
 
 		metaDefDAO := NewMetaDefinitionDAO(tx)
+		metaExDAO := NewMetaExerciseDAO(tx)
 
 		var existingMetaDefs []models.MetaDefinition
 		if err := tx.Where("domain_id = ?", domainID).Find(&existingMetaDefs).Error; err != nil {
@@ -525,12 +661,16 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 
 		// Ensure meta_definitions exist and update fields
 		for key, defNode := range data.Definitions {
-			code := defNode.Code
+			code := strings.TrimSpace(defNode.Code)
 			if code == "" {
-				code = key
+				code = strings.TrimSpace(key)
+			}
+			name := strings.TrimSpace(defNode.Name)
+			if name == "" {
+				name = code
 			}
 			if md, ok := metaDefsByCode[code]; ok {
-				md.Name = defNode.Name
+				md.Name = name
 				md.XPosition = defNode.XPosition
 				md.YPosition = defNode.YPosition
 				if err := tx.Save(md).Error; err != nil {
@@ -540,7 +680,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			}
 			metaDef := &models.MetaDefinition{
 				Code:      code,
-				Name:      defNode.Name,
+				Name:      name,
 				DomainID:  domainID,
 				OwnerID:   domain.OwnerID,
 				XPosition: defNode.XPosition,
@@ -555,11 +695,12 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 		// Create/update definition versions and build first-version lookup for prerequisites
 		definitionsByCode := make(map[string]*models.Definition)
 		for key, defNode := range data.Definitions {
-			code := defNode.Code
+			code := strings.TrimSpace(defNode.Code)
 			if code == "" {
-				code = key
+				code = strings.TrimSpace(key)
 			}
 			md := metaDefsByCode[code]
+			description := fallbackGraphDefinitionDescription(defNode.Description)
 			var versions []models.Definition
 			if err := tx.Where("meta_definition_id = ?", md.ID).Order("id ASC").Find(&versions).Error; err != nil {
 				return err
@@ -567,7 +708,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 
 			if len(versions) == 0 {
 				created, err := metaDefDAO.AddVersion(md.ID, &models.DefinitionVersionRequest{
-					Description: defNode.Description,
+					Description: description,
 					Notes:       defNode.Notes,
 					References:  defNode.References,
 				})
@@ -580,7 +721,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 
 			first := versions[0]
 			updated, err := metaDefDAO.UpdateVersion(first.ID, &models.DefinitionVersionRequest{
-				Description:          defNode.Description,
+				Description:          description,
 				Notes:                defNode.Notes,
 				References:           defNode.References,
 				PromptImagePath:      first.PromptImagePath,
@@ -594,9 +735,9 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 
 		// Update meta_definition prerequisites
 		for key, defNode := range data.Definitions {
-			code := defNode.Code
+			code := strings.TrimSpace(defNode.Code)
 			if code == "" {
-				code = key
+				code = strings.TrimSpace(key)
 			}
 			md := metaDefsByCode[code]
 			var prerequisiteIDs []uint
@@ -621,12 +762,16 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 
 		// Ensure meta_exercises exist and update fields
 		for key, exNode := range data.Exercises {
-			code := exNode.Code
+			code := strings.TrimSpace(exNode.Code)
 			if code == "" {
-				code = key
+				code = strings.TrimSpace(key)
+			}
+			name := strings.TrimSpace(exNode.Name)
+			if name == "" {
+				name = code
 			}
 			if me, ok := metaExByCode[code]; ok {
-				me.Name = exNode.Name
+				me.Name = name
 				me.XPosition = exNode.XPosition
 				me.YPosition = exNode.YPosition
 				if err := tx.Save(me).Error; err != nil {
@@ -636,7 +781,7 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			}
 			meta := &models.MetaExercise{
 				Code:      code,
-				Name:      exNode.Name,
+				Name:      name,
 				DomainID:  domainID,
 				OwnerID:   domain.OwnerID,
 				XPosition: exNode.XPosition,
@@ -648,11 +793,52 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			metaExByCode[code] = meta
 		}
 
-		// Update meta_exercise prerequisites (graph import uses definition prerequisites)
+		// Create/update exercise versions (use first version as representative)
 		for key, exNode := range data.Exercises {
-			code := exNode.Code
+			code := strings.TrimSpace(exNode.Code)
 			if code == "" {
-				code = key
+				code = strings.TrimSpace(key)
+			}
+			meta, ok := metaExByCode[code]
+			if !ok {
+				continue
+			}
+			statement := strings.TrimSpace(exNode.Statement)
+			if statement == "" {
+				statement = fallbackGraphExerciseStatement(meta.Name)
+			}
+			diff := exNode.Difficulty
+			if diff < 1 || diff > 7 {
+				diff = 3
+			}
+			req := &models.ExerciseVersionRequest{
+				Statement:   statement,
+				Description: exNode.Description,
+				Hints:       exNode.Hints,
+				Verifiable:  exNode.Verifiable,
+				Result:      exNode.Result,
+				Difficulty:  diff,
+			}
+			var versions []models.Exercise
+			if err := tx.Where("meta_exercise_id = ?", meta.ID).Order("id ASC").Find(&versions).Error; err != nil {
+				return err
+			}
+			if len(versions) == 0 {
+				if _, err := metaExDAO.AddVersion(meta.ID, req); err != nil {
+					return err
+				}
+				continue
+			}
+			if _, err := metaExDAO.UpdateVersion(versions[0].ID, req); err != nil {
+				return err
+			}
+		}
+
+		// Update meta_exercise prerequisites (prefer meta_definition/meta_exercise, fallback to legacy definition)
+		for key, exNode := range data.Exercises {
+			code := strings.TrimSpace(exNode.Code)
+			if code == "" {
+				code = strings.TrimSpace(key)
 			}
 			meta := metaExByCode[code]
 			if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "meta_exercise").
@@ -660,10 +846,6 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				return err
 			}
 			for _, prereqCode := range exNode.Prerequisites {
-				prereqDef, ok := definitionsByCode[prereqCode]
-				if !ok {
-					continue
-				}
 				w := 1.0
 				if exNode.PrerequisiteWeights != nil {
 					if val, ok := exNode.PrerequisiteWeights[prereqCode]; ok {
@@ -676,15 +858,43 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 						}
 					}
 				}
-				if err := tx.Create(&models.NodePrerequisite{
-					NodeID:           meta.ID,
-					NodeType:         "meta_exercise",
-					PrerequisiteID:   prereqDef.ID,
-					PrerequisiteType: "definition",
-					Weight:           w,
-					IsManual:         true,
-				}).Error; err != nil {
-					return err
+				if prereqMetaDef, ok := metaDefsByCode[prereqCode]; ok {
+					if err := tx.Create(&models.NodePrerequisite{
+						NodeID:           meta.ID,
+						NodeType:         "meta_exercise",
+						PrerequisiteID:   prereqMetaDef.ID,
+						PrerequisiteType: "meta_definition",
+						Weight:           w,
+						IsManual:         true,
+					}).Error; err != nil {
+						return err
+					}
+					continue
+				}
+				if prereqMetaEx, ok := metaExByCode[prereqCode]; ok {
+					if err := tx.Create(&models.NodePrerequisite{
+						NodeID:           meta.ID,
+						NodeType:         "meta_exercise",
+						PrerequisiteID:   prereqMetaEx.ID,
+						PrerequisiteType: "meta_exercise",
+						Weight:           w,
+						IsManual:         true,
+					}).Error; err != nil {
+						return err
+					}
+					continue
+				}
+				if prereqDef, ok := definitionsByCode[prereqCode]; ok {
+					if err := tx.Create(&models.NodePrerequisite{
+						NodeID:           meta.ID,
+						NodeType:         "meta_exercise",
+						PrerequisiteID:   prereqDef.ID,
+						PrerequisiteType: "definition",
+						Weight:           w,
+						IsManual:         true,
+					}).Error; err != nil {
+						return err
+					}
 				}
 			}
 		}

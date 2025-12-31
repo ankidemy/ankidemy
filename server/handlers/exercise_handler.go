@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
@@ -107,6 +108,11 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 	var req models.ExerciseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.Statement = strings.TrimSpace(req.Statement)
+	if req.Statement == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Statement is required"})
 		return
 	}
 

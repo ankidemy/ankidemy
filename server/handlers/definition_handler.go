@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
@@ -113,6 +114,9 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		return
 	}
 
+	req.Code = strings.TrimSpace(req.Code)
+	req.Name = strings.TrimSpace(req.Name)
+
 	// Check if MetaDefinitionID is provided
 	var metaDefID uint
 	if req.MetaDefinitionID != 0 {
@@ -130,6 +134,10 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 			return
 		}
 	} else {
+		if req.Code == "" || req.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Code and name are required"})
+			return
+		}
 		// Auto-create a meta_definition pool
 		// Check for cross-type code uniqueness (meta_definitions + meta_exercises in the same domain)
 		codeExists, err := h.definitionDAO.CheckCodeExistsInDomain(req.Code, uint(domainID))

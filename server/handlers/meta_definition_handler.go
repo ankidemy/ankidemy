@@ -54,6 +54,12 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	req.Code = strings.TrimSpace(req.Code)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Code == "" || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Code and name are required"})
+		return
+	}
 
 	// Check for cross-type code uniqueness (meta_definitions + meta_exercises in the same domain)
 	codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, uint(domainID64))
@@ -81,9 +87,10 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 		return
 	}
 
-	// Optional initial version
+	// Ensure an initial version exists
+	versionReq := &models.DefinitionVersionRequest{}
 	if req.InitialVersion != nil {
-		_, _ = h.metaDAO.AddVersion(meta.ID, &models.DefinitionVersionRequest{
+		versionReq = &models.DefinitionVersionRequest{
 			Prompt:               req.InitialVersion.Prompt,
 			Type:                 req.InitialVersion.Type,
 			Description:          req.InitialVersion.Description,
@@ -91,7 +98,14 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 			References:           req.InitialVersion.References,
 			PromptImagePath:      req.InitialVersion.PromptImagePath,
 			DescriptionImagePath: req.InitialVersion.DescriptionImagePath,
-		})
+		}
+	}
+	if strings.TrimSpace(versionReq.Prompt) == "" {
+		versionReq.Prompt = "Define " + req.Name
+	}
+	if _, err := h.metaDAO.AddVersion(meta.ID, versionReq); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create initial definition version"})
+		return
 	}
 
 	_, versions, _ := h.metaDAO.FindByID(meta.ID)

@@ -13,6 +13,7 @@ import {
   getDomain,
   createDomainWithImport,
   importDomainBackup,
+  standardizeImportData,
   validateImportData,
   Domain,
   DomainExportData
@@ -104,7 +105,8 @@ const DomainForm: React.FC<DomainFormProps> = ({
 
     try {
       const text = await file.text();
-      const fileData = JSON.parse(text) as DomainExportData;
+      const rawData = JSON.parse(text) as DomainExportData;
+      const fileData = standardizeImportData(rawData);
       
       // Validate the data
       const validation = validateImportData(fileData);
