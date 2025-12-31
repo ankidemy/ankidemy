@@ -319,29 +319,24 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Updated_at triggers
-DROP TRIGGER IF EXISTS update_user_node_progress_updated_at ON user_node_progress;
-CREATE TRIGGER update_user_node_progress_updated_at 
-    BEFORE UPDATE ON user_node_progress 
+CREATE TRIGGER update_user_node_progress_updated_at
+    BEFORE UPDATE ON user_node_progress
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_users_updated_at ON users;
-CREATE TRIGGER update_users_updated_at 
-    BEFORE UPDATE ON users 
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_domains_updated_at ON domains;
-CREATE TRIGGER update_domains_updated_at 
-    BEFORE UPDATE ON domains 
+CREATE TRIGGER update_domains_updated_at
+    BEFORE UPDATE ON domains
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_definitions_updated_at ON definitions;
-CREATE TRIGGER update_definitions_updated_at 
-    BEFORE UPDATE ON definitions 
+CREATE TRIGGER update_definitions_updated_at
+    BEFORE UPDATE ON definitions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_exercises_updated_at ON exercises;
-CREATE TRIGGER update_exercises_updated_at 
-    BEFORE UPDATE ON exercises 
+CREATE TRIGGER update_exercises_updated_at
+    BEFORE UPDATE ON exercises
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================

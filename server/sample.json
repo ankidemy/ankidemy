@@ -1,66 +1,16 @@
 {
-  "definitions": {
-    "math_1.1": {
-      "code": "math_1.1",
-      "name": "Set Theory Basics",
-      "description": [
-        "A set is a collection of distinct objects, considered as an object in its own right.",
-        "In mathematics, a set is a well-defined collection of distinct objects."
-      ],
-      "notes": "Fundamental concept in mathematics",
-      "prerequisites": [],
-      "prerequisiteWeights": {},
-      "xPosition": -120.0,
-      "yPosition": 60.0
-    },
-    "math_1.2": {
-      "code": "math_1.2",
-      "name": "Set Operations",
-      "description": [
-        "Basic operations on sets include union, intersection, difference, and complement.",
-        "Set operations provide ways to combine and compare sets."
-      ],
-      "notes": "Important for understanding relationships between sets",
-      "prerequisites": [
-        "math_1.1"
-      ],
-      "prerequisiteWeights": {
-        "math_1.1": 1
-      },
-      "xPosition": -20.0,
-      "yPosition": 10.0
-    },
-    "math_2.1": {
-      "code": "math_2.1",
-      "name": "Functions",
-      "description": [
-        "A function $f: X \\rightarrow Y$ is a relation that associates each element $x \\in X$ with exactly one element $y \\in Y$.",
-        "Functions map elements from a domain to a codomain with each input having exactly one output."
-      ],
-      "notes": "Key concept in all areas of mathematics",
-      "prerequisites": [
-        "math_1.1"
-      ],
-      "prerequisiteWeights": {
-        "math_1.1": 1
-      },
-      "xPosition": 120.0,
-      "yPosition": 60.0
-    }
-  },
-  "exercises": {},
   "metaExercises": {
-    "math_E1": {
-      "code": "math_E1",
+    "E1": {
+      "code": "E1",
       "name": "Set Operations Practice",
       "prerequisites": [
-        "math_1.2"
+        "1.2"
       ],
       "prerequisiteWeights": {
-        "math_1.2": 1
+        "1.2": 1
       },
-      "xPosition": -10.0,
-      "yPosition": -90.0,
+      "xPosition": -10,
+      "yPosition": -90,
       "versions": [
         {
           "statement": "Given sets $A = \\{1, 2, 3\\}$ and $B = \\{2, 3, 4\\}$, find $A \\cup B$ and $A \\cap B$.",
@@ -73,17 +23,17 @@
         }
       ]
     },
-    "math_E2": {
-      "code": "math_E2",
+    "E2": {
+      "code": "E2",
       "name": "Function Composition",
       "prerequisites": [
-        "math_2.1"
+        "2.1"
       ],
       "prerequisiteWeights": {
-        "math_2.1": 1
+        "2.1": 1
       },
-      "xPosition": 120.0,
-      "yPosition": -30.0,
+      "xPosition": 120,
+      "yPosition": -30,
       "versions": [
         {
           "statement": "Given functions $f(x) = x^2$ and $g(x) = x+1$, find $(f \\circ g)(x)$ and $(g \\circ f)(x)$.",
@@ -93,6 +43,62 @@
           "result": "x^2+2x+1,x^2+1",
           "difficulty": 2,
           "notes": "Highlights non-commutativity of composition."
+        }
+      ]
+    }
+  },
+  "metaDefinitions": {
+    "1.1": {
+      "code": "1.1",
+      "name": "Set Theory Basics",
+      "xPosition": -120,
+      "yPosition": 60,
+      "versions": [
+        {
+          "prompt": "Define Set Theory Basics",
+          "type": "open_ended",
+          "description": "A set is a collection of distinct objects, considered as an object in its own right.|||In mathematics, a set is a well-defined collection of distinct objects.",
+          "notes": "Fundamental concept in mathematics"
+        }
+      ]
+    },
+    "1.2": {
+      "code": "1.2",
+      "name": "Set Operations",
+      "prerequisites": [
+        "1.1"
+      ],
+      "prerequisiteWeights": {
+        "1.1": 1
+      },
+      "xPosition": -20,
+      "yPosition": 10,
+      "versions": [
+        {
+          "prompt": "Define Set Operations",
+          "type": "open_ended",
+          "description": "Basic operations on sets include union, intersection, difference, and complement.|||Set operations provide ways to combine and compare sets.",
+          "notes": "Important for understanding relationships between sets"
+        }
+      ]
+    },
+    "2.1": {
+      "code": "2.1",
+      "name": "Functions",
+      "prerequisites": [
+        "1.1"
+      ],
+      "prerequisiteWeights": {
+        "1.1": 1
+      },
+      "xPosition": 120,
+      "yPosition": 60,
+      "versions": [
+        {
+          "prompt": "Define Functions",
+          "type": "open_ended",
+          "description": "A function $f: X \\rightarrow Y$ is a relation that associates each element $x \\in X$ with exactly one element $y \\in Y$.|||Functions map elements from a domain to a codomain with each input having exactly one output.",
+          "notes": "Key concept in all areas of mathematics"
         }
       ]
     }
