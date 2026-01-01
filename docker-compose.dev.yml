@@ -27,7 +27,7 @@ services:
       - server_go_build_cache:/root/.cache/go-build
       - server_apk_cache:/etc/apk/cache
     ports:
-      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+      - "${SERVER_PORT:-8765}:${SERVER_PORT:-8765}"
       - "2345:2345" # Debugger port
     environment:
       - APP_ENV=development
@@ -63,7 +63,7 @@ services:
         air
       "
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8080}/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

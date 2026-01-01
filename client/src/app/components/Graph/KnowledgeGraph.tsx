@@ -975,7 +975,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         id,
         name: getExternalNodeLabel(link),
         displayId,
-        type: link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition',
+        type: (link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition') as 'definition' | 'exercise',
         status: link.status,
         externalDomainId: link.externalDomainId,
         externalDomainUid: link.externalDomainUid,
@@ -1377,7 +1377,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const stableGraphRef = useRef<typeof stableGraph | null>(null);
   stableGraphRef.current = stableGraph;
 
-  const handleDagError = useCallback((loop: string[]) => {
+  const handleDagError = useCallback((loop: (string | number)[]) => {
     console.warn('DAG layout error (cycle detected):', loop);
   }, []);
 
@@ -2368,8 +2368,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         prerequisiteWeights: weights,
       };
 
-      if (isDefinitionTarget) next.definitions = collection;
-      else next.exercises = collection;
+      if (isDefinitionTarget) next.definitions = collection as Record<string, Definition>;
+      else next.exercises = collection as Record<string, Exercise>;
       return next;
     });
   }, []);
@@ -2379,6 +2379,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     target: GraphNode,
     idOverrides?: { sourceId?: number; targetId?: number }
   ) => {
+    if (source.type === 'group' || target.type === 'group') {
+      showToast('Groups cannot be used in prerequisite relationships.', 'warning');
+      return;
+    }
     if (target.type === 'definition' && source.type !== 'definition') {
       showToast('Definitions can only depend on definitions.', 'warning');
       return;
@@ -2542,6 +2546,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ) => {
     if (!canEdit) {
       showToast('Only domain owners or editors can edit nodes.', 'warning');
+      return;
+    }
+    if (node.type === 'group') {
+      showToast('Cannot edit group nodes.', 'warning');
       return;
     }
     const metaId = metaIdOverride ?? codeToNumericIdMap.get(node.id);
@@ -3132,6 +3140,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const deleteFrenzyNode = useCallback(async (node: GraphNode) => {
     if (!canEdit) {
       showToast('Only domain owners or editors can delete nodes.', 'warning');
+      return;
+    }
+    if (node.type === 'group') {
+      showToast('Cannot delete group nodes.', 'warning');
       return;
     }
     const metaId = codeToNumericIdMap.get(node.id);

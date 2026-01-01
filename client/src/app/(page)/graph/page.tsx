@@ -1,10 +1,10 @@
 // src/app/(page)/graph/page.tsx
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function DeprecatedGraphPage() {
+function DeprecatedGraphPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -21,5 +21,17 @@ export default function DeprecatedGraphPage() {
     <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">
       Redirecting...
     </div>
+  );
+}
+
+export default function DeprecatedGraphPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">
+        Loading...
+      </div>
+    }>
+      <DeprecatedGraphPageContent />
+    </Suspense>
   );
 }

@@ -153,7 +153,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const handleToggleGroupExact = useCallback(async (group: GroupData, nextExact: boolean) => {
     if (!onUpdateGroup) return;
     const members = groupMembersById.get(group.id) ?? new Set<string>();
-    const memberCodes = nextExact ? Array.from(members) : undefined;
+    const memberCodes: string[] | undefined = nextExact ? Array.from(members) : undefined;
     try {
       await onUpdateGroup(group.id, { isExact: nextExact, memberCodes });
       showToast(`Group ${nextExact ? 'pinned' : 'unpinned'}.`, 'success');
@@ -167,7 +167,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     if (!onUpdateGroup) return;
     const nodeCode = currentNode.id;
     if (group.isExact) {
-      const existing = (group.members && group.members.length > 0)
+      const existing: string[] = (group.members && group.members.length > 0)
         ? group.members.map(member => member.nodeCode)
         : Array.from(groupMembersById.get(group.id) ?? []);
       const memberCodes = Array.from(new Set([...existing, nodeCode]));
@@ -183,7 +183,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     if (!onUpdateGroup) return;
     const nodeCode = currentNode.id;
     if (group.isExact) {
-      const existing = (group.members && group.members.length > 0)
+      const existing: string[] = (group.members && group.members.length > 0)
         ? group.members.map(member => member.nodeCode)
         : Array.from(groupMembersById.get(group.id) ?? []);
       const memberCodes = existing.filter(code => code !== nodeCode);
@@ -334,7 +334,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Get node progress
   const numericId = codeToNumericIdMap.get(currentNode.id);
-  const nodeProgress = numericId ? srs.getNodeProgress(numericId, currentNode.type) : null;
+  const nodeProgress = numericId && currentNode.type !== 'group' ? srs.getNodeProgress(numericId, currentNode.type) : null;
 
   // Review handlers
   const handleReviewDefinition = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
@@ -409,16 +409,16 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Status change handler
   const handleStatusChange = useCallback(async (status: NodeStatus) => {
-    if (!numericId) return;
-    
+    if (!numericId || currentNode.type === 'group') return;
+
     await srs.updateNodeStatus(numericId, currentNode.type, status);
     showToast(`Status updated to ${status}`, 'success');
   }, [numericId, currentNode.type, srs]);
 
   // Review history fetching
   const fetchHistory = useCallback(async () => {
-    if (!numericId) return;
-    
+    if (!numericId || currentNode.type === 'group') return;
+
     setHistoryLoading(true);
     try {
       const data = await getReviewHistory(numericId, currentNode.type, 10);

@@ -34,10 +34,10 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - DB_PORT=${DB_PORT}
-      - SERVER_PORT=${SERVER_PORT:-8080}
+      - SERVER_PORT=${SERVER_PORT:-8765}
       - APP_ENV=${APP_ENV:-production}
     ports:
-      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+      - "${SERVER_PORT:-8765}:${SERVER_PORT:-8765}"
     networks:
       - app-network
     depends_on:
@@ -52,10 +52,10 @@ services:
     env_file:
       - ./.env
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8765}
       - NODE_ENV=${NODE_ENV:-production}
     ports:
-      - "${CLIENT_PORT:-3000}:3000"
+      - "${CLIENT_PORT:-4500}:3000"
     networks:
       - app-network
     depends_on:

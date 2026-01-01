@@ -271,7 +271,8 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         exerciseCount: 0,
         metaExerciseCount: 0,
         versionCount: 0,
-        definitionVersionCount: 0
+        definitionVersionCount: 0,
+        groupCount: 0
       });
       setImportData(null);
     } finally {

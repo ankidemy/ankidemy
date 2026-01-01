@@ -169,7 +169,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   availableExercises = [],
 }) => {
   const srs = useSRS();
-  const nodeProgress = selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number'
+  const nodeProgress = selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number' && selectedNode.type !== 'group'
     ? srs.getNodeProgress(selectedNodeDetails.id, selectedNode.type)
     : null;
 
@@ -313,7 +313,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                 
                 <ProgressDisplay progress={nodeProgress} />
                 
-                {selectedNodeDetails?.id && (
+                {selectedNodeDetails?.id && selectedNode.type !== 'group' && (
                   <ReviewHistory nodeId={selectedNodeDetails.id} nodeType={selectedNode.type} />
                 )}
               </TabsContent>

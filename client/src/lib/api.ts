@@ -1,7 +1,7 @@
 // FILE: src/lib/api.ts
 // Complete API client for Ankidemy with standardized import/export handling
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
 
 // Centralized auth redirect helper
 const redirectToLogin = () => {

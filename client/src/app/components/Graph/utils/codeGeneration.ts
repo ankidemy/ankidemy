@@ -31,9 +31,9 @@ export const getNextDotCode = (existingCodes: Set<string>): string => {
 
   if (!best) return '0.0.0';
 
-  let major = best.major;
-  let minor = best.minor;
-  let patch = best.patch;
+  let major = (best as DotCodeParts).major;
+  let minor = (best as DotCodeParts).minor;
+  let patch = (best as DotCodeParts).patch;
 
   const increment = () => {
     patch += 1;

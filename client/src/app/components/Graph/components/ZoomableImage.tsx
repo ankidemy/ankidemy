@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Button } from "@/app/components/core/button";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765";
 
 interface ZoomableImageProps {
   src?: string;

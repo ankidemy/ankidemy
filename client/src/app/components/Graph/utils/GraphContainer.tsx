@@ -44,7 +44,7 @@ interface GraphContainerProps {
   requiresPhysicsReset?: boolean;
   structureVersion?: number;
   dagMode?: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin' | null;
-  onDagError?: (loop: string[]) => void;
+  onDagError?: (loop: (string | number)[]) => void;
 }
 
 // Pure renderer with memoized calculations

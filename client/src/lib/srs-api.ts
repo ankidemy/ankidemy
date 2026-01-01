@@ -20,7 +20,7 @@ import {
 // FIX: Import required functions from api.ts
 import { getVisualGraph } from './api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
 
 // Centralized auth redirect helper (duplicated to keep file standalone)
 const redirectToLogin = () => {

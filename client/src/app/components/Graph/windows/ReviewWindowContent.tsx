@@ -115,14 +115,14 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
           const meta = await getMetaDefinition(currentReviewItem.nodeId);
           const updated = meta.versions?.find(version => version.id === itemDetails.id);
           if (updated) {
-            setItemDetails(prev => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
+            setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
           }
         } else {
           const metaId = currentExerciseMeta?.id ?? currentReviewItem.nodeId;
           const meta = await getMetaExercise(metaId);
           const updated = meta.versions?.find(version => version.id === itemDetails.id);
           if (updated) {
-            setItemDetails(prev => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
+            setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
           }
         }
       } catch (error) {

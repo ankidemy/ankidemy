@@ -28,12 +28,15 @@ WORKDIR /app
 # Copy the binary from build stage
 COPY --from=builder /app/main .
 
-# Expose API port
-EXPOSE 8080
+# Copy tutorial data for initial import
+COPY --from=builder /app/tutorial.json .
 
-# Health check
+# Expose API port (actual port configured via SERVER_PORT env var)
+EXPOSE 8765
+
+# Health check - port must match SERVER_PORT environment variable
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD wget -q --spider http://localhost:8080/health || exit 1
+  CMD wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1
 
 # Run with lower privileges
 RUN adduser -D -g '' appuser
