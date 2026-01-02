@@ -31,6 +31,9 @@ COPY --from=builder /app/main .
 # Copy tutorial data for initial import
 COPY --from=builder /app/tutorial.json .
 
+# Create media directory for user uploads
+RUN mkdir -p /app/media
+
 # Expose API port (actual port configured via SERVER_PORT env var)
 EXPOSE 8765
 
@@ -39,7 +42,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1
 
 # Run with lower privileges
-RUN adduser -D -g '' appuser
+RUN adduser -D -g '' appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Run the binary

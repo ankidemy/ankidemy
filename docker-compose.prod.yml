@@ -30,6 +30,8 @@ services:
     image: myapp-server:production
     container_name: myapp-server-prod
     restart: always
+    volumes:
+      - media_data:/app/media
     environment:
       - GIN_MODE=release
       - LOG_LEVEL=info
@@ -80,4 +82,6 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  media_data:
     driver: local
