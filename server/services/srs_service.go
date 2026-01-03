@@ -700,6 +700,19 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 			}
 			continue
 		}
+
+		// If definition is due, add it FIRST (without exercise) to test memory
+		if def.IsDue {
+			queue = append(queue, models.ReviewQueueItem{
+				NodeID:   def.NodeID,
+				NodeType: def.NodeType,
+				NodeCode: def.NodeCode,
+				NodeName: def.NodeName,
+				IsDue:    def.IsDue,
+			})
+		}
+
+		// Then add the exercise(s) separately to test understanding
 		for _, meta := range metas {
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:           def.NodeID,
