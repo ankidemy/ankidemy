@@ -643,19 +643,20 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	if sessionType == "definition" {
 		var defs []models.NodeProgress
 		var err error
-		if isFrenzy {
-			// Frenzy: all grasped definitions
-			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
-		} else {
-			// Normal mode: try due-first, then practice
-			defs, err = s.GetDueReviews(userID, domainID, "definition")
-			if err == nil && len(defs) == 0 {
-				// No due definitions, enter practice mode: all grasped
-				defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
-			}
-		}
+
+		// CRITICAL: Both normal and frenzy should prioritize due-first
+		defs, err = s.GetDueReviews(userID, domainID, "definition")
 		if err != nil {
 			return nil, err
+		}
+
+		if len(defs) == 0 {
+			// No due definitions, enter practice/frenzy mode
+			// Both normal and frenzy use all grasped in this case
+			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
+			if err != nil {
+				return nil, err
+			}
 		}
 		for _, def := range defs {
 			queue = append(queue, models.ReviewQueueItem{
@@ -676,15 +677,22 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		var exercises []models.NodeProgress
 		var err error
 
-		if isFrenzy {
-			// Frenzy: all grasped exercises
-			exercises, err = s.srsDao.GetGraspedExercises(userID, domainID)
-		} else {
-			// Normal mode: try due-first (only due exercises)
-			exercises, err = s.GetDueReviews(userID, domainID, "exercise")
-			if err == nil && len(exercises) == 0 {
-				// No due exercises, enter practice mode
-				// Practice: exercises related to definitions with successful_reviews > 0
+		// CRITICAL: Both normal and frenzy should prioritize due-first
+		exercises, err = s.GetDueReviews(userID, domainID, "exercise")
+		if err != nil {
+			return nil, err
+		}
+
+		if len(exercises) == 0 {
+			// No due exercises, enter practice/frenzy mode
+			if isFrenzy {
+				// Frenzy: all grasped exercises
+				exercises, err = s.srsDao.GetGraspedExercises(userID, domainID)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				// Normal practice: exercises related to definitions with successful_reviews > 0
 				defs, defErr := s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
 				if defErr != nil {
 					return nil, defErr
@@ -751,21 +759,37 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	var err error
 	usingGrasped := false
 
-	if isFrenzy {
-		// Frenzy: all grasped definitions
-		defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
-		usingGrasped = true
-	} else {
-		// Normal mode: try due-first
-		defs, err = s.GetDueReviews(userID, domainID, "definition")
-		if err == nil && len(defs) == 0 {
-			// No due definitions, enter practice mode
-			defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
-			usingGrasped = true
-		}
-	}
+	// CRITICAL: Check if there are ANY due items (definitions OR exercises)
+	// before falling back to practice mode
+	dueDefs, err := s.GetDueReviews(userID, domainID, "definition")
 	if err != nil {
 		return nil, err
+	}
+
+	dueExs, err := s.GetDueReviews(userID, domainID, "exercise")
+	if err != nil {
+		return nil, err
+	}
+
+	hasDueItems := len(dueDefs) > 0 || len(dueExs) > 0
+
+	if hasDueItems {
+		// Due-first mode: use due definitions as base
+		defs = dueDefs
+		usingGrasped = false
+	} else {
+		// No due items at all, enter practice/frenzy mode
+		if isFrenzy {
+			// Frenzy: all grasped definitions
+			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
+		} else {
+			// Normal practice: definitions with successful_reviews > 0
+			defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
+		}
+		if err != nil {
+			return nil, err
+		}
+		usingGrasped = true
 	}
 
 	if usingGrasped && len(defs) > 1 {
@@ -830,13 +854,8 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	}
 
 	// CRITICAL FIX: Add ALL due exercises independently in mixed mode
-	if !usingGrasped {
+	if !usingGrasped && len(dueExs) > 0 {
 		// In due-first mode, also include all due exercises that weren't already added
-		dueExercises, err := s.GetDueReviews(userID, domainID, "exercise")
-		if err != nil {
-			return nil, err
-		}
-
 		// Track which exercises we've already added
 		addedExercises := make(map[uint]bool)
 		for _, item := range queue {
@@ -846,7 +865,7 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		}
 
 		// Add any due exercises that weren't included via definition-exercise pairs
-		for _, ex := range dueExercises {
+		for _, ex := range dueExs {
 			if !addedExercises[ex.NodeID] {
 				queue = append(queue, models.ReviewQueueItem{
 					NodeID:           ex.NodeID,
