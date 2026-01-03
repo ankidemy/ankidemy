@@ -637,13 +637,22 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	isFrenzy := mode == "frenzy"
 	queue := make([]models.ReviewQueueItem, 0)
 
+	// ========================================================================
+	// DEFINITION SESSION
+	// ========================================================================
 	if sessionType == "definition" {
 		var defs []models.NodeProgress
 		var err error
 		if isFrenzy {
+			// Frenzy: all grasped definitions
 			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
 		} else {
+			// Normal mode: try due-first, then practice
 			defs, err = s.GetDueReviews(userID, domainID, "definition")
+			if err == nil && len(defs) == 0 {
+				// No due definitions, enter practice mode: all grasped
+				defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
+			}
 		}
 		if err != nil {
 			return nil, err
@@ -660,16 +669,98 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		return queue, nil
 	}
 
+	// ========================================================================
+	// EXERCISE SESSION
+	// ========================================================================
+	if sessionType == "exercise" {
+		var exercises []models.NodeProgress
+		var err error
+
+		if isFrenzy {
+			// Frenzy: all grasped exercises
+			exercises, err = s.srsDao.GetGraspedExercises(userID, domainID)
+		} else {
+			// Normal mode: try due-first (only due exercises)
+			exercises, err = s.GetDueReviews(userID, domainID, "exercise")
+			if err == nil && len(exercises) == 0 {
+				// No due exercises, enter practice mode
+				// Practice: exercises related to definitions with successful_reviews > 0
+				defs, defErr := s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
+				if defErr != nil {
+					return nil, defErr
+				}
+
+				// Select exercises for these definitions
+				metaSvc := NewMetaExerciseService(s.db)
+				for _, def := range defs {
+					metas, err := metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
+					if err != nil {
+						return nil, err
+					}
+					for _, meta := range metas {
+						// Get exercise progress to determine isDue
+						progress, _ := s.srsDao.GetUserProgress(userID, meta.ID, "exercise")
+						isDue := false
+						if progress != nil && progress.Status == "grasped" {
+							if progress.NextReview == nil || progress.NextReview.Before(time.Now()) {
+								isDue = true
+							}
+						}
+
+						queue = append(queue, models.ReviewQueueItem{
+							NodeID:           def.NodeID,
+							NodeType:         def.NodeType,
+							NodeCode:         def.NodeCode,
+							NodeName:         def.NodeName,
+							IsDue:            isDue,
+							ExerciseMetaID:   &meta.ID,
+							ExerciseMetaCode: &meta.Code,
+							ExerciseMetaName: &meta.Name,
+						})
+					}
+				}
+				return queue, nil
+			}
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		// For due exercises, we need to get the parent definition info
+		for _, ex := range exercises {
+			// Find a definition that depends on this exercise (or just use exercise as standalone)
+			queue = append(queue, models.ReviewQueueItem{
+				NodeID:           ex.NodeID,
+				NodeType:         "exercise",
+				NodeCode:         ex.NodeCode,
+				NodeName:         ex.NodeName,
+				IsDue:            ex.IsDue,
+				ExerciseMetaID:   &ex.NodeID,
+				ExerciseMetaCode: &ex.NodeCode,
+				ExerciseMetaName: &ex.NodeName,
+			})
+		}
+		return queue, nil
+	}
+
+	// ========================================================================
+	// MIXED SESSION
+	// ========================================================================
 	var defs []models.NodeProgress
 	var err error
 	usingGrasped := false
+
 	if isFrenzy {
+		// Frenzy: all grasped definitions
 		defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
 		usingGrasped = true
 	} else {
+		// Normal mode: try due-first
 		defs, err = s.GetDueReviews(userID, domainID, "definition")
 		if err == nil && len(defs) == 0 {
-			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
+			// No due definitions, enter practice mode
+			defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
 			usingGrasped = true
 		}
 	}
@@ -683,21 +774,23 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	}
 
 	metaSvc := NewMetaExerciseService(s.db)
+
+	// Add definitions and their exercises
 	for _, def := range defs {
 		metas, err := metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
 		if err != nil {
 			return nil, err
 		}
+
 		if len(metas) == 0 {
-			if sessionType == "mixed" {
-				queue = append(queue, models.ReviewQueueItem{
-					NodeID:   def.NodeID,
-					NodeType: def.NodeType,
-					NodeCode: def.NodeCode,
-					NodeName: def.NodeName,
-					IsDue:    def.IsDue,
-				})
-			}
+			// No exercises for this definition, add definition alone
+			queue = append(queue, models.ReviewQueueItem{
+				NodeID:   def.NodeID,
+				NodeType: def.NodeType,
+				NodeCode: def.NodeCode,
+				NodeName: def.NodeName,
+				IsDue:    def.IsDue,
+			})
 			continue
 		}
 
@@ -714,17 +807,58 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 
 		// Then add the exercise(s) separately to test understanding
 		for _, meta := range metas {
+			// Get exercise progress to determine if THIS exercise is due
+			progress, _ := s.srsDao.GetUserProgress(userID, meta.ID, "exercise")
+			exerciseIsDue := false
+			if progress != nil && progress.Status == "grasped" {
+				if progress.NextReview == nil || progress.NextReview.Before(time.Now()) {
+					exerciseIsDue = true
+				}
+			}
+
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:           def.NodeID,
 				NodeType:         def.NodeType,
 				NodeCode:         def.NodeCode,
 				NodeName:         def.NodeName,
-				IsDue:            def.IsDue,
+				IsDue:            exerciseIsDue, // CRITICAL: Use exercise's own due status
 				ExerciseMetaID:   &meta.ID,
 				ExerciseMetaCode: &meta.Code,
 				ExerciseMetaName: &meta.Name,
-				// Version is selected on load via meta exercise service.
 			})
+		}
+	}
+
+	// CRITICAL FIX: Add ALL due exercises independently in mixed mode
+	if !usingGrasped {
+		// In due-first mode, also include all due exercises that weren't already added
+		dueExercises, err := s.GetDueReviews(userID, domainID, "exercise")
+		if err != nil {
+			return nil, err
+		}
+
+		// Track which exercises we've already added
+		addedExercises := make(map[uint]bool)
+		for _, item := range queue {
+			if item.ExerciseMetaID != nil {
+				addedExercises[*item.ExerciseMetaID] = true
+			}
+		}
+
+		// Add any due exercises that weren't included via definition-exercise pairs
+		for _, ex := range dueExercises {
+			if !addedExercises[ex.NodeID] {
+				queue = append(queue, models.ReviewQueueItem{
+					NodeID:           ex.NodeID,
+					NodeType:         "exercise",
+					NodeCode:         ex.NodeCode,
+					NodeName:         ex.NodeName,
+					IsDue:            true,
+					ExerciseMetaID:   &ex.NodeID,
+					ExerciseMetaCode: &ex.NodeCode,
+					ExerciseMetaName: &ex.NodeName,
+				})
+			}
 		}
 	}
 

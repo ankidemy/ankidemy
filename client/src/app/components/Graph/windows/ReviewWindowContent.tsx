@@ -89,7 +89,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   const frenzyMetaExerciseCacheRef = useRef<Map<number, MetaExercise>>(new Map());
   const frenzyMetaDefinitionStatsRef = useRef<Map<number, FrenzyMetaDefinitionStats>>(new Map());
   const frenzyMetaExerciseStatsRef = useRef<Map<number, FrenzyMetaExerciseStats>>(new Map());
-  const reviewedDefinitionsRef = useRef<Set<string>>(new Set());
+  const reviewedTargetsRef = useRef<Set<string>>(new Set());
   
   // Use refs to prevent infinite loops
   const hasInitialized = useRef(false);
@@ -691,7 +691,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       const session = await srs.startStudySession(sessionType);
       if (!session) return;
       setStartTime(Date.now());
-      reviewedDefinitionsRef.current = new Set();
+      reviewedTargetsRef.current = new Set();
 
       if (isFrenzyMode) {
         resetFrenzyState();
@@ -806,21 +806,40 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         frenzyMetaExerciseStatsRef.current.set(metaId, stats);
       }
 
-      const reviewKey = getNodeKey(currentReviewItem.nodeType, currentReviewItem.nodeId);
+      // CRITICAL FIX: Determine correct nodeType for persistence
+      let persistNodeId: number;
+      let persistNodeType: 'meta_definition' | 'exercise';
+      let persistVersionId: number | undefined;
+
+      if (currentExerciseMeta && itemDetails?.id) {
+        // Reviewing an exercise
+        persistNodeId = currentExerciseMeta.id;
+        persistNodeType = 'exercise';
+        persistVersionId = itemDetails.id;
+      } else if (currentReviewItem.nodeType === 'definition' && itemDetails?.id) {
+        // Reviewing a definition
+        persistNodeId = currentReviewItem.nodeId;
+        persistNodeType = 'meta_definition';
+        persistVersionId = itemDetails.id;
+      } else {
+        console.error("Cannot determine review target for persistence", { currentReviewItem, currentExerciseMeta, itemDetails });
+        persistNodeId = currentReviewItem.nodeId;
+        persistNodeType = currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise';
+        persistVersionId = undefined;
+      }
+
+      const reviewKey = `${persistNodeType}_${persistNodeId}`;
       const shouldPersist = !!currentReviewItem.isDue && !frenzyPersistedRef.current.has(reviewKey) && srs.state.currentSession;
 
       if (shouldPersist) {
-        const reviewVersionId = currentReviewItem.nodeType === 'definition' && currentExerciseMeta
-          ? undefined
-          : (itemDetails?.id ? itemDetails.id : undefined);
         const reviewData: ReviewRequest = {
-          nodeId: currentReviewItem.nodeId,
-          nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
+          nodeId: persistNodeId,
+          nodeType: persistNodeType,
           success,
           quality,
           timeTaken,
           sessionId: srs.state.currentSession?.id,
-          versionId: reviewVersionId,
+          versionId: persistVersionId,
         };
         try {
           await srs.submitReview(reviewData);
@@ -859,33 +878,52 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     if (!srs.state.currentSession) return;
 
-    const isDefinitionExercise = currentReviewItem.nodeType === 'definition' && !!currentExerciseMeta && !!itemDetails?.id;
-    const definitionKey = currentReviewItem.nodeType === 'definition'
-      ? getNodeKey(currentReviewItem.nodeType, currentReviewItem.nodeId)
-      : null;
-    const shouldPersist = !!currentReviewItem.isDue
-      && (!definitionKey || !reviewedDefinitionsRef.current.has(definitionKey))
+    // CRITICAL FIX: Determine correct nodeType and nodeId based on what we're reviewing
+    let reviewNodeId: number;
+    let reviewNodeType: 'meta_definition' | 'exercise';
+    let reviewVersionId: number | undefined;
+
+    if (currentExerciseMeta && itemDetails?.id) {
+      // We're reviewing an exercise
+      reviewNodeId = currentExerciseMeta.id;
+      reviewNodeType = 'exercise';
+      reviewVersionId = itemDetails.id;
+    } else if (currentReviewItem.nodeType === 'definition' && itemDetails?.id) {
+      // We're reviewing a definition
+      reviewNodeId = currentReviewItem.nodeId;
+      reviewNodeType = 'meta_definition';
+      reviewVersionId = itemDetails.id;
+    } else {
+      console.error("Unable to determine review target", { currentReviewItem, currentExerciseMeta, itemDetails });
+      return;
+    }
+
+    // Create unique key for this specific target (definition or exercise)
+    const targetKey = `${reviewNodeType}_${reviewNodeId}`;
+
+    // Check if this specific target is due AND hasn't been reviewed yet
+    const shouldPersist = currentReviewItem.isDue
+      && !reviewedTargetsRef.current.has(targetKey)
       && srs.state.currentSession;
 
     try {
       if (shouldPersist) {
         const reviewData: ReviewRequest = {
-          nodeId: currentReviewItem.nodeId,
-          nodeType: currentReviewItem.nodeType === 'definition' ? 'meta_definition' : 'exercise',
+          nodeId: reviewNodeId,
+          nodeType: reviewNodeType,
           success,
           quality,
           timeTaken,
           sessionId: srs.state.currentSession.id,
-          versionId: currentReviewItem.nodeType === 'definition' && currentExerciseMeta
-            ? undefined
-            : (itemDetails?.id ? itemDetails.id : undefined),
+          versionId: reviewVersionId,
         };
         await srs.submitReview(reviewData);
-        if (definitionKey) {
-          reviewedDefinitionsRef.current.add(definitionKey);
-        }
+
+        // Mark this specific target as reviewed
+        reviewedTargetsRef.current.add(targetKey);
       }
 
+      // Record exercise outcome stats (separate from SRS review)
       if (currentExerciseMeta && itemDetails?.id) {
         recordExerciseOutcome(currentExerciseMeta.id, itemDetails.id, success);
       }
@@ -895,9 +933,9 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         completed: prev.completed + 1,
         correct: prev.correct + (success ? 1 : 0),
       }));
-      
+
       setStartTime(Date.now());
-      
+
       const newQueue = reviewQueue.slice(1);
       setReviewQueue(newQueue);
       loadReviewItem(newQueue[0]);
@@ -998,7 +1036,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       setItemDetails(null);
       setCurrentExerciseMeta(null);
       currentItemIdRef.current = null;
-      reviewedDefinitionsRef.current = new Set();
+      reviewedTargetsRef.current = new Set();
       resetFrenzyState();
       
       // Clear review state in UI context

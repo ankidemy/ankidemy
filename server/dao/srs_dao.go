@@ -378,6 +378,78 @@ func (d *SRSDao) GetGraspedDefinitions(userID uint, domainID uint) ([]models.Nod
 	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
 }
 
+// GetGraspedExercises gets all grasped exercises for a domain.
+func (d *SRSDao) GetGraspedExercises(userID uint, domainID uint) ([]models.NodeProgress, error) {
+	var results []models.NodeProgress
+	query := `
+		SELECT
+			e.id as node_id,
+			'exercise' as node_type,
+			e.code as node_code,
+			e.name as node_name,
+			unp.status,
+			unp.easiness_factor,
+			unp.interval_days,
+			unp.repetitions,
+			unp.last_review,
+			unp.next_review,
+			unp.accumulated_credit,
+			unp.credit_postponed,
+			unp.total_reviews,
+			unp.successful_reviews,
+			CASE
+				WHEN unp.next_review IS NULL THEN NULL
+				WHEN unp.next_review <= NOW() THEN 0
+				ELSE EXTRACT(days FROM (unp.next_review - NOW()))::INTEGER
+			END as days_until_review,
+			CASE
+				WHEN unp.status = 'grasped' AND (unp.next_review IS NULL OR unp.next_review <= NOW()) THEN true
+				ELSE false
+			END as is_due
+		FROM meta_exercises e
+		JOIN user_node_progress unp ON e.id = unp.node_id
+			AND unp.node_type = 'exercise' AND unp.user_id = ?
+		WHERE e.domain_id = ? AND unp.status = 'grasped'
+	`
+	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+}
+
+// GetDefinitionsWithSuccessfulReviews gets grasped definitions with successful_reviews > 0.
+func (d *SRSDao) GetDefinitionsWithSuccessfulReviews(userID uint, domainID uint) ([]models.NodeProgress, error) {
+	var results []models.NodeProgress
+	query := `
+		SELECT
+			md.id as node_id,
+			'definition' as node_type,
+			md.code as node_code,
+			md.name as node_name,
+			unp.status,
+			unp.easiness_factor,
+			unp.interval_days,
+			unp.repetitions,
+			unp.last_review,
+			unp.next_review,
+			unp.accumulated_credit,
+			unp.credit_postponed,
+			unp.total_reviews,
+			unp.successful_reviews,
+			CASE
+				WHEN unp.next_review IS NULL THEN NULL
+				WHEN unp.next_review <= NOW() THEN 0
+				ELSE EXTRACT(days FROM (unp.next_review - NOW()))::INTEGER
+			END as days_until_review,
+			CASE
+				WHEN unp.status = 'grasped' AND (unp.next_review IS NULL OR unp.next_review <= NOW()) THEN true
+				ELSE false
+			END as is_due
+		FROM meta_definitions md
+		JOIN user_node_progress unp ON md.id = unp.node_id
+			AND unp.node_type = 'definition' AND unp.user_id = ?
+		WHERE md.domain_id = ? AND unp.status = 'grasped' AND unp.successful_reviews > 0
+	`
+	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+}
+
 // === Study Sessions ===
 
 // CreateSession creates a new study session
