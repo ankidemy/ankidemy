@@ -44,6 +44,8 @@ import {
   addMetaExerciseVersion,
   deleteMetaDefinition,
   deleteMetaExercise,
+  deleteMetaDefinitionVersion,
+  deleteMetaExerciseVersion,
   DefinitionVersion,
   ExerciseVersion,
   getDomain,
@@ -165,6 +167,8 @@ interface FrenzyNoteState {
   nodeName: string;
   metaId: number;
   version: DefinitionVersion | ExerciseVersion;
+  allVersions: (DefinitionVersion | ExerciseVersion)[];
+  versionIndex: number;
   prompt: string;
   defaultPrompt: string;
   isAutoPrompt: boolean;
@@ -922,6 +926,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [showFrenzySolution, setShowFrenzySolution] = useState(false);
   const [frenzyNotePreview, setFrenzyNotePreview] = useState(false);
   const [isSavingFrenzyNote, setIsSavingFrenzyNote] = useState(false);
+  const [frenzyNoteIsNewVersion, setFrenzyNoteIsNewVersion] = useState(false);
   const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
   const [lastDeletedNode, setLastDeletedNode] = useState<FrenzyDeletedNodeSnapshot | null>(null);
 
@@ -2616,11 +2621,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         ? await getMetaDefinition(metaId)
         : await getMetaExercise(metaId);
       const versions = (meta as MetaDefinition | MetaExercise).versions || [];
-      const version = versions[0];
-      if (!version) {
+      if (versions.length === 0) {
         showToast('No version content found for this node.', 'warning');
         return;
       }
+      const versionIndex = 0;
+      const version = versions[versionIndex];
 
       const resolvedName = (meta as MetaDefinition | MetaExercise).name || node.name;
       const resolvedCode = (meta as MetaDefinition | MetaExercise).code || node.id;
@@ -2676,6 +2682,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         nodeName: resolvedName,
         metaId,
         version,
+        allVersions: versions,
+        versionIndex,
         prompt: effectivePrompt,
         defaultPrompt,
         isAutoPrompt,
@@ -2697,6 +2705,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyNoteSolutionImagePath(solutionImagePath);
       setShowFrenzySolution(false);
       setFrenzyNotePreview(false);
+      setFrenzyNoteIsNewVersion(false);
       if (anchor) {
         requestAnimationFrame(() => {
           const adjusted = getFrenzyNotePlacement(anchor);
@@ -2710,6 +2719,184 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Failed to load node content.', 'error');
     }
   }, [canEdit, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt, getFrenzyNotePlacement]);
+
+  const switchFrenzyNoteVersion = useCallback((newIndex: number) => {
+    if (!frenzyNote) return;
+    if (newIndex < 0 || newIndex >= frenzyNote.allVersions.length) return;
+
+    const version = frenzyNote.allVersions[newIndex];
+    const resolvedName = frenzyNote.nodeName;
+    const autoContentHint = frenzyAutoContentRef.current.get(frenzyNote.nodeId);
+    const defaultContent = autoContentHint || getDefaultFrenzyContent(frenzyNote.nodeType, resolvedName);
+
+    const content = frenzyNote.nodeType === 'definition'
+      ? ((version as DefinitionVersion).description || '')
+      : ((version as ExerciseVersion).statement || '');
+    const isAutoContent = !!autoContentHint && (content.trim().length === 0 || content === autoContentHint);
+    const effectiveContent = content.trim().length > 0 ? content : defaultContent;
+
+    const rawPrompt = frenzyNote.nodeType === 'definition'
+      ? ((version as DefinitionVersion).prompt || '')
+      : '';
+    const autoPromptHint = frenzyNote.nodeType === 'definition'
+      ? frenzyAutoPromptRef.current.get(frenzyNote.nodeId)
+      : undefined;
+    const defaultPrompt = frenzyNote.nodeType === 'definition'
+      ? (autoPromptHint || getDefaultFrenzyPrompt(resolvedName))
+      : '';
+    const isAutoPrompt = frenzyNote.nodeType === 'definition' && !!autoPromptHint
+      && (rawPrompt.trim().length === 0 || rawPrompt === autoPromptHint);
+    const effectivePrompt = frenzyNote.nodeType === 'definition'
+      ? (rawPrompt.trim().length > 0 ? rawPrompt : defaultPrompt)
+      : '';
+    const promptImagePath = frenzyNote.nodeType === 'definition'
+      ? ((version as DefinitionVersion).promptImagePath || '')
+      : '';
+    const contentImagePath = frenzyNote.nodeType === 'definition'
+      ? ((version as DefinitionVersion).descriptionImagePath || '')
+      : ((version as ExerciseVersion).statementImagePath || '');
+    const solutionText = frenzyNote.nodeType === 'exercise'
+      ? ((version as ExerciseVersion).description || '')
+      : '';
+    const solutionImagePath = frenzyNote.nodeType === 'exercise'
+      ? ((version as ExerciseVersion).descriptionImagePath || '')
+      : '';
+
+    setFrenzyNote({
+      ...frenzyNote,
+      version,
+      versionIndex: newIndex,
+      prompt: effectivePrompt,
+      defaultPrompt,
+      isAutoPrompt,
+      promptImagePath,
+      content: effectiveContent,
+      defaultContent,
+      isAutoContent,
+      contentImagePath,
+      solution: solutionText,
+      solutionImagePath,
+    });
+    setFrenzyNoteDraft(effectiveContent);
+    setFrenzyNotePromptDraft(effectivePrompt);
+    setFrenzyNotePromptImagePath(promptImagePath);
+    setFrenzyNoteContentImagePath(contentImagePath);
+    setFrenzyNoteSolutionDraft(solutionText);
+    setFrenzyNoteSolutionImagePath(solutionImagePath);
+    setShowFrenzySolution(false);
+    setFrenzyNotePreview(false);
+    setFrenzyNoteIsNewVersion(false);
+  }, [frenzyNote, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+
+  const startFrenzyNewVersion = useCallback(() => {
+    if (!frenzyNote) return;
+
+    // Reset all draft fields to empty for new version
+    setFrenzyNoteDraft('');
+    setFrenzyNotePromptDraft('');
+    setFrenzyNotePromptImagePath('');
+    setFrenzyNoteContentImagePath('');
+    setFrenzyNoteSolutionDraft('');
+    setFrenzyNoteSolutionImagePath('');
+    setFrenzyNoteIsNewVersion(true);
+    setShowFrenzySolution(false);
+    setFrenzyNotePreview(false);
+  }, [frenzyNote]);
+
+  const cancelFrenzyNewVersion = useCallback(() => {
+    if (!frenzyNote) return;
+
+    // Restore the current version's data
+    setFrenzyNoteDraft(frenzyNote.content);
+    setFrenzyNotePromptDraft(frenzyNote.prompt);
+    setFrenzyNotePromptImagePath(frenzyNote.promptImagePath);
+    setFrenzyNoteContentImagePath(frenzyNote.contentImagePath);
+    setFrenzyNoteSolutionDraft(frenzyNote.solution);
+    setFrenzyNoteSolutionImagePath(frenzyNote.solutionImagePath);
+    setFrenzyNoteIsNewVersion(false);
+  }, [frenzyNote]);
+
+  const deleteFrenzyNoteVersion = useCallback(async () => {
+    if (!frenzyNote) return;
+    if (frenzyNote.allVersions.length <= 1) {
+      showToast('Cannot delete the last version.', 'warning');
+      return;
+    }
+
+    const versionToDelete = frenzyNote.version;
+    const isDefinition = frenzyNote.nodeType === 'definition';
+
+    setIsSavingFrenzyNote(true);
+    try {
+      if (isDefinition) {
+        await deleteMetaDefinitionVersion(frenzyNote.metaId, versionToDelete.id);
+      } else {
+        await deleteMetaExerciseVersion(frenzyNote.metaId, versionToDelete.id);
+      }
+
+      // Reload the meta to get updated versions
+      const meta = isDefinition
+        ? await getMetaDefinition(frenzyNote.metaId)
+        : await getMetaExercise(frenzyNote.metaId);
+      const versions = (meta as MetaDefinition | MetaExercise).versions || [];
+
+      if (versions.length === 0) {
+        showToast('No versions left. This should not happen.', 'error');
+        return;
+      }
+
+      // Switch to version 0 after deletion
+      const newVersionIndex = 0;
+      const newVersion = versions[newVersionIndex];
+
+      const resolvedName = frenzyNote.nodeName;
+      const content = isDefinition
+        ? ((newVersion as DefinitionVersion).description || '')
+        : ((newVersion as ExerciseVersion).statement || '');
+      const rawPrompt = isDefinition
+        ? ((newVersion as DefinitionVersion).prompt || '')
+        : '';
+      const promptImagePath = isDefinition
+        ? ((newVersion as DefinitionVersion).promptImagePath || '')
+        : '';
+      const contentImagePath = isDefinition
+        ? ((newVersion as DefinitionVersion).descriptionImagePath || '')
+        : ((newVersion as ExerciseVersion).statementImagePath || '');
+      const solutionText = !isDefinition
+        ? ((newVersion as ExerciseVersion).description || '')
+        : '';
+      const solutionImagePath = !isDefinition
+        ? ((newVersion as ExerciseVersion).descriptionImagePath || '')
+        : '';
+
+      setFrenzyNote(prev => prev ? {
+        ...prev,
+        version: newVersion,
+        allVersions: versions,
+        versionIndex: newVersionIndex,
+        prompt: rawPrompt,
+        content,
+        promptImagePath,
+        contentImagePath,
+        solution: solutionText,
+        solutionImagePath,
+      } : prev);
+
+      setFrenzyNoteDraft(content);
+      setFrenzyNotePromptDraft(rawPrompt);
+      setFrenzyNotePromptImagePath(promptImagePath);
+      setFrenzyNoteContentImagePath(contentImagePath);
+      setFrenzyNoteSolutionDraft(solutionText);
+      setFrenzyNoteSolutionImagePath(solutionImagePath);
+
+      showToast('Version deleted successfully.', 'success');
+    } catch (error) {
+      console.error('Failed to delete version:', error);
+      showToast('Failed to delete version.', 'error');
+    } finally {
+      setIsSavingFrenzyNote(false);
+    }
+  }, [frenzyNote]);
 
   const createFrenzyNode = useCallback(async (
     type: 'definition' | 'exercise',
@@ -2822,10 +3009,105 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const saveFrenzyNote = useCallback(async (draftOverride?: string) => {
     if (!frenzyNote) return;
+    if (isSavingFrenzyNote) return; // Prevent concurrent saves
     const draft = draftOverride ?? frenzyNoteDraft;
     const nameDraft = frenzyNoteNameDraft.trim();
     const codeDraft = frenzyNoteCodeDraft.trim();
     const isDefinition = frenzyNote.nodeType === 'definition';
+
+    // Handle creating a new version
+    if (frenzyNoteIsNewVersion) {
+      // Auto-fill empty fields with defaults
+      const contentTrimmed = draft.trim();
+      const effectiveContent = contentTrimmed.length > 0 ? contentTrimmed : frenzyNote.defaultContent;
+
+      // Skip if even the default content is empty
+      if (effectiveContent.trim().length === 0) {
+        return;
+      }
+
+      const effectivePrompt = isDefinition
+        ? (frenzyNotePromptDraft.trim().length > 0 ? frenzyNotePromptDraft : frenzyNote.defaultPrompt)
+        : '';
+
+      setIsSavingFrenzyNote(true);
+      try {
+        if (isDefinition) {
+          await addMetaDefinitionVersion(frenzyNote.metaId, {
+            prompt: effectivePrompt,
+            description: effectiveContent,
+            promptImagePath: frenzyNotePromptImagePath,
+            descriptionImagePath: frenzyNoteContentImagePath,
+          });
+        } else {
+          await addMetaExerciseVersion(frenzyNote.metaId, {
+            statement: effectiveContent,
+            description: frenzyNoteSolutionDraft,
+            statementImagePath: frenzyNoteContentImagePath,
+            descriptionImagePath: frenzyNoteSolutionImagePath,
+          });
+        }
+
+        // Reload the meta to get updated versions
+        const meta = isDefinition
+          ? await getMetaDefinition(frenzyNote.metaId)
+          : await getMetaExercise(frenzyNote.metaId);
+        const versions = (meta as MetaDefinition | MetaExercise).versions || [];
+        const newVersionIndex = versions.length - 1;
+        const newVersion = versions[newVersionIndex];
+
+        // Update frenzyNote with the new versions array and switch to it
+        const resolvedName = frenzyNote.nodeName;
+        const content = isDefinition
+          ? ((newVersion as DefinitionVersion).description || '')
+          : ((newVersion as ExerciseVersion).statement || '');
+        const rawPrompt = isDefinition
+          ? ((newVersion as DefinitionVersion).prompt || '')
+          : '';
+        const promptImagePath = isDefinition
+          ? ((newVersion as DefinitionVersion).promptImagePath || '')
+          : '';
+        const contentImagePath = isDefinition
+          ? ((newVersion as DefinitionVersion).descriptionImagePath || '')
+          : ((newVersion as ExerciseVersion).statementImagePath || '');
+        const solutionText = !isDefinition
+          ? ((newVersion as ExerciseVersion).description || '')
+          : '';
+        const solutionImagePath = !isDefinition
+          ? ((newVersion as ExerciseVersion).descriptionImagePath || '')
+          : '';
+
+        setFrenzyNote(prev => prev ? {
+          ...prev,
+          version: newVersion,
+          allVersions: versions,
+          versionIndex: newVersionIndex,
+          prompt: rawPrompt,
+          content,
+          promptImagePath,
+          contentImagePath,
+          solution: solutionText,
+          solutionImagePath,
+        } : prev);
+
+        setFrenzyNoteDraft(content);
+        setFrenzyNotePromptDraft(rawPrompt);
+        setFrenzyNotePromptImagePath(promptImagePath);
+        setFrenzyNoteContentImagePath(contentImagePath);
+        setFrenzyNoteSolutionDraft(solutionText);
+        setFrenzyNoteSolutionImagePath(solutionImagePath);
+        setFrenzyNoteIsNewVersion(false);
+
+        showToast('New version created successfully.', 'success');
+      } catch (error) {
+        console.error('Failed to create new version:', error);
+        showToast('Failed to create new version.', 'error');
+      } finally {
+        setIsSavingFrenzyNote(false);
+      }
+      return;
+    }
+
     const nameChanged = nameDraft.length > 0 && nameDraft !== frenzyNote.nodeName;
     const codeChanged = codeDraft.length > 0 && codeDraft !== frenzyNote.nodeId;
     const promptChanged = isDefinition && frenzyNotePromptDraft !== frenzyNote.prompt;
@@ -2876,6 +3158,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             promptImagePath: nextPromptImage,
             contentImagePath: nextDescriptionImage,
             version: updated,
+            allVersions: prev.allVersions.map((v, idx) => idx === prev.versionIndex ? updated : v),
             isAutoPrompt: promptChanged ? false : prev.isAutoPrompt,
             isAutoContent: contentChanged ? false : prev.isAutoContent,
           } : prev);
@@ -2904,6 +3187,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             solution: nextSolution,
             solutionImagePath: nextSolutionImage,
             version: updated,
+            allVersions: prev.allVersions.map((v, idx) => idx === prev.versionIndex ? updated : v),
             isAutoContent: contentChanged ? false : prev.isAutoContent,
           } : prev);
         }
@@ -3029,6 +3313,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     frenzyNoteSolutionDraft,
     frenzyNoteSolutionImagePath,
     frenzyNoteCodeDraft,
+    frenzyNoteIsNewVersion,
+    isSavingFrenzyNote,
     isFrenzyEditMode,
     loadFrenzyPrerequisites,
     refreshGraphAndSRSData,
@@ -3036,6 +3322,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     updateMetaDefinitionVersion,
     updateMetaExercise,
     updateMetaExerciseVersion,
+    switchFrenzyNoteVersion,
     existingCodes,
   ]);
 
@@ -3156,6 +3443,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setFrenzyNoteSolutionImagePath('');
     setShowFrenzySolution(false);
     setFrenzyNotePreview(false);
+    setFrenzyNoteIsNewVersion(false);
     setIsDraggingFrenzyNote(false);
   }, [saveFrenzyNote]);
 
@@ -4117,6 +4405,82 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     Close
                   </Button>
                 </div>
+
+                {/* Version Navigation */}
+                {frenzyNote && frenzyNote.allVersions.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-yellow-300">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={frenzyNoteIsNewVersion || frenzyNote.versionIndex === 0}
+                        onClick={() => switchFrenzyNoteVersion(frenzyNote.versionIndex - 1)}
+                        className="h-6 px-2 text-[11px]"
+                      >
+                        Prev
+                      </Button>
+                      <span className="text-xs font-medium text-yellow-800">
+                        {frenzyNoteIsNewVersion ? 'New Version' : `Ver ${frenzyNote.versionIndex + 1}/${frenzyNote.allVersions.length}`}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={frenzyNoteIsNewVersion || frenzyNote.versionIndex >= frenzyNote.allVersions.length - 1}
+                        onClick={() => switchFrenzyNoteVersion(frenzyNote.versionIndex + 1)}
+                        className="h-6 px-2 text-[11px]"
+                      >
+                        Next
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-1 mb-2">
+                      <div className="flex flex-wrap gap-1">
+                        {frenzyNote.allVersions.map((_, idx) => (
+                          <Button
+                            key={idx}
+                            variant={!frenzyNoteIsNewVersion && idx === frenzyNote.versionIndex ? 'default' : 'outline'}
+                            size="sm"
+                            disabled={frenzyNoteIsNewVersion}
+                            onClick={() => switchFrenzyNoteVersion(idx)}
+                            className="h-6 px-2 text-[10px]"
+                          >
+                            V{idx + 1}
+                          </Button>
+                        ))}
+                        {frenzyNoteIsNewVersion ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={cancelFrenzyNewVersion}
+                            className="h-6 px-2 text-[10px] text-red-600"
+                          >
+                            Cancel
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={startFrenzyNewVersion}
+                            className="h-6 px-2 text-[10px]"
+                          >
+                            + New
+                          </Button>
+                        )}
+                      </div>
+                      {!frenzyNoteIsNewVersion && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={frenzyNote.allVersions.length <= 1}
+                          onClick={deleteFrenzyNoteVersion}
+                          className="h-6 px-2 text-[10px] text-red-600 disabled:opacity-30 ml-auto"
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="mt-2">
                   <div className="mb-2">
                     <label className="block text-xs text-yellow-800 mb-1">Code</label>
@@ -4124,11 +4488,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       value={frenzyNoteCodeDraft}
                       onChange={(e) => setFrenzyNoteCodeDraft(e.target.value)}
                       onBlur={() => saveFrenzyNote()}
+                      disabled={frenzyNoteIsNewVersion}
                       className={`w-full bg-yellow-50 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
                         frenzyCodeConflict
                           ? 'border-red-400 focus:ring-red-200 text-red-700'
                           : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
-                      }`}
+                      } ${frenzyNoteIsNewVersion ? 'opacity-50 cursor-not-allowed' : ''}`}
                       aria-invalid={frenzyCodeConflict}
                     />
                     {frenzyCodeConflict && (
@@ -4143,37 +4508,47 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       value={frenzyNoteNameDraft}
                       onChange={(e) => setFrenzyNoteNameDraft(e.target.value)}
                       onBlur={() => saveFrenzyNote()}
-                      className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+                      disabled={frenzyNoteIsNewVersion}
+                      className={`w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800 ${frenzyNoteIsNewVersion ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   {frenzyNote.nodeType === 'definition' && (
                     <div className="mb-2">
                       <label className="block text-xs text-yellow-800 mb-1">Review Prompt</label>
-                      <input
-                        value={frenzyNotePromptDraft}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setFrenzyNotePromptDraft(value);
-                          if (frenzyNote.isAutoPrompt && value !== frenzyNote.defaultPrompt) {
-                            setFrenzyNote(prev => prev ? { ...prev, isAutoPrompt: false } : prev);
-                          }
-                        }}
-                        onPaste={(e) => handleFrenzyPaste(e, 'prompt')}
-                        onFocus={(e) => {
-                          if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
-                            e.currentTarget.select();
-                          }
-                        }}
-                        onClick={(e) => {
-                          if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
-                            e.currentTarget.select();
-                          }
-                        }}
-                        onBlur={() => saveFrenzyNote()}
-                        className={`w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
-                          frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
-                        }`}
-                      />
+                      {frenzyNotePreview ? (
+                        <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-32 overflow-y-auto">
+                          <MarkdownKatex className="whitespace-pre-wrap">
+                            {frenzyNotePromptDraft || frenzyNote.defaultPrompt}
+                          </MarkdownKatex>
+                        </div>
+                      ) : (
+                        <textarea
+                          value={frenzyNotePromptDraft}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setFrenzyNotePromptDraft(value);
+                            if (frenzyNote.isAutoPrompt && value !== frenzyNote.defaultPrompt) {
+                              setFrenzyNote(prev => prev ? { ...prev, isAutoPrompt: false } : prev);
+                            }
+                          }}
+                          onPaste={(e) => handleFrenzyPaste(e, 'prompt')}
+                          onFocus={(e) => {
+                            if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
+                              e.currentTarget.select();
+                            }
+                          }}
+                          onClick={(e) => {
+                            if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
+                              e.currentTarget.select();
+                            }
+                          }}
+                          onBlur={() => saveFrenzyNote()}
+                          rows={3}
+                          className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
+                            frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
+                          }`}
+                        />
+                      )}
                       <div className="mt-2 flex items-center justify-between gap-2">
                         {frenzyNotePromptImagePath ? (
                           <ZoomableImage src={frenzyNotePromptImagePath} alt="Prompt image" maxHeightClass="max-h-24" className="max-w-[180px]" />
