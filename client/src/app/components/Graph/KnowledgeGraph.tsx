@@ -2519,11 +2519,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
 
     if (!closest || closestDistance > FRENZY_LINK_SNAP_DISTANCE) return;
-    const key = `${sourceNode.id}-${closest.id}`;
+    const key = `${closest.id}-${sourceNode.id}`;
     if (frenzyPrerequisiteMap.has(key) || frenzyPendingLinkRef.current.has(key)) return;
     frenzyPendingLinkRef.current.add(key);
     try {
-      await addFrenzyPrerequisite(sourceNode, closest);
+      await addFrenzyPrerequisite(closest, sourceNode);
     } finally {
       frenzyPendingLinkRef.current.delete(key);
     }
