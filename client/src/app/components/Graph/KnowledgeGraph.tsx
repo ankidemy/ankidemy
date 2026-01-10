@@ -652,7 +652,7 @@ const useGraphMetadata = (
       const isRoot = (nodeCore.prerequisites || []).length === 0;
       const status = (progress?.status as NodeStatus) || 'fresh';
       const srsColor = getStatusColor(status);
-      const isDue = (progress ? isNodeDue(progress.nextReview) : false) || dueNodeCodes.has(nodeId);
+      const isDue = (progress ? (isNodeDue(progress.nextReview) && status !== 'learned') : false) || dueNodeCodes.has(nodeId);
 
       nodeMetadata.set(nodeId, {
         name: fullNodeData?.name ?? nodeId,
