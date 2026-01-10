@@ -1764,7 +1764,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Enhanced engine stop handler with initial zoom
   const handleEngineStop = useCallback(() => {
     positionManagerRef.current.markStable();
-    
+
     if (isProcessingData && graphRef.current && stableGraph.nodes.length > 0) {
       setTimeout(() => {
         graphRef.current?.zoomToFit?.(400, 50);
@@ -1772,6 +1772,61 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }, 100);
     }
   }, [isProcessingData, stableGraph.nodes.length]);
+
+  // Calculate smart placement for detail windows (opposite side of clicked node, with boundary checks)
+  const getDetailWindowPlacement = useCallback((node: GraphNode, windowCount: number) => {
+    // Detail window dimensions (must match UIContext: width: 545, height: 600)
+    const windowWidth = 545;
+    const windowHeight = 600;
+    const margin = 16;
+
+    // Default fallback position
+    const defaultPosition = {
+      x: typeof window !== 'undefined' ? window.innerWidth - windowWidth - margin : 800,
+      y: 100 + (windowCount * 30)
+    };
+
+    // Try to get graph container bounds
+    const rect =
+      graphContainerRef.current?.getBoundingClientRect()
+      || graphRef.current?.canvas?.()?.getBoundingClientRect();
+    if (!rect) return defaultPosition;
+
+    // Get node's screen coordinates
+    let anchorX = rect.width / 2;
+    let anchorY = rect.height / 2;
+
+    if (node && typeof node.x === 'number' && typeof node.y === 'number' && typeof graphRef.current?.graph2ScreenCoords === 'function') {
+      const screen = graphRef.current.graph2ScreenCoords(node.x, node.y);
+      if (screen && Number.isFinite(screen.x) && Number.isFinite(screen.y)) {
+        anchorX = screen.x;
+        anchorY = screen.y;
+      }
+    }
+
+    // Place window on opposite side of where the node is
+    const placeRight = anchorX < rect.width / 2;
+
+    // Calculate X position
+    let x: number;
+    if (placeRight) {
+      // Node is on left, place window on right
+      x = Math.max(rect.width - windowWidth - margin, margin);
+    } else {
+      // Node is on right, place window on left
+      x = margin;
+    }
+
+    // Ensure window doesn't go beyond screen boundaries
+    const maxX = Math.max(margin, window.innerWidth - windowWidth - margin);
+    x = Math.min(Math.max(x, margin), maxX);
+
+    // Calculate Y position with cascading offset for multiple windows
+    const baseY = 100;
+    const y = Math.min(baseY + (windowCount * 30), window.innerHeight - windowHeight - margin);
+
+    return { x, y };
+  }, []);
 
   // Handle node click
   const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false, context: 'click' | 'study' | 'navigation' = 'click') => {
@@ -1790,13 +1845,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    const position = {
-      x: typeof window !== 'undefined' ? window.innerWidth - 500 : 800,
-      y: 100 + (ui.state.windows.filter(w => w.type === 'detail').length * 30)
-    };
+    const windowCount = ui.state.windows.filter(w => w.type === 'detail').length;
+    const position = getDetailWindowPlacement(nodeOnClick, windowCount);
 
     ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
-  }, [ui, mode, isFrenzyEditMode, router]);
+  }, [ui, mode, isFrenzyEditMode, router, getDetailWindowPlacement]);
   const handleNodeClickRef = useRef(handleNodeClick);
 
   useEffect(() => {
