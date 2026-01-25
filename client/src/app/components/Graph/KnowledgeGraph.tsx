@@ -4102,6 +4102,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     });
   }
 
+  useEffect(() => {
+    return () => {
+      lifecycleRef.current?.dispose();
+    };
+  }, []);
+
   lifecycleRef.current.tick({
     subjectMatterId,
     stableGraphNodes: stableGraph.nodes,

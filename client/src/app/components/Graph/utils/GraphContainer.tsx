@@ -3,13 +3,13 @@
 
 "use client";
 
-import React, { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
 import { CreditFlowAnimation } from '@/types/srs';
 import CreditFlowOverlay from '../components/CreditFlowOverlay';
-import { LabelRenderer, RenderedLabel } from './HybridLatexRenderer';
+import { LabelRenderer } from './HybridLatexRenderer';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false
@@ -158,21 +158,16 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     return shouldReset;
   }, [requiresPhysicsReset, graphNodes.length, graphNodes]);
 
+  useEffect(() => {
+    return () => {
+      if (rafRefreshRef.current != null) {
+        cancelAnimationFrame(rafRefreshRef.current);
+      }
+      labelRendererRef.current.clearCache();
+    };
+  }, []);
+
   // Memoized node renderer for better performance
-  // Per-node persistent label cache to avoid transient cache misses on hover
-  type NodeWithCache = GraphNode & { __labelCache?: Map<string, RenderedLabel> };
-
-  const getNodeLabelCache = (n: GraphNode): Map<string, RenderedLabel> => {
-    const nn = n as NodeWithCache;
-    if (!nn.__labelCache) nn.__labelCache = new Map();
-    return nn.__labelCache;
-  };
-
-  const makeLabelKey = (mode: LabelDisplayMode, id: string, text: string, highlighted: boolean) => {
-    // For 'off', labels only show on hover/highlight — key separately to avoid clashes
-    const scope = mode === 'off' ? (highlighted ? 'hover' : 'none') : mode;
-    return `${scope}|${id}|${text}`;
-  };
 
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
@@ -336,14 +331,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       }
 
       if (labelText) {
-        const key = makeLabelKey(labelDisplayMode, id, labelText, isHighlighted || isSelected || isNewlyCreated);
-        const nodeCache = getNodeLabelCache(node);
-        // Try fast per-node cache first, then global cache
-        let cachedLabel = nodeCache.get(key) || labelRendererRef.current.getCache(labelText);
+        const cachedLabel = labelRendererRef.current.getCache(labelText);
 
         if (cachedLabel) {
-          // Persist into node cache for future frames
-          if (!nodeCache.has(key)) nodeCache.set(key, cachedLabel);
           const { image, width, height } = cachedLabel;
           const scale = 1 / Math.sqrt(globalScale);
           const labelWidth = width * scale;
