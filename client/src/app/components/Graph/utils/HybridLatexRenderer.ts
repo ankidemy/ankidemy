@@ -455,7 +455,7 @@ export class LabelRenderer {
 
         image.onload = () => {
           resolve({ image, width, height });
-          // Don't revoke URL here - let cleanup handle it
+          URL.revokeObjectURL(url);
         };
         image.onerror = (err) => {
           URL.revokeObjectURL(url);
@@ -464,6 +464,10 @@ export class LabelRenderer {
         image.src = url;
       });
     } finally {
+      const mj = (window as any).MathJax;
+      if (mj?.typesetClear) {
+        try { mj.typesetClear([container]); } catch {}
+      }
       // 8. Always clean up the temporary div.
       if (document.body.contains(container)) {
         document.body.removeChild(container);

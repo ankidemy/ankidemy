@@ -44,11 +44,96 @@ export function normalizeToInlineMath(text: string): string {
 }
 
 /**
+ * Normalizes display math delimiters so $$...$$ renders as block math
+ * even when authored inline (same line). Skips code fences and inline code.
+ */
+export function normalizeDisplayMathBlocks(text: string): string {
+  if (!text) return '';
+
+  let result = '';
+  let i = 0;
+  let insideFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
+  let insideInlineCode = false;
+  let inlineCodeLen = 0;
+
+  const isLineStart = (idx: number) => idx === 0 || text[idx - 1] === '\n';
+  const isOnlyWhitespace = (value: string) => /^\s*$/.test(value);
+
+  while (i < text.length) {
+    // Detect fenced code blocks at line start (``` or ~~~)
+    if (!insideInlineCode && isLineStart(i)) {
+      let j = i;
+      while (j < text.length && (text[j] === ' ' || text[j] === '\t')) j += 1;
+      const fenceStart = text.slice(j);
+      const fenceMatch = fenceStart.match(/^(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        const marker = fenceMatch[1];
+        if (!insideFence) {
+          insideFence = true;
+          fenceChar = marker[0];
+          fenceLen = marker.length;
+        } else if (marker[0] === fenceChar && marker.length >= fenceLen) {
+          insideFence = false;
+          fenceChar = '';
+          fenceLen = 0;
+        }
+        result += text.slice(i, j) + marker;
+        i = j + marker.length;
+        continue;
+      }
+    }
+
+    if (!insideFence) {
+      // Detect inline code spans using backticks
+      if (text[i] === '`') {
+        let j = i;
+        while (j < text.length && text[j] === '`') j += 1;
+        const runLen = j - i;
+        if (!insideInlineCode) {
+          insideInlineCode = true;
+          inlineCodeLen = runLen;
+        } else if (runLen === inlineCodeLen) {
+          insideInlineCode = false;
+          inlineCodeLen = 0;
+        }
+        result += text.slice(i, j);
+        i = j;
+        continue;
+      }
+    }
+
+    if (!insideFence && !insideInlineCode && text[i] === '$' && text[i + 1] === '$') {
+      const lineStart = text.lastIndexOf('\n', i - 1) + 1;
+      const lineEndIdx = text.indexOf('\n', i + 2);
+      const lineEnd = lineEndIdx === -1 ? text.length : lineEndIdx;
+      const before = text.slice(lineStart, i);
+      const after = text.slice(i + 2, lineEnd);
+      const beforeIsWhitespace = isOnlyWhitespace(before);
+      const afterIsWhitespace = isOnlyWhitespace(after);
+
+      if (!beforeIsWhitespace) result += '\n';
+      result += '$$';
+      if (!afterIsWhitespace) result += '\n';
+      i += 2;
+      continue;
+    }
+
+    result += text[i];
+    i += 1;
+  }
+
+  return result;
+}
+
+/**
  * Block Markdown renderer with KaTeX for math and GFM enabled.
  * - Raw HTML is disabled (safe by default in react-markdown)
  * - Code/pre blocks are untouched by math parsing
  */
 export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "", prose = false }) => {
+  const processedChildren = normalizeDisplayMathBlocks(children);
   return (
     <div className={`${prose ? "prose prose-sm" : ""} ${className}`.trim()}>
       <ReactMarkdown
@@ -87,7 +172,7 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
           },
         }}
       >
-        {children || ""}
+        {processedChildren || ""}
       </ReactMarkdown>
     </div>
   );
