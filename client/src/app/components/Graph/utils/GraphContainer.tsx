@@ -701,6 +701,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const canvasWidth = width && width > 0 ? width : undefined;
   const canvasHeight = height && height > 0 ? height : undefined;
 
+  // DAG layout requires simulation ticks even when nodes already have positions.
+  // In manual layout mode we keep the "no drift" behavior by stopping immediately.
+  const alphaDecay = structuralChange ? 0.015 : (dagMode ? 0.0228 : 1);
+  const warmupTicks = structuralChange ? 200 : 0;
+  const cooldownTicks = structuralChange ? 400 : (dagMode ? 200 : 0);
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
@@ -744,12 +750,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         // Physics simulation parameters
         // If we didn't trigger a structural reset (or all nodes are positioned),
         // keep alpha decay aggressive to avoid any drift.
-        d3AlphaDecay={structuralChange ? 0.015 : 1}
+        d3AlphaDecay={alphaDecay}
         d3VelocityDecay={0.75}
         
         // Conditional simulation control based on structural changes
-        warmupTicks={structuralChange ? 200 : 0}
-        cooldownTicks={structuralChange ? 400 : 0}
+        warmupTicks={warmupTicks}
+        cooldownTicks={cooldownTicks}
         
         // Node display settings
         nodeRelSize={1.2}

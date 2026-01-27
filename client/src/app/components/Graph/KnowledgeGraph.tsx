@@ -896,6 +896,29 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     graphRef.current?.d3ReheatSimulation?.();
   }, [dagModeEnabled, dagOrientation]);
 
+  const clearDagConstraints = useCallback(() => {
+    const nodes = stableGraphRef.current?.nodes;
+    if (!nodes || nodes.length === 0) return;
+    nodes.forEach(node => {
+      // Prevent stale axis constraints from previous DAG modes (react-force-graph-2d doesn't clear them on mode swap).
+      delete (node as any).fx;
+      delete (node as any).fy;
+    });
+  }, []);
+
+  const handleToggleDagMode = useCallback(() => {
+    // When toggling DAG, clear any existing constraints first so the next mode doesn't inherit axis fixes.
+    clearDagConstraints();
+    setDagModeEnabled(prev => !prev);
+  }, [clearDagConstraints]);
+
+  const handleDagOrientationChange = useCallback((orientation: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin') => {
+    if (orientation === dagOrientation) return;
+    // Clear constraints *before* the library applies the new DAG mode.
+    clearDagConstraints();
+    setDagOrientation(orientation);
+  }, [clearDagConstraints, dagOrientation]);
+
   useEffect(() => {
     const el = graphContainerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -4235,9 +4258,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             await deleteGroupById(groupId);
           }}
           dagModeEnabled={dagModeEnabled}
-          onToggleDagMode={() => setDagModeEnabled(prev => !prev)}
+          onToggleDagMode={handleToggleDagMode}
           dagOrientation={dagOrientation}
-          onDagOrientationChange={(orientation) => setDagOrientation(orientation)}
+          onDagOrientationChange={handleDagOrientationChange}
           expandedCycleCount={expandedCycleIds.size}
           onCollapseCycles={collapseAllCycles}
         />
