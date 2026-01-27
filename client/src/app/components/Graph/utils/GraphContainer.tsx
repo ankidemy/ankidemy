@@ -10,6 +10,7 @@ import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
 import { CreditFlowAnimation } from '@/types/srs';
 import CreditFlowOverlay from '../components/CreditFlowOverlay';
 import { LabelRenderer } from './HybridLatexRenderer';
+import * as d3 from 'd3';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false
@@ -197,6 +198,54 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       labelRendererRef.current.clearCache();
     };
   }, []);
+
+  // Reduce overlap in DAG layouts by strengthening separation forces while DAG mode is active.
+  useEffect(() => {
+    const fg = graphRef.current;
+    if (!fg || typeof fg.d3Force !== 'function') return;
+
+    try {
+      const isDag = !!dagMode;
+      const nodeCount = Math.max(1, graphNodes.length);
+
+      const linkForce = fg.d3Force('link');
+      if (linkForce && typeof linkForce.distance === 'function') {
+        const baseDist = isDag ? 80 + Math.sqrt(nodeCount) * 6 : 30;
+        linkForce.distance(() => baseDist).strength(isDag ? 0.6 : 1);
+      }
+
+      const chargeForce = fg.d3Force('charge');
+      if (chargeForce && typeof chargeForce.strength === 'function') {
+        const chargeStrength = isDag ? (-160 - Math.min(420, Math.sqrt(nodeCount) * 32)) : -30;
+        chargeForce.strength(chargeStrength);
+      }
+
+      if (isDag) {
+        const labelPadding =
+          labelDisplayMode === 'names' ? 36
+          : labelDisplayMode === 'codes' ? 30
+          : 22;
+
+        fg.d3Force(
+          'collide',
+          (d3 as any)
+            .forceCollide((node: any) => {
+              const type = node?.type;
+              const base =
+                type === 'group' ? 18
+                : type === 'definition' ? 14
+                : 13;
+              return base + labelPadding;
+            })
+            .iterations(2)
+        );
+      } else {
+        fg.d3Force('collide', null);
+      }
+
+      fg.d3ReheatSimulation?.();
+    } catch {}
+  }, [dagMode, graphNodes.length, labelDisplayMode, structureVersion, graphRef]);
 
   // Memoized node renderer for better performance
 
@@ -703,9 +752,14 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
   // DAG layout requires simulation ticks even when nodes already have positions.
   // In manual layout mode we keep the "no drift" behavior by stopping immediately.
-  const alphaDecay = structuralChange ? 0.015 : (dagMode ? 0.0228 : 1);
+  const dagLevelDistance = dagMode
+    ? Math.round(260 + Math.min(160, Math.sqrt(graphNodes.length) * 16))
+    : undefined;
+  const alphaDecay = structuralChange || !!dagMode ? 0.015 : 1;
+  const velocityDecay = dagMode ? 0.4 : 0.75;
   const warmupTicks = structuralChange ? 200 : 0;
-  const cooldownTicks = structuralChange ? 400 : (dagMode ? 200 : 0);
+  const dagCooldownTicks = dagMode ? Math.min(1200, Math.round(300 + Math.sqrt(graphNodes.length) * 90)) : 0;
+  const cooldownTicks = Math.max(structuralChange ? 400 : 0, dagCooldownTicks);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -718,7 +772,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         linkSource="source"
         linkTarget="target"
         dagMode={dagMode || undefined}
-        dagLevelDistance={dagMode ? 220 : undefined}
+        dagLevelDistance={dagLevelDistance}
         onDagError={onDagError}
         nodeVal={node => {
           if (node.type === 'group') return 10;
@@ -751,7 +805,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         // If we didn't trigger a structural reset (or all nodes are positioned),
         // keep alpha decay aggressive to avoid any drift.
         d3AlphaDecay={alphaDecay}
-        d3VelocityDecay={0.75}
+        d3VelocityDecay={velocityDecay}
         
         // Conditional simulation control based on structural changes
         warmupTicks={warmupTicks}
