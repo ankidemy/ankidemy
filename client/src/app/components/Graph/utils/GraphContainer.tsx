@@ -5,7 +5,7 @@
 
 import React, { useRef, useCallback, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { GraphNode, GraphLink, FilteredNodeType } from './types';
+import { AppMode, GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
 import { CreditFlowAnimation } from '@/types/srs';
 import CreditFlowOverlay from '../components/CreditFlowOverlay';
@@ -27,6 +27,9 @@ interface GraphContainerProps {
   highlightNodes: Set<string>;
   highlightLinks: Set<string>;
   filteredNodeType: FilteredNodeType;
+  mode: AppMode;
+  width?: number;
+  height?: number;
   selectedNodeIds: Set<string>;
   newlyCreatedNodeId: string | null;
   labelDisplayMode: LabelDisplayMode;
@@ -54,6 +57,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   highlightNodes,
   highlightLinks,
   filteredNodeType,
+  mode,
+  width,
+  height,
   selectedNodeIds,
   newlyCreatedNodeId,
   labelDisplayMode,
@@ -136,6 +142,31 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     nodePositions.current = map;
     return map;
   }, [graphNodes]);
+
+  const nodeById = useMemo(() => {
+    const map = new Map<string, GraphNode>();
+    graphNodes.forEach(node => map.set(node.id, node));
+    return map;
+  }, [graphNodes, structureVersion]);
+
+  const isNodeVisible = useCallback((node: GraphNode) => {
+    if (mode === 'study' && node.type === 'exercise') return false;
+    if (filteredNodeType === 'all') return true;
+    if (node.type === filteredNodeType) return true;
+    return selectedNodeIds.has(node.id) || highlightNodes.has(node.id);
+  }, [filteredNodeType, highlightNodes, mode, selectedNodeIds]);
+
+  const isNodeVisibleById = useCallback((nodeId: string) => {
+    const node = nodeById.get(nodeId);
+    if (!node) return false;
+    return isNodeVisible(node);
+  }, [isNodeVisible, nodeById]);
+
+  const isLinkVisible = useCallback((link: GraphLink) => {
+    const sourceId = typeof link.source === 'object' ? link.source.id : String(link.source);
+    const targetId = typeof link.target === 'object' ? link.target.id : String(link.target);
+    return isNodeVisibleById(sourceId) && isNodeVisibleById(targetId);
+  }, [isNodeVisibleById]);
 
   // Detect structural changes for physics reset
   // IMPORTANT: We only reheat physics if there are nodes without known positions.
@@ -667,11 +698,16 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     return 0;
   }, [highlightLinks, highlightNodes]);
 
+  const canvasWidth = width && width > 0 ? width : undefined;
+  const canvasHeight = height && height > 0 ? height : undefined;
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
         ref={graphRef}
         graphData={memoizedGraphData}
+        width={canvasWidth}
+        height={canvasHeight}
         nodeId="id"
         linkSource="source"
         linkTarget="target"
@@ -717,12 +753,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         
         // Node display settings
         nodeRelSize={1.2}
-        nodeVisibility={(node: any) => 
-          filteredNodeType === 'all' || 
-          node.type === filteredNodeType || 
-          selectedNodeIds.has(node.id) || 
-          highlightNodes.has(node.id)
-        }
+        nodeVisibility={(node: any) => isNodeVisible(node as GraphNode)}
+        linkVisibility={(link: any) => isLinkVisible(link as GraphLink)}
         
         // Interaction settings
         enableNodeDrag={true}
@@ -755,6 +787,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.newlyCreatedNodeId === nextProps.newlyCreatedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
+    prevProps.mode === nextProps.mode &&
+    prevProps.width === nextProps.width &&
+    prevProps.height === nextProps.height &&
     prevProps.onNodeDrag === nextProps.onNodeDrag &&
     prevProps.onLinkClick === nextProps.onLinkClick &&
     prevProps.onNodeRightClick === nextProps.onNodeRightClick &&

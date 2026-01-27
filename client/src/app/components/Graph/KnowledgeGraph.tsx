@@ -385,7 +385,6 @@ const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
 const useGraphStructure = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
-  mode: AppMode,
   externalLinks: ExternalPrerequisiteLink[]
 ): GraphStructureState => {
   return useMemo(() => {
@@ -425,7 +424,7 @@ const useGraphStructure = (
       .join('|');
     
     // FIX: robust version
-    const version = hashString([defStructureHash, exStructureHash, defWeightHash, exWeightHash, externalLinkHash, mode].join('::'));
+    const version = hashString([defStructureHash, exStructureHash, defWeightHash, exWeightHash, externalLinkHash].join('::'));
 
     const numericIdToCode = new Map<number, string>();
 
@@ -462,41 +461,38 @@ const useGraphStructure = (
       });
     });
 
-    // Build exercise nodes (pass 1) and links (pass 2) in practice/frenzy mode
-    if (mode !== 'study') {
-      // PASS 1: create all exercise nodes first so cross-exercise links can attach regardless of iteration order
-      Object.values(exercises).forEach(ex => {
-        if (!ex?.code) return;
-        if (typeof ex.id === 'number') {
-          numericIdToCode.set(ex.id, ex.code);
-        }
-        nodes.set(ex.code, {
-          id: ex.code,
-          type: 'exercise',
-          prerequisites: ex.prerequisites,
-          domainId: ex.domainId,
-          xPosition: ex.xPosition,
-          yPosition: ex.yPosition,
-        });
+    // PASS 1: create all exercise nodes first so cross-exercise links can attach regardless of iteration order
+    Object.values(exercises).forEach(ex => {
+      if (!ex?.code) return;
+      if (typeof ex.id === 'number') {
+        numericIdToCode.set(ex.id, ex.code);
+      }
+      nodes.set(ex.code, {
+        id: ex.code,
+        type: 'exercise',
+        prerequisites: ex.prerequisites,
+        domainId: ex.domainId,
+        xPosition: ex.xPosition,
+        yPosition: ex.yPosition,
       });
+    });
 
-      // PASS 2: add links from prerequisites (definitions or other exercises) to each exercise
-      Object.values(exercises).forEach(ex => {
-        if (!ex?.code) return;
-        (ex.prerequisites || []).forEach(prereqCode => {
-          if (nodes.has(prereqCode) && nodes.has(ex.code)) {
-            const linkId = `${prereqCode}-${ex.code}`;
-            links.set(linkId, {
-              id: linkId,
-              source: prereqCode,
-              target: ex.code,
-              type: 'prerequisite',
-              weight: ex.prerequisiteWeights?.[prereqCode] ?? 1.0,
-            });
-          }
-        });
+    // PASS 2: add links from prerequisites (definitions or other exercises) to each exercise
+    Object.values(exercises).forEach(ex => {
+      if (!ex?.code) return;
+      (ex.prerequisites || []).forEach(prereqCode => {
+        if (nodes.has(prereqCode) && nodes.has(ex.code)) {
+          const linkId = `${prereqCode}-${ex.code}`;
+          links.set(linkId, {
+            id: linkId,
+            source: prereqCode,
+            target: ex.code,
+            type: 'prerequisite',
+            weight: ex.prerequisiteWeights?.[prereqCode] ?? 1.0,
+          });
+        }
       });
-    }
+    });
 
     // External prerequisite links
     externalLinks.forEach(link => {
@@ -549,7 +545,6 @@ const useGraphStructure = (
     // Dependencies only track structural changes
     Object.keys(definitions).sort().join(','),
     Object.keys(exercises).sort().join(','),
-    mode,
     // Track prerequisite structure changes
     JSON.stringify(Object.fromEntries(
       Object.values(definitions).map(d => [d.code, (d.prerequisites || []).sort()])
@@ -677,8 +672,8 @@ const useGraphMetadata = (
     srs.state.domainProgress,
     srs.state.lastUpdated,
     srs.state.dueReviews,
-    // IMPORTANT: Recompute when the set of structure nodes changes (e.g., switching to practice mode)
-    // This ensures newly materialized exercise nodes receive proper SRS-driven colors instead of gray fallbacks.
+    // IMPORTANT: Recompute when the set of structure nodes changes
+    // This ensures newly materialized nodes receive proper SRS-driven colors instead of gray fallbacks.
     (() => Array.from(structureNodes.keys()).sort().join('|'))(),
     // active/selected/highlight removed to avoid hover-triggered reflow
     codeToNumericIdMap,
@@ -877,6 +872,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [nodeCreationPosition, setNodeCreationPosition] = useState<{x: number, y: number} | undefined>(undefined);
   const [showEnrollmentModal, setShowEnrollmentModal] = useState(false);
   const [showAccessModal, setShowAccessModal] = useState(false);
+  const [graphSize, setGraphSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   // Domain state
   const [domainName, setDomainName] = useState<string>(subjectMatterId);
@@ -899,6 +895,23 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     positionManagerRef.current.markUnstable();
     graphRef.current?.d3ReheatSimulation?.();
   }, [dagModeEnabled, dagOrientation]);
+
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(entries => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const nextWidth = Math.round(rect.width);
+      const nextHeight = Math.round(rect.height);
+      setGraphSize(prev => {
+        if (prev.width === nextWidth && prev.height === nextHeight) return prev;
+        return { width: nextWidth, height: nextHeight };
+      });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!dagModeEnabled) {
@@ -1094,7 +1107,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const baseGraphStructure = useGraphStructure(
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
-    mode,
     externalPrerequisites
   );
 
@@ -1400,6 +1412,34 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     
     return combined;
   }, [activeNodeIds, highlightNodes, pendingLinkSourceId]);
+
+  const isNodeVisibleInGraph = useCallback((node: GraphNode) => {
+    if (mode === 'study' && node.type === 'exercise') return false;
+    if (filteredNodeType === 'all') return true;
+    if (node.type === filteredNodeType) return true;
+    return selectedNodeIds.has(node.id) || graphHighlightedNodes.has(node.id);
+  }, [filteredNodeType, graphHighlightedNodes, mode, selectedNodeIds]);
+
+  const hasVisibleNodesForFit = useMemo(() => {
+    return stableGraph.nodes.some(node => isNodeVisibleInGraph(node));
+  }, [stableGraph.nodes, isNodeVisibleInGraph]);
+
+  const getZoomToFitPadding = useCallback(() => {
+    const fallbackRect = graphContainerRef.current?.getBoundingClientRect();
+    const width = graphSize.width || fallbackRect?.width || 0;
+    const height = graphSize.height || fallbackRect?.height || 0;
+    const minSize = Math.min(width, height);
+    const scaled = Math.round(minSize * 0.15);
+    if (!Number.isFinite(scaled) || scaled <= 0) return 72;
+    return Math.max(48, Math.min(220, scaled));
+  }, [graphSize.height, graphSize.width]);
+
+  const zoomToFitVisibleNodes = useCallback((duration = 400) => {
+    const graph = graphRef.current;
+    if (!graph || !hasVisibleNodesForFit) return;
+    const padding = getZoomToFitPadding();
+    graph.zoomToFit(duration, padding, (node: GraphNode) => isNodeVisibleInGraph(node));
+  }, [getZoomToFitPadding, hasVisibleNodesForFit, isNodeVisibleInGraph]);
 
   const primarySelectedNodeId = useMemo(() => {
     for (const id of selectedNodeIds) return id;
@@ -1772,11 +1812,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     if (isProcessingData && graphRef.current && stableGraph.nodes.length > 0) {
       setTimeout(() => {
-        graphRef.current?.zoomToFit?.(400, 50);
+        zoomToFitVisibleNodes(400);
         console.log('Initial zoom-to-fit applied');
       }, 100);
     }
-  }, [isProcessingData, stableGraph.nodes.length]);
+  }, [isProcessingData, stableGraph.nodes.length, zoomToFitVisibleNodes]);
 
   // Calculate smart placement for detail windows (opposite side of clicked node, with boundary checks)
   const getDetailWindowPlacement = useCallback((node: GraphNode, windowCount: number) => {
@@ -2191,6 +2231,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Filtered nodes for left panel
   const filteredGraphNodes = useMemo(() => {
     let tempNodes = stableGraph.nodes.filter(node => node.type !== 'group');
+    if (mode === 'study') {
+      tempNodes = tempNodes.filter(node => node.type !== 'exercise');
+    }
     if (filteredNodeType !== 'all') {
       tempNodes = tempNodes.filter(node => node.type === filteredNodeType);
     }
@@ -2202,7 +2245,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       );
     }
     return tempNodes.sort((a, b) => (a.displayId ?? a.id).localeCompare(b.displayId ?? b.id));
-  }, [stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated]);
+  }, [mode, stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated]);
 
   // Basic handlers
   const toggleLeftPanel = useCallback(() => setShowLeftPanel(prev => !prev), []);
@@ -2255,6 +2298,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
     const targetNode = stableGraph.nodes.find(n => n.id === nodeId);
     if (targetNode) {
+      if (mode === 'study' && targetNode.type === 'exercise') {
+        showToast("Switching to Practice Mode to view exercise...", "info", 1500);
+        changeMode('practice');
+        setTimeout(() => {
+          handleNodeClick(targetNode, false, context);
+        }, 300);
+        return;
+      }
       handleNodeClick(targetNode, false, context);
     } else if (mode === 'study' && currentStructuralGraphData.exercises?.[nodeId]) {
       showToast("Switching to Practice Mode to view exercise...", "info", 1500);
@@ -4157,11 +4208,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onBack={onBack}
           labelDisplayMode={labelDisplayMode}
           onCycleLabelDisplay={cycleLabelDisplay}
-          onZoomToFit={() => {
-            if (graphRef.current) {
-              graphRef.current.zoomToFit(400, 50);
-            }
-          }}
+          onZoomToFit={() => zoomToFitVisibleNodes(400)}
           onCreateDefinition={() => createNewNode('definition')}
           onCreateExercise={() => createNewNode('exercise')}
           onStartStudy={handleStartStudy}
@@ -4264,6 +4311,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 highlightNodes={graphHighlightedNodes}
                 highlightLinks={highlightLinks}
                 filteredNodeType={filteredNodeType}
+                mode={mode}
+                width={graphSize.width}
+                height={graphSize.height}
                 selectedNodeIds={selectedNodeIds}
                 newlyCreatedNodeId={newlyCreatedNodeId}
                 labelDisplayMode={labelDisplayMode}
@@ -4315,7 +4365,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             )}
             
             {!isProcessingData && !isRefreshing && stableGraph.nodes.length > 0 && (
-              <GraphLegend mode={mode} hasExercises={stableGraph.nodes.some(n => n.type === 'exercise')} />
+              <GraphLegend mode={mode} hasExercises={mode !== 'study' && stableGraph.nodes.some(n => n.type === 'exercise')} />
             )}
 
             {mode === 'frenzy' && (
