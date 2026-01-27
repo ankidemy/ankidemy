@@ -896,6 +896,47 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     graphRef.current?.d3ReheatSimulation?.();
   }, [dagModeEnabled, dagOrientation]);
 
+  type ManualLayoutSnapshot = { x: number; y: number; fx?: number; fy?: number };
+  const manualLayoutSnapshotRef = useRef<Map<string, ManualLayoutSnapshot>>(new Map());
+
+  const snapshotManualLayout = useCallback(() => {
+    const nodes = stableGraphRef.current?.nodes;
+    if (!nodes || nodes.length === 0) {
+      manualLayoutSnapshotRef.current = new Map();
+      return;
+    }
+
+    const snapshot = new Map<string, ManualLayoutSnapshot>();
+    nodes.forEach(node => {
+      const x = typeof node.x === 'number' ? node.x : node.xPosition;
+      const y = typeof node.y === 'number' ? node.y : node.yPosition;
+      if (typeof x !== 'number' || typeof y !== 'number') return;
+      snapshot.set(node.id, { x, y, fx: node.fx, fy: node.fy });
+    });
+
+    manualLayoutSnapshotRef.current = snapshot;
+  }, []);
+
+  const restoreManualLayout = useCallback(() => {
+    const nodes = stableGraphRef.current?.nodes;
+    const snapshot = manualLayoutSnapshotRef.current;
+    if (!nodes || nodes.length === 0) return;
+    if (!snapshot || snapshot.size === 0) return;
+
+    nodes.forEach(node => {
+      const saved = snapshot.get(node.id);
+      if (!saved) return;
+      node.x = saved.x;
+      node.y = saved.y;
+      if (typeof saved.fx === 'number') (node as any).fx = saved.fx;
+      else delete (node as any).fx;
+      if (typeof saved.fy === 'number') (node as any).fy = saved.fy;
+      else delete (node as any).fy;
+    });
+
+    try { graphRef.current?.refresh?.(); } catch {}
+  }, []);
+
   const clearDagConstraints = useCallback(() => {
     const nodes = stableGraphRef.current?.nodes;
     if (!nodes || nodes.length === 0) return;
@@ -907,10 +948,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, []);
 
   const handleToggleDagMode = useCallback(() => {
-    // When toggling DAG, clear any existing constraints first so the next mode doesn't inherit axis fixes.
-    clearDagConstraints();
-    setDagModeEnabled(prev => !prev);
-  }, [clearDagConstraints]);
+    if (!dagModeEnabled) {
+      // Entering DAG: snapshot manual layout so it can be restored on exit.
+      snapshotManualLayout();
+      clearDagConstraints();
+      setDagModeEnabled(true);
+      return;
+    }
+
+    // Exiting DAG: disable first (library clears constraints on dagMode=null), then restore snapshot after update.
+    setDagModeEnabled(false);
+    setTimeout(() => {
+      restoreManualLayout();
+    }, 0);
+  }, [clearDagConstraints, dagModeEnabled, restoreManualLayout, snapshotManualLayout]);
 
   const handleDagOrientationChange = useCallback((orientation: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin') => {
     if (orientation === dagOrientation) return;
