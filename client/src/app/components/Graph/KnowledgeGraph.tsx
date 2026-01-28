@@ -745,7 +745,7 @@ const useGraphMetadata = (
 
       if (nodeCore.type === 'quest') {
         const quest = quests[nodeId];
-        const title = quest?.versions?.[0]?.title?.trim() || 'Quest';
+        const title = quest?.name?.trim() || 'Quest';
         nodeMetadata.set(nodeId, {
           name: title,
           color: 'rgba(245, 158, 11, 0.35)',
@@ -802,7 +802,7 @@ const useGraphMetadata = (
     Object.values(definitions).map(d => d.name).join('|'),
     Object.values(exercises).map(e => e.name).join('|'),
     Object.values(sources).map(s => s.title).join('|'),
-    Object.values(quests).map(q => q.code).join('|'),
+    Object.values(quests).map(q => `${q.code}:${q.name ?? ''}`).join('|'),
     Object.values(exercises).map(e => String(e.difficulty ?? '')).join('|'),
     // Track positions so we can apply them without a physics reset
     Object.values(definitions).map(d => `${d.code}:${d.xPosition ?? ''}:${d.yPosition ?? ''}`).join('|'),
@@ -2006,6 +2006,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         newQuests[q.code] = {
           id: q.id,
           code: q.code,
+          name: q.name,
           kind: q.kind,
           schedule: q.schedule,
           xPosition: q.xPosition,
@@ -3927,6 +3928,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         };
         const created = await createQuest(domainId, {
           code,
+          name,
           kind: 'todo',
           schedule,
           visibility: 'private',
@@ -4652,7 +4654,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setCurrentStructuralGraphData(prev => {
         const next = {
           definitions: { ...(prev.definitions || {}) },
-          exercises: { ...(prev.exercises || {}) }
+          exercises: { ...(prev.exercises || {}) },
+          sources: { ...(prev.sources || {}) },
+          quests: { ...(prev.quests || {}) },
+          relations: [...(prev.relations || [])],
         };
         delete next.definitions[node.id];
         delete next.exercises[node.id];
@@ -4667,6 +4672,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           ex.prerequisites = ex.prerequisites.filter(code => code !== node.id);
           if (ex.prerequisiteWeights) delete ex.prerequisiteWeights[node.id];
         });
+
+        if (next.relations.length > 0) {
+          next.relations = next.relations.filter(rel => rel.fromCode !== node.id && rel.toCode !== node.id);
+        }
 
         return next;
       });

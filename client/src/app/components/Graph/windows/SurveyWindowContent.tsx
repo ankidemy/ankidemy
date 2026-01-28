@@ -172,7 +172,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
             <div key={item.questId} className="rounded-md border border-gray-200 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold text-gray-900">
-                  {selectedVersion?.title || item.questCode}
+                  {selectedVersion?.title || item.questName || item.questCode}
                 </div>
                 <span className={`text-[10px] uppercase px-2 py-0.5 rounded ${
                   item.questKind === 'habit'

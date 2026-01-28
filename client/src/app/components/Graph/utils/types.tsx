@@ -98,6 +98,7 @@ export interface QuestVersion {
 export interface MetaQuest {
   id?: number;
   code: string;
+  name?: string;
   kind: 'todo' | 'habit' | 'daily';
   schedule: any;
   xPosition?: number;

@@ -303,6 +303,7 @@ export interface MetaQuestDTO {
   domainId?: number;
   ownerId?: number;
   code: string;
+  name?: string;
   kind: 'todo' | 'habit' | 'daily';
   schedule: any;
   xPosition?: number;
@@ -328,6 +329,7 @@ export interface NodeRelationDTO {
 export interface SurveyQueueItem {
   questId: number;
   questCode: string;
+  questName?: string;
   questKind: 'todo' | 'habit' | 'daily';
   selectedVersionId: number;
   versions: QuestVersionDTO[];

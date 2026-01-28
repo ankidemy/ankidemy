@@ -87,6 +87,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [scheduleDraft, setScheduleDraft] = useState('');
   const [simpleDueDraft, setSimpleDueDraft] = useState('');
   const [showAdvancedSchedule, setShowAdvancedSchedule] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
   const [codeDraft, setCodeDraft] = useState('');
   const [kindDraft, setKindDraft] = useState<'todo' | 'habit' | 'daily'>('todo');
   const [visibilityDraft, setVisibilityDraft] = useState<'private' | 'domain'>('private');
@@ -130,6 +131,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setQuest(fresh);
       setVersions(fresh.versions || []);
       setSelectedVersionId(fresh.versions?.[0]?.id ?? null);
+      setNameDraft(fresh.name || fresh.versions?.[0]?.title || '');
       setCodeDraft(fresh.code || '');
       setKindDraft(fresh.kind || 'todo');
       setVisibilityDraft(fresh.visibility || 'private');
@@ -161,6 +163,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setQuest(fallback);
       setVersions(fallback.versions || []);
       setSelectedVersionId(fallback.versions?.[0]?.id ?? null);
+      setNameDraft(fallback.name || fallback.versions?.[0]?.title || '');
       setCodeDraft(fallback.code || '');
       setKindDraft(fallback.kind || 'todo');
       setVisibilityDraft(fallback.visibility || 'private');
@@ -233,6 +236,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const handleSaveQuest = useCallback(async () => {
     if (!quest?.id) return;
+    if (nameDraft.trim().length === 0) {
+      showToast('Quest name is required.', 'warning');
+      return;
+    }
     setIsSaving(true);
     try {
       let parsedSchedule: any = null;
@@ -245,6 +252,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
         parsedSchedule = JSON.parse(scheduleDraft);
       }
       const payload: Partial<MetaQuestDTO> & { active?: boolean } = {
+        name: nameDraft.trim(),
         code: codeDraft.trim(),
         kind: kindDraft,
         schedule: parsedSchedule ?? quest.schedule,
@@ -253,6 +261,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       };
       const updated = await updateQuest(quest.id, payload);
       setQuest(updated);
+      if (updated.name) {
+        setNameDraft(updated.name);
+      }
       onUpdateQuest?.(updated);
       showToast('Quest updated.', 'success');
     } catch (err: any) {
@@ -268,6 +279,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     }
   }, [
     quest?.id,
+    nameDraft,
     scheduleDraft,
     simpleDueDraft,
     showAdvancedSchedule,
@@ -385,7 +397,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <div className="text-base font-semibold text-gray-900">
-            {versions.find(v => v.id === selectedVersionId)?.title?.trim() || versions[0]?.title?.trim() || 'Quest'}
+            {quest?.name?.trim() || questData.name?.trim() || 'Quest'}
           </div>
           {(quest?.code || questData.code) && (
             <div className="text-xs text-gray-500">Code: {quest?.code || questData.code}</div>
@@ -407,6 +419,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
         <TabsContent value="details" className="mt-3 space-y-3">
           <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600">Name</label>
+              <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 mt-1" />
+            </div>
             <div>
               <label className="text-xs font-medium text-gray-600">Code</label>
               <Input value={codeDraft} onChange={(e) => setCodeDraft(e.target.value)} className="h-8 mt-1" />

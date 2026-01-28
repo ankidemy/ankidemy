@@ -264,6 +264,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       const reminderCode = existingCodes.size > 0 ? getNextQuestCodeFromUtils(existingCodes) : 'Q1';
       const quest = await createQuest(domainId, {
         code: reminderCode,
+        name: reminderTitle.trim().length > 0 ? reminderTitle.trim() : `Review source: ${source.title}`,
         kind: 'todo',
         schedule,
         visibility: 'private',

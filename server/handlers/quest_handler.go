@@ -71,6 +71,7 @@ func (h *QuestHandler) ListVisibleQuests(c *gin.Context) {
 			DomainID:   q.DomainID,
 			OwnerID:    q.OwnerID,
 			Code:       q.Code,
+			Name:       q.Name,
 			Kind:       q.Kind,
 			Schedule:   q.Schedule,
 			XPosition:  q.XPosition,
@@ -133,6 +134,11 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		return
 	}
 
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = strings.TrimSpace(req.InitialVersion.Title)
+	}
+
 	visibility := strings.TrimSpace(req.Visibility)
 	if visibility == "" {
 		visibility = "private"
@@ -161,6 +167,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		DomainID:   uint(domainID64),
 		OwnerID:    userID,
 		Code:       code,
+		Name:       name,
 		Kind:       kind,
 		Schedule:   req.Schedule,
 		XPosition:  req.XPosition,
@@ -190,6 +197,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,
 		Code:       meta.Code,
+		Name:       meta.Name,
 		Kind:       meta.Kind,
 		Schedule:   meta.Schedule,
 		XPosition:  meta.XPosition,
@@ -256,6 +264,7 @@ func (h *QuestHandler) GetQuest(c *gin.Context) {
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,
 		Code:       meta.Code,
+		Name:       meta.Name,
 		Kind:       meta.Kind,
 		Schedule:   meta.Schedule,
 		XPosition:  meta.XPosition,
@@ -325,13 +334,22 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check code"})
 				return
 			}
-			if exists {
-				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", newCode)})
-				return
-			}
-			meta.Code = newCode
-			codeChanged = true
+		if exists {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", newCode)})
+			return
 		}
+		meta.Code = newCode
+		codeChanged = true
+	}
+}
+
+	if req.Name != nil {
+		newName := strings.TrimSpace(*req.Name)
+		if newName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Name cannot be empty"})
+			return
+		}
+		meta.Name = newName
 	}
 
 	if req.Kind != nil {
@@ -381,6 +399,7 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,
 		Code:       meta.Code,
+		Name:       meta.Name,
 		Kind:       meta.Kind,
 		Schedule:   meta.Schedule,
 		XPosition:  meta.XPosition,

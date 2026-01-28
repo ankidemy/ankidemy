@@ -13,6 +13,7 @@ type MetaQuest struct {
 	DomainID   uint           `gorm:"column:domain_id;not null;index" json:"domainId"`
 	OwnerID    uint           `gorm:"column:owner_id;not null;index" json:"ownerId"`
 	Code       string         `gorm:"column:code;not null;size:80;index" json:"code"`
+	Name       string         `gorm:"column:name;not null;default:'';size:200" json:"name"`
 	Kind       string         `gorm:"column:kind;not null" json:"kind"`
 	Schedule   json.RawMessage `gorm:"column:schedule;type:jsonb;not null" json:"schedule"`
 	XPosition  float64        `gorm:"column:x_position;default:0" json:"xPosition"`
@@ -76,6 +77,7 @@ func (QuestEvent) TableName() string { return "quest_events" }
 
 type MetaQuestCreateRequest struct {
 	Code       string          `json:"code,omitempty"`
+	Name       string          `json:"name,omitempty"`
 	Kind       string          `json:"kind"`
 	Schedule   json.RawMessage `json:"schedule"`
 	Visibility string          `json:"visibility,omitempty"`
@@ -86,6 +88,7 @@ type MetaQuestCreateRequest struct {
 
 type MetaQuestUpdateRequest struct {
 	Code       *string          `json:"code,omitempty"`
+	Name       *string          `json:"name,omitempty"`
 	Kind       *string          `json:"kind,omitempty"`
 	Schedule   *json.RawMessage `json:"schedule,omitempty"`
 	Visibility *string          `json:"visibility,omitempty"`
@@ -106,6 +109,7 @@ type MetaQuestResponse struct {
 	DomainID   uint            `json:"domainId"`
 	OwnerID    uint            `json:"ownerId"`
 	Code       string          `json:"code"`
+	Name       string          `json:"name"`
 	Kind       string          `json:"kind"`
 	Schedule   json.RawMessage `json:"schedule"`
 	XPosition  float64         `json:"xPosition"`

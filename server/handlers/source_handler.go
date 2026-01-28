@@ -389,6 +389,12 @@ func (h *SourceHandler) DeleteSource(c *gin.Context) {
 }
 
 func generateUniqueCode(registry *dao.CodeRegistryDAO, domainID uint, title string, prefix string) string {
+	if prefix == "quest" {
+		return generateSequentialCode(registry, domainID, "Q")
+	}
+	if prefix == "source" {
+		return generateSequentialCode(registry, domainID, "S")
+	}
 	base := strings.TrimSpace(strings.ToLower(title))
 	if base == "" {
 		base = prefix
@@ -403,4 +409,15 @@ func generateUniqueCode(registry *dao.CodeRegistryDAO, domainID uint, title stri
 		code = fmt.Sprintf("%s.%d", base, i)
 	}
 	return fmt.Sprintf("%s.%d", base, 1000)
+}
+
+func generateSequentialCode(registry *dao.CodeRegistryDAO, domainID uint, prefix string) string {
+	for i := 1; i < 10000; i++ {
+		code := fmt.Sprintf("%s%d", prefix, i)
+		exists, err := registry.CodeExists(domainID, code)
+		if err == nil && !exists {
+			return code
+		}
+	}
+	return fmt.Sprintf("%s%d", prefix, 10000)
 }

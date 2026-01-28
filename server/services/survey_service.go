@@ -15,6 +15,7 @@ import (
 type SurveyQueueItem struct {
 	QuestID           uint                          `json:"questId"`
 	QuestCode         string                        `json:"questCode"`
+	QuestName         string                        `json:"questName"`
 	QuestKind         string                        `json:"questKind"`
 	SelectedVersionID uint                          `json:"selectedVersionId"`
 	Versions          []models.QuestVersionResponse `json:"versions"`
@@ -167,6 +168,7 @@ func (s *SurveyService) buildQueueItem(meta *models.MetaQuest, state *models.Use
 	item := SurveyQueueItem{
 		QuestID:           meta.ID,
 		QuestCode:         meta.Code,
+		QuestName:         meta.Name,
 		QuestKind:         meta.Kind,
 		SelectedVersionID: selected.ID,
 		Versions:          versionsResp,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -97,6 +98,9 @@ func InitDB() (*gorm.DB, error) {
 		return nil, err
 	}
 
+	// Backfill quest names when missing (use first version title)
+	ensureQuestNames(db)
+
 	return db, nil
 }
 
@@ -122,6 +126,23 @@ func ensureSRSConstraints(db *gorm.DB) {
 		if err := db.Exec(s).Error; err != nil {
 			log.Printf("Constraint update note: %v (stmt: %s)", err, s)
 		}
+	}
+}
+
+func ensureQuestNames(db *gorm.DB) {
+	var quests []models.MetaQuest
+	if err := db.Where("name = '' OR name IS NULL").Find(&quests).Error; err != nil {
+		return
+	}
+	for _, quest := range quests {
+		var version models.QuestVersion
+		if err := db.Where("meta_quest_id = ?", quest.ID).Order("id ASC").First(&version).Error; err != nil {
+			continue
+		}
+		if strings.TrimSpace(version.Title) == "" {
+			continue
+		}
+		_ = db.Model(&models.MetaQuest{}).Where("id = ?", quest.ID).Update("name", strings.TrimSpace(version.Title)).Error
 	}
 }
 
