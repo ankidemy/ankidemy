@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
@@ -83,6 +84,10 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 	}
 
 	if err := h.metaDAO.Create(meta, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+		if errors.Is(err, dao.ErrCodeConflict) {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create meta definition"})
 		return
 	}
@@ -589,6 +594,10 @@ func (h *MetaDefinitionHandler) UpdateMetaDefinition(c *gin.Context) {
 
 	// Save and cascade code/name changes atomically
 	if err := h.metaDAO.UpdateFieldsAndCascade(meta, changedCode, changedName); err != nil {
+		if errors.Is(err, dao.ErrCodeConflict) {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", meta.Code)})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update meta definition"})
 		return
 	}

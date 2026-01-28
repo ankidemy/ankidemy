@@ -37,6 +37,11 @@ func (d *MetaExerciseDAO) Create(meta *models.MetaExercise, prerequisiteIDs []ui
 			return err
 		}
 
+		registry := NewCodeRegistryDAO(tx)
+		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "meta_exercise", meta.ID); err != nil {
+			return err
+		}
+
 		// Attach prerequisites (definition -> meta_exercise)
 		for _, pid := range prerequisiteIDs {
 			var cnt int64
@@ -112,6 +117,12 @@ func (d *MetaExerciseDAO) UpdateFieldsAndCascade(meta *models.MetaExercise, casc
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(meta).Error; err != nil {
 			return err
+		}
+		if cascadeCode {
+			registry := NewCodeRegistryDAO(tx)
+			if err := registry.UpdateCode(tx, meta.DomainID, "meta_exercise", meta.ID, meta.Code); err != nil {
+				return err
+			}
 		}
 		if cascadeCode {
 			if err := tx.Model(&models.Exercise{}).
@@ -228,6 +239,10 @@ func (d *MetaExerciseDAO) DeleteVersion(versionID uint) error {
 // Delete removes a meta-exercise, its versions, and related prerequisites.
 func (d *MetaExerciseDAO) Delete(id uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
+		var meta models.MetaExercise
+		if err := tx.First(&meta, id).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
@@ -237,7 +252,11 @@ func (d *MetaExerciseDAO) Delete(id uint) error {
 		if err := tx.Where("meta_exercise_id = ?", id).Delete(&models.Exercise{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&models.MetaExercise{}, id).Error
+		if err := tx.Delete(&models.MetaExercise{}, id).Error; err != nil {
+			return err
+		}
+		registry := NewCodeRegistryDAO(tx)
+		return registry.ReleaseCode(tx, meta.DomainID, "meta_exercise", id)
 	})
 }
 
@@ -393,27 +412,8 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	return resp, nil
 }
 
-// CheckCodeExistsInDomain checks if a code already exists in a domain (across both definitions and meta-exercises)
+// CheckCodeExistsInDomain checks if a code already exists in a domain (across all code-bearing node types).
 func (d *MetaExerciseDAO) CheckCodeExistsInDomain(code string, domainID uint) (bool, error) {
-	// Check meta_definitions (concept pools)
-	var metaDefCount int64
-	if err := d.db.Model(&models.MetaDefinition{}).
-		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaDefCount).Error; err != nil {
-		return false, err
-	}
-
-	if metaDefCount > 0 {
-		return true, nil
-	}
-
-	// Check meta_exercises
-	var metaExCount int64
-	if err := d.db.Model(&models.MetaExercise{}).
-		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaExCount).Error; err != nil {
-		return false, err
-	}
-
-	return metaExCount > 0, nil
+	registry := NewCodeRegistryDAO(d.db)
+	return registry.CodeExists(domainID, code)
 }

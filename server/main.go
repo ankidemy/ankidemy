@@ -73,6 +73,11 @@ func main() {
 	metaDefSvc := services.NewMetaDefinitionService(db)
 	externalPrerequisiteDAO := dao.NewExternalPrerequisiteDAO(db)
 	groupDAO := dao.NewGroupDAO(db)
+	sourceDAO := dao.NewSourceDAO(db)
+	metaQuestDAO := dao.NewMetaQuestDAO(db)
+	relationDAO := dao.NewNodeRelationDAO(db)
+	codeRegistryDAO := dao.NewCodeRegistryDAO(db)
+	surveyService := services.NewSurveyService(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -96,7 +101,7 @@ func main() {
 	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO, metaDefinitionDAO, permissionDAO)
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO, permissionDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
-	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO)
+	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO, sourceDAO, metaQuestDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
 	srsHandler := handlers.NewSRSHandler(db, permissionDAO)
 	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc, permissionDAO)
@@ -105,6 +110,10 @@ func main() {
 	domainAccessHandler := handlers.NewDomainAccessHandler(domainDAO, permissionDAO, inviteDAO, userDAO, progressDAO)
 	externalPrerequisiteHandler := handlers.NewExternalPrerequisiteHandler(domainDAO, permissionDAO, externalPrerequisiteDAO, metaDefinitionDAO, metaExerciseDAO)
 	groupHandler := handlers.NewGroupHandler(groupDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO)
+	sourceHandler := handlers.NewSourceHandler(sourceDAO, domainDAO, permissionDAO, codeRegistryDAO)
+	questHandler := handlers.NewQuestHandler(metaQuestDAO, domainDAO, permissionDAO, codeRegistryDAO, relationDAO)
+	relationHandler := handlers.NewRelationHandler(relationDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO, sourceDAO, metaQuestDAO)
+	surveyHandler := handlers.NewSurveyHandler(domainDAO, permissionDAO, metaQuestDAO, surveyService)
 
 	// Initialize router
 	router := gin.Default()
@@ -199,6 +208,18 @@ func main() {
 				domains.GET("/:id/meta-definitions", metaDefinitionHandler.GetDomainMetaDefinitions)
 				domains.POST("/:id/meta-definitions", metaDefinitionHandler.CreateMetaDefinition)
 
+				// Sources
+				domains.GET("/:id/sources", sourceHandler.ListVisibleSources)
+				domains.POST("/:id/sources", sourceHandler.CreateSource)
+
+				// Quests
+				domains.GET("/:id/quests", questHandler.ListVisibleQuests)
+				domains.POST("/:id/quests", questHandler.CreateQuest)
+
+				// Relations
+				domains.GET("/:id/relations", relationHandler.ListVisibleRelations)
+				domains.POST("/:id/relations", relationHandler.CreateRelation)
+
 				// External prerequisites
 				domains.GET("/:id/external-prerequisites", externalPrerequisiteHandler.ListByDomain)
 				domains.POST("/:id/external-prerequisites", externalPrerequisiteHandler.Create)
@@ -290,6 +311,29 @@ func main() {
 				metaDefs.DELETE("/:id/versions/:versionId", metaDefinitionHandler.DeleteVersion)
 			}
 
+			// Source routes
+			sources := authorized.Group("/sources")
+			{
+				sources.GET("/:id", sourceHandler.GetSource)
+				sources.PATCH("/:id", sourceHandler.UpdateSource)
+				sources.DELETE("/:id", sourceHandler.DeleteSource)
+			}
+
+			// Quest routes
+			quests := authorized.Group("/quests")
+			{
+				quests.GET("/:id", questHandler.GetQuest)
+				quests.PATCH("/:id", questHandler.UpdateQuest)
+				quests.DELETE("/:id", questHandler.DeleteQuest)
+				quests.POST("/:id/versions", questHandler.AddVersion)
+				quests.PATCH("/:id/versions/:versionId", questHandler.UpdateVersion)
+				quests.DELETE("/:id/versions/:versionId", questHandler.DeleteVersion)
+				quests.PUT("/:id/versions/:versionId/relevant", questHandler.UpdateRelevantLinks)
+			}
+
+			// Relation routes
+			authorized.DELETE("/relations/:id", relationHandler.DeleteRelation)
+
 			// Progress routes
 			progress := authorized.Group("/progress")
 			{
@@ -337,6 +381,14 @@ func main() {
 
 				// Test/Debug endpoints
 				srs.POST("/test/credit-propagation", srsHandler.TestCreditPropagation)
+			}
+
+			// Survey routes
+			survey := authorized.Group("/survey")
+			{
+				survey.GET("/domains/:id/queue", surveyHandler.GetQueue)
+				survey.GET("/domains/:id/stats", surveyHandler.GetStats)
+				survey.POST("/events", surveyHandler.PostEvent)
 			}
 
 			// Media routes

@@ -150,6 +150,21 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     return map;
   }, [graphNodes, structureVersion]);
 
+  const getNodeBaseSize = useCallback((type?: string) => {
+    switch (type) {
+      case 'group':
+        return 10;
+      case 'definition':
+        return 7;
+      case 'source':
+      case 'quest':
+        return 6.5;
+      case 'exercise':
+      default:
+        return 6;
+    }
+  }, []);
+
   const isNodeVisible = useCallback((node: GraphNode) => {
     if (mode === 'study' && node.type === 'exercise') return false;
     if (filteredNodeType === 'all') return true;
@@ -253,7 +268,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
     const displayId = (node as GraphNode).displayId ?? id;
     const isGroup = type === 'group';
-    const nodeSizeBase = isGroup ? 10 : (type === 'definition' ? 7 : 6);
+    const nodeSizeBase = getNodeBaseSize(type);
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
     const isSelected = selectedNodeIds.has(id);
     const isNewlyCreated = newlyCreatedNodeId === id;
@@ -269,6 +284,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         baseColor = '#111827';
       } else if (type === 'definition') {
         baseColor = node.isRootDefinition ? '#28a745' : '#007bff';
+      } else if (type === 'source') {
+        baseColor = '#10b981';
+      } else if (type === 'quest') {
+        baseColor = '#f59e0b';
       } else {
         const difficultyColors = ['#66bb6a', '#9ccc65', '#d4e157', '#ffee58', '#ffa726', '#ff7043', '#ef5350'];
         let difficultyLevel = 2;
@@ -335,7 +354,11 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         ctx.strokeStyle = externalStatus && externalStatus !== 'ok' ? 'rgba(248, 113, 113, 0.85)' : 'rgba(148, 163, 184, 0.65)';
         ctx.lineWidth = 1 / globalScale;
       } else {
-        ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
+        if (type === 'source' || type === 'quest') {
+          ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+        } else {
+          ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
+        }
         ctx.lineWidth = 1 / globalScale;
       }
     }
@@ -387,7 +410,15 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
       ctx.shadowBlur = Math.max(1, iconFontSize * 0.1);
       
-      const text = type === 'definition' ? 'D' : type === 'exercise' ? 'E' : 'G';
+      const text = type === 'definition'
+        ? 'D'
+        : type === 'exercise'
+          ? 'E'
+          : type === 'source'
+            ? 'S'
+            : type === 'quest'
+              ? 'Q'
+              : 'G';
       ctx.fillText(text, x, y);
       
       ctx.shadowColor = 'transparent';
@@ -434,7 +465,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
       }
     }
-  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh]);
+  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh, getNodeBaseSize]);
 
   // Memoized link color calculation
   const getLinkColor = useCallback((link: any) => {
@@ -444,6 +475,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     
     if (highlightLinks.has(linkId)) {
       return 'rgba(245, 158, 11, 0.9)';
+    }
+
+    if (link.type === 'relation') {
+      return 'rgba(31, 41, 55, 0.55)';
     }
 
     const sourceNode = graphNodes.find(n => n.id === sourceId);
@@ -505,7 +540,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       return baseWidth;
     }
     
-    let baseWidth = 1.0;
+    let baseWidth = link.type === 'relation' ? 1.2 : 1.0;
     const targetNode = graphNodes.find(n => n.id === targetId);
     if (targetNode?.type === 'exercise') baseWidth = 1.8;
     
@@ -565,7 +600,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const linkId = `${sourceId}-${targetId}`;
     const isHighlighted = highlightLinks.has(linkId);
     const isConnectedHighlighted = highlightNodes.has(sourceId) || highlightNodes.has(targetId);
-    const isPartial = weight < 1.0;
+    const isRelation = link.type === 'relation';
+    const isPartial = weight < 1.0 && !isRelation;
     
     const color = getLinkColor(link);
     const width = getLinkWidth(link) / globalScale;
@@ -574,7 +610,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const dy = curve.target.y - curve.source.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     const targetNode = graphNodes.find(n => n.id === targetId);
-    const targetNodeSize = (targetNode?.type === 'definition' ? 7 : 6) / Math.sqrt(globalScale);
+    const targetNodeSize = getNodeBaseSize(targetNode?.type) / Math.sqrt(globalScale);
     const { controlX, controlY } = curve;
     
     // Glow effect for highlights
@@ -591,7 +627,11 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     
-    if (isPartial) {
+    if (isRelation) {
+      const dashSize = Math.max(4, 6 / globalScale);
+      const gapSize = Math.max(3, 4 / globalScale);
+      ctx.setLineDash([dashSize, gapSize]);
+    } else if (isPartial) {
       const dashSize = Math.max(3, 5 / globalScale);
       const gapSize = Math.max(2, 3 / globalScale);
       ctx.setLineDash([dashSize, gapSize]);
@@ -674,7 +714,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.textBaseline = 'middle';
       ctx.fillText(text, controlX, controlY);
     }
-  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes, getLinkCurvePoints]);
+  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes, getLinkCurvePoints, getNodeBaseSize]);
 
   const linkPointerAreaPaint = useCallback((link: any, color: string, ctx: CanvasRenderingContext2D) => {
     const curve = getLinkCurvePoints(link);
@@ -776,7 +816,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         onDagError={onDagError}
         nodeVal={node => {
           if (node.type === 'group') return 10;
-          return (node.type === 'definition' ? 8 : 6) * (node.isDue ? 1.3 : 1);
+          const base = node.type === 'definition'
+            ? 8
+            : (node.type === 'source' || node.type === 'quest')
+              ? 7
+              : 6;
+          return base * (node.isDue ? 1.3 : 1);
         }}
         nodeCanvasObject={nodeCanvasObject}
         

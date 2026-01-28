@@ -137,9 +137,17 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
     if (isSelected) {
       itemClasses += "bg-blue-100 text-blue-900 border-blue-300 shadow-md transform scale-[1.02] ";
     } else if (isActive) {
-      itemClasses += node.type === 'definition'
-        ? "bg-blue-50 text-blue-800 border-blue-200 shadow-sm "
-        : "bg-orange-50 text-orange-800 border-orange-200 shadow-sm ";
+      if (node.type === 'definition') {
+        itemClasses += "bg-blue-50 text-blue-800 border-blue-200 shadow-sm ";
+      } else if (node.type === 'exercise') {
+        itemClasses += "bg-orange-50 text-orange-800 border-orange-200 shadow-sm ";
+      } else if (node.type === 'source') {
+        itemClasses += "bg-emerald-50 text-emerald-800 border-emerald-200 shadow-sm ";
+      } else if (node.type === 'quest') {
+        itemClasses += "bg-amber-50 text-amber-800 border-amber-200 shadow-sm ";
+      } else {
+        itemClasses += "bg-gray-50 text-gray-800 border-gray-200 shadow-sm ";
+      }
     } else {
       itemClasses += "border-transparent hover:bg-gray-50 hover:border-gray-200 hover:shadow-sm ";
     }
@@ -204,9 +212,15 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             {/* Enhanced metadata display */}
             <div className="flex items-center space-x-2 text-xs text-gray-500 mt-1">
               <span className={`capitalize px-2 py-0.5 rounded text-xs font-medium ${
-                node.type === 'definition' 
-                  ? 'bg-blue-100 text-blue-700' 
-                  : 'bg-orange-100 text-orange-700'
+                node.type === 'definition'
+                  ? 'bg-blue-100 text-blue-700'
+                  : node.type === 'exercise'
+                    ? 'bg-orange-100 text-orange-700'
+                    : node.type === 'source'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : node.type === 'quest'
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-gray-100 text-gray-700'
               }`}>
                 {node.type}
               </span>
@@ -398,6 +412,8 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             <option value="all">All Nodes</option>
             <option value="definition">Definitions Only</option>
             <option value="exercise">Exercises Only</option>
+            <option value="source">Sources Only</option>
+            <option value="quest">Quests Only</option>
           </select>
         </div>
       </div>

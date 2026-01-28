@@ -28,6 +28,13 @@ func CollectImportMediaPaths(data *ImportData) []string {
 			add(v.DescriptionImagePath)
 		}
 	}
+	for _, mq := range data.MetaQuests {
+		for _, v := range mq.Versions {
+			if v.ImagePath != nil {
+				add(*v.ImagePath)
+			}
+		}
+	}
 
 	out := make([]string, 0, len(seen))
 	for path := range seen {
@@ -80,6 +87,19 @@ func RewriteImportMediaPaths(data *ImportData, rewrite func(string) (string, err
 			}
 		}
 		data.MetaExercises[code] = me
+	}
+
+	for code, mq := range data.MetaQuests {
+		for i := range mq.Versions {
+			if mq.Versions[i].ImagePath != nil && strings.TrimSpace(*mq.Versions[i].ImagePath) != "" {
+				next, err := rewrite(*mq.Versions[i].ImagePath)
+				if err != nil {
+					return err
+				}
+				mq.Versions[i].ImagePath = &next
+			}
+		}
+		data.MetaQuests[code] = mq
 	}
 
 	return nil

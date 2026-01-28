@@ -71,6 +71,15 @@ func InitDB() (*gorm.DB, error) {
 		&models.UserMetaDefinitionStats{},
 		&models.UserDefinitionVersionStats{},
 		&models.ExternalPrerequisite{},
+		&models.Source{},
+		&models.MetaQuest{},
+		&models.QuestVersion{},
+		&models.UserMetaQuestState{},
+		&models.QuestEvent{},
+		&models.NodeRelation{},
+		&models.DomainNodeCode{},
+		&models.UserDomainSettings{},
+		&models.UserDailyQuestDraw{},
 	}
 
 	// AutoMigrate all models - note that in production you might want more controlled migrations
@@ -82,6 +91,11 @@ func InitDB() (*gorm.DB, error) {
 
 	// Ensure DB check constraints support the new 'meta_exercise' node type
 	ensureSRSConstraints(db)
+
+	// Ensure domain_node_codes are populated for existing nodes
+	if err := ensureDomainNodeCodes(db); err != nil {
+		return nil, err
+	}
 
 	return db, nil
 }
@@ -109,4 +123,69 @@ func ensureSRSConstraints(db *gorm.DB) {
 			log.Printf("Constraint update note: %v (stmt: %s)", err, s)
 		}
 	}
+}
+
+// ensureDomainNodeCodes backfills domain_node_codes for existing meta nodes.
+// It fails loudly on duplicate codes within a domain.
+func ensureDomainNodeCodes(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&models.DomainNodeCode{}).Count(&count).Error; err != nil {
+		return err
+	}
+	// If entries exist, assume backfill already happened.
+	if count > 0 {
+		return nil
+	}
+
+	type codeRow struct {
+		ID       uint
+		DomainID uint
+		Code     string
+		NodeType string
+	}
+
+	rows := make([]codeRow, 0)
+
+	var metaDefs []models.MetaDefinition
+	if err := db.Select("id", "domain_id", "code").Find(&metaDefs).Error; err != nil {
+		return err
+	}
+	for _, md := range metaDefs {
+		rows = append(rows, codeRow{ID: md.ID, DomainID: md.DomainID, Code: md.Code, NodeType: "meta_definition"})
+	}
+
+	var metaExs []models.MetaExercise
+	if err := db.Select("id", "domain_id", "code").Find(&metaExs).Error; err != nil {
+		return err
+	}
+	for _, me := range metaExs {
+		rows = append(rows, codeRow{ID: me.ID, DomainID: me.DomainID, Code: me.Code, NodeType: "meta_exercise"})
+	}
+
+	seen := make(map[string]bool)
+	for _, r := range rows {
+		key := fmt.Sprintf("%d:%s", r.DomainID, r.Code)
+		if r.Code == "" {
+			return fmt.Errorf("domain_node_codes backfill: empty code for %s id=%d", r.NodeType, r.ID)
+		}
+		if seen[key] {
+			return fmt.Errorf("domain_node_codes backfill: duplicate code '%s' in domain %d", r.Code, r.DomainID)
+		}
+		seen[key] = true
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, r := range rows {
+			entry := &models.DomainNodeCode{
+				DomainID: r.DomainID,
+				Code:     r.Code,
+				NodeType: r.NodeType,
+				NodeID:   r.ID,
+			}
+			if err := tx.Create(entry).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

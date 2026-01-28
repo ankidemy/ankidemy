@@ -35,6 +35,8 @@ interface TopControlsProps {
   onSavePositions: () => void;
   isEnrolled?: boolean;
   onEnroll?: () => void;
+  onOpenSurvey?: () => void;
+  surveyDueCount?: number;
   
   // NEW: Enhanced graph control props
   onResetView?: () => void;
@@ -75,6 +77,9 @@ interface TopControlsProps {
   onDagOrientationChange?: (orientation: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin') => void;
   expandedCycleCount?: number;
   onCollapseCycles?: () => void;
+
+  questVisibilityMode?: 'on' | 'nodes' | 'off';
+  onQuestVisibilityChange?: (mode: 'on' | 'nodes' | 'off') => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -93,6 +98,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   onSavePositions,
   isEnrolled = true,
   onEnroll,
+  onOpenSurvey,
+  surveyDueCount = 0,
   onResetView,
   onCenterSelected,
   selectedNodeId,
@@ -117,6 +124,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   onDagOrientationChange,
   expandedCycleCount = 0,
   onCollapseCycles,
+  questVisibilityMode = 'on',
+  onQuestVisibilityChange,
 }) => {
   const srs = useSRS();
 
@@ -562,6 +571,23 @@ const TopControls: React.FC<TopControlsProps> = ({
           Review ({isEnrolled ? dueCount : 0})
         </Button>
 
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onOpenSurvey}
+          disabled={!isEnrolled || !onOpenSurvey}
+          className="flex items-center"
+          title={!isEnrolled ? "Enroll in domain to access Survey" : "Open Survey"}
+        >
+          <List size={14} className="mr-1" />
+          Survey
+          {surveyDueCount > 0 && (
+            <span className="ml-2 rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5">
+              {surveyDueCount}
+            </span>
+          )}
+        </Button>
+
         <div className="relative" ref={reviewQueueRef}>
           <Button
             variant="outline"
@@ -656,6 +682,19 @@ const TopControls: React.FC<TopControlsProps> = ({
           >
             <LabelIconComponent size={12} className="mr-1" /> {labelButtonText}
           </Button>
+
+          {onQuestVisibilityChange && (
+            <select
+              value={questVisibilityMode}
+              onChange={(event) => onQuestVisibilityChange(event.target.value as any)}
+              className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
+              title="Quest visibility"
+            >
+              <option value="on">Quests: Nodes+Links</option>
+              <option value="nodes">Quests: Only Nodes</option>
+              <option value="off">Quests: Off</option>
+            </select>
+          )}
 
           {onToggleDagMode && (
             <Button

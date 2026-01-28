@@ -347,12 +347,17 @@ func (h *DomainHandler) ExportBackup(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
-	if userID != domain.OwnerID && !isAdmin {
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to export this backup"})
 		return
 	}
 
-	backup, err := h.importService.ExportDomainBackup(domain.ID)
+	backup, err := h.importService.ExportDomainBackup(domain.ID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export backup: " + err.Error()})
 		return
@@ -428,7 +433,12 @@ func (h *DomainHandler) ImportBackup(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
-	if userID != domain.OwnerID && !isAdmin {
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to import this backup"})
 		return
 	}
@@ -566,7 +576,12 @@ func (h *DomainHandler) ImportBackup(c *gin.Context) {
 		return
 	}
 
-	if backup != nil && backup.SRS != nil && backup.SRS.Username != "" {
+	if backup != nil && backup.UserState != nil {
+		if err := h.importService.ImportUserState(domain.ID, userID, backup.UserState); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import user state: " + err.Error()})
+			return
+		}
+	} else if backup != nil && backup.SRS != nil && backup.SRS.Username != "" {
 		userDAO := dao.NewUserDAO(h.domainDAO.DB())
 		currentUser, err := userDAO.FindUserByID(userID)
 		if err == nil && currentUser.Username == backup.SRS.Username {

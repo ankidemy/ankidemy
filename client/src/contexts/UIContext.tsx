@@ -6,7 +6,7 @@ import React, { createContext, useContext, useReducer, useCallback } from 'react
 // Window state interface
 interface WindowState {
   id: string;
-  type: 'detail' | 'review';
+  type: 'detail' | 'review' | 'source' | 'quest' | 'survey';
   title: string;
   contentProps: any;
   position: { x: number; y: number };
@@ -34,7 +34,7 @@ type UIAction =
   | { type: 'SET_REVIEW_STATE'; payload: { isActive: boolean; nodeId: string | null; answerVisible: boolean } }
   | { type: 'SHOW_REVIEW_ANSWER' }
   | { type: 'CLOSE_ALL_WINDOWS' }
-  | { type: 'CLOSE_WINDOWS_BY_TYPE'; payload: { type: 'detail' | 'review' } }; // FIX: Add new action
+  | { type: 'CLOSE_WINDOWS_BY_TYPE'; payload: { type: 'detail' | 'review' | 'source' | 'quest' | 'survey' } }; // FIX: Add new action
 
 // Initial state
 const initialState: UIState = {
@@ -205,6 +205,9 @@ const uiReducer = (state: UIState, action: UIAction): UIState => {
 interface UIContextType {
   state: UIState;
   openDetailWindow: (nodeId: string, nodeData: any, position?: { x: number; y: number }) => void;
+  openSourceWindow: (sourceId: string, sourceData: any, position?: { x: number; y: number }) => void;
+  openQuestWindow: (questId: string, questData: any, position?: { x: number; y: number }) => void;
+  openSurveyWindow: () => void;
   openReviewWindow: () => void;
   closeWindow: (id: string) => void;
   focusWindow: (id: string) => void;
@@ -213,7 +216,7 @@ interface UIContextType {
   setReviewState: (isActive: boolean, nodeId: string | null, answerVisible: boolean) => void;
   showReviewAnswer: () => void;
   closeAllWindows: () => void;
-  closeWindowsByType: (type: 'detail' | 'review') => void; // FIX: Add new method
+  closeWindowsByType: (type: 'detail' | 'review' | 'source' | 'quest' | 'survey') => void; // FIX: Add new method
   isNodeBeingReviewed: (nodeId: string) => boolean;
   shouldHideNodeContent: (nodeId: string) => boolean;
   // FIX: Add helper methods for window management
@@ -252,6 +255,76 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         contentProps: { nodeData },
         position: defaultPosition,
         size: { width: 545, height: 600 },
+      },
+    });
+  }, [state.windows]);
+
+  const openSourceWindow = useCallback((sourceId: string, sourceData: any, position?: { x: number; y: number }) => {
+    const windowId = `source-${sourceId}`;
+    const existingWindow = state.windows.find(w => w.id === windowId);
+    if (existingWindow) {
+      dispatch({ type: 'FOCUS_WINDOW', payload: { id: windowId } });
+      return;
+    }
+    const windowCount = state.windows.filter(w => w.type === 'source').length;
+    const defaultPosition = position || {
+      x: 120 + (windowCount * 30),
+      y: 120 + (windowCount * 30),
+    };
+    dispatch({
+      type: 'OPEN_WINDOW',
+      payload: {
+        id: windowId,
+        type: 'source',
+        title: sourceData?.title || 'Source',
+        contentProps: { sourceData },
+        position: defaultPosition,
+        size: { width: 520, height: 520 },
+      },
+    });
+  }, [state.windows]);
+
+  const openQuestWindow = useCallback((questId: string, questData: any, position?: { x: number; y: number }) => {
+    const windowId = `quest-${questId}`;
+    const existingWindow = state.windows.find(w => w.id === windowId);
+    if (existingWindow) {
+      dispatch({ type: 'FOCUS_WINDOW', payload: { id: windowId } });
+      return;
+    }
+    const windowCount = state.windows.filter(w => w.type === 'quest').length;
+    const defaultPosition = position || {
+      x: 140 + (windowCount * 30),
+      y: 140 + (windowCount * 30),
+    };
+    dispatch({
+      type: 'OPEN_WINDOW',
+      payload: {
+        id: windowId,
+        type: 'quest',
+        title: questData?.code || 'Quest',
+        contentProps: { questData },
+        position: defaultPosition,
+        size: { width: 560, height: 560 },
+      },
+    });
+  }, [state.windows]);
+
+  const openSurveyWindow = useCallback(() => {
+    const windowId = 'survey-window';
+    const existingWindow = state.windows.find(w => w.id === windowId);
+    if (existingWindow) {
+      dispatch({ type: 'FOCUS_WINDOW', payload: { id: windowId } });
+      return;
+    }
+    dispatch({
+      type: 'OPEN_WINDOW',
+      payload: {
+        id: windowId,
+        type: 'survey',
+        title: 'Survey',
+        contentProps: {},
+        position: { x: 160, y: 120 },
+        size: { width: 520, height: 560 },
       },
     });
   }, [state.windows]);
@@ -338,6 +411,9 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const contextValue: UIContextType = {
     state,
     openDetailWindow,
+    openSourceWindow,
+    openQuestWindow,
+    openSurveyWindow,
     openReviewWindow,
     closeWindow,
     focusWindow,

@@ -275,6 +275,78 @@ export interface ExerciseRequest {
   yPosition?: number;
 }
 
+export interface SourceDTO {
+  id?: number;
+  domainId?: number;
+  ownerId?: number;
+  code: string;
+  title: string;
+  contentMd: string;
+  bibtexKey?: string | null;
+  filePath?: string | null;
+  xPosition?: number;
+  yPosition?: number;
+  visibility?: 'private' | 'domain';
+}
+
+export interface QuestVersionDTO {
+  id?: number;
+  metaQuestId?: number;
+  title: string;
+  descriptionMd?: string;
+  taskList?: any;
+  imagePath?: string | null;
+}
+
+export interface MetaQuestDTO {
+  id?: number;
+  domainId?: number;
+  ownerId?: number;
+  code: string;
+  kind: 'todo' | 'habit' | 'daily';
+  schedule: any;
+  xPosition?: number;
+  yPosition?: number;
+  visibility?: 'private' | 'domain';
+  active?: boolean;
+  nextDueAt?: string | null;
+  versions?: QuestVersionDTO[];
+}
+
+export interface NodeRelationDTO {
+  id?: number;
+  domainId?: number;
+  fromType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  fromId: number;
+  toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  toId: number;
+  relationType: string;
+  contextKey?: string;
+  createdBy?: number;
+}
+
+export interface SurveyQueueItem {
+  questId: number;
+  questCode: string;
+  questKind: 'todo' | 'habit' | 'daily';
+  selectedVersionId: number;
+  versions: QuestVersionDTO[];
+  nextDueAt?: string | null;
+  active: boolean;
+  visibility: 'private' | 'domain';
+  isOverdue: boolean;
+  relevantNodes?: Array<{ nodeType: string; nodeId: number; code: string }>;
+}
+
+export interface SurveyEventRequest {
+  metaQuestId: number;
+  eventType: 'completed' | 'skipped' | 'snoozed' | 'deactivated' | 'reactivated' | 'version_swapped';
+  questVersionId?: number;
+  happenedAt?: string;
+  note?: string;
+  payload?: any;
+}
+
 export interface ReviewRequest {
   definitionId: number;
   result: 'again' | 'hard' | 'good' | 'easy';
@@ -290,7 +362,7 @@ export interface ExerciseAttemptRequest {
 export interface VisualGraph {
   nodes: {
     id: string;
-    type: 'definition' | 'exercise';
+    type: 'definition' | 'exercise' | 'source' | 'quest';
     name: string;
     code: string;
     x?: number;
@@ -300,6 +372,8 @@ export interface VisualGraph {
   links: {
     source: string;
     target: string;
+    type?: string;
+    relationType?: string;
   }[];
 }
 
@@ -1797,6 +1871,210 @@ export const updateGraphPositions = async (domainId: number, positions: Record<s
     body: JSON.stringify(positions),
   });
   
+  return handleResponse(response);
+};
+
+// Sources API
+export const getDomainSources = async (domainId: number): Promise<SourceDTO[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/sources?scope=visible`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) return [];
+  return handleResponse(response);
+};
+
+export const createSource = async (domainId: number, payload: Partial<SourceDTO>): Promise<SourceDTO> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/sources`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 404) {
+    throw new Error('Sources API is not available on this server.');
+  }
+  return handleResponse(response);
+};
+
+export const getSource = async (sourceId: number): Promise<SourceDTO> => {
+  const response = await fetch(`${API_URL}/api/sources/${sourceId}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const updateSource = async (sourceId: number, payload: Partial<SourceDTO>): Promise<SourceDTO> => {
+  const response = await fetch(`${API_URL}/api/sources/${sourceId}`, {
+    method: 'PATCH',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+export const deleteSource = async (sourceId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/sources/${sourceId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// Quests API
+export const getDomainQuests = async (domainId: number): Promise<MetaQuestDTO[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/quests?scope=visible`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) return [];
+  return handleResponse(response);
+};
+
+export const createQuest = async (domainId: number, payload: Partial<MetaQuestDTO> & { initialVersion: QuestVersionDTO }): Promise<MetaQuestDTO> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/quests`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 404) {
+    throw new Error('Quests API is not available on this server.');
+  }
+  return handleResponse(response);
+};
+
+export const getQuest = async (questId: number): Promise<MetaQuestDTO> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const updateQuest = async (questId: number, payload: Partial<MetaQuestDTO> & { active?: boolean }): Promise<MetaQuestDTO> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}`, {
+    method: 'PATCH',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+export const deleteQuest = async (questId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const addQuestVersion = async (questId: number, payload: QuestVersionDTO): Promise<QuestVersionDTO> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}/versions`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+export const updateQuestVersion = async (questId: number, versionId: number, payload: QuestVersionDTO): Promise<QuestVersionDTO> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}/versions/${versionId}`, {
+    method: 'PATCH',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+export const deleteQuestVersion = async (questId: number, versionId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}/versions/${versionId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const updateQuestRelevantLinks = async (questId: number, versionId: number, payload: Array<{ relationType: string; toType: string; toCode: string }>): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/quests/${questId}/versions/${versionId}/relevant`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+// Relations API
+export const getDomainRelations = async (domainId: number): Promise<NodeRelationDTO[]> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/relations?scope=visible`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) return [];
+  return handleResponse(response);
+};
+
+export const createRelation = async (domainId: number, payload: Partial<NodeRelationDTO>): Promise<NodeRelationDTO> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/relations`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+};
+
+export const deleteRelation = async (relationId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/relations/${relationId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// Survey API
+export const getSurveyQueue = async (domainId: number): Promise<SurveyQueueItem[]> => {
+  const response = await fetch(`${API_URL}/api/survey/domains/${domainId}/queue`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) return [];
+  return handleResponse(response);
+};
+
+export const getSurveyStats = async (domainId: number): Promise<{ dueQuests: number }> => {
+  const response = await fetch(`${API_URL}/api/survey/domains/${domainId}/stats`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) return { dueQuests: 0 };
+  return handleResponse(response);
+};
+
+export const postSurveyEvent = async (payload: SurveyEventRequest): Promise<void> => {
+  const response = await fetch(`${API_URL}/api/survey/events`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
   return handleResponse(response);
 };
 

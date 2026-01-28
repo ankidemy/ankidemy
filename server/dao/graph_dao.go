@@ -93,7 +93,7 @@ type GroupData struct {
 // VisualNode represents a node in the visual graph
 type VisualNode struct {
 	ID            string   `json:"id"`
-	Type          string   `json:"type"` // "definition" or "exercise"
+	Type          string   `json:"type"` // "definition" | "exercise" | "source" | "quest"
 	Name          string   `json:"name"`
 	Code          string   `json:"code"`
 	X             float64  `json:"x,omitempty"`
@@ -105,13 +105,15 @@ type VisualNode struct {
 type VisualGraph struct {
 	Nodes []VisualNode `json:"nodes"`
 	Links []struct {
-		Source string `json:"source"`
-		Target string `json:"target"`
+		Source       string `json:"source"`
+		Target       string `json:"target"`
+		Type         string `json:"type,omitempty"`
+		RelationType string `json:"relationType,omitempty"`
 	} `json:"links"`
 }
 
-// GetVisualGraph returns the domain as a visual graph structure
-func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
+// GetVisualGraph returns the domain as a visual graph structure (filtered by user visibility).
+func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, error) {
 	// Load domain with meta definitions and meta exercises
 	var metaDefs []models.MetaDefinition
 	var metaExs []models.MetaExercise
@@ -126,8 +128,20 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 		return nil, err
 	}
 
+	// Get sources visible to user
+	var sources []models.Source
+	if err := d.db.Where("domain_id = ? AND (visibility = 'domain' OR owner_id = ?)", domainID, userID).Find(&sources).Error; err != nil {
+		return nil, err
+	}
+
+	// Get quests visible to user
+	var quests []models.MetaQuest
+	if err := d.db.Where("domain_id = ? AND (visibility = 'domain' OR owner_id = ?)", domainID, userID).Find(&quests).Error; err != nil {
+		return nil, err
+	}
+
 	// Check domain exists
-	if len(metaDefs) == 0 && len(metaExs) == 0 {
+	if len(metaDefs) == 0 && len(metaExs) == 0 && len(sources) == 0 && len(quests) == 0 {
 		var count int64
 		d.db.Model(&models.Domain{}).Where("id = ?", domainID).Count(&count)
 		if count == 0 {
@@ -138,8 +152,10 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 	graph := &VisualGraph{
 		Nodes: make([]VisualNode, 0),
 		Links: make([]struct {
-			Source string `json:"source"`
-			Target string `json:"target"`
+			Source       string `json:"source"`
+			Target       string `json:"target"`
+			Type         string `json:"type,omitempty"`
+			RelationType string `json:"relationType,omitempty"`
 		}, 0),
 	}
 
@@ -184,6 +200,32 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 			X:             ex.XPosition,
 			Y:             ex.YPosition,
 			Prerequisites: prereqCodes,
+		})
+	}
+
+	// Add sources
+	for _, src := range sources {
+		nodeID := fmt.Sprintf("src_%d", src.ID)
+		graph.Nodes = append(graph.Nodes, VisualNode{
+			ID:   nodeID,
+			Type: "source",
+			Name: src.Title,
+			Code: src.Code,
+			X:    src.XPosition,
+			Y:    src.YPosition,
+		})
+	}
+
+	// Add quests
+	for _, q := range quests {
+		nodeID := fmt.Sprintf("quest_%d", q.ID)
+		graph.Nodes = append(graph.Nodes, VisualNode{
+			ID:   nodeID,
+			Type: "quest",
+			Name: q.Code,
+			Code: q.Code,
+			X:    q.XPosition,
+			Y:    q.YPosition,
 		})
 	}
 
@@ -240,12 +282,70 @@ func (d *GraphDAO) GetVisualGraph(domainID uint) (*VisualGraph, error) {
 		}
 
 		graph.Links = append(graph.Links, struct {
-			Source string `json:"source"`
-			Target string `json:"target"`
-		}{Source: sourceID, Target: targetID})
+			Source       string `json:"source"`
+			Target       string `json:"target"`
+			Type         string `json:"type,omitempty"`
+			RelationType string `json:"relationType,omitempty"`
+		}{Source: sourceID, Target: targetID, Type: "prerequisite"})
+	}
+
+	// Add node_relations links
+	var relations []models.NodeRelation
+	if err := d.db.Where("domain_id = ?", domainID).Find(&relations).Error; err != nil {
+		return nil, err
+	}
+	visible := map[string]map[uint]bool{
+		"meta_definition": {},
+		"meta_exercise":   {},
+		"source":          {},
+		"meta_quest":      {},
+	}
+	for _, md := range metaDefs {
+		visible["meta_definition"][md.ID] = true
+	}
+	for _, me := range metaExs {
+		visible["meta_exercise"][me.ID] = true
+	}
+	for _, s := range sources {
+		visible["source"][s.ID] = true
+	}
+	for _, q := range quests {
+		visible["meta_quest"][q.ID] = true
+	}
+
+	for _, rel := range relations {
+		if !visible[rel.FromType][rel.FromID] || !visible[rel.ToType][rel.ToID] {
+			continue
+		}
+		sourceID := formatNodeID(rel.FromType, rel.FromID)
+		targetID := formatNodeID(rel.ToType, rel.ToID)
+		if sourceID == "" || targetID == "" {
+			continue
+		}
+		graph.Links = append(graph.Links, struct {
+			Source       string `json:"source"`
+			Target       string `json:"target"`
+			Type         string `json:"type,omitempty"`
+			RelationType string `json:"relationType,omitempty"`
+		}{Source: sourceID, Target: targetID, Type: "relation", RelationType: rel.RelationType})
 	}
 
 	return graph, nil
+}
+
+func formatNodeID(nodeType string, nodeID uint) string {
+	switch nodeType {
+	case "meta_definition":
+		return fmt.Sprintf("def_%d", nodeID)
+	case "meta_exercise":
+		return fmt.Sprintf("ex_%d", nodeID)
+	case "source":
+		return fmt.Sprintf("src_%d", nodeID)
+	case "meta_quest":
+		return fmt.Sprintf("quest_%d", nodeID)
+	default:
+		return ""
+	}
 }
 
 // ExportDomain exports a domain to the graph format
@@ -689,6 +789,14 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 			if err := tx.Create(metaDef).Error; err != nil {
 				return err
 			}
+			if err := tx.Create(&models.DomainNodeCode{
+				DomainID: domainID,
+				Code:     code,
+				NodeType: "meta_definition",
+				NodeID:   metaDef.ID,
+			}).Error; err != nil {
+				return err
+			}
 			metaDefsByCode[code] = metaDef
 		}
 
@@ -788,6 +896,14 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 				YPosition: exNode.YPosition,
 			}
 			if err := tx.Create(meta).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&models.DomainNodeCode{
+				DomainID: domainID,
+				Code:     code,
+				NodeType: "meta_exercise",
+				NodeID:   meta.ID,
+			}).Error; err != nil {
 				return err
 			}
 			metaExByCode[code] = meta
@@ -1035,29 +1151,47 @@ func (d *GraphDAO) UpdateGraphPositions(positionUpdates map[string]struct{ X, Y 
 				return errors.New("invalid node ID number: " + nodeIDStr)
 			}
 
-			if nodeType == "def" {
-				// Update meta_definition position
-				if err := tx.Model(&models.MetaDefinition{}).
-					Where("id = ?", id).
-					Updates(map[string]interface{}{
-						"x_position": pos.X,
-						"y_position": pos.Y,
-					}).Error; err != nil {
-					return err
-				}
-			} else if nodeType == "ex" {
-				// Update meta_exercise position
-				if err := tx.Model(&models.MetaExercise{}).
-					Where("id = ?", id).
-					Updates(map[string]interface{}{
-						"x_position": pos.X,
-						"y_position": pos.Y,
-					}).Error; err != nil {
-					return err
-				}
-			} else {
-				return errors.New("unknown node type: " + nodeType)
+		if nodeType == "def" {
+			// Update meta_definition position
+			if err := tx.Model(&models.MetaDefinition{}).
+				Where("id = ?", id).
+				Updates(map[string]interface{}{
+					"x_position": pos.X,
+					"y_position": pos.Y,
+				}).Error; err != nil {
+				return err
 			}
+		} else if nodeType == "ex" {
+			// Update meta_exercise position
+			if err := tx.Model(&models.MetaExercise{}).
+				Where("id = ?", id).
+				Updates(map[string]interface{}{
+					"x_position": pos.X,
+					"y_position": pos.Y,
+				}).Error; err != nil {
+				return err
+			}
+		} else if nodeType == "src" {
+			if err := tx.Model(&models.Source{}).
+				Where("id = ?", id).
+				Updates(map[string]interface{}{
+					"x_position": pos.X,
+					"y_position": pos.Y,
+				}).Error; err != nil {
+				return err
+			}
+		} else if nodeType == "quest" {
+			if err := tx.Model(&models.MetaQuest{}).
+				Where("id = ?", id).
+				Updates(map[string]interface{}{
+					"x_position": pos.X,
+					"y_position": pos.Y,
+				}).Error; err != nil {
+				return err
+			}
+		} else {
+			return errors.New("unknown node type: " + nodeType)
+		}
 		}
 
 		return nil

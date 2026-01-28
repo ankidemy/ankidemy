@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
@@ -13,14 +14,18 @@ type GraphHandler struct {
 	graphDAO      *dao.GraphDAO
 	domainDAO     *dao.DomainDAO
 	permissionDAO *dao.DomainPermissionDAO
+	sourceDAO     *dao.SourceDAO
+	metaQuestDAO  *dao.MetaQuestDAO
 }
 
 // NewGraphHandler creates a new GraphHandler
-func NewGraphHandler(graphDAO *dao.GraphDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO) *GraphHandler {
+func NewGraphHandler(graphDAO *dao.GraphDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, sourceDAO *dao.SourceDAO, metaQuestDAO *dao.MetaQuestDAO) *GraphHandler {
 	return &GraphHandler{
 		graphDAO:      graphDAO,
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
+		sourceDAO:     sourceDAO,
+		metaQuestDAO:  metaQuestDAO,
 	}
 }
 
@@ -55,7 +60,7 @@ func (h *GraphHandler) GetVisualGraph(c *gin.Context) {
 	}
 
 	// Get the visual graph
-	graph, err := h.graphDAO.GetVisualGraph(uint(id))
+	graph, err := h.graphDAO.GetVisualGraph(uint(id), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve graph data"})
 		return
@@ -89,16 +94,45 @@ func (h *GraphHandler) UpdatePositions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
 		return
 	}
-	if !canEdit {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this domain"})
-		return
-	}
 
 	// Bind the positions
 	var positions map[string]struct{ X, Y float64 }
 	if err := c.ShouldBindJSON(&positions); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// If user can't edit domain, allow moving only their own sources/quests
+	if !canEdit {
+		filtered := make(map[string]struct{ X, Y float64 })
+		for nodeID, pos := range positions {
+			parts := strings.Split(nodeID, "_")
+			if len(parts) != 2 {
+				continue
+			}
+			nodeType := parts[0]
+			id, err := strconv.ParseUint(parts[1], 10, 32)
+			if err != nil {
+				continue
+			}
+			switch nodeType {
+			case "src":
+				source, err := h.sourceDAO.FindByID(uint(id))
+				if err == nil && source.OwnerID == userID {
+					filtered[nodeID] = pos
+				}
+			case "quest":
+				meta, _, err := h.metaQuestDAO.FindByID(uint(id))
+				if err == nil && meta.OwnerID == userID {
+					filtered[nodeID] = pos
+				}
+			}
+		}
+		if len(filtered) == 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this domain"})
+			return
+		}
+		positions = filtered
 	}
 
 	// Update the positions

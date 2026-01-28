@@ -28,6 +28,11 @@ func (d *MetaDefinitionDAO) Create(meta *models.MetaDefinition, prerequisiteIDs 
 			return err
 		}
 
+		registry := NewCodeRegistryDAO(tx)
+		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "meta_definition", meta.ID); err != nil {
+			return err
+		}
+
 		// Attach prerequisites (only meta_definition allowed for concept graph purity)
 		for _, pid := range prerequisiteIDs {
 			// Determine prerequisite type by checking which table has the ID
@@ -140,6 +145,12 @@ func (d *MetaDefinitionDAO) UpdateFieldsAndCascade(meta *models.MetaDefinition, 
 	return d.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(meta).Error; err != nil {
 			return err
+		}
+		if cascadeCode {
+			registry := NewCodeRegistryDAO(tx)
+			if err := registry.UpdateCode(tx, meta.DomainID, "meta_definition", meta.ID, meta.Code); err != nil {
+				return err
+			}
 		}
 		if cascadeCode {
 			if err := tx.Model(&models.Definition{}).
@@ -307,6 +318,10 @@ func (d *MetaDefinitionDAO) DeleteVersion(versionID uint) error {
 // Delete removes a meta-definition, its versions, and related prerequisites.
 func (d *MetaDefinitionDAO) Delete(id uint) error {
 	return d.DB.Transaction(func(tx *gorm.DB) error {
+		var meta models.MetaDefinition
+		if err := tx.First(&meta, id).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
@@ -326,7 +341,11 @@ func (d *MetaDefinitionDAO) Delete(id uint) error {
 		if err := tx.Where("meta_definition_id = ?", id).Delete(&models.Definition{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&models.MetaDefinition{}, id).Error
+		if err := tx.Delete(&models.MetaDefinition{}, id).Error; err != nil {
+			return err
+		}
+		registry := NewCodeRegistryDAO(tx)
+		return registry.ReleaseCode(tx, meta.DomainID, "meta_definition", id)
 	})
 }
 
@@ -454,25 +473,8 @@ func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versi
 	return resp, nil
 }
 
-// CheckCodeExistsInDomain checks if a code already exists in a domain (across both meta_definitions and meta_exercises)
+// CheckCodeExistsInDomain checks if a code already exists in a domain (across all code-bearing node types).
 func (d *MetaDefinitionDAO) CheckCodeExistsInDomain(code string, domainID uint) (bool, error) {
-	var metaDefCount int64
-	if err := d.DB.Model(&models.MetaDefinition{}).
-		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaDefCount).Error; err != nil {
-		return false, err
-	}
-
-	if metaDefCount > 0 {
-		return true, nil
-	}
-
-	var metaExCount int64
-	if err := d.DB.Model(&models.MetaExercise{}).
-		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaExCount).Error; err != nil {
-		return false, err
-	}
-
-	return metaExCount > 0, nil
+	registry := NewCodeRegistryDAO(d.DB)
+	return registry.CodeExists(domainID, code)
 }

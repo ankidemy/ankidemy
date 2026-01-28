@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,7 +16,8 @@ type DomainBackup struct {
 	Domain        DomainBackupDomain `json:"domain"`
 	OwnerUsername string             `json:"ownerUsername"`
 	Data          ImportData         `json:"data"`
-	SRS           *DomainSRSBackup   `json:"srs,omitempty"`
+	UserState     *DomainUserStateBackup `json:"userState,omitempty"`
+	SRS           *DomainSRSBackup       `json:"srs,omitempty"`
 }
 
 type DomainBackupDomain struct {
@@ -27,6 +29,44 @@ type DomainBackupDomain struct {
 type DomainSRSBackup struct {
 	Username string        `json:"username"`
 	Progress []SRSProgress `json:"progress,omitempty"`
+}
+
+type DomainUserStateBackup struct {
+	Username           string                 `json:"username"`
+	PrivateSources     map[string]ImportSourceNode `json:"privateSources,omitempty"`
+	PrivateQuests      map[string]ImportMetaQuestNode `json:"privateQuests,omitempty"`
+	QuestStates        []QuestStateBackup     `json:"questStates,omitempty"`
+	QuestEvents        []QuestEventBackup     `json:"questEvents,omitempty"`
+	UserDomainSettings *UserDomainSettingsBackup `json:"userDomainSettings,omitempty"`
+	SRSProgress        []SRSProgress          `json:"srsProgress,omitempty"`
+}
+
+type UserDomainSettingsBackup struct {
+	Timezone              string `json:"timezone"`
+	DailyQuestLimit       int    `json:"dailyQuestLimit"`
+	DailyQuestCooldownDays int   `json:"dailyQuestCooldownDays"`
+}
+
+type QuestStateBackup struct {
+	MetaQuestCode      string     `json:"metaQuestCode"`
+	Active             bool       `json:"active"`
+	NextDueAt          *time.Time `json:"nextDueAt,omitempty"`
+	SnoozedUntil       *time.Time `json:"snoozedUntil,omitempty"`
+	LastPresentedAt    *time.Time `json:"lastPresentedAt,omitempty"`
+	LastCompletedAt    *time.Time `json:"lastCompletedAt,omitempty"`
+	CurrentStreak       int       `json:"currentStreak"`
+	CurrentPeriodKey    *string   `json:"currentPeriodKey,omitempty"`
+	CurrentPeriodCount  int       `json:"currentPeriodCount"`
+	LastShownAt         *time.Time `json:"lastShownAt,omitempty"`
+}
+
+type QuestEventBackup struct {
+	MetaQuestCode     string     `json:"metaQuestCode"`
+	QuestVersionIndex *int       `json:"questVersionIndex,omitempty"`
+	EventType         string     `json:"eventType"`
+	HappenedAt        time.Time  `json:"happenedAt"`
+	Note              *string    `json:"note,omitempty"`
+	Payload           json.RawMessage `json:"payload,omitempty"`
 }
 
 type SRSProgress struct {
@@ -47,7 +87,7 @@ type SRSProgress struct {
 	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
-func (s *ImportService) ExportDomainBackup(domainID uint) (*DomainBackup, error) {
+func (s *ImportService) ExportDomainBackup(domainID uint, userID uint) (*DomainBackup, error) {
 	domain, err := s.domainDAO.FindByID(domainID)
 	if err != nil {
 		return nil, err
@@ -58,18 +98,23 @@ func (s *ImportService) ExportDomainBackup(domainID uint) (*DomainBackup, error)
 		return nil, err
 	}
 
+	requestingUser, err := s.userDAO.FindUserByID(userID)
+	if err != nil {
+		return nil, err
+	}
+
 	data, err := s.ExportDomain(domainID)
 	if err != nil {
 		return nil, err
 	}
 
-	progress, err := s.exportDomainSRSProgress(domainID, domain.OwnerID)
+	progress, err := s.exportDomainSRSProgress(domainID, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	backup := &DomainBackup{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		ExportedAt:    time.Now().UTC(),
 		Domain: DomainBackupDomain{
 			Name:        domain.Name,
@@ -80,14 +125,345 @@ func (s *ImportService) ExportDomainBackup(domainID uint) (*DomainBackup, error)
 		Data:          *data,
 	}
 
+	userState, err := s.exportUserState(domainID, userID)
+	if err != nil {
+		return nil, err
+	}
+	userState.Username = requestingUser.Username
+	userState.SRSProgress = progress
+	backup.UserState = userState
+
 	if len(progress) > 0 {
 		backup.SRS = &DomainSRSBackup{
-			Username: owner.Username,
+			Username: requestingUser.Username,
 			Progress: progress,
 		}
 	}
 
 	return backup, nil
+}
+
+func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUserStateBackup, error) {
+	state := &DomainUserStateBackup{
+		PrivateSources: make(map[string]ImportSourceNode),
+		PrivateQuests:  make(map[string]ImportMetaQuestNode),
+	}
+
+	var privateSources []models.Source
+	if err := s.db.Where("domain_id = ? AND owner_id = ? AND visibility = 'private'", domainID, userID).Find(&privateSources).Error; err != nil {
+		return nil, err
+	}
+	for _, src := range privateSources {
+		state.PrivateSources[src.Code] = ImportSourceNode{
+			Code:      src.Code,
+			Title:     src.Title,
+			ContentMd: src.ContentMd,
+			BibtexKey: src.BibtexKey,
+			FilePath:  src.FilePath,
+			XPosition: src.XPosition,
+			YPosition: src.YPosition,
+		}
+	}
+
+	var privateQuests []models.MetaQuest
+	if err := s.db.Where("domain_id = ? AND owner_id = ? AND visibility = 'private'", domainID, userID).Find(&privateQuests).Error; err != nil {
+		return nil, err
+	}
+	for _, q := range privateQuests {
+		var versions []models.QuestVersion
+		if err := s.db.Where("meta_quest_id = ?", q.ID).Order("id ASC").Find(&versions).Error; err != nil {
+			return nil, err
+		}
+		vnodes := make([]ImportQuestVersion, 0, len(versions))
+		for _, v := range versions {
+			vnodes = append(vnodes, ImportQuestVersion{
+				Title:         v.Title,
+				DescriptionMd: v.DescriptionMd,
+				TaskList:      v.TaskList,
+				ImagePath:     v.ImagePath,
+			})
+		}
+		state.PrivateQuests[q.Code] = ImportMetaQuestNode{
+			Code:      q.Code,
+			Kind:      q.Kind,
+			Schedule:  q.Schedule,
+			XPosition: q.XPosition,
+			YPosition: q.YPosition,
+			Versions:  vnodes,
+		}
+	}
+
+	// User quest states
+	type stateRow struct {
+		models.UserMetaQuestState
+		Code string
+	}
+	rows := []stateRow{}
+	if err := s.db.Table("user_meta_quest_state ums").
+		Select("ums.*, mq.code").
+		Joins("JOIN meta_quests mq ON mq.id = ums.meta_quest_id").
+		Where("ums.user_id = ? AND mq.domain_id = ?", userID, domainID).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	state.QuestStates = make([]QuestStateBackup, 0, len(rows))
+	for _, row := range rows {
+		state.QuestStates = append(state.QuestStates, QuestStateBackup{
+			MetaQuestCode:     row.Code,
+			Active:            row.Active,
+			NextDueAt:         row.NextDueAt,
+			SnoozedUntil:      row.SnoozedUntil,
+			LastPresentedAt:   row.LastPresentedAt,
+			LastCompletedAt:   row.LastCompletedAt,
+			CurrentStreak:     row.CurrentStreak,
+			CurrentPeriodKey:  row.CurrentPeriodKey,
+			CurrentPeriodCount: row.CurrentPeriodCount,
+			LastShownAt:       row.LastShownAt,
+		})
+	}
+
+	// Quest events
+	type eventRow struct {
+		models.QuestEvent
+		Code string
+	}
+	events := []eventRow{}
+	if err := s.db.Table("quest_events qe").
+		Select("qe.*, mq.code").
+		Joins("JOIN meta_quests mq ON mq.id = qe.meta_quest_id").
+		Where("qe.user_id = ? AND mq.domain_id = ?", userID, domainID).
+		Order("qe.happened_at ASC").
+		Scan(&events).Error; err != nil {
+		return nil, err
+	}
+
+	versionIndexByID := map[uint]int{}
+	var versions []models.QuestVersion
+	if err := s.db.Joins("JOIN meta_quests mq ON mq.id = quest_versions.meta_quest_id").
+		Where("mq.domain_id = ?", domainID).
+		Order("quest_versions.id ASC").
+		Find(&versions).Error; err == nil {
+		for idx, v := range versions {
+			versionIndexByID[v.ID] = idx
+		}
+	}
+	state.QuestEvents = make([]QuestEventBackup, 0, len(events))
+	for _, ev := range events {
+		var indexPtr *int
+		if ev.QuestVersionID != nil {
+			if idx, ok := versionIndexByID[*ev.QuestVersionID]; ok {
+				indexPtr = &idx
+			}
+		}
+		state.QuestEvents = append(state.QuestEvents, QuestEventBackup{
+			MetaQuestCode:     ev.Code,
+			QuestVersionIndex: indexPtr,
+			EventType:         ev.EventType,
+			HappenedAt:        ev.HappenedAt,
+			Note:              ev.Note,
+			Payload:           ev.Payload,
+		})
+	}
+
+	// User domain settings
+	var settings models.UserDomainSettings
+	if err := s.db.Where("user_id = ? AND domain_id = ?", userID, domainID).First(&settings).Error; err == nil {
+		state.UserDomainSettings = &UserDomainSettingsBackup{
+			Timezone:               settings.Timezone,
+			DailyQuestLimit:        settings.DailyQuestLimit,
+			DailyQuestCooldownDays: settings.DailyQuestCooldownDays,
+		}
+	}
+
+	return state, nil
+}
+
+func (s *ImportService) ImportUserState(domainID uint, userID uint, state *DomainUserStateBackup) error {
+	if state == nil {
+		return nil
+	}
+
+	existingCodeMap, err := s.loadExistingCodeMap(domainID)
+	if err != nil {
+		return err
+	}
+	codesInUse := map[string]bool{}
+	for code := range existingCodeMap {
+		codesInUse[code] = true
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Private sources
+		for _, src := range state.PrivateSources {
+			code := src.Code
+			if code == "" {
+				continue
+			}
+			assigned := code
+			if codesInUse[assigned] {
+				assigned = uniqueCodeFor(assigned, codesInUse)
+			}
+			source := &models.Source{
+				DomainID:   domainID,
+				OwnerID:    userID,
+				Code:       assigned,
+				Title:      src.Title,
+				ContentMd:  src.ContentMd,
+				BibtexKey:  src.BibtexKey,
+				FilePath:   src.FilePath,
+				XPosition:  src.XPosition,
+				YPosition:  src.YPosition,
+				Visibility: "private",
+			}
+			if err := tx.Create(source).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&models.DomainNodeCode{
+				DomainID: domainID,
+				Code:     assigned,
+				NodeType: "source",
+				NodeID:   source.ID,
+			}).Error; err != nil {
+				return err
+			}
+			codesInUse[assigned] = true
+			existingCodeMap[assigned] = models.DomainNodeCode{
+				DomainID: domainID,
+				Code:     assigned,
+				NodeType: "source",
+				NodeID:   source.ID,
+			}
+		}
+
+		// Private quests
+		for _, q := range state.PrivateQuests {
+			code := q.Code
+			if code == "" {
+				continue
+			}
+			assigned := code
+			if codesInUse[assigned] {
+				assigned = uniqueCodeFor(assigned, codesInUse)
+			}
+			meta := &models.MetaQuest{
+				DomainID:   domainID,
+				OwnerID:    userID,
+				Code:       assigned,
+				Kind:       q.Kind,
+				Schedule:   q.Schedule,
+				XPosition:  q.XPosition,
+				YPosition:  q.YPosition,
+				Visibility: "private",
+			}
+			if err := tx.Create(meta).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&models.DomainNodeCode{
+				DomainID: domainID,
+				Code:     assigned,
+				NodeType: "meta_quest",
+				NodeID:   meta.ID,
+			}).Error; err != nil {
+				return err
+			}
+			for _, v := range q.Versions {
+				qv := &models.QuestVersion{
+					MetaQuestID:   meta.ID,
+					Title:         v.Title,
+					DescriptionMd: v.DescriptionMd,
+					TaskList:      v.TaskList,
+					ImagePath:     v.ImagePath,
+				}
+				if err := tx.Create(qv).Error; err != nil {
+					return err
+				}
+			}
+			codesInUse[assigned] = true
+			existingCodeMap[assigned] = models.DomainNodeCode{
+				DomainID: domainID,
+				Code:     assigned,
+				NodeType: "meta_quest",
+				NodeID:   meta.ID,
+			}
+		}
+
+		// User domain settings
+		if state.UserDomainSettings != nil {
+			settings := &models.UserDomainSettings{
+				UserID:                userID,
+				DomainID:              domainID,
+				Timezone:              state.UserDomainSettings.Timezone,
+				DailyQuestLimit:       state.UserDomainSettings.DailyQuestLimit,
+				DailyQuestCooldownDays: state.UserDomainSettings.DailyQuestCooldownDays,
+			}
+			if err := tx.Save(settings).Error; err != nil {
+				return err
+			}
+		}
+
+		// Quest states
+		for _, qs := range state.QuestStates {
+			entry, ok := existingCodeMap[qs.MetaQuestCode]
+			if !ok || entry.NodeType != "meta_quest" {
+				continue
+			}
+			stateRow := &models.UserMetaQuestState{
+				UserID:            userID,
+				MetaQuestID:       entry.NodeID,
+				Active:            qs.Active,
+				NextDueAt:         qs.NextDueAt,
+				SnoozedUntil:      qs.SnoozedUntil,
+				LastPresentedAt:   qs.LastPresentedAt,
+				LastCompletedAt:   qs.LastCompletedAt,
+				CurrentStreak:     qs.CurrentStreak,
+				CurrentPeriodKey:  qs.CurrentPeriodKey,
+				CurrentPeriodCount: qs.CurrentPeriodCount,
+				LastShownAt:       qs.LastShownAt,
+			}
+			if err := tx.Save(stateRow).Error; err != nil {
+				return err
+			}
+		}
+
+		// Quest events
+		for _, ev := range state.QuestEvents {
+			entry, ok := existingCodeMap[ev.MetaQuestCode]
+			if !ok || entry.NodeType != "meta_quest" {
+				continue
+			}
+			var versionID *uint
+			if ev.QuestVersionIndex != nil {
+				var versions []models.QuestVersion
+				if err := tx.Where("meta_quest_id = ?", entry.NodeID).Order("id ASC").Find(&versions).Error; err == nil {
+					if *ev.QuestVersionIndex >= 0 && *ev.QuestVersionIndex < len(versions) {
+						id := versions[*ev.QuestVersionIndex].ID
+						versionID = &id
+					}
+				}
+			}
+			event := &models.QuestEvent{
+				UserID:        userID,
+				MetaQuestID:   entry.NodeID,
+				QuestVersionID: versionID,
+				EventType:     ev.EventType,
+				HappenedAt:    ev.HappenedAt,
+				Note:          ev.Note,
+				Payload:       ev.Payload,
+			}
+			if err := tx.Create(event).Error; err != nil {
+				return err
+			}
+		}
+
+		// SRS progress
+		if len(state.SRSProgress) > 0 {
+			if err := s.ImportDomainSRSProgress(domainID, userID, state.SRSProgress); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func (s *ImportService) ImportDomainSRSProgress(domainID, userID uint, progress []SRSProgress) error {

@@ -384,27 +384,8 @@ func (d *DefinitionDAO) UpdatePositions(positions map[uint]struct{ X, Y float64 
 	})
 }
 
-// CheckCodeExistsInDomain checks if a code already exists in a domain (across both definitions and meta-exercises)
+// CheckCodeExistsInDomain checks if a code already exists in a domain (across all code-bearing node types).
 func (d *DefinitionDAO) CheckCodeExistsInDomain(code string, domainID uint) (bool, error) {
-	// Check meta_definitions (concept pools)
-	var metaDefCount int64
-	if err := d.db.Model(&models.MetaDefinition{}).
-		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaDefCount).Error; err != nil {
-		return false, err
-	}
-
-	if metaDefCount > 0 {
-		return true, nil
-	}
-
-	// Check meta_exercises
-	var metaExCount int64
-	if err := d.db.Model(&models.MetaExercise{}).
-		Where("domain_id = ? AND code = ?", domainID, code).
-		Count(&metaExCount).Error; err != nil {
-		return false, err
-	}
-
-	return metaExCount > 0, nil
+	registry := NewCodeRegistryDAO(d.db)
+	return registry.CodeExists(domainID, code)
 }

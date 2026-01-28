@@ -71,11 +71,63 @@ export interface Exercise {
   type?: 'exercise';
 }
 
+export interface SourceNode {
+  id?: number;
+  code: string;
+  title: string;
+  contentMd?: string;
+  bibtexKey?: string | null;
+  filePath?: string | null;
+  xPosition?: number;
+  yPosition?: number;
+  domainId?: number;
+  ownerId?: number;
+  visibility?: 'private' | 'domain';
+  type?: 'source';
+}
+
+export interface QuestVersion {
+  id?: number;
+  metaQuestId?: number;
+  title: string;
+  descriptionMd?: string;
+  taskList?: any;
+  imagePath?: string | null;
+}
+
+export interface MetaQuest {
+  id?: number;
+  code: string;
+  kind: 'todo' | 'habit' | 'daily';
+  schedule: any;
+  xPosition?: number;
+  yPosition?: number;
+  domainId?: number;
+  ownerId?: number;
+  visibility?: 'private' | 'domain';
+  active?: boolean;
+  nextDueAt?: string;
+  versions?: QuestVersion[];
+  type?: 'quest';
+}
+
+export interface NodeRelation {
+  id?: number;
+  domainId?: number;
+  fromType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  fromId: number;
+  toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  toId: number;
+  relationType: string;
+  contextKey?: string;
+  createdBy?: number;
+}
+
 export interface GraphNode {
   id: string; // This is the node's 'code'
   displayId?: string;
   name: string;
-  type: 'definition' | 'exercise' | 'group';
+  type: 'definition' | 'exercise' | 'source' | 'quest' | 'group';
   isRootDefinition?: boolean;
   difficulty?: number; // For exercises
   color?: string;
@@ -117,19 +169,24 @@ export interface GraphNode {
 }
 
 export interface GraphLink {
+  id?: string;
   source: string | GraphNode;
   target: string | GraphNode;
   type?: string;
+  relationType?: string;
   weight?: number; // FIXED: weight for partial prerequisites (0.01 to 1.0)
 }
 
 export interface GraphData {
   definitions: Record<string, Definition>; // Keyed by definition CODE
   exercises: Record<string, Exercise>;   // Keyed by exercise CODE
+  sources?: Record<string, SourceNode>;
+  quests?: Record<string, MetaQuest>;
+  relations?: Array<{ fromCode: string; toCode: string; relationType?: string }>;
 }
 
 // For filtering nodes
-export type FilteredNodeType = 'all' | 'definition' | 'exercise' | 'group';
+export type FilteredNodeType = 'all' | 'definition' | 'exercise' | 'source' | 'quest' | 'group';
 
 // Mode types
 export type AppMode = 'study' | 'practice' | 'frenzy';

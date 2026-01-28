@@ -10,6 +10,9 @@ import { UIProvider, useUI } from '@/contexts/UIContext';
 import { DraggableWindow } from '@/app/components/core/DraggableWindow';
 import { DetailWindowContent } from './windows/DetailWindowContent';
 import { ReviewWindowContent } from './windows/ReviewWindowContent';
+import { SourceWindowContent } from './windows/SourceWindowContent';
+import { QuestWindowContent } from './windows/QuestWindowContent';
+import { SurveyWindowContent } from './windows/SurveyWindowContent';
 import { RefreshCw } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
@@ -19,6 +22,15 @@ import {
   Exercise as ApiExercise,
   getDomainMetaDefinitions,
   getDomainMetaExercises,
+  getDomainSources,
+  getSource,
+  getDomainQuests,
+  getDomainRelations,
+  getSurveyStats,
+  createSource,
+  updateSource,
+  createQuest,
+  updateQuest,
   getExternalPrerequisites,
   updateExternalPrerequisitePositions,
   getDomainGroups,
@@ -64,6 +76,9 @@ import {
   GraphLink,
   Definition,
   Exercise,
+  SourceNode,
+  MetaQuest,
+  NodeRelation,
   AppMode,
   FilteredNodeType,
   KnowledgeGraphProps,
@@ -89,7 +104,7 @@ import { getNextDotCode as getNextDotCodeFromUtils, getNextExerciseCode as getNe
 // Structure only contains topology data - no names or visual properties
 interface GraphNodeCore {
   id: string;
-  type: 'definition' | 'exercise' | 'group';
+  type: 'definition' | 'exercise' | 'source' | 'quest' | 'group';
   prerequisites?: string[];
   domainId?: number;
   xPosition?: number;
@@ -112,6 +127,7 @@ interface GraphLinkCore {
   target: string;
   type: string;
   weight: number;
+  relationType?: string;
 }
 
 interface GraphStructureState {
@@ -163,7 +179,7 @@ type FrenzyEditTool = 'none' | 'link' | 'unlink' | 'delete';
 
 interface FrenzyNoteState {
   nodeId: string;
-  nodeType: 'definition' | 'exercise';
+  nodeType: 'definition' | 'exercise' | 'source';
   nodeName: string;
   metaId: number;
   version: DefinitionVersion | ExerciseVersion;
@@ -385,6 +401,9 @@ const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
 const useGraphStructure = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
+  sources: Record<string, SourceNode>,
+  quests: Record<string, MetaQuest>,
+  relations: Array<{ fromCode: string; toCode: string; relationType?: string }>,
   externalLinks: ExternalPrerequisiteLink[]
 ): GraphStructureState => {
   return useMemo(() => {
@@ -418,13 +437,37 @@ const useGraphStructure = (
       .sort()
       .join('|');
 
+    const sourceStructureHash = Object.values(sources)
+      .map(s => s.code)
+      .sort()
+      .join('|');
+
+    const questStructureHash = Object.values(quests)
+      .map(q => q.code)
+      .sort()
+      .join('|');
+
+    const relationHash = relations
+      .map(r => `${r.fromCode}->${r.toCode}:${r.relationType ?? ''}`)
+      .sort()
+      .join('|');
+
     const externalLinkHash = externalLinks
       .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}:${link.xPosition ?? ''}:${link.yPosition ?? ''}`)
       .sort()
       .join('|');
     
     // FIX: robust version
-    const version = hashString([defStructureHash, exStructureHash, defWeightHash, exWeightHash, externalLinkHash].join('::'));
+    const version = hashString([
+      defStructureHash,
+      exStructureHash,
+      defWeightHash,
+      exWeightHash,
+      sourceStructureHash,
+      questStructureHash,
+      relationHash,
+      externalLinkHash,
+    ].join('::'));
 
     const numericIdToCode = new Map<number, string>();
 
@@ -491,6 +534,44 @@ const useGraphStructure = (
             weight: ex.prerequisiteWeights?.[prereqCode] ?? 1.0,
           });
         }
+      });
+    });
+
+    // Source nodes
+    Object.values(sources).forEach(src => {
+      if (!src?.code) return;
+      nodes.set(src.code, {
+        id: src.code,
+        type: 'source',
+        domainId: src.domainId,
+        xPosition: src.xPosition,
+        yPosition: src.yPosition,
+      });
+    });
+
+    // Quest nodes
+    Object.values(quests).forEach(q => {
+      if (!q?.code) return;
+      nodes.set(q.code, {
+        id: q.code,
+        type: 'quest',
+        domainId: q.domainId,
+        xPosition: q.xPosition,
+        yPosition: q.yPosition,
+      });
+    });
+
+    // Relations links
+    relations.forEach(rel => {
+      if (!nodes.has(rel.fromCode) || !nodes.has(rel.toCode)) return;
+      const linkId = `${rel.fromCode}-${rel.toCode}-${rel.relationType ?? 'relation'}`;
+      links.set(linkId, {
+        id: linkId,
+        source: rel.fromCode,
+        target: rel.toCode,
+        type: 'relation',
+        relationType: rel.relationType,
+        weight: 1.0,
       });
     });
 
@@ -571,6 +652,8 @@ const useGraphMetadata = (
   structureNodes: Map<string, GraphNodeCore>,
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
+  sources: Record<string, SourceNode>,
+  quests: Record<string, MetaQuest>,
   srs: any,
   codeToNumericIdMap: Map<string, number>,
   activeNodeIds: Set<string>,
@@ -635,6 +718,31 @@ const useGraphMetadata = (
         return;
       }
 
+      if (nodeCore.type === 'source') {
+        const source = sources[nodeId];
+        nodeMetadata.set(nodeId, {
+          name: source?.title ?? nodeId,
+          color: 'rgba(16, 185, 129, 0.35)',
+          isDue: false,
+          daysUntilReview: null,
+          progress: null,
+        });
+        return;
+      }
+
+      if (nodeCore.type === 'quest') {
+        const quest = quests[nodeId];
+        const title = quest?.versions?.[0]?.title || quest?.code || nodeId;
+        nodeMetadata.set(nodeId, {
+          name: title,
+          color: 'rgba(245, 158, 11, 0.35)',
+          isDue: false,
+          daysUntilReview: null,
+          progress: null,
+        });
+        return;
+      }
+
       const numericId = codeToNumericIdMap.get(nodeId);
       const progress = numericId ? srs.getNodeProgress(numericId, nodeCore.type) : null;
       
@@ -680,10 +788,14 @@ const useGraphMetadata = (
     // Track name and other metadata changes
     Object.values(definitions).map(d => d.name).join('|'),
     Object.values(exercises).map(e => e.name).join('|'),
+    Object.values(sources).map(s => s.title).join('|'),
+    Object.values(quests).map(q => q.code).join('|'),
     Object.values(exercises).map(e => String(e.difficulty ?? '')).join('|'),
     // Track positions so we can apply them without a physics reset
     Object.values(definitions).map(d => `${d.code}:${d.xPosition ?? ''}:${d.yPosition ?? ''}`).join('|'),
     Object.values(exercises).map(e => `${e.code}:${e.xPosition ?? ''}:${e.yPosition ?? ''}`).join('|'),
+    Object.values(sources).map(s => `${s.code}:${s.xPosition ?? ''}:${s.yPosition ?? ''}`).join('|'),
+    Object.values(quests).map(q => `${q.code}:${q.xPosition ?? ''}:${q.yPosition ?? ''}`).join('|'),
     Array.from(groupNodeMetadata.entries())
       .map(([id, meta]) => `${id}:${meta.name}:${meta.groupMemberCount ?? ''}:${meta.groupIsExact ? '1' : '0'}`)
       .sort()
@@ -766,7 +878,8 @@ const useStableGraph = (
       const l = prevLinks[i];
       const sid = typeof l.source === 'object' ? (l.source as any).id : String(l.source);
       const tid = typeof l.target === 'object' ? (l.target as any).id : String(l.target);
-      prevLinkIndex.set(`${sid}-${tid}`, i);
+      const key = l.id ?? `${sid}-${tid}`;
+      prevLinkIndex.set(key, i);
     }
 
     const seen = new Set<string>();
@@ -774,15 +887,25 @@ const useStableGraph = (
     let removedLinks = 0;
 
     structure.links.forEach(lc => {
-      const id = `${lc.source}-${lc.target}`;
-      seen.add(id);
-      const idx = prevLinkIndex.get(id);
+      const key = lc.id || `${lc.source}-${lc.target}`;
+      seen.add(key);
+      const idx = prevLinkIndex.get(key);
       if (idx === undefined) {
-        prevLinks.push({ source: lc.source, target: lc.target, type: lc.type, weight: lc.weight });
+        prevLinks.push({
+          id: lc.id,
+          source: lc.source,
+          target: lc.target,
+          type: lc.type,
+          relationType: lc.relationType,
+          weight: lc.weight,
+        });
         addedLinks++;
       } else {
         const existing = prevLinks[idx] as any;
+        existing.id = lc.id;
         if (existing.weight !== lc.weight) existing.weight = lc.weight;
+        if (existing.type !== lc.type) existing.type = lc.type;
+        if (existing.relationType !== lc.relationType) existing.relationType = lc.relationType;
       }
     });
 
@@ -790,8 +913,8 @@ const useStableGraph = (
       const l = prevLinks[i];
       const sid = typeof l.source === 'object' ? (l.source as any).id : String(l.source);
       const tid = typeof l.target === 'object' ? (l.target as any).id : String(l.target);
-      const id = `${sid}-${tid}`;
-      if (!seen.has(id)) {
+      const key = l.id ?? `${sid}-${tid}`;
+      if (!seen.has(key)) {
         prevLinks.splice(i, 1);
         removedLinks++;
       }
@@ -848,6 +971,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [dagModeEnabled, setDagModeEnabled] = useState(false);
   const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>('td');
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
+  const [questVisibilityMode, setQuestVisibilityMode] = useState<'on' | 'nodes' | 'off'>('on');
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
@@ -858,6 +982,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [highlightLinks, setHighlightLinks] = useState(new Set<string>());
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNodeType, setFilteredNodeType] = useState<FilteredNodeType>('all');
+  const [surveyDueCount, setSurveyDueCount] = useState(0);
 
   // Data state
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
@@ -1181,6 +1306,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const baseGraphStructure = useGraphStructure(
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
+    currentStructuralGraphData.sources || {},
+    currentStructuralGraphData.quests || {},
+    currentStructuralGraphData.relations || [],
     externalPrerequisites
   );
 
@@ -1443,8 +1571,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const activeNodeIds = useMemo(() =>
     new Set(
       ui.state.windows
-        .filter(w => w.type === 'detail' && !w.isMinimized)
-        .map(w => w.contentProps.nodeData.id)
+        .filter(w => (w.type === 'detail' || w.type === 'source' || w.type === 'quest') && !w.isMinimized)
+        .map(w => (
+          w.contentProps?.nodeData?.id
+          || w.contentProps?.sourceData?.code
+          || w.contentProps?.questData?.code
+        ))
+        .filter(Boolean)
     ),
     [ui.state.windows]
   );
@@ -1454,6 +1587,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     dagGraphStructure.nodes,
     currentStructuralGraphData.definitions || {},
     currentStructuralGraphData.exercises || {},
+    currentStructuralGraphData.sources || {},
+    currentStructuralGraphData.quests || {},
     srs,
     codeToNumericIdMap,
     activeNodeIds,
@@ -1487,12 +1622,39 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return combined;
   }, [activeNodeIds, highlightNodes, pendingLinkSourceId]);
 
+  const questNodeIds = useMemo(() => {
+    if (questVisibilityMode === 'on') return new Set<string>();
+    const ids = new Set<string>();
+    stableGraph.nodes.forEach(node => {
+      if (node.type === 'quest') ids.add(node.id);
+    });
+    return ids;
+  }, [stableGraph.nodes, questVisibilityMode]);
+
+  const renderGraphNodes = useMemo(() => {
+    if (questVisibilityMode === 'off') {
+      return stableGraph.nodes.filter(node => node.type !== 'quest');
+    }
+    return stableGraph.nodes;
+  }, [stableGraph.nodes, questVisibilityMode]);
+
+  const renderGraphLinks = useMemo(() => {
+    if (questVisibilityMode === 'on') return stableGraph.links;
+    if (questNodeIds.size === 0) return stableGraph.links;
+    return stableGraph.links.filter(link => {
+      const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
+      const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
+      return !questNodeIds.has(sourceId) && !questNodeIds.has(targetId);
+    });
+  }, [stableGraph.links, questNodeIds, questVisibilityMode]);
+
   const isNodeVisibleInGraph = useCallback((node: GraphNode) => {
     if (mode === 'study' && node.type === 'exercise') return false;
+    if (questVisibilityMode === 'off' && node.type === 'quest') return false;
     if (filteredNodeType === 'all') return true;
     if (node.type === filteredNodeType) return true;
     return selectedNodeIds.has(node.id) || graphHighlightedNodes.has(node.id);
-  }, [filteredNodeType, graphHighlightedNodes, mode, selectedNodeIds]);
+  }, [filteredNodeType, graphHighlightedNodes, mode, questVisibilityMode, selectedNodeIds]);
 
   const hasVisibleNodesForFit = useMemo(() => {
     return stableGraph.nodes.some(node => isNodeVisibleInGraph(node));
@@ -1665,27 +1827,44 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     );
   }, [domainGroups, groupMembersById]);
 
+  const refreshSurveyStats = useCallback(async () => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (Number.isNaN(domainId)) return;
+    try {
+      const stats = await getSurveyStats(domainId);
+      setSurveyDueCount(stats?.dueQuests ?? 0);
+    } catch (error) {
+      console.warn('Failed to load survey stats:', error);
+      setSurveyDueCount(0);
+    }
+  }, [subjectMatterId]);
+
   // Load comprehensive domain data
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
     try {
       console.log("Loading comprehensive domain data for:", domainId);
 
-      const [allMetaDefinitions, allMetaExercises, externalLinks, groups] = await Promise.all([
+      const [allMetaDefinitions, allMetaExercises, externalLinks, groups, sources, quests, relations] = await Promise.all([
         // Use meta-definitions (concept pools) as definition nodes in the graph
         getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return []; }),
         // Use meta-exercises (pools) as exercise nodes in the graph
         getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; }),
         getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return []; }),
         getDomainGroups(domainId).catch(err => { console.warn("Failed to load groups:", err); return []; }),
+        getDomainSources(domainId).catch(err => { console.warn("Failed to load sources:", err); return []; }),
+        getDomainQuests(domainId).catch(err => { console.warn("Failed to load quests:", err); return []; }),
+        getDomainRelations(domainId).catch(err => { console.warn("Failed to load relations:", err); return []; }),
       ]);
 
       const newCodeToNumericIdMap = new Map<string, number>();
       const newNodeDataCache = new Map<string, MetaDefinition | any>();
+      const idToCodeByType = new Map<string, string>();
 
       allMetaDefinitions.forEach(metaDef => {
         if (metaDef?.code && typeof metaDef.id === 'number') {
           newCodeToNumericIdMap.set(metaDef.code, metaDef.id);
           newNodeDataCache.set(metaDef.code, metaDef);
+          idToCodeByType.set(`meta_definition:${metaDef.id}`, metaDef.code);
         }
       });
 
@@ -1693,6 +1872,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         if (ex?.code && typeof ex.id === 'number') {
           newCodeToNumericIdMap.set(ex.code, ex.id);
           newNodeDataCache.set(ex.code, ex);
+          idToCodeByType.set(`meta_exercise:${ex.id}`, ex.code);
         }
       });
 
@@ -1738,10 +1918,73 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           id: ex.id,
         } as any;
       });
+
+      const newSources: Record<string, SourceNode> = {};
+      (sources as any[]).forEach((src: any) => {
+        if (!src?.code) return;
+        newSources[src.code] = {
+          id: src.id,
+          code: src.code,
+          title: src.title,
+          contentMd: src.contentMd,
+          bibtexKey: src.bibtexKey ?? null,
+          filePath: src.filePath ?? null,
+          xPosition: src.xPosition,
+          yPosition: src.yPosition,
+          domainId: src.domainId,
+          ownerId: src.ownerId,
+          visibility: src.visibility,
+          type: 'source',
+        };
+        if (typeof src.id === 'number') {
+          idToCodeByType.set(`source:${src.id}`, src.code);
+        }
+      });
+
+      const newQuests: Record<string, MetaQuest> = {};
+      (quests as any[]).forEach((q: any) => {
+        if (!q?.code) return;
+        newQuests[q.code] = {
+          id: q.id,
+          code: q.code,
+          kind: q.kind,
+          schedule: q.schedule,
+          xPosition: q.xPosition,
+          yPosition: q.yPosition,
+          domainId: q.domainId,
+          ownerId: q.ownerId,
+          visibility: q.visibility,
+          active: q.active,
+          nextDueAt: q.nextDueAt,
+          versions: q.versions || [],
+          type: 'quest',
+        };
+        if (typeof q.id === 'number') {
+          idToCodeByType.set(`meta_quest:${q.id}`, q.code);
+        }
+      });
+
+      const relationEdges: Array<{ fromCode: string; toCode: string; relationType?: string }> = [];
+      (relations as any[]).forEach((rel: any) => {
+        const fromCode = idToCodeByType.get(`${rel.fromType}:${rel.fromId}`);
+        const toCode = idToCodeByType.get(`${rel.toType}:${rel.toId}`);
+        if (!fromCode || !toCode) return;
+        relationEdges.push({
+          fromCode,
+          toCode,
+          relationType: rel.relationType,
+        });
+      });
       
       setCodeToNumericIdMap(newCodeToNumericIdMap);
       setNodeDataCache(newNodeDataCache);
-      setCurrentStructuralGraphData({ definitions: newDefinitions, exercises: newExercises });
+      setCurrentStructuralGraphData({
+        definitions: newDefinitions,
+        exercises: newExercises,
+        sources: newSources,
+        quests: newQuests,
+        relations: relationEdges,
+      });
       setExternalPrerequisites(Array.isArray(externalLinks) ? externalLinks : []);
       setDomainGroups(Array.isArray(groups) ? groups : []);
 
@@ -1751,11 +1994,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       if (isEmptyDomain) {
         setIsProcessingData(false);
       }
+
+      refreshSurveyStats();
       
     } catch (error) {
       console.error("Error loading comprehensive domain data:", error);
       showToast("Failed to load complete domain data.", "error");
-      setCurrentStructuralGraphData({ definitions: {}, exercises: {} });
+      setCurrentStructuralGraphData({ definitions: {}, exercises: {}, sources: {}, quests: {}, relations: [] });
       setExternalPrerequisites([]);
     }
   }, []);
@@ -1964,11 +2209,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    const windowCount = ui.state.windows.filter(w => w.type === 'detail').length;
-    const position = getDetailWindowPlacement(nodeOnClick, windowCount);
+    const position = getDetailWindowPlacement(nodeOnClick, ui.state.windows.length);
+
+    if (nodeOnClick.type === 'source') {
+      const sourceData = currentStructuralGraphData.sources?.[nodeOnClick.id] || nodeOnClick;
+      ui.openSourceWindow(nodeOnClick.id, sourceData, position);
+      return;
+    }
+    if (nodeOnClick.type === 'quest') {
+      const questData = currentStructuralGraphData.quests?.[nodeOnClick.id] || nodeOnClick;
+      ui.openQuestWindow(nodeOnClick.id, questData, position);
+      return;
+    }
 
     ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
-  }, [ui, mode, isFrenzyEditMode, router, getDetailWindowPlacement]);
+  }, [ui, mode, isFrenzyEditMode, router, getDetailWindowPlacement, currentStructuralGraphData]);
   const handleNodeClickRef = useRef(handleNodeClick);
 
   useEffect(() => {
@@ -1982,7 +2237,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     
     if (node?.id) {
       newHighlightNodes.add(node.id);
-      stableGraph.links.forEach(link => {
+      renderGraphLinks.forEach(link => {
         const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
         const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
         
@@ -1998,7 +2253,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     
     setHighlightNodes(newHighlightNodes);
     setHighlightLinks(newHighlightLinks);
-  }, [stableGraph.links]);
+  }, [renderGraphLinks]);
 
   // ======= Surgical create: insert new node without full rerender & keep pan =======
 
@@ -2305,6 +2560,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Filtered nodes for left panel
   const filteredGraphNodes = useMemo(() => {
     let tempNodes = stableGraph.nodes.filter(node => node.type !== 'group');
+    if (questVisibilityMode === 'off') {
+      tempNodes = tempNodes.filter(node => node.type !== 'quest');
+    }
     if (mode === 'study') {
       tempNodes = tempNodes.filter(node => node.type !== 'exercise');
     }
@@ -2319,7 +2577,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       );
     }
     return tempNodes.sort((a, b) => (a.displayId ?? a.id).localeCompare(b.displayId ?? b.id));
-  }, [mode, stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated]);
+  }, [mode, stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated, questVisibilityMode]);
 
   // Basic handlers
   const toggleLeftPanel = useCallback(() => setShowLeftPanel(prev => !prev), []);
@@ -2430,8 +2688,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const codes = new Set<string>();
     Object.keys(currentStructuralGraphData.definitions || {}).forEach(code => codes.add(code));
     Object.keys(currentStructuralGraphData.exercises || {}).forEach(code => codes.add(code));
+    Object.keys(currentStructuralGraphData.sources || {}).forEach(code => codes.add(code));
+    Object.keys(currentStructuralGraphData.quests || {}).forEach(code => codes.add(code));
     return codes;
-  }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises]);
+  }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises, currentStructuralGraphData.sources, currentStructuralGraphData.quests]);
 
   const frenzyCodeConflict = !!frenzyNote
     && frenzyNoteCodeDraft.trim().length > 0
@@ -2450,9 +2710,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     nodeType === 'definition' ? 'meta_definition' : 'meta_exercise'
   ), []);
 
-  const getDefaultFrenzyContent = useCallback((nodeType: 'definition' | 'exercise', nodeName: string) => {
+  const getDefaultFrenzyContent = useCallback((nodeType: 'definition' | 'exercise' | 'source', nodeName: string) => {
     const safeName = nodeName || 'this node';
-    return nodeType === 'definition'
+    return nodeType === 'definition' || nodeType === 'source'
       ? `Add details about ${safeName}.`
       : `Solve: ${safeName}.`;
   }, []);
@@ -2727,12 +2987,116 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     metaIdOverride?: number,
     anchorGraph?: { x: number; y: number }
   ) => {
-    if (!canEdit) {
+    if (!canEdit && node.type !== 'source') {
       showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
     }
     if (node.type === 'group') {
       showToast('Cannot edit group nodes.', 'warning');
+      return;
+    }
+    if (node.type === 'source') {
+      const sourceData = currentStructuralGraphData.sources?.[node.id];
+      const isOwner = !!(currentUser && sourceData?.ownerId === currentUser.id);
+      if (!isOwner && !currentUser?.isAdmin) {
+        showToast('Only the owner can edit this source.', 'warning');
+        return;
+      }
+      const sourceId = metaIdOverride ?? sourceData?.id;
+      if (!sourceId) {
+        showToast('Missing source metadata.', 'error');
+        return;
+      }
+      try {
+        const source = await getSource(sourceId);
+        const resolvedName = source.title || node.name;
+        const resolvedCode = source.code || node.id;
+        const autoContentHint = frenzyAutoContentRef.current.get(resolvedCode);
+        const defaultContent = autoContentHint || getDefaultFrenzyContent('source', resolvedName);
+        const content = source.contentMd || '';
+        const isAutoContent = !!autoContentHint && (content.trim().length === 0 || content === autoContentHint);
+        const effectiveContent = content.trim().length > 0 ? content : defaultContent;
+        const anchor = anchorGraph
+          || (typeof node.x === 'number' && typeof node.y === 'number'
+            ? { x: node.x, y: node.y }
+            : (typeof node.xPosition === 'number' && typeof node.yPosition === 'number'
+              ? { x: node.xPosition, y: node.yPosition }
+              : undefined));
+        const notePosition = getFrenzyNotePlacement(anchor);
+        if (notePosition) {
+          setFrenzyNotePosition(notePosition);
+        }
+        const pseudoVersion: DefinitionVersion = {
+          id: source.id || 0,
+          metaDefinitionId: source.id || 0,
+          code: source.code || resolvedCode,
+          name: source.title || resolvedName,
+          prompt: '',
+          type: 'open_ended',
+          description: content,
+          notes: '',
+          references: [],
+          promptImagePath: '',
+          descriptionImagePath: '',
+        };
+        setFrenzyNote({
+          nodeId: resolvedCode,
+          nodeType: 'source',
+          nodeName: resolvedName,
+          metaId: sourceId,
+          version: pseudoVersion,
+          allVersions: [pseudoVersion],
+          versionIndex: 0,
+          prompt: '',
+          defaultPrompt: '',
+          isAutoPrompt: false,
+          promptImagePath: '',
+          content: effectiveContent,
+          defaultContent,
+          isAutoContent,
+          contentImagePath: '',
+          solution: '',
+          solutionImagePath: '',
+        });
+        setFrenzyNoteCodeDraft(resolvedCode);
+        setFrenzyNoteDraft(effectiveContent);
+        setFrenzyNoteNameDraft(resolvedName);
+        setFrenzyNotePromptDraft('');
+        setFrenzyNotePromptImagePath('');
+        setFrenzyNoteContentImagePath('');
+        setFrenzyNoteSolutionDraft('');
+        setFrenzyNoteSolutionImagePath('');
+        setShowFrenzySolution(false);
+        setFrenzyNotePreview(false);
+        setFrenzyNoteIsNewVersion(false);
+        if (anchor) {
+          requestAnimationFrame(() => {
+            const adjusted = getFrenzyNotePlacement(anchor);
+            if (adjusted) {
+              setFrenzyNotePosition(adjusted);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load source note:', error);
+        showToast('Failed to load source content.', 'error');
+      }
+      return;
+    }
+    if (node.type === 'quest') {
+      const questData = currentStructuralGraphData.quests?.[node.id];
+      const isOwner = !!(currentUser && questData?.ownerId === currentUser.id);
+      if (!isOwner && !currentUser?.isAdmin) {
+        showToast('Only the owner can edit this quest.', 'warning');
+        return;
+      }
+      const questId = metaIdOverride ?? questData?.id;
+      if (!questId) {
+        showToast('Missing quest metadata.', 'error');
+        return;
+      }
+      const position = getDetailWindowPlacement(node, ui.state.windows.length);
+      ui.openQuestWindow(node.id, questData || node, position);
       return;
     }
     const metaId = metaIdOverride ?? codeToNumericIdMap.get(node.id);
@@ -2843,10 +3207,22 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       console.error('Failed to load frenzy note:', error);
       showToast('Failed to load node content.', 'error');
     }
-  }, [canEdit, codeToNumericIdMap, getDefaultFrenzyContent, getDefaultFrenzyPrompt, getFrenzyNotePlacement]);
+  }, [
+    canEdit,
+    codeToNumericIdMap,
+    getDefaultFrenzyContent,
+    getDefaultFrenzyPrompt,
+    getFrenzyNotePlacement,
+    getDetailWindowPlacement,
+    currentStructuralGraphData.sources,
+    currentStructuralGraphData.quests,
+    currentUser,
+    ui,
+  ]);
 
   const switchFrenzyNoteVersion = useCallback((newIndex: number) => {
     if (!frenzyNote) return;
+    if (frenzyNote.nodeType === 'source') return;
     if (newIndex < 0 || newIndex >= frenzyNote.allVersions.length) return;
 
     const version = frenzyNote.allVersions[newIndex];
@@ -2943,6 +3319,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const deleteFrenzyNoteVersion = useCallback(async () => {
     if (!frenzyNote) return;
+    if (frenzyNote.nodeType === 'source') {
+      showToast('Sources do not have versions.', 'warning');
+      return;
+    }
     if (frenzyNote.allVersions.length <= 1) {
       showToast('Cannot delete the last version.', 'warning');
       return;
@@ -3023,8 +3403,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [frenzyNote]);
 
+  const getNextSimpleCode = useCallback((prefix: string) => {
+    let code = prefix;
+    let i = 1;
+    while (existingCodes.has(code)) {
+      code = `${prefix}.${i}`;
+      i += 1;
+    }
+    return code;
+  }, [existingCodes]);
+
   const createFrenzyNode = useCallback(async (
-    type: 'definition' | 'exercise',
+    type: 'definition' | 'exercise' | 'source' | 'quest',
     spawnOverride?: { x: number; y: number }
   ) => {
     if (!canEdit) {
@@ -3037,8 +3427,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    const code = type === 'exercise' ? getNextExerciseCode() : getNextDotCode();
-    const name = type === 'definition' ? `Concept ${code}` : `Exercise ${code}`;
+    const code = type === 'exercise'
+      ? getNextExerciseCode()
+      : type === 'definition'
+        ? getNextDotCode()
+        : getNextSimpleCode(type === 'source' ? 'source' : 'quest');
+    const name = type === 'definition'
+      ? `Concept ${code}`
+      : type === 'exercise'
+        ? `Exercise ${code}`
+        : type === 'source'
+          ? `Source ${code}`
+          : `Quest ${code}`;
     const basePosition = (spawnOverride && Number.isFinite(spawnOverride.x) && Number.isFinite(spawnOverride.y))
       ? spawnOverride
       : getGraphCenter();
@@ -3081,7 +3481,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         if (isFrenzyEditMode) {
           openFrenzyNote({ id: code, name, type: 'definition' } as GraphNode, (created as any).id, spawn);
         }
-      } else {
+      } else if (type === 'exercise') {
         const defaultContent = getDefaultFrenzyContent('exercise', name);
         const created = await createMetaExercise(domainId, {
           code,
@@ -3110,9 +3510,87 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         if (isFrenzyEditMode) {
           openFrenzyNote({ id: code, name, type: 'exercise' } as GraphNode, (created as any).id, spawn);
         }
+      } else if (type === 'source') {
+        const created = await createSource(domainId, {
+          code,
+          title: name,
+          contentMd: '',
+          visibility: 'private',
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+        });
+        positionManagerRef.current.fixPosition(created.code, spawn.x, spawn.y);
+        setNewlyCreatedNodeId(created.code);
+        setCurrentStructuralGraphData(prev => {
+          const nextSources = { ...(prev.sources || {}) };
+          nextSources[created.code] = {
+            ...(nextSources[created.code] || {}),
+            ...created,
+            type: 'source',
+            xPosition: spawn.x,
+            yPosition: spawn.y,
+          };
+          return { ...prev, sources: nextSources };
+        });
+        pendingFocusNodeIdRef.current = created.code;
+        if (isFrenzyEditMode) {
+          openFrenzyNote({ id: created.code, name: created.title, type: 'source' } as GraphNode, created.id, spawn);
+        }
+      } else {
+        const schedule = {
+          type: 'rrule',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          dtstart: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+          rrule: 'FREQ=DAILY;COUNT=1',
+          exdate: [],
+          rdate: [],
+          defaultSnoozeMinutes: 120,
+        };
+        const created = await createQuest(domainId, {
+          code,
+          kind: 'todo',
+          schedule,
+          visibility: 'private',
+          xPosition: spawn.x,
+          yPosition: spawn.y,
+          initialVersion: {
+            title: name,
+            descriptionMd: '',
+          },
+        });
+        positionManagerRef.current.fixPosition(created.code, spawn.x, spawn.y);
+        setNewlyCreatedNodeId(created.code);
+        setCurrentStructuralGraphData(prev => {
+          const nextQuests = { ...(prev.quests || {}) };
+          nextQuests[created.code] = {
+            ...(nextQuests[created.code] || {}),
+            ...created,
+            type: 'quest',
+            xPosition: spawn.x,
+            yPosition: spawn.y,
+          };
+          return { ...prev, quests: nextQuests };
+        });
+        pendingFocusNodeIdRef.current = created.code;
+        if (isFrenzyEditMode) {
+          const position = getDetailWindowPlacement({ id: created.code, type: 'quest', name: created.code, x: spawn.x, y: spawn.y } as GraphNode, ui.state.windows.length);
+          ui.openQuestWindow(created.code, created, position);
+        }
       }
-      showToast(`${type === 'definition' ? 'Definition' : 'Exercise'} "${code}" created.`, 'success');
+      const label = type === 'definition'
+        ? 'Definition'
+        : type === 'exercise'
+          ? 'Exercise'
+          : type === 'source'
+            ? 'Source'
+            : 'Quest';
+      showToast(`${label} "${code}" created.`, 'success');
     } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('Sources API is not available') || message.includes('Quests API is not available')) {
+        showToast(message, 'warning');
+        return;
+      }
       console.error('Failed to create frenzy node:', error);
       showToast('Failed to create node.', 'error');
     }
@@ -3121,6 +3599,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     subjectMatterId,
     getNextDotCode,
     getNextExerciseCode,
+    getNextSimpleCode,
     getGraphCenter,
     getDefaultFrenzyContent,
     getDefaultFrenzyPrompt,
@@ -3130,6 +3609,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     addFrenzyPrerequisite,
     isFrenzyEditMode,
     openFrenzyNote,
+    ui,
+    getDetailWindowPlacement,
   ]);
 
   const saveFrenzyNote = useCallback(async (draftOverride?: string) => {
@@ -3139,6 +3620,81 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const nameDraft = frenzyNoteNameDraft.trim();
     const codeDraft = frenzyNoteCodeDraft.trim();
     const isDefinition = frenzyNote.nodeType === 'definition';
+
+    if (frenzyNote.nodeType === 'source') {
+      const nameChanged = nameDraft.length > 0 && nameDraft !== frenzyNote.nodeName;
+      const codeChanged = codeDraft.length > 0 && codeDraft !== frenzyNote.nodeId;
+      const contentChanged = draft !== frenzyNote.content;
+      if (!nameChanged && !codeChanged && !contentChanged) return;
+
+      if (codeChanged && existingCodes.has(codeDraft)) {
+        showToast(`Code "${codeDraft}" already exists.`, 'warning');
+        return;
+      }
+
+      setIsSavingFrenzyNote(true);
+      try {
+        if (!codeDraft && frenzyNoteCodeDraft.length > 0) {
+          showToast('Code cannot be empty.', 'warning');
+          return;
+        }
+        if (!nameDraft && frenzyNoteNameDraft.length > 0) {
+          showToast('Name cannot be empty.', 'warning');
+          return;
+        }
+
+        const previousCode = frenzyNote.nodeId;
+        const updated = await updateSource(frenzyNote.metaId, {
+          code: codeDraft,
+          title: nameDraft,
+          contentMd: draft,
+        });
+
+        setFrenzyNote(prev => prev ? {
+          ...prev,
+          nodeId: updated.code,
+          nodeName: updated.title,
+          content: updated.contentMd || '',
+        } : prev);
+        setFrenzyNoteCodeDraft(updated.code);
+        setFrenzyNoteNameDraft(updated.title);
+        setFrenzyNoteDraft(updated.contentMd || '');
+
+        setCurrentStructuralGraphData(prev => {
+          const nextSources = { ...(prev.sources || {}) };
+          if (previousCode !== updated.code) {
+            delete nextSources[previousCode];
+          }
+          nextSources[updated.code] = {
+            ...(nextSources[previousCode] || {}),
+            ...nextSources[updated.code],
+            id: updated.id,
+            code: updated.code,
+            title: updated.title,
+            contentMd: updated.contentMd,
+            bibtexKey: updated.bibtexKey ?? null,
+            filePath: updated.filePath ?? null,
+            xPosition: updated.xPosition,
+            yPosition: updated.yPosition,
+            domainId: updated.domainId,
+            ownerId: updated.ownerId,
+            visibility: updated.visibility,
+            type: 'source',
+          };
+          return { ...prev, sources: nextSources };
+        });
+
+        if (codeChanged && previousCode !== updated.code) {
+          await refreshGraphAndSRSData();
+        }
+      } catch (error) {
+        console.error('Failed to save source note:', error);
+        showToast('Failed to save source.', 'error');
+      } finally {
+        setIsSavingFrenzyNote(false);
+      }
+      return;
+    }
 
     // Handle creating a new version
     if (frenzyNoteIsNewVersion) {
@@ -3447,12 +4003,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     updateMetaDefinitionVersion,
     updateMetaExercise,
     updateMetaExerciseVersion,
+    updateSource,
     switchFrenzyNoteVersion,
     existingCodes,
   ]);
 
   const uploadFrenzyImage = useCallback(async (file: File, target: 'prompt' | 'content' | 'solution') => {
     if (!frenzyNote) return;
+    if (frenzyNote.nodeType === 'source') {
+      showToast('Source images are not supported yet.', 'warning');
+      return;
+    }
     const domainId = parseInt(subjectMatterId, 10);
     if (isNaN(domainId)) {
       showToast('Missing domain identifier.', 'error');
@@ -3610,6 +4171,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
     if (node.type === 'group') {
       showToast('Cannot delete group nodes.', 'warning');
+      return;
+    }
+    if (node.type === 'source' || node.type === 'quest') {
+      showToast('Delete sources and quests from their detail windows.', 'warning');
       return;
     }
     const metaId = codeToNumericIdMap.get(node.id);
@@ -3895,6 +4460,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     if (frenzyTool === 'link' || frenzyTool === 'unlink') {
+      if (node.type !== 'definition' && node.type !== 'exercise') {
+        showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
+        return;
+      }
       if (!pendingLinkSourceId) {
         setPendingLinkSourceId(node.id);
         showToast(`Select a target to ${frenzyTool === 'link' ? 'link' : 'unlink'} from ${node.id}.`, 'info', 1500);
@@ -4161,6 +4730,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           continue;
         }
 
+        const sourceNode = currentStructuralGraphData.sources?.[nodeCode];
+        if (sourceNode?.id) {
+          convertedPositions[`src_${sourceNode.id}`] = { x: position.x, y: position.y };
+          continue;
+        }
+
+        const questNode = currentStructuralGraphData.quests?.[nodeCode];
+        if (questNode?.id) {
+          convertedPositions[`quest_${questNode.id}`] = { x: position.x, y: position.y };
+          continue;
+        }
+
         const numericId = codeToNumericIdMap.get(nodeCode);
         if (numericId) {
           let nodeType = '';
@@ -4291,6 +4872,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onSavePositions={savePositions}
           
           onEnroll={() => setShowEnrollmentModal(true)}
+          onOpenSurvey={() => ui.openSurveyWindow()}
+          surveyDueCount={surveyDueCount}
           currentDomainId={parseInt(subjectMatterId, 10)}
           currentDomainName={domainName}
           isOwner={currentUser && domainData && domainData.ownerId === currentUser.id}
@@ -4314,6 +4897,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onDagOrientationChange={handleDagOrientationChange}
           expandedCycleCount={expandedCycleIds.size}
           onCollapseCycles={collapseAllCycles}
+          questVisibilityMode={questVisibilityMode}
+          onQuestVisibilityChange={setQuestVisibilityMode}
         />
 
         {/* Main Content */}
@@ -4380,8 +4965,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             ) : stableGraph.nodes.length > 0 ? (
               <GraphContainer
                 graphRef={graphRef}
-                graphNodes={stableGraph.nodes}
-                graphLinks={stableGraph.links}
+                graphNodes={renderGraphNodes}
+                graphLinks={renderGraphLinks}
                 highlightNodes={graphHighlightedNodes}
                 highlightLinks={highlightLinks}
                 filteredNodeType={filteredNodeType}
@@ -4460,10 +5045,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     <div className="text-xs text-gray-500 mb-2">Frenzy tools</div>
                     <div className="flex items-center gap-2 mb-2">
                       <Button size="sm" variant="outline" onClick={() => createFrenzyNode('definition')}>
-                        New
+                        Definition
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => createFrenzyNode('exercise')}>
                         Exercise
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('source')}>
+                        Source
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('quest')}>
+                        Quest
                       </Button>
                     </div>
                     <div className="flex items-center gap-2 mb-2">
@@ -4537,7 +5130,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 </div>
 
                 {/* Version Navigation */}
-                {frenzyNote && frenzyNote.allVersions.length > 0 && (
+                {frenzyNote && frenzyNote.nodeType !== 'source' && frenzyNote.allVersions.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-yellow-300">
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <Button
@@ -4706,7 +5299,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   )}
                   <div className="mb-2">
                     <label className="block text-xs text-yellow-800 mb-1">
-                      {frenzyNote.nodeType === 'definition' ? 'Definition' : 'Statement'}
+                      {frenzyNote.nodeType === 'definition'
+                        ? 'Definition'
+                        : frenzyNote.nodeType === 'source'
+                          ? 'Source'
+                          : 'Statement'}
                     </label>
                   {frenzyNotePreview ? (
                     <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-56 overflow-y-auto">
@@ -4743,29 +5340,31 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       }`}
                     />
                   )}
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    {frenzyNoteContentImagePath ? (
-                      <ZoomableImage src={frenzyNoteContentImagePath} alt="Content image" maxHeightClass="max-h-24" className="max-w-[180px]" />
-                    ) : (
-                      <span className="text-[11px] text-yellow-700">No image attached</span>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <input
-                        ref={frenzyContentImageInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) uploadFrenzyImage(file, 'content');
-                          if (e.currentTarget) e.currentTarget.value = '';
-                        }}
-                      />
-                      <Button size="sm" variant="outline" onClick={() => frenzyContentImageInputRef.current?.click()}>
-                        Upload Image
-                      </Button>
+                  {frenzyNote.nodeType !== 'source' && (
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      {frenzyNoteContentImagePath ? (
+                        <ZoomableImage src={frenzyNoteContentImagePath} alt="Content image" maxHeightClass="max-h-24" className="max-w-[180px]" />
+                      ) : (
+                        <span className="text-[11px] text-yellow-700">No image attached</span>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={frenzyContentImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) uploadFrenzyImage(file, 'content');
+                            if (e.currentTarget) e.currentTarget.value = '';
+                          }}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => frenzyContentImageInputRef.current?.click()}>
+                          Upload Image
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                   </div>
                 </div>
                 {frenzyNote.nodeType === 'exercise' && (
@@ -4883,6 +5482,106 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   onNavigateToNode={navigateToNodeById}
                   windowId={window.id}
                   reviewMode={mode === 'frenzy' ? 'frenzy' : 'normal'}
+                />
+              )}
+              {window.type === 'source' && (
+                <SourceWindowContent
+                  windowId={window.id}
+                  sourceData={window.contentProps.sourceData || window.contentProps.nodeData}
+                  domainId={parseInt(subjectMatterId, 10)}
+                  onUpdateSource={(updated) => {
+                    setCurrentStructuralGraphData(prev => {
+                      const nextSources = { ...(prev.sources || {}) };
+                      const existingCode = Object.keys(nextSources).find(code => nextSources[code]?.id === updated.id);
+                      if (existingCode && existingCode !== updated.code) {
+                        delete nextSources[existingCode];
+                      }
+                      nextSources[updated.code] = {
+                        ...(nextSources[updated.code] || {}),
+                        ...updated,
+                        type: 'source',
+                      };
+                      const nextRelations = (prev.relations || []).map(rel => ({
+                        ...rel,
+                        fromCode: existingCode && rel.fromCode === existingCode ? updated.code : rel.fromCode,
+                        toCode: existingCode && rel.toCode === existingCode ? updated.code : rel.toCode,
+                      }));
+                      return { ...prev, sources: nextSources, relations: nextRelations };
+                    });
+                  }}
+                  onQuestCreated={(quest, relation) => {
+                    setCurrentStructuralGraphData(prev => {
+                      const nextQuests = { ...(prev.quests || {}) };
+                      nextQuests[quest.code] = {
+                        ...(nextQuests[quest.code] || {}),
+                        ...quest,
+                        type: 'quest',
+                      };
+                      const nextRelations = [...(prev.relations || [])];
+                      nextRelations.push({
+                        fromCode: relation.fromCode,
+                        toCode: relation.toCode,
+                        relationType: relation.relationType,
+                      });
+                      return { ...prev, quests: nextQuests, relations: nextRelations };
+                    });
+                  }}
+                />
+              )}
+              {window.type === 'quest' && (
+                <QuestWindowContent
+                  windowId={window.id}
+                  questData={window.contentProps.questData || window.contentProps.nodeData}
+                  domainId={parseInt(subjectMatterId, 10)}
+                  graphData={currentStructuralGraphData}
+                  onUpdateQuest={(updated) => {
+                    setCurrentStructuralGraphData(prev => {
+                      const nextQuests = { ...(prev.quests || {}) };
+                      const existingCode = Object.keys(nextQuests).find(code => nextQuests[code]?.id === updated.id);
+                      if (existingCode && existingCode !== updated.code) {
+                        delete nextQuests[existingCode];
+                      }
+                      nextQuests[updated.code] = {
+                        ...(nextQuests[updated.code] || {}),
+                        ...updated,
+                        type: 'quest',
+                      };
+                      const nextRelations = (prev.relations || []).map(rel => ({
+                        ...rel,
+                        fromCode: existingCode && rel.fromCode === existingCode ? updated.code : rel.fromCode,
+                        toCode: existingCode && rel.toCode === existingCode ? updated.code : rel.toCode,
+                      }));
+                      return { ...prev, quests: nextQuests, relations: nextRelations };
+                    });
+                  }}
+                />
+              )}
+              {window.type === 'survey' && (
+                <SurveyWindowContent
+                  domainId={parseInt(subjectMatterId, 10)}
+                  graphData={currentStructuralGraphData}
+                  onNavigateToNode={navigateToNodeById}
+                  onQuestUpdated={(updated) => {
+                    setCurrentStructuralGraphData(prev => {
+                      const nextQuests = { ...(prev.quests || {}) };
+                      const existingCode = Object.keys(nextQuests).find(code => nextQuests[code]?.id === updated.id);
+                      if (existingCode && existingCode !== updated.code) {
+                        delete nextQuests[existingCode];
+                      }
+                      nextQuests[updated.code] = {
+                        ...(nextQuests[updated.code] || {}),
+                        ...updated,
+                        type: 'quest',
+                      };
+                      const nextRelations = (prev.relations || []).map(rel => ({
+                        ...rel,
+                        fromCode: existingCode && rel.fromCode === existingCode ? updated.code : rel.fromCode,
+                        toCode: existingCode && rel.toCode === existingCode ? updated.code : rel.toCode,
+                      }));
+                      return { ...prev, quests: nextQuests, relations: nextRelations };
+                    });
+                  }}
+                  onStatsUpdated={(count) => setSurveyDueCount(count)}
                 />
               )}
             </DraggableWindow>

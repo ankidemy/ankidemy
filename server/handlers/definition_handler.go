@@ -3,6 +3,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -163,6 +164,10 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 
 		// Create with prerequisites if provided
 		if err := h.metaDefinitionDAO.Create(metaDef, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+			if errors.Is(err, dao.ErrCodeConflict) {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create meta definition pool"})
 			return
 		}

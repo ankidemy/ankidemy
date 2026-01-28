@@ -306,6 +306,144 @@ CREATE TABLE IF NOT EXISTS session_exercises (
 );
 
 -- ============================================================================
+-- SOURCES + QUESTS + RELATIONS
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS sources (
+    id SERIAL PRIMARY KEY,
+    domain_id INT NOT NULL,
+    owner_id INT NOT NULL,
+    code VARCHAR(80) NOT NULL,
+    title TEXT NOT NULL,
+    content_md TEXT NOT NULL DEFAULT '',
+    bibtex_key TEXT NULL,
+    file_path TEXT NULL,
+    x_position DECIMAL(10,2) DEFAULT 0,
+    y_position DECIMAL(10,2) DEFAULT 0,
+    visibility VARCHAR(20) NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','domain')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS meta_quests (
+    id SERIAL PRIMARY KEY,
+    domain_id INT NOT NULL,
+    owner_id INT NOT NULL,
+    code VARCHAR(80) NOT NULL,
+    kind VARCHAR(20) NOT NULL CHECK (kind IN ('todo','habit','daily')),
+    schedule JSONB NOT NULL,
+    x_position DECIMAL(10,2) DEFAULT 0,
+    y_position DECIMAL(10,2) DEFAULT 0,
+    visibility VARCHAR(20) NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','domain')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS quest_versions (
+    id SERIAL PRIMARY KEY,
+    meta_quest_id INT NOT NULL,
+    title TEXT NOT NULL,
+    description_md TEXT NOT NULL DEFAULT '',
+    task_list JSONB NULL,
+    image_path TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    FOREIGN KEY (meta_quest_id) REFERENCES meta_quests(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_meta_quest_state (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    meta_quest_id INT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    next_due_at TIMESTAMP NULL,
+    snoozed_until TIMESTAMP NULL,
+    last_presented_at TIMESTAMP NULL,
+    last_completed_at TIMESTAMP NULL,
+    current_streak INT NOT NULL DEFAULT 0,
+    current_period_key TEXT NULL,
+    current_period_count INT NOT NULL DEFAULT 0,
+    last_shown_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, meta_quest_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (meta_quest_id) REFERENCES meta_quests(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS quest_events (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    meta_quest_id INT NOT NULL,
+    quest_version_id INT NULL,
+    event_type VARCHAR(30) NOT NULL,
+    happened_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    note TEXT NULL,
+    payload JSONB NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (meta_quest_id) REFERENCES meta_quests(id) ON DELETE CASCADE,
+    FOREIGN KEY (quest_version_id) REFERENCES quest_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS node_relations (
+    id SERIAL PRIMARY KEY,
+    domain_id INT NOT NULL,
+    from_type VARCHAR(20) NOT NULL CHECK (from_type IN ('meta_definition','meta_exercise','source','meta_quest')),
+    from_id INT NOT NULL,
+    to_type VARCHAR(20) NOT NULL CHECK (to_type IN ('meta_definition','meta_exercise','source','meta_quest')),
+    to_id INT NOT NULL,
+    relation_type VARCHAR(50) NOT NULL,
+    context_key TEXT NOT NULL DEFAULT '',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(from_type, from_id, to_type, to_id, relation_type, context_key),
+    CHECK (NOT (from_type = to_type AND from_id = to_id)),
+    FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS domain_node_codes (
+    id SERIAL PRIMARY KEY,
+    domain_id INT NOT NULL,
+    code VARCHAR(80) NOT NULL,
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('meta_definition','meta_exercise','source','meta_quest')),
+    node_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(domain_id, code),
+    FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_domain_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    domain_id INT NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    daily_quest_limit INT NOT NULL DEFAULT 1,
+    daily_quest_cooldown_days INT NOT NULL DEFAULT 7,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, domain_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_daily_quest_draws (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    domain_id INT NOT NULL,
+    date_key TEXT NOT NULL,
+    quest_ids JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, domain_id, date_key)
+);
+
+-- ============================================================================
 -- FUNCTIONS AND TRIGGERS
 -- ============================================================================
 
@@ -359,3 +497,11 @@ CREATE INDEX IF NOT EXISTS idx_node_groups_domain ON node_groups(domain_id);
 CREATE INDEX IF NOT EXISTS idx_group_seeds_group ON node_group_seeds(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_members_group ON node_group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_user_group_states_user ON user_group_states(user_id);
+CREATE INDEX IF NOT EXISTS idx_sources_domain_owner_visibility ON sources(domain_id, owner_id, visibility);
+CREATE INDEX IF NOT EXISTS idx_sources_domain_code ON sources(domain_id, code);
+CREATE INDEX IF NOT EXISTS idx_meta_quests_domain_code ON meta_quests(domain_id, code);
+CREATE INDEX IF NOT EXISTS idx_user_meta_quest_state_next_due ON user_meta_quest_state(user_id, next_due_at);
+CREATE INDEX IF NOT EXISTS idx_user_meta_quest_state_meta ON user_meta_quest_state(user_id, meta_quest_id);
+CREATE INDEX IF NOT EXISTS idx_quest_events_user_meta ON quest_events(user_id, meta_quest_id, happened_at);
+CREATE INDEX IF NOT EXISTS idx_node_relations_domain ON node_relations(domain_id);
+CREATE INDEX IF NOT EXISTS idx_domain_node_codes_domain_node ON domain_node_codes(domain_id, node_type, node_id);

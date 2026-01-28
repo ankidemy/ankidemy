@@ -51,9 +51,21 @@ const GraphLegend: React.FC<GraphLegendProps> = ({ mode, hasExercises }) => {
         <div className="w-3 h-3 rounded-full mr-1.5 border border-red-300 flex-shrink-0" style={{ backgroundColor: 'rgba(248, 113, 113, 0.45)' }}></div>
         <span className="truncate">External Missing</span>
       </div>
+      <div className="flex items-center mb-1">
+        <div className="w-3 h-3 rounded-full mr-1.5 border border-gray-300 flex-shrink-0" style={{ backgroundColor: 'rgba(16, 185, 129, 0.35)' }}></div>
+        <span className="truncate">Source</span>
+      </div>
+      <div className="flex items-center mb-1">
+        <div className="w-3 h-3 rounded-full mr-1.5 border border-gray-300 flex-shrink-0" style={{ backgroundColor: 'rgba(245, 158, 11, 0.35)' }}></div>
+        <span className="truncate">Quest</span>
+      </div>
       <div className="flex items-center mt-1 pt-1 border-t">
         <div style={{width: '12px', height: '2px', backgroundColor: '#aaa', marginRight: '6px', flexShrink: 0}}></div>
         <span className="truncate">Prereq. Link</span>
+       </div>
+      <div className="flex items-center">
+        <div style={{width: '12px', height: '2px', backgroundColor: '#1f2937', marginRight: '6px', flexShrink: 0}}></div>
+        <span className="truncate">Relation</span>
        </div>
       {(mode !== 'study' || hasExercises) && (
        <div className="flex items-center">
