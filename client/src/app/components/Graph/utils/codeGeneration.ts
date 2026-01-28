@@ -76,3 +76,34 @@ export const getNextExerciseCode = (existingCodes: Set<string>): string => {
   }
   return candidate;
 };
+
+const getNextPrefixedCode = (existingCodes: Set<string>, prefix: string): string => {
+  const escaped = prefix.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const regex = new RegExp(`^${escaped}(\\d+)$`);
+  let bestNumber: number | null = null;
+  existingCodes.forEach(code => {
+    const match = code.match(regex);
+    if (!match) return;
+    const value = parseInt(match[1], 10);
+    if (Number.isNaN(value)) return;
+    if (bestNumber === null || value > bestNumber) {
+      bestNumber = value;
+    }
+  });
+
+  let nextNumber = bestNumber !== null ? bestNumber + 1 : 1;
+  let candidate = `${prefix}${nextNumber}`;
+  while (existingCodes.has(candidate)) {
+    nextNumber += 1;
+    candidate = `${prefix}${nextNumber}`;
+  }
+  return candidate;
+};
+
+export const getNextSourceCode = (existingCodes: Set<string>): string => (
+  getNextPrefixedCode(existingCodes, 'S')
+);
+
+export const getNextQuestCode = (existingCodes: Set<string>): string => (
+  getNextPrefixedCode(existingCodes, 'Q')
+);

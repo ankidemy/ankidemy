@@ -26,11 +26,16 @@ import {
   getSource,
   getDomainQuests,
   getDomainRelations,
+  getQuest,
   getSurveyStats,
   createSource,
   updateSource,
+  deleteSource,
   createQuest,
   updateQuest,
+  deleteQuest,
+  createRelation,
+  deleteRelation,
   getExternalPrerequisites,
   updateExternalPrerequisitePositions,
   getDomainGroups,
@@ -95,7 +100,12 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 import DomainAccessModal from '@/app/components/Domain/DomainAccessModal';
 import { PositionManager } from './utils/PositionManager';
-import { getNextDotCode as getNextDotCodeFromUtils, getNextExerciseCode as getNextExerciseCodeFromUtils } from './utils/codeGeneration';
+import {
+  getNextDotCode as getNextDotCodeFromUtils,
+  getNextExerciseCode as getNextExerciseCodeFromUtils,
+  getNextQuestCode as getNextQuestCodeFromUtils,
+  getNextSourceCode as getNextSourceCodeFromUtils,
+} from './utils/codeGeneration';
 
 // ============================================================================
 // TYPE DEFINITIONS FOR TRUE STRUCTURE/METADATA SEPARATION
@@ -626,6 +636,8 @@ const useGraphStructure = (
     // Dependencies only track structural changes
     Object.keys(definitions).sort().join(','),
     Object.keys(exercises).sort().join(','),
+    Object.keys(sources).sort().join(','),
+    Object.keys(quests).sort().join(','),
     // Track prerequisite structure changes
     JSON.stringify(Object.fromEntries(
       Object.values(definitions).map(d => [d.code, (d.prerequisites || []).sort()])
@@ -640,6 +652,7 @@ const useGraphStructure = (
     JSON.stringify(Object.fromEntries(
       Object.values(exercises).map(e => [e.code, e.prerequisiteWeights || {}])
     )),
+    JSON.stringify((relations || []).map(r => `${r.fromCode}->${r.toCode}:${r.relationType ?? ''}`).sort()),
     externalLinks
       .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}:${link.xPosition ?? ''}:${link.yPosition ?? ''}`)
       .sort()
@@ -721,7 +734,7 @@ const useGraphMetadata = (
       if (nodeCore.type === 'source') {
         const source = sources[nodeId];
         nodeMetadata.set(nodeId, {
-          name: source?.title ?? nodeId,
+          name: source?.title?.trim() ? source.title : 'Source',
           color: 'rgba(16, 185, 129, 0.35)',
           isDue: false,
           daysUntilReview: null,
@@ -732,7 +745,7 @@ const useGraphMetadata = (
 
       if (nodeCore.type === 'quest') {
         const quest = quests[nodeId];
-        const title = quest?.versions?.[0]?.title || quest?.code || nodeId;
+        const title = quest?.versions?.[0]?.title?.trim() || 'Quest';
         nodeMetadata.set(nodeId, {
           name: title,
           color: 'rgba(245, 158, 11, 0.35)',
@@ -1839,6 +1852,52 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId]);
 
+  const buildRelationEdgesFromDomain = useCallback((relationsRaw: any[]) => {
+    const idToCodeByType = new Map<string, string>();
+    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
+      if (typeof def.id === 'number') idToCodeByType.set(`meta_definition:${def.id}`, def.code);
+    });
+    Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
+      if (typeof ex.id === 'number') idToCodeByType.set(`meta_exercise:${ex.id}`, ex.code);
+    });
+    Object.values(currentStructuralGraphData.sources || {}).forEach(src => {
+      if (typeof src.id === 'number') idToCodeByType.set(`source:${src.id}`, src.code);
+    });
+    Object.values(currentStructuralGraphData.quests || {}).forEach(q => {
+      if (typeof q.id === 'number') idToCodeByType.set(`meta_quest:${q.id}`, q.code);
+    });
+
+    const relationEdges: Array<{ fromCode: string; toCode: string; relationType?: string }> = [];
+    (relationsRaw || []).forEach((rel: any) => {
+      const fromCode = idToCodeByType.get(`${rel.fromType}:${rel.fromId}`);
+      const toCode = idToCodeByType.get(`${rel.toType}:${rel.toId}`);
+      if (!fromCode || !toCode) return;
+      relationEdges.push({
+        fromCode,
+        toCode,
+        relationType: rel.relationType,
+      });
+    });
+    return relationEdges;
+  }, [
+    currentStructuralGraphData.definitions,
+    currentStructuralGraphData.exercises,
+    currentStructuralGraphData.sources,
+    currentStructuralGraphData.quests,
+  ]);
+
+  const refreshDomainRelations = useCallback(async () => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (Number.isNaN(domainId)) return;
+    try {
+      const relations = await getDomainRelations(domainId);
+      const relationEdges = buildRelationEdgesFromDomain(relations);
+      setCurrentStructuralGraphData(prev => ({ ...prev, relations: relationEdges }));
+    } catch (error) {
+      console.warn('Failed to refresh relations:', error);
+    }
+  }, [subjectMatterId, buildRelationEdgesFromDomain]);
+
   // Load comprehensive domain data
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
     try {
@@ -2730,6 +2789,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     getNextExerciseCodeFromUtils(existingCodes)
   ), [existingCodes]);
 
+  const getNextSourceCode = useCallback(() => (
+    getNextSourceCodeFromUtils(existingCodes)
+  ), [existingCodes]);
+
+  const getNextQuestCode = useCallback(() => (
+    getNextQuestCodeFromUtils(existingCodes)
+  ), [existingCodes]);
+
   const loadFrenzyPrerequisites = useCallback(async () => {
     const domainId = parseInt(subjectMatterId, 10);
     if (isNaN(domainId)) return;
@@ -2822,8 +2889,19 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     target: GraphNode,
     idOverrides?: { sourceId?: number; targetId?: number }
   ) => {
+    if (source.type === 'quest' || target.type === 'quest' || currentStructuralGraphData.quests?.[source.id] || currentStructuralGraphData.quests?.[target.id]) {
+      return;
+    }
     if (source.type === 'group' || target.type === 'group') {
       showToast('Groups cannot be used in prerequisite relationships.', 'warning');
+      return;
+    }
+    if (source.type !== 'definition' && source.type !== 'exercise') {
+      showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
+      return;
+    }
+    if (target.type !== 'definition' && target.type !== 'exercise') {
+      showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
       return;
     }
     if (target.type === 'definition' && source.type !== 'definition') {
@@ -2862,7 +2940,243 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       console.error('Failed to create prerequisite:', error);
       showToast('Failed to create link.', 'error');
     }
-  }, [codeToNumericIdMap, frenzyPrerequisiteMap, getMetaNodeType, applyPrerequisiteUpdate]);
+  }, [
+    codeToNumericIdMap,
+    frenzyPrerequisiteMap,
+    getMetaNodeType,
+    applyPrerequisiteUpdate,
+    currentStructuralGraphData.quests,
+  ]);
+
+  const resolveRelationTarget = useCallback((node: GraphNode): { type: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest'; id: number; code: string } | null => {
+    if (node.type === 'definition') {
+      const id = codeToNumericIdMap.get(node.id);
+      if (!id) return null;
+      return { type: 'meta_definition', id, code: node.id };
+    }
+    if (node.type === 'exercise') {
+      const id = codeToNumericIdMap.get(node.id);
+      if (!id) return null;
+      return { type: 'meta_exercise', id, code: node.id };
+    }
+    if (node.type === 'source') {
+      const src = currentStructuralGraphData.sources?.[node.id];
+      if (!src?.id) return null;
+      return { type: 'source', id: src.id, code: src.code };
+    }
+    if (node.type === 'quest') {
+      const quest = currentStructuralGraphData.quests?.[node.id];
+      if (!quest?.id) return null;
+      return { type: 'meta_quest', id: quest.id, code: quest.code };
+    }
+    return null;
+  }, [codeToNumericIdMap, currentStructuralGraphData.sources, currentStructuralGraphData.quests]);
+
+  const resolveQuestVersionId = useCallback(async (questCode: string, questId: number): Promise<number | null> => {
+    const questData = currentStructuralGraphData.quests?.[questCode];
+    const existingId = questData?.versions?.[0]?.id;
+    if (existingId) return existingId;
+    try {
+      const fresh = await getQuest(questId);
+      const versionId = fresh.versions?.[0]?.id ?? null;
+      if (versionId) {
+        setCurrentStructuralGraphData(prev => {
+          const nextQuests = { ...(prev.quests || {}) };
+          const existing = nextQuests[questCode];
+          if (!existing) return prev;
+          nextQuests[questCode] = { ...existing, versions: fresh.versions || [] };
+          return { ...prev, quests: nextQuests };
+        });
+      }
+      return versionId;
+    } catch (err) {
+      console.warn('Failed to load quest versions:', err);
+      return null;
+    }
+  }, [currentStructuralGraphData.quests]);
+
+  const createSourceRelevantRelation = useCallback(async (sourceNode: GraphNode, otherNode: GraphNode) => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (Number.isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+    const sourceInfo = resolveRelationTarget(sourceNode);
+    const otherInfo = resolveRelationTarget(otherNode);
+    if (!sourceInfo || !otherInfo) {
+      showToast('Missing node identifiers for linking.', 'error');
+      return;
+    }
+    if (sourceInfo.type !== 'source') {
+      showToast('Source links must start from a source node.', 'warning');
+      return;
+    }
+    if (otherInfo.type !== 'meta_definition' && otherInfo.type !== 'meta_exercise') {
+      showToast('Sources can only be linked to definitions or exercises.', 'warning');
+      return;
+    }
+    const exists = (currentStructuralGraphData.relations || []).some(rel =>
+      rel.fromCode === sourceInfo.code && rel.toCode === otherInfo.code && (rel.relationType || 'relevant') === 'relevant'
+    );
+    if (exists) {
+      showToast('These nodes are already linked.', 'info');
+      return;
+    }
+    try {
+      await createRelation(domainId, {
+        fromType: 'source',
+        fromId: sourceInfo.id,
+        toType: otherInfo.type,
+        toId: otherInfo.id,
+        relationType: 'relevant',
+      });
+      setCurrentStructuralGraphData(prev => {
+        const nextRelations = [...(prev.relations || [])];
+        nextRelations.push({ fromCode: sourceInfo.code, toCode: otherInfo.code, relationType: 'relevant' });
+        return { ...prev, relations: nextRelations };
+      });
+      showToast(`Linked ${sourceInfo.code} -> ${otherInfo.code}`, 'success', 1200);
+    } catch (error) {
+      console.error('Failed to create source relation:', error);
+      showToast('Failed to create link.', 'error');
+    }
+  }, [
+    subjectMatterId,
+    resolveRelationTarget,
+    currentStructuralGraphData.relations,
+  ]);
+
+  const createQuestRelevantRelation = useCallback(async (questNode: GraphNode, otherNode: GraphNode) => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (Number.isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+    const questInfo = resolveRelationTarget(questNode);
+    const otherInfo = resolveRelationTarget(otherNode);
+    if (!questInfo || !otherInfo) {
+      showToast('Missing node identifiers for linking.', 'error');
+      return;
+    }
+    if (otherInfo.type === 'meta_quest') {
+      showToast('Quests cannot be linked to other quests in Frenzy mode.', 'warning');
+      return;
+    }
+    const versionId = await resolveQuestVersionId(questInfo.code, questInfo.id);
+    if (!versionId) {
+      showToast('Quest has no version to attach links to.', 'warning');
+      return;
+    }
+    const exists = (currentStructuralGraphData.relations || []).some(rel =>
+      rel.fromCode === questInfo.code && rel.toCode === otherInfo.code && (rel.relationType || 'relevant') === 'relevant'
+    );
+    if (exists) {
+      showToast('These nodes are already linked.', 'info');
+      return;
+    }
+    try {
+      await createRelation(domainId, {
+        fromType: 'meta_quest',
+        fromId: questInfo.id,
+        toType: otherInfo.type,
+        toId: otherInfo.id,
+        relationType: 'relevant',
+        contextKey: `quest_version:${versionId}`,
+      });
+      setCurrentStructuralGraphData(prev => {
+        const nextRelations = [...(prev.relations || [])];
+        nextRelations.push({ fromCode: questInfo.code, toCode: otherInfo.code, relationType: 'relevant' });
+        return { ...prev, relations: nextRelations };
+      });
+      showToast(`Linked ${questInfo.code} -> ${otherInfo.code}`, 'success', 1200);
+    } catch (error) {
+      console.error('Failed to create quest relation:', error);
+      showToast('Failed to create link.', 'error');
+    }
+  }, [
+    subjectMatterId,
+    resolveRelationTarget,
+    resolveQuestVersionId,
+    currentStructuralGraphData.relations,
+  ]);
+
+  const removeSourceRelevantRelation = useCallback(async (sourceNode: GraphNode, otherNode: GraphNode) => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (Number.isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+    const sourceInfo = resolveRelationTarget(sourceNode);
+    const otherInfo = resolveRelationTarget(otherNode);
+    if (!sourceInfo || !otherInfo) {
+      showToast('Missing node identifiers for unlinking.', 'error');
+      return;
+    }
+    if (sourceInfo.type !== 'source') {
+      showToast('Source links must start from a source node.', 'warning');
+      return;
+    }
+    try {
+      const relations = await getDomainRelations(domainId);
+      const toDelete = relations.filter(rel =>
+        rel.fromType === 'source' &&
+        rel.fromId === sourceInfo.id &&
+        rel.toType === otherInfo.type &&
+        rel.toId === otherInfo.id &&
+        rel.relationType === 'relevant'
+      );
+      if (toDelete.length === 0) {
+        showToast('Link not found.', 'warning');
+        return;
+      }
+      await Promise.all(toDelete.map(rel => rel.id ? deleteRelation(rel.id) : Promise.resolve()));
+      setCurrentStructuralGraphData(prev => {
+        const nextRelations = (prev.relations || []).filter(rel =>
+          !(rel.fromCode === sourceInfo.code && rel.toCode === otherInfo.code && (rel.relationType || 'relevant') === 'relevant')
+        );
+        return { ...prev, relations: nextRelations };
+      });
+      showToast(`Unlinked ${sourceInfo.code} -> ${otherInfo.code}`, 'success', 1200);
+    } catch (error) {
+      console.error('Failed to remove source relation:', error);
+      showToast('Failed to remove link.', 'error');
+    }
+  }, [subjectMatterId, resolveRelationTarget]);
+
+  const removeQuestRelevantRelation = useCallback(async (questNode: GraphNode, otherNode: GraphNode) => {
+    const domainId = parseInt(subjectMatterId, 10);
+    if (Number.isNaN(domainId)) {
+      showToast('Invalid domain.', 'error');
+      return;
+    }
+    const questInfo = resolveRelationTarget(questNode);
+    const otherInfo = resolveRelationTarget(otherNode);
+    if (!questInfo || !otherInfo) {
+      showToast('Missing node identifiers for unlinking.', 'error');
+      return;
+    }
+    try {
+      const relations = await getDomainRelations(domainId);
+      const toDelete = relations.filter(rel =>
+        rel.fromType === 'meta_quest' &&
+        rel.fromId === questInfo.id &&
+        rel.toType === otherInfo.type &&
+        rel.toId === otherInfo.id &&
+        rel.relationType === 'relevant'
+      );
+      await Promise.all(toDelete.map(rel => rel.id ? deleteRelation(rel.id) : Promise.resolve()));
+      setCurrentStructuralGraphData(prev => {
+        const nextRelations = (prev.relations || []).filter(rel =>
+          !(rel.fromCode === questInfo.code && rel.toCode === otherInfo.code && (rel.relationType || 'relevant') === 'relevant')
+        );
+        return { ...prev, relations: nextRelations };
+      });
+      showToast(`Unlinked ${questInfo.code} -> ${otherInfo.code}`, 'success', 1200);
+    } catch (error) {
+      console.error('Failed to remove quest relation:', error);
+      showToast('Failed to remove link.', 'error');
+    }
+  }, [subjectMatterId, resolveRelationTarget]);
 
   const removeFrenzyPrerequisite = useCallback(async (sourceCode: string, targetCode: string) => {
     const key = `${sourceCode}-${targetCode}`;
@@ -2909,6 +3223,34 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
 
     if (!closest || closestDistance > FRENZY_LINK_SNAP_DISTANCE) return;
+    if (closest.type === 'quest' || sourceNode.type === 'quest') {
+      const questNode = closest.type === 'quest' ? closest : sourceNode;
+      const otherNode = closest.type === 'quest' ? sourceNode : closest;
+      if (frenzyPendingLinkRef.current.has(`${questNode.id}-${otherNode.id}`)) return;
+      frenzyPendingLinkRef.current.add(`${questNode.id}-${otherNode.id}`);
+      try {
+        await createQuestRelevantRelation(questNode, otherNode);
+      } finally {
+        frenzyPendingLinkRef.current.delete(`${questNode.id}-${otherNode.id}`);
+      }
+      return;
+    }
+    if (closest.type === 'source' || sourceNode.type === 'source') {
+      const sourceRelNode = closest.type === 'source' ? closest : sourceNode;
+      const otherNode = closest.type === 'source' ? sourceNode : closest;
+      if (otherNode.type !== 'definition' && otherNode.type !== 'exercise') return;
+      const key = `source:${sourceRelNode.id}->${otherNode.id}`;
+      if (frenzyPendingLinkRef.current.has(key)) return;
+      frenzyPendingLinkRef.current.add(key);
+      try {
+        await createSourceRelevantRelation(sourceRelNode, otherNode);
+      } finally {
+        frenzyPendingLinkRef.current.delete(key);
+      }
+      return;
+    }
+    if (closest.type !== 'definition' && closest.type !== 'exercise') return;
+    if (sourceNode.type !== 'definition' && sourceNode.type !== 'exercise') return;
     const key = `${closest.id}-${sourceNode.id}`;
     if (frenzyPrerequisiteMap.has(key) || frenzyPendingLinkRef.current.has(key)) return;
     frenzyPendingLinkRef.current.add(key);
@@ -2917,7 +3259,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } finally {
       frenzyPendingLinkRef.current.delete(key);
     }
-  }, [mode, isFrenzyEditMode, canEdit, frenzyTool, frenzyPrerequisiteMap, addFrenzyPrerequisite]);
+  }, [
+    mode,
+    isFrenzyEditMode,
+    canEdit,
+    frenzyTool,
+    frenzyPrerequisiteMap,
+    addFrenzyPrerequisite,
+    createQuestRelevantRelation,
+    createSourceRelevantRelation,
+  ]);
 
   // Handle node drag end with position manager
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
@@ -2997,11 +3348,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
     if (node.type === 'source') {
       const sourceData = currentStructuralGraphData.sources?.[node.id];
-      const isOwner = !!(currentUser && sourceData?.ownerId === currentUser.id);
-      if (!isOwner && !currentUser?.isAdmin) {
-        showToast('Only the owner can edit this source.', 'warning');
-        return;
-      }
       const sourceId = metaIdOverride ?? sourceData?.id;
       if (!sourceId) {
         showToast('Missing source metadata.', 'error');
@@ -3009,6 +3355,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
       try {
         const source = await getSource(sourceId);
+        const isOwner = !!(currentUser && source?.ownerId === currentUser.id);
+        if (!isOwner && !currentUser?.isAdmin) {
+          showToast('Only the owner can edit this source.', 'warning');
+          return;
+        }
         const resolvedName = source.title || node.name;
         const resolvedCode = source.code || node.id;
         const autoContentHint = frenzyAutoContentRef.current.get(resolvedCode);
@@ -3220,6 +3571,42 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     ui,
   ]);
 
+  const removeAuxNodeFromGraph = useCallback((nodeType: 'source' | 'quest', code: string) => {
+    setCurrentStructuralGraphData(prev => {
+      const next = { ...prev };
+      if (nodeType === 'source') {
+        const nextSources = { ...(prev.sources || {}) };
+        delete nextSources[code];
+        next.sources = nextSources;
+      } else {
+        const nextQuests = { ...(prev.quests || {}) };
+        delete nextQuests[code];
+        next.quests = nextQuests;
+      }
+      next.relations = (prev.relations || []).filter(rel => rel.fromCode !== code && rel.toCode !== code);
+      return next;
+    });
+
+    positionManagerRef.current.removePosition(code);
+    if (pendingLinkSourceId === code) setPendingLinkSourceId(null);
+    setSelectedNodeIds(prev => {
+      if (!prev.has(code)) return prev;
+      const next = new Set(prev);
+      next.delete(code);
+      return next;
+    });
+    setNewlyCreatedNodeId(prev => (prev === code ? null : prev));
+    if (frenzyNote?.nodeId === code) {
+      setFrenzyNote(null);
+      setFrenzyNoteCodeDraft('');
+      setFrenzyNoteDraft('');
+      setFrenzyNoteNameDraft('');
+      setFrenzyNotePromptDraft('');
+      setFrenzyNotePreview(false);
+      setIsDraggingFrenzyNote(false);
+    }
+  }, [pendingLinkSourceId, frenzyNote]);
+
   const switchFrenzyNoteVersion = useCallback((newIndex: number) => {
     if (!frenzyNote) return;
     if (frenzyNote.nodeType === 'source') return;
@@ -3403,16 +3790,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [frenzyNote]);
 
-  const getNextSimpleCode = useCallback((prefix: string) => {
-    let code = prefix;
-    let i = 1;
-    while (existingCodes.has(code)) {
-      code = `${prefix}.${i}`;
-      i += 1;
-    }
-    return code;
-  }, [existingCodes]);
-
   const createFrenzyNode = useCallback(async (
     type: 'definition' | 'exercise' | 'source' | 'quest',
     spawnOverride?: { x: number; y: number }
@@ -3431,14 +3808,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       ? getNextExerciseCode()
       : type === 'definition'
         ? getNextDotCode()
-        : getNextSimpleCode(type === 'source' ? 'source' : 'quest');
+        : type === 'source'
+          ? getNextSourceCode()
+          : getNextQuestCode();
     const name = type === 'definition'
       ? `Concept ${code}`
       : type === 'exercise'
         ? `Exercise ${code}`
         : type === 'source'
-          ? `Source ${code}`
-          : `Quest ${code}`;
+          ? (code.startsWith('S') ? `Source ${code.slice(1)}` : 'Source')
+          : (code.startsWith('Q') ? `Quest ${code.slice(1)}` : 'Quest');
     const basePosition = (spawnOverride && Number.isFinite(spawnOverride.x) && Number.isFinite(spawnOverride.y))
       ? spawnOverride
       : getGraphCenter();
@@ -3599,7 +3978,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     subjectMatterId,
     getNextDotCode,
     getNextExerciseCode,
-    getNextSimpleCode,
+    getNextSourceCode,
+    getNextQuestCode,
     getGraphCenter,
     getDefaultFrenzyContent,
     getDefaultFrenzyPrompt,
@@ -4165,16 +4545,57 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [currentStructuralGraphData]);
 
   const deleteFrenzyNode = useCallback(async (node: GraphNode) => {
-    if (!canEdit) {
-      showToast('Only domain owners or editors can delete nodes.', 'warning');
-      return;
-    }
     if (node.type === 'group') {
       showToast('Cannot delete group nodes.', 'warning');
       return;
     }
-    if (node.type === 'source' || node.type === 'quest') {
-      showToast('Delete sources and quests from their detail windows.', 'warning');
+    if (node.type === 'source') {
+      const sourceData = currentStructuralGraphData.sources?.[node.id];
+      const sourceId = sourceData?.id;
+      if (!sourceId) {
+        showToast('Missing source metadata.', 'error');
+        return;
+      }
+      const isOwner = !!(currentUser && sourceData?.ownerId === currentUser.id);
+      if (!isOwner && !currentUser?.isAdmin) {
+        showToast('Only the owner can delete this source.', 'warning');
+        return;
+      }
+      try {
+        await deleteSource(sourceId);
+        removeAuxNodeFromGraph('source', node.id);
+        showToast(`Deleted ${node.id}.`, 'success');
+      } catch (error) {
+        console.error('Failed to delete source:', error);
+        showToast('Failed to delete source.', 'error');
+      }
+      return;
+    }
+    if (node.type === 'quest') {
+      const questData = currentStructuralGraphData.quests?.[node.id];
+      const questId = questData?.id;
+      if (!questId) {
+        showToast('Missing quest metadata.', 'error');
+        return;
+      }
+      const isOwner = !!(currentUser && questData?.ownerId === currentUser.id);
+      const canModerate = !!(currentUser?.isAdmin || (domainData && currentUser && domainData.ownerId === currentUser.id));
+      if (!isOwner && !canModerate) {
+        showToast('Only the owner can delete this quest.', 'warning');
+        return;
+      }
+      try {
+        await deleteQuest(questId);
+        removeAuxNodeFromGraph('quest', node.id);
+        showToast(`Deleted ${node.id}.`, 'success');
+      } catch (error) {
+        console.error('Failed to delete quest:', error);
+        showToast('Failed to delete quest.', 'error');
+      }
+      return;
+    }
+    if (!canEdit) {
+      showToast('Only domain owners or editors can delete nodes.', 'warning');
       return;
     }
     const metaId = codeToNumericIdMap.get(node.id);
@@ -4298,6 +4719,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData,
     pendingLinkSourceId,
     frenzyNote,
+    currentUser,
+    domainData,
+    removeAuxNodeFromGraph,
   ]);
 
   const handleFrenzyToolChange = useCallback(async (nextTool: FrenzyEditTool) => {
@@ -4460,10 +4884,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
     if (frenzyTool === 'link' || frenzyTool === 'unlink') {
-      if (node.type !== 'definition' && node.type !== 'exercise') {
-        showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
-        return;
-      }
       if (!pendingLinkSourceId) {
         setPendingLinkSourceId(node.id);
         showToast(`Select a target to ${frenzyTool === 'link' ? 'link' : 'unlink'} from ${node.id}.`, 'info', 1500);
@@ -4478,6 +4898,42 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setPendingLinkSourceId(null);
       if (!sourceNode) {
         showToast('Source node not found.', 'error');
+        return;
+      }
+      const sourceIsQuest = sourceNode.type === 'quest' || !!currentStructuralGraphData.quests?.[sourceNode.id];
+      const targetIsQuest = node.type === 'quest' || !!currentStructuralGraphData.quests?.[node.id];
+      if (sourceIsQuest || targetIsQuest) {
+        const questNode = sourceIsQuest ? { ...sourceNode, type: 'quest' } as GraphNode : { ...node, type: 'quest' } as GraphNode;
+        const otherNode = sourceIsQuest ? node : sourceNode;
+        if (frenzyTool === 'link') {
+          await createQuestRelevantRelation(questNode, otherNode);
+        } else {
+          await removeQuestRelevantRelation(questNode, otherNode);
+        }
+        return;
+      }
+      const sourceIsSource = sourceNode.type === 'source' || !!currentStructuralGraphData.sources?.[sourceNode.id];
+      const targetIsSource = node.type === 'source' || !!currentStructuralGraphData.sources?.[node.id];
+      if (sourceIsSource || targetIsSource) {
+        const sourceRelNode = sourceIsSource ? { ...sourceNode, type: 'source' } as GraphNode : { ...node, type: 'source' } as GraphNode;
+        const otherNode = sourceIsSource ? node : sourceNode;
+        if (otherNode.type !== 'definition' && otherNode.type !== 'exercise') {
+          showToast('Sources can only be linked to definitions or exercises.', 'warning');
+          return;
+        }
+        if (frenzyTool === 'link') {
+          await createSourceRelevantRelation(sourceRelNode, otherNode);
+        } else {
+          await removeSourceRelevantRelation(sourceRelNode, otherNode);
+        }
+        return;
+      }
+      if (sourceNode.type !== 'definition' && sourceNode.type !== 'exercise') {
+        showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
+        return;
+      }
+      if (node.type !== 'definition' && node.type !== 'exercise') {
+        showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
         return;
       }
       if (frenzyTool === 'link') {
@@ -4502,6 +4958,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     addFrenzyPrerequisite,
     removeFrenzyPrerequisite,
     deleteFrenzyNode,
+    createQuestRelevantRelation,
+    removeQuestRelevantRelation,
+    createSourceRelevantRelation,
+    removeSourceRelevantRelation,
+    currentStructuralGraphData.quests,
+    currentStructuralGraphData.sources,
   ]);
 
   const handleGraphNodeClick = useCallback((node: GraphNode) => {
@@ -4578,8 +5040,34 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     if (!sourceId || !targetId) return;
+    const sourceNode = stableGraph.nodes.find(n => n.id === sourceId);
+    const targetNode = stableGraph.nodes.find(n => n.id === targetId);
+    if (sourceNode?.type === 'quest' || targetNode?.type === 'quest') {
+      const questNode = sourceNode?.type === 'quest' ? sourceNode : targetNode;
+      const otherNode = sourceNode?.type === 'quest' ? targetNode : sourceNode;
+      if (questNode && otherNode) {
+        void removeQuestRelevantRelation(questNode, otherNode);
+      }
+      return;
+    }
+    if (sourceNode?.type === 'source' || targetNode?.type === 'source') {
+      const sourceRelNode = sourceNode?.type === 'source' ? sourceNode : targetNode;
+      const otherNode = sourceNode?.type === 'source' ? targetNode : sourceNode;
+      if (sourceRelNode && otherNode && (otherNode.type === 'definition' || otherNode.type === 'exercise')) {
+        void removeSourceRelevantRelation(sourceRelNode, otherNode);
+      }
+      return;
+    }
     removeFrenzyPrerequisite(sourceId, targetId);
-  }, [mode, isFrenzyEditMode, frenzyTool, removeFrenzyPrerequisite]);
+  }, [
+    mode,
+    isFrenzyEditMode,
+    frenzyTool,
+    stableGraph.nodes,
+    removeFrenzyPrerequisite,
+    removeQuestRelevantRelation,
+    removeSourceRelevantRelation,
+  ]);
 
   const handleGraphNodeRightClick = useCallback((node: GraphNode, event?: MouseEvent) => {
     if (!(mode === 'frenzy' && isFrenzyEditMode)) return;
@@ -4618,8 +5106,34 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     if (!sourceId || !targetId) return;
+    const sourceNode = stableGraph.nodes.find(n => n.id === sourceId);
+    const targetNode = stableGraph.nodes.find(n => n.id === targetId);
+    if (sourceNode?.type === 'quest' || targetNode?.type === 'quest') {
+      const questNode = sourceNode?.type === 'quest' ? sourceNode : targetNode;
+      const otherNode = sourceNode?.type === 'quest' ? targetNode : sourceNode;
+      if (questNode && otherNode) {
+        void removeQuestRelevantRelation(questNode, otherNode);
+      }
+      return;
+    }
+    if (sourceNode?.type === 'source' || targetNode?.type === 'source') {
+      const sourceRelNode = sourceNode?.type === 'source' ? sourceNode : targetNode;
+      const otherNode = sourceNode?.type === 'source' ? targetNode : sourceNode;
+      if (sourceRelNode && otherNode && (otherNode.type === 'definition' || otherNode.type === 'exercise')) {
+        void removeSourceRelevantRelation(sourceRelNode, otherNode);
+      }
+      return;
+    }
     void removeFrenzyPrerequisite(sourceId, targetId);
-  }, [mode, isFrenzyEditMode, canEdit, removeFrenzyPrerequisite]);
+  }, [
+    mode,
+    isFrenzyEditMode,
+    canEdit,
+    stableGraph.nodes,
+    removeFrenzyPrerequisite,
+    removeQuestRelevantRelation,
+    removeSourceRelevantRelation,
+  ]);
 
   const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
     if (mode === 'frenzy' && isFrenzyEditMode) {
@@ -5489,6 +6003,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   windowId={window.id}
                   sourceData={window.contentProps.sourceData || window.contentProps.nodeData}
                   domainId={parseInt(subjectMatterId, 10)}
+                  graphData={currentStructuralGraphData}
                   onUpdateSource={(updated) => {
                     setCurrentStructuralGraphData(prev => {
                       const nextSources = { ...(prev.sources || {}) };
@@ -5509,6 +6024,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       return { ...prev, sources: nextSources, relations: nextRelations };
                     });
                   }}
+                  onDeleteSource={(code) => {
+                    removeAuxNodeFromGraph('source', code);
+                  }}
+                  onRelevantLinksUpdated={refreshDomainRelations}
                   onQuestCreated={(quest, relation) => {
                     setCurrentStructuralGraphData(prev => {
                       const nextQuests = { ...(prev.quests || {}) };
@@ -5554,6 +6073,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       return { ...prev, quests: nextQuests, relations: nextRelations };
                     });
                   }}
+                  onDeleteQuest={(code) => {
+                    removeAuxNodeFromGraph('quest', code);
+                  }}
+                  onRelevantLinksUpdated={refreshDomainRelations}
                 />
               )}
               {window.type === 'survey' && (

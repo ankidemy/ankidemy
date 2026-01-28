@@ -144,7 +144,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
   }, [loading, queue.length]);
 
   return (
-    <div className="flex flex-col gap-4 text-sm">
+    <div className="flex flex-col gap-4 text-sm p-4">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-base font-semibold text-gray-900">Survey Queue</div>
