@@ -534,6 +534,41 @@ export interface DomainExportData {
       }>;
     };
   };
+  sources?: {
+    [key: string]: {
+      code: string;
+      title: string;
+      contentMd?: string;
+      bibtexKey?: string | null;
+      filePath?: string | null;
+      xPosition?: number;
+      yPosition?: number;
+    };
+  };
+  metaQuests?: {
+    [key: string]: {
+      code: string;
+      name?: string;
+      kind: string;
+      schedule: any;
+      xPosition?: number;
+      yPosition?: number;
+      versions: Array<{
+        title: string;
+        descriptionMd?: string;
+        taskList?: any;
+        imagePath?: string;
+      }>;
+    };
+  };
+  relations?: Array<{
+    fromType: string;
+    fromCode: string;
+    toType: string;
+    toCode: string;
+    relationType: string;
+    contextKey?: string;
+  }>;
   groups?: Array<{
     name: string;
     isExact: boolean;
@@ -597,8 +632,10 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
   const hasMetaDefs = rawData.metaDefinitions && typeof rawData.metaDefinitions === 'object';
   const hasEx = rawData.exercises && typeof rawData.exercises === 'object';
   const hasMetaEx = rawData.metaExercises && typeof rawData.metaExercises === 'object';
-  if ((!hasDefs && !hasMetaDefs) || (!hasEx && !hasMetaEx)) {
-    throw new Error('Invalid JSON format: missing definitions/metaDefinitions and either exercises/metaExercises');
+  const hasSources = rawData.sources && typeof rawData.sources === 'object';
+  const hasQuests = rawData.metaQuests && typeof rawData.metaQuests === 'object';
+  if ((!hasDefs && !hasMetaDefs) && (!hasEx && !hasMetaEx) && !hasSources && !hasQuests) {
+    throw new Error('Invalid JSON format: missing definitions/exercises and sources/quests');
   }
 
   const standardized: DomainExportData = {
@@ -606,6 +643,9 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
     metaDefinitions: undefined,
     exercises: undefined,
     metaExercises: undefined,
+    sources: undefined,
+    metaQuests: undefined,
+    relations: Array.isArray(rawData.relations) ? rawData.relations : undefined,
     groups: Array.isArray(rawData.groups) ? rawData.groups : undefined,
   };
 
@@ -720,6 +760,60 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
         prerequisiteWeights: exWeights,
         xPosition: Number(exercise.xPosition) || 0,
         yPosition: Number(exercise.yPosition) || 0,
+      };
+    }
+  }
+
+  if (rawData.sources && typeof rawData.sources === 'object') {
+    standardized.sources = {};
+    for (const [key, src] of Object.entries(rawData.sources || {})) {
+      const node = src as any;
+      const code = normalizeImportCode(node.code, key);
+      const title = normalizeImportText(node.title) || code;
+      const contentMd = normalizeImportText(node.contentMd);
+      const bibtexKey = normalizeImportText(node.bibtexKey);
+      const filePath = normalizeImportText(node.filePath);
+      (standardized.sources as any)[key] = {
+        code,
+        title,
+        contentMd: contentMd || undefined,
+        bibtexKey: bibtexKey || undefined,
+        filePath: filePath || undefined,
+        xPosition: Number(node.xPosition) || 0,
+        yPosition: Number(node.yPosition) || 0,
+      };
+    }
+  }
+
+  if (rawData.metaQuests && typeof rawData.metaQuests === 'object') {
+    standardized.metaQuests = {};
+    for (const [key, mq] of Object.entries(rawData.metaQuests || {})) {
+      const node = mq as any;
+      const code = normalizeImportCode(node.code, key);
+      let name = normalizeImportName(node.name, code);
+      const rawVersions = Array.isArray(node.versions) ? node.versions : [];
+      const versions = (rawVersions.length > 0 ? rawVersions : [{}]).map((v: any) => {
+        const title = normalizeImportText(v.title);
+        return {
+          title: title || name || code,
+          descriptionMd: normalizeImportText(v.descriptionMd) || undefined,
+          taskList: v.taskList,
+          imagePath: normalizeImportText(v.imagePath) || undefined,
+        };
+      });
+      if (name === code && versions.length > 0) {
+        const firstTitle = normalizeImportText(versions[0].title);
+        if (firstTitle) name = firstTitle;
+      }
+      const kind = normalizeImportText(node.kind) || 'todo';
+      (standardized.metaQuests as any)[key] = {
+        code,
+        name,
+        kind,
+        schedule: node.schedule,
+        xPosition: Number(node.xPosition) || 0,
+        yPosition: Number(node.yPosition) || 0,
+        versions,
       };
     }
   }

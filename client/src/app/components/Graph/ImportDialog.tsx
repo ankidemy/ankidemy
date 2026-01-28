@@ -24,6 +24,9 @@ interface ValidationResult {
   metaDefinitionCount: number;
   exerciseCount: number;
   metaExerciseCount: number;
+  sourceCount: number;
+  questCount: number;
+  relationCount: number;
   versionCount: number;
   definitionVersionCount: number;
   groupCount: number;
@@ -79,6 +82,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     let metaDefinitionCount = 0;
     let exerciseCount = 0;
     let metaExerciseCount = 0;
+    let sourceCount = 0;
+    let questCount = 0;
+    let relationCount = 0;
     let versionCount = 0;
     let definitionVersionCount = 0;
     let groupCount = 0;
@@ -183,6 +189,63 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       }
     }
 
+    if (data.sources && Object.keys(data.sources).length > 0) {
+      sourceCount = Object.keys(data.sources).length;
+      for (const [code, src] of Object.entries(data.sources)) {
+        if (!src.code) {
+          errors.push(`Source ${code} has empty code`);
+        }
+        if (!src.title) {
+          errors.push(`Source ${code} has empty title`);
+        }
+        const key = src.code || code;
+        const existingType = allCodes.get(key);
+        if (existingType) {
+          errors.push(`Duplicate code found: ${key} (${existingType} and source)`);
+        } else {
+          allCodes.set(key, 'source');
+        }
+      }
+    }
+
+    if (data.metaQuests && Object.keys(data.metaQuests).length > 0) {
+      questCount = Object.keys(data.metaQuests).length;
+      for (const [code, mq] of Object.entries(data.metaQuests)) {
+        if (!mq.code) {
+          errors.push(`Quest ${code} has empty code`);
+        }
+        if (!mq.name) {
+          errors.push(`Quest ${code} has empty name`);
+        }
+        if (!mq.versions || mq.versions.length === 0) {
+          errors.push(`Quest ${code} has no versions`);
+        }
+        const key = mq.code || code;
+        const existingType = allCodes.get(key);
+        if (existingType) {
+          errors.push(`Duplicate code found: ${key} (${existingType} and quest)`);
+        } else {
+          allCodes.set(key, 'quest');
+        }
+      }
+    }
+
+    if (Array.isArray(data.relations)) {
+      relationCount = data.relations.length;
+      data.relations.forEach((rel, idx) => {
+        if (!rel.fromType || !rel.fromCode || !rel.toType || !rel.toCode) {
+          errors.push(`Relation ${idx + 1} is missing required fields`);
+          return;
+        }
+        if (!allCodes.has(rel.fromCode)) {
+          errors.push(`Relation ${idx + 1} references unknown code ${rel.fromCode}`);
+        }
+        if (!allCodes.has(rel.toCode)) {
+          errors.push(`Relation ${idx + 1} references unknown code ${rel.toCode}`);
+        }
+      });
+    }
+
     if (Array.isArray(data.groups)) {
       groupCount = data.groups.length;
       data.groups.forEach((group, idx) => {
@@ -217,6 +280,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       metaDefinitionCount,
       exerciseCount,
       metaExerciseCount,
+      sourceCount,
+      questCount,
+      relationCount,
       versionCount,
       definitionVersionCount,
       groupCount
@@ -246,6 +312,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         metaDefinitionCount: 0,
         exerciseCount: 0,
         metaExerciseCount: 0,
+        sourceCount: 0,
+        questCount: 0,
+        relationCount: 0,
         versionCount: 0,
         definitionVersionCount: 0,
         groupCount: 0,
@@ -270,6 +339,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         metaDefinitionCount: 0,
         exerciseCount: 0,
         metaExerciseCount: 0,
+        sourceCount: 0,
+        questCount: 0,
+        relationCount: 0,
         versionCount: 0,
         definitionVersionCount: 0,
         groupCount: 0
@@ -384,6 +456,15 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                           ) : validation.exerciseCount > 0 ? (
                             <p>• {validation.exerciseCount} exercise{validation.exerciseCount !== 1 ? 's' : ''} (legacy format)</p>
                           ) : null}
+                          {validation.sourceCount > 0 && (
+                            <p>• {validation.sourceCount} source{validation.sourceCount !== 1 ? 's' : ''}</p>
+                          )}
+                          {validation.questCount > 0 && (
+                            <p>• {validation.questCount} quest{validation.questCount !== 1 ? 's' : ''}</p>
+                          )}
+                          {validation.relationCount > 0 && (
+                            <p>• {validation.relationCount} relation{validation.relationCount !== 1 ? 's' : ''}</p>
+                          )}
                           {validation.groupCount > 0 && (
                             <p>• {validation.groupCount} group{validation.groupCount !== 1 ? 's' : ''}</p>
                           )}

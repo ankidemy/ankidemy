@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"myapp/server/models"
 )
 
@@ -35,6 +37,7 @@ type DomainUserStateBackup struct {
 	Username           string                 `json:"username"`
 	PrivateSources     map[string]ImportSourceNode `json:"privateSources,omitempty"`
 	PrivateQuests      map[string]ImportMetaQuestNode `json:"privateQuests,omitempty"`
+	PrivateRelations   []ImportRelation       `json:"privateRelations,omitempty"`
 	QuestStates        []QuestStateBackup     `json:"questStates,omitempty"`
 	QuestEvents        []QuestEventBackup     `json:"questEvents,omitempty"`
 	UserDomainSettings *UserDomainSettingsBackup `json:"userDomainSettings,omitempty"`
@@ -193,6 +196,59 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 		}
 	}
 
+	// Private relations (links involving private sources or private quests)
+	privateSourceIDs := make([]uint, 0, len(privateSources))
+	privateQuestIDs := make([]uint, 0, len(privateQuests))
+	for _, src := range privateSources {
+		privateSourceIDs = append(privateSourceIDs, src.ID)
+	}
+	for _, q := range privateQuests {
+		privateQuestIDs = append(privateQuestIDs, q.ID)
+	}
+	if len(privateSourceIDs) > 0 || len(privateQuestIDs) > 0 {
+		var codes []models.DomainNodeCode
+		if err := s.db.Where("domain_id = ?", domainID).Find(&codes).Error; err != nil {
+			return nil, err
+		}
+		codeMap := map[string]map[uint]string{}
+		for _, c := range codes {
+			if codeMap[c.NodeType] == nil {
+				codeMap[c.NodeType] = map[uint]string{}
+			}
+			codeMap[c.NodeType][c.NodeID] = c.Code
+		}
+
+		var relations []models.NodeRelation
+		query := s.db.Where("domain_id = ?", domainID)
+		if len(privateSourceIDs) > 0 && len(privateQuestIDs) > 0 {
+			query = query.Where("(from_type = 'source' AND from_id IN ?) OR (to_type = 'source' AND to_id IN ?) OR (from_type = 'meta_quest' AND from_id IN ?) OR (to_type = 'meta_quest' AND to_id IN ?)",
+				privateSourceIDs, privateSourceIDs, privateQuestIDs, privateQuestIDs)
+		} else if len(privateSourceIDs) > 0 {
+			query = query.Where("(from_type = 'source' AND from_id IN ?) OR (to_type = 'source' AND to_id IN ?)", privateSourceIDs, privateSourceIDs)
+		} else if len(privateQuestIDs) > 0 {
+			query = query.Where("(from_type = 'meta_quest' AND from_id IN ?) OR (to_type = 'meta_quest' AND to_id IN ?)", privateQuestIDs, privateQuestIDs)
+		}
+		if err := query.Find(&relations).Error; err != nil {
+			return nil, err
+		}
+		state.PrivateRelations = make([]ImportRelation, 0, len(relations))
+		for _, rel := range relations {
+			fromCode := codeMap[rel.FromType][rel.FromID]
+			toCode := codeMap[rel.ToType][rel.ToID]
+			if fromCode == "" || toCode == "" {
+				continue
+			}
+			state.PrivateRelations = append(state.PrivateRelations, ImportRelation{
+				FromType:     rel.FromType,
+				FromCode:     fromCode,
+				ToType:       rel.ToType,
+				ToCode:       toCode,
+				RelationType: rel.RelationType,
+				ContextKey:   rel.ContextKey,
+			})
+		}
+	}
+
 	// User quest states
 	type stateRow struct {
 		models.UserMetaQuestState
@@ -294,6 +350,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Private sources
+		privateSourceAssigned := make(map[string]string)
 		for _, src := range state.PrivateSources {
 			code := src.Code
 			if code == "" {
@@ -333,9 +390,11 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				NodeType: "source",
 				NodeID:   source.ID,
 			}
+			privateSourceAssigned[code] = assigned
 		}
 
 		// Private quests
+		privateQuestAssigned := make(map[string]string)
 		for _, q := range state.PrivateQuests {
 			code := q.Code
 			if code == "" {
@@ -345,10 +404,18 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 			if codesInUse[assigned] {
 				assigned = uniqueCodeFor(assigned, codesInUse)
 			}
+			name := assigned
+			if len(q.Versions) > 0 {
+				firstTitle := strings.TrimSpace(q.Versions[0].Title)
+				if firstTitle != "" {
+					name = firstTitle
+				}
+			}
 			meta := &models.MetaQuest{
 				DomainID:   domainID,
 				OwnerID:    userID,
 				Code:       assigned,
+				Name:       name,
 				Kind:       q.Kind,
 				Schedule:   q.Schedule,
 				XPosition:  q.XPosition,
@@ -385,6 +452,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				NodeType: "meta_quest",
 				NodeID:   meta.ID,
 			}
+			privateQuestAssigned[code] = assigned
 		}
 
 		// User domain settings
@@ -403,7 +471,11 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 
 		// Quest states
 		for _, qs := range state.QuestStates {
-			entry, ok := existingCodeMap[qs.MetaQuestCode]
+			questCode := qs.MetaQuestCode
+			if mapped, ok := privateQuestAssigned[questCode]; ok {
+				questCode = mapped
+			}
+			entry, ok := existingCodeMap[questCode]
 			if !ok || entry.NodeType != "meta_quest" {
 				continue
 			}
@@ -420,14 +492,21 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				CurrentPeriodCount: qs.CurrentPeriodCount,
 				LastShownAt:       qs.LastShownAt,
 			}
-			if err := tx.Save(stateRow).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "meta_quest_id"}},
+				UpdateAll: true,
+			}).Create(stateRow).Error; err != nil {
 				return err
 			}
 		}
 
 		// Quest events
 		for _, ev := range state.QuestEvents {
-			entry, ok := existingCodeMap[ev.MetaQuestCode]
+			questCode := ev.MetaQuestCode
+			if mapped, ok := privateQuestAssigned[questCode]; ok {
+				questCode = mapped
+			}
+			entry, ok := existingCodeMap[questCode]
 			if !ok || entry.NodeType != "meta_quest" {
 				continue
 			}
@@ -459,6 +538,66 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 		if len(state.SRSProgress) > 0 {
 			if err := s.ImportDomainSRSProgress(domainID, userID, state.SRSProgress); err != nil {
 				return err
+			}
+		}
+
+		// Private relations
+		if len(state.PrivateRelations) > 0 {
+			for _, rel := range state.PrivateRelations {
+				fromCode := rel.FromCode
+				toCode := rel.ToCode
+				if rel.FromType == "source" {
+					if mapped, ok := privateSourceAssigned[fromCode]; ok {
+						fromCode = mapped
+					}
+				}
+				if rel.FromType == "meta_quest" {
+					if mapped, ok := privateQuestAssigned[fromCode]; ok {
+						fromCode = mapped
+					}
+				}
+				if rel.ToType == "source" {
+					if mapped, ok := privateSourceAssigned[toCode]; ok {
+						toCode = mapped
+					}
+				}
+				if rel.ToType == "meta_quest" {
+					if mapped, ok := privateQuestAssigned[toCode]; ok {
+						toCode = mapped
+					}
+				}
+				fromEntry, ok := existingCodeMap[fromCode]
+				if !ok || fromEntry.NodeType != rel.FromType {
+					continue
+				}
+				toEntry, ok := existingCodeMap[toCode]
+				if !ok || toEntry.NodeType != rel.ToType {
+					continue
+				}
+
+				var existing models.NodeRelation
+				err := tx.Where("domain_id = ? AND from_type = ? AND from_id = ? AND to_type = ? AND to_id = ? AND relation_type = ? AND context_key = ?",
+					domainID, rel.FromType, fromEntry.NodeID, rel.ToType, toEntry.NodeID, rel.RelationType, rel.ContextKey).
+					First(&existing).Error
+				if err == nil {
+					continue
+				}
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				nr := &models.NodeRelation{
+					DomainID:     domainID,
+					FromType:     rel.FromType,
+					FromID:       fromEntry.NodeID,
+					ToType:       rel.ToType,
+					ToID:         toEntry.NodeID,
+					RelationType: rel.RelationType,
+					ContextKey:   rel.ContextKey,
+					CreatedBy:    userID,
+				}
+				if err := tx.Create(nr).Error; err != nil {
+					return err
+				}
 			}
 		}
 

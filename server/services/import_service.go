@@ -200,6 +200,7 @@ type ImportQuestVersion struct {
 // ImportMetaQuestNode represents a quest definition with versions.
 type ImportMetaQuestNode struct {
 	Code       string               `json:"code"`
+	Name       string               `json:"name,omitempty"`
 	Kind       string               `json:"kind"`
 	Schedule   json.RawMessage      `json:"schedule"`
 	XPosition  float64              `json:"xPosition,omitempty"`
@@ -382,6 +383,7 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 
 	for key, mq := range data.MetaQuests {
 		mq.Code = normalizeImportCode(mq.Code, key)
+		mq.Name = normalizeImportName(mq.Name, mq.Code)
 		mq.Kind = normalizeOptionalText(mq.Kind)
 		if mq.Kind == "" {
 			mq.Kind = "todo"
@@ -394,6 +396,12 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 				if mq.Versions[i].Title == "" {
 					mq.Versions[i].Title = mq.Code
 				}
+			}
+		}
+		if mq.Name == mq.Code && len(mq.Versions) > 0 {
+			firstTitle := strings.TrimSpace(mq.Versions[0].Title)
+			if firstTitle != "" {
+				mq.Name = firstTitle
 			}
 		}
 		data.MetaQuests[key] = mq
@@ -674,6 +682,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		}
 		exportData.MetaQuests[q.Code] = ImportMetaQuestNode{
 			Code:      q.Code,
+			Name:      q.Name,
 			Kind:      q.Kind,
 			Schedule:  q.Schedule,
 			XPosition: q.XPosition,
@@ -1914,6 +1923,9 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			if err := tx.First(&mq, existing.NodeID).Error; err != nil {
 				return fmt.Errorf("failed to load meta quest %s: %v", assigned, err)
 			}
+			if node.Name != "" {
+				mq.Name = node.Name
+			}
 			mq.Kind = node.Kind
 			mq.Schedule = node.Schedule
 			mq.XPosition = node.XPosition
@@ -1944,6 +1956,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			DomainID:   domain.ID,
 			OwnerID:    ownerID,
 			Code:       assigned,
+			Name:       node.Name,
 			Kind:       node.Kind,
 			Schedule:   node.Schedule,
 			XPosition:  node.XPosition,
