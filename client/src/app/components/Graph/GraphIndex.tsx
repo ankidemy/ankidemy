@@ -24,6 +24,7 @@ export { default as GraphLegend } from './utils/GraphLegend';
 export { default as StatusIndicator } from './components/StatusIndicator';
 export { default as ProgressDisplay } from './components/ProgressDisplay';
 export { default as CreditFlowOverlay } from './components/CreditFlowOverlay';
+export { default as ContextToolbar } from './components/ContextToolbar';
 
 
 // Export types - ensure all necessary types are exported

@@ -8,12 +8,13 @@ import { MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { UIProvider, useUI } from '@/contexts/UIContext';
 import { DraggableWindow } from '@/app/components/core/DraggableWindow';
+import ContextToolbar, { ToolbarLayout } from './components/ContextToolbar';
 import { DetailWindowContent } from './windows/DetailWindowContent';
 import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Plus, List, Maximize, Download, Upload, Eye, EyeOff, Play, Users, BarChart, MoreVertical, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2 } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
@@ -985,6 +986,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>('td');
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
   const [questVisibilityMode, setQuestVisibilityMode] = useState<'on' | 'nodes' | 'off'>('on');
+  const [toolbarDisplayMode, setToolbarDisplayMode] = useState<'compact' | 'descriptive'>('compact');
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
@@ -1131,6 +1133,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [dagModeEnabled]);
 
+  useEffect(() => {
+    return () => {
+      if (toolbarTransientTimerRef.current) {
+        clearTimeout(toolbarTransientTimerRef.current);
+        toolbarTransientTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
   const [isSavingPositions, setIsSavingPositions] = useState(false);
@@ -1154,6 +1165,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyNoteIsNewVersion, setFrenzyNoteIsNewVersion] = useState(false);
   const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
   const [lastDeletedNode, setLastDeletedNode] = useState<FrenzyDeletedNodeSnapshot | null>(null);
+  const [toolbarTransientMessage, setToolbarTransientMessage] = useState<string | null>(null);
 
   const frenzyAutoContentRef = useRef<Map<string, string>>(new Map());
   const frenzyAutoPromptRef = useRef<Map<string, string>>(new Map());
@@ -1164,6 +1176,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const frenzyPendingLinkRef = useRef<Set<string>>(new Set());
   const frenzyDragLinkThrottleRef = useRef<number>(0);
   const frenzyNoteRef = useRef<HTMLDivElement>(null);
+  const toolbarTransientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [frenzyNotePosition, setFrenzyNotePosition] = useState<{ x: number; y: number }>({ x: 240, y: 80 });
   const [isDraggingFrenzyNote, setIsDraggingFrenzyNote] = useState(false);
   const frenzyNoteDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
@@ -4546,6 +4559,19 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return null;
   }, [currentStructuralGraphData]);
 
+  const showToolbarTransient = useCallback((message: string, duration: number = 2200) => {
+    setToolbarTransientMessage(message);
+    if (toolbarTransientTimerRef.current) {
+      clearTimeout(toolbarTransientTimerRef.current);
+    }
+    if (duration > 0) {
+      toolbarTransientTimerRef.current = setTimeout(() => {
+        setToolbarTransientMessage(null);
+        toolbarTransientTimerRef.current = null;
+      }, duration);
+    }
+  }, []);
+
   const deleteFrenzyNode = useCallback(async (node: GraphNode) => {
     if (node.type === 'group') {
       showToast('Cannot delete group nodes.', 'warning');
@@ -4718,6 +4744,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
 
       showToast(`Deleted ${node.id}. Undo available.`, 'success');
+      showToolbarTransient('Node deleted.', 2000);
     } catch (error) {
       console.error('Failed to delete node:', error);
       showToast('Failed to delete node.', 'error');
@@ -4731,6 +4758,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentUser,
     domainData,
     removeAuxNodeFromGraph,
+    showToolbarTransient,
   ]);
 
   const handleFrenzyToolChange = useCallback(async (nextTool: FrenzyEditTool) => {
@@ -4870,6 +4898,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       await loadFrenzyPrerequisites();
       setLastDeletedNode(null);
       showToast(`Restored ${snapshot.code}.`, 'success');
+      showToolbarTransient('Node restored.', 2000);
     } catch (error) {
       console.error('Failed to restore node:', error);
       showToast('Failed to restore node.', 'error');
@@ -4885,6 +4914,224 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     getNodeTypeByCode,
     applyPrerequisiteUpdate,
     loadFrenzyPrerequisites,
+    showToolbarTransient,
+  ]);
+
+  type ToolboxButtonOptions = {
+    variant?: "outline" | "secondary" | "ghost" | "destructive";
+    enabled?: boolean;
+    onClick?: () => void;
+  };
+
+  const toolboxButton = useCallback(
+    (label: string, icon: React.ReactNode, options: ToolboxButtonOptions = {}) => {
+      const { variant = "outline", enabled = true, onClick } = options;
+      const isCompact = toolbarDisplayMode === 'compact';
+      return (
+        <Button
+          variant={variant}
+          size="sm"
+          title={label}
+          aria-label={label}
+          disabled={!enabled}
+          onClick={enabled ? onClick : undefined}
+          className={isCompact ? "h-4 w-4 p-0" : "h-4 px-1.5 py-0 text-[9px] leading-none gap-1"}
+        >
+          {icon}
+          {!isCompact && <span className="text-[9px] font-medium leading-none">{label}</span>}
+        </Button>
+      );
+    },
+    [toolbarDisplayMode]
+  );
+
+  const handleToolbarModeChange = useCallback((layoutId: string) => {
+    if (layoutId === 'edit' && !isFrenzyEditMode) {
+      void toggleFrenzyEditMode();
+    }
+    if (layoutId === 'normal' && isFrenzyEditMode) {
+      void toggleFrenzyEditMode();
+    }
+  }, [isFrenzyEditMode, toggleFrenzyEditMode]);
+
+  const canUseEditTools = canEdit && isFrenzyEditMode;
+  const toolbarMode = isFrenzyEditMode ? 'edit' : 'normal';
+  const toolInstruction = useMemo(() => {
+    if (!isFrenzyEditMode) return null;
+    if (frenzyTool === 'link') {
+      return pendingLinkSourceId
+        ? `Select a target to link from ${pendingLinkSourceId}.`
+        : 'Select the first node to link.';
+    }
+    if (frenzyTool === 'unlink') {
+      return pendingLinkSourceId
+        ? `Select a target to unlink from ${pendingLinkSourceId}.`
+        : 'Select the first node to unlink.';
+    }
+    if (frenzyTool === 'delete') {
+      return 'Select a node to delete.';
+    }
+    return null;
+  }, [isFrenzyEditMode, frenzyTool, pendingLinkSourceId]);
+  const toolbarInstruction = toolbarTransientMessage ?? toolInstruction ?? undefined;
+
+  const toolboxLayouts: ToolbarLayout[] = useMemo(() => ([
+    {
+      id: 'edit',
+      label: 'Edit',
+      handleIcon: <Pencil size={9} />,
+      sections: [
+        {
+          id: 'node-create',
+          title: 'Node',
+          rows: [
+            [
+              toolboxButton('Definition', <LifeBuoy size={10} />, {
+                onClick: () => void createFrenzyNode('definition'),
+                enabled: canUseEditTools,
+              }),
+              toolboxButton('Exercise', <Anchor size={10} />, {
+                onClick: () => void createFrenzyNode('exercise'),
+                enabled: canUseEditTools,
+                variant: 'secondary',
+              }),
+            ],
+            [
+              toolboxButton('Quest', <RadioTower size={10} />, {
+                onClick: () => void createFrenzyNode('quest'),
+                enabled: canUseEditTools,
+                variant: 'ghost',
+              }),
+              toolboxButton('Source', <Compass size={10} />, {
+                onClick: () => void createFrenzyNode('source'),
+                enabled: canUseEditTools,
+                variant: 'ghost',
+              }),
+            ],
+          ],
+        },
+        {
+          id: 'select',
+          title: 'Select',
+          rows: [
+            [
+              toolboxButton('Box Select', <Maximize size={10} />, { enabled: false }),
+              toolboxButton('Multi Select', <List size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+            [
+              toolboxButton('Clear', <EyeOff size={10} />, {
+                onClick: handleClearSelection,
+                enabled: selectedNodeIds.size > 0,
+                variant: 'ghost',
+              }),
+            ],
+          ],
+        },
+        {
+          id: 'graph',
+          title: 'Graph',
+          rows: [
+            [
+              toolboxButton('Link', <Link2 size={10} />, {
+                onClick: () => void handleFrenzyToolChange('link'),
+                enabled: canUseEditTools,
+              }),
+              toolboxButton('Unlink', <Unlink size={10} />, {
+                onClick: () => void handleFrenzyToolChange('unlink'),
+                enabled: canUseEditTools,
+                variant: 'ghost',
+              }),
+              toolboxButton('Delete', <Trash2 size={10} />, {
+                onClick: () => void handleFrenzyToolChange('delete'),
+                enabled: canUseEditTools,
+                variant: 'destructive',
+              }),
+            ],
+            ...(lastDeletedNode ? [[
+              toolboxButton('Undo delete', <Undo2 size={10} />, {
+                onClick: () => void undoFrenzyDelete(),
+                enabled: canUseEditTools,
+                variant: 'ghost',
+              })
+            ]] : []),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'normal',
+      label: 'Normal',
+      handleIcon: <MousePointer size={9} />,
+      sections: [
+        {
+          id: 'select-normal',
+          title: 'Select',
+          rows: [
+            [
+              toolboxButton('Click Select', <Eye size={10} />, { enabled: false }),
+              toolboxButton('Box Select', <Maximize size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+            [
+              toolboxButton('Clear', <EyeOff size={10} />, {
+                onClick: handleClearSelection,
+                enabled: selectedNodeIds.size > 0,
+                variant: 'ghost',
+              }),
+            ],
+          ],
+        },
+        {
+          id: 'status',
+          title: 'Status',
+          rows: [
+            [
+              toolboxButton('New', <Plus size={10} />, { enabled: false }),
+              toolboxButton('Learning', <BarChart size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+            [
+              toolboxButton('Review', <Play size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Reset', <RefreshCw size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+          ],
+        },
+        {
+          id: 'group',
+          title: 'Group',
+          rows: [
+            [
+              toolboxButton('Create', <Users size={10} />, { enabled: false }),
+              toolboxButton('Merge', <MoreVertical size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+            [
+              toolboxButton('Collapse', <EyeOff size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Expand', <Eye size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+          ],
+        },
+        {
+          id: 'export',
+          title: 'Export',
+          rows: [
+            [
+              toolboxButton('PNG', <Download size={10} />, { enabled: false }),
+              toolboxButton('JSON', <Download size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+            [
+              toolboxButton('Share', <Upload size={10} />, { enabled: false, variant: 'ghost' }),
+            ],
+          ],
+        },
+      ],
+    },
+  ]), [
+    toolboxButton,
+    createFrenzyNode,
+    canUseEditTools,
+    handleClearSelection,
+    handleFrenzyToolChange,
+    lastDeletedNode,
+    undoFrenzyDelete,
+    selectedNodeIds.size,
   ]);
 
   const handleFrenzyNodeAction = useCallback(async (node: GraphNode) => {
@@ -5450,6 +5697,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
           {/* Graph Area */}
           <div ref={graphContainerRef} className="flex-1 bg-gray-50 overflow-hidden relative">
+            <ContextToolbar
+              id="toolbox-toolbar"
+              boundsRef={graphContainerRef}
+              layouts={toolboxLayouts}
+              activeLayoutId={toolbarMode}
+              onLayoutChange={handleToolbarModeChange}
+              displayMode={toolbarDisplayMode}
+              onDisplayModeChange={setToolbarDisplayMode}
+              instructionText={toolbarInstruction}
+            />
             {isRefreshing ? (
               <div className="flex items-center justify-center h-full text-gray-500">
                 Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
