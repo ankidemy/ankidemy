@@ -26,6 +26,7 @@ interface ContextToolbarProps {
   initialPosition?: { x: number; y: number };
   boundsRef?: React.RefObject<HTMLElement>;
   instructionText?: string;
+  instructionContent?: React.ReactNode;
   className?: string;
 }
 
@@ -42,6 +43,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   initialPosition = { x: 24, y: 24 },
   boundsRef,
   instructionText,
+  instructionContent,
   className,
 }) => {
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -68,9 +70,11 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     setSwapKey((prev) => prev + 1);
   }, [activeLayoutId]);
 
+  const hasInstruction = !!instructionContent || !!instructionText;
+
   useEffect(() => {
-    setShowInstruction(!!instructionText);
-  }, [instructionText]);
+    setShowInstruction(hasInstruction);
+  }, [hasInstruction]);
 
   const getBoundsRect = useCallback(() => {
     if (boundsRef?.current) {
@@ -282,10 +286,12 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
       <div
         className={cn(
           "overflow-hidden rounded-md border border-dashed border-gray-200 bg-white/90 text-center text-[9px] text-gray-500 shadow-sm transition-all duration-200",
-          showInstruction ? "mt-1 max-h-16 opacity-100" : "max-h-0 opacity-0"
+          showInstruction ? "mt-1 max-h-24 opacity-100" : "max-h-0 opacity-0"
         )}
       >
-        {instructionText && <div className="px-2 py-1">{instructionText}</div>}
+        {(instructionContent || instructionText) && (
+          <div className="px-2 py-1">{instructionContent ?? instructionText}</div>
+        )}
       </div>
 
       <style jsx>{`

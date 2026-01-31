@@ -34,7 +34,7 @@ interface GraphContainerProps {
   selectedNodeIds: Set<string>;
   newlyCreatedNodeId: string | null;
   labelDisplayMode: LabelDisplayMode;
-  onNodeClick: (node: GraphNode) => void;
+  onNodeClick: (node: GraphNode, event?: MouseEvent) => void;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeDrag?: (node: GraphNode) => void;
   onNodeDragEnd: (node: GraphNode) => void;
@@ -836,7 +836,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         linkDirectionalParticleSpeed={0.008}
         
         // Event handlers
-        onNodeClick={(node) => onNodeClick(node as any)}
+        onNodeClick={(node, event) => onNodeClick(node as any, event as MouseEvent)}
         onNodeHover={(node) => onNodeHover(node as any)}
         onNodeDrag={(node) => onNodeDrag?.(node as any)}
         onNodeDragEnd={(node) => onNodeDragEnd(node as any)}

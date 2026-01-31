@@ -14,7 +14,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, Plus, List, Maximize, Download, Upload, Eye, EyeOff, Play, Users, BarChart, MoreVertical, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2 } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
@@ -74,7 +74,7 @@ import {
   uploadNodeImage,
 } from '@/lib/api';
 import { useSRS } from '../../../contexts/SRSContext';
-import { getStatusColor, isNodeDue, calculateDaysUntilReview, createPrerequisite, deletePrerequisite, getDomainPrerequisites } from '@/lib/srs-api';
+import { getStatusColor, isNodeDue, calculateDaysUntilReview, createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
 import { NodeStatus, NodePrerequisite } from '../../../types/srs';
 
 import {
@@ -987,9 +987,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
   const [questVisibilityMode, setQuestVisibilityMode] = useState<'on' | 'nodes' | 'off'>('on');
   const [toolbarDisplayMode, setToolbarDisplayMode] = useState<'compact' | 'descriptive'>('compact');
+  const [toolbarGroupId, setToolbarGroupId] = useState<number | null>(null);
+  const [toolbarGroupAction, setToolbarGroupAction] = useState<'create' | 'delete' | null>(null);
+  const [toolbarGroupNameDraft, setToolbarGroupNameDraft] = useState('');
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [selectionTool, setSelectionTool] = useState<'none' | 'add' | 'remove'>('none');
   const [newlyCreatedNodeId, setNewlyCreatedNodeId] = useState<string | null>(null);
 
   // Interactive state
@@ -1272,12 +1276,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return { outgoing, incoming };
   }, [currentStructuralGraphData]);
 
+  const definitionCodes = useMemo(() => (
+    new Set(Object.keys(currentStructuralGraphData.definitions || {}))
+  ), [currentStructuralGraphData.definitions]);
+
+  const exerciseCodes = useMemo(() => (
+    new Set(Object.keys(currentStructuralGraphData.exercises || {}))
+  ), [currentStructuralGraphData.exercises]);
+
   const groupMembersById = useMemo(() => {
     const map = new Map<number, Set<string>>();
     domainGroups.forEach(group => {
-      const seedCodes = (group.seeds || [])
-        .map(seed => seed.nodeCode)
-        .filter(Boolean);
+      const seedCodes = (group.seeds || []).map(seed => seed.nodeCode).filter(Boolean);
       let members: Set<string>;
       if (group.isExact) {
         const memberCodes = (group.members && group.members.length > 0 ? group.members : group.seeds)
@@ -1327,6 +1337,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       memberCount: groupMembersById.get(group.id)?.size ?? 0,
     }));
   }, [domainGroups, groupMembersById]);
+
+  useEffect(() => {
+    if (toolbarGroupId && !groupSummaries.some(group => group.id === toolbarGroupId)) {
+      setToolbarGroupId(null);
+    }
+  }, [groupSummaries, toolbarGroupId]);
 
   // Build graph using architecture with true structure/metadata separation
   const baseGraphStructure = useGraphStructure(
@@ -1720,6 +1736,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const handleClearSelection = useCallback(() => {
     setSelectedNodeIds(new Set());
   }, []);
+
+  const toggleSelectionTool = useCallback((next: 'add' | 'remove') => {
+    setSelectionTool(prev => (prev === next ? 'none' : next));
+  }, []);
+
+  useEffect(() => {
+    if (isFrenzyEditMode) {
+      setSelectionTool('none');
+    }
+  }, [isFrenzyEditMode]);
 
   const refreshExternalPrerequisites = useCallback(async (domainId?: number) => {
     const resolvedId = domainId ?? parseInt(subjectMatterId, 10);
@@ -2266,7 +2292,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, []);
 
   // Handle node click
-  const handleNodeClick = useCallback(async (nodeOnClick: GraphNode, isRefresh: boolean = false, context: 'click' | 'study' | 'navigation' = 'click') => {
+  const handleNodeClick = useCallback(async (
+    nodeOnClick: GraphNode,
+    isRefresh: boolean = false,
+    context: 'click' | 'study' | 'navigation' = 'click',
+    event?: MouseEvent
+  ) => {
     if (!nodeOnClick?.id) return;
     if (mode === 'frenzy' && isFrenzyEditMode) return;
 
@@ -2282,6 +2313,31 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
+    const isModifierClick = !!event && (event.ctrlKey || event.metaKey);
+    const shouldRemove = context === 'click' && selectionTool === 'remove';
+    const shouldAdd = context === 'click' && (selectionTool === 'add' || isModifierClick);
+
+    if (shouldRemove) {
+      setSelectedNodeIds(prev => {
+        if (!prev.has(nodeOnClick.id)) return prev;
+        const next = new Set(prev);
+        next.delete(nodeOnClick.id);
+        return next;
+      });
+      return;
+    }
+
+    if (shouldAdd) {
+      setSelectedNodeIds(prev => {
+        const next = new Set(prev);
+        next.add(nodeOnClick.id);
+        return next;
+      });
+      return;
+    }
+
+    setSelectedNodeIds(new Set([nodeOnClick.id]));
+
     const position = getDetailWindowPlacement(nodeOnClick, ui.state.windows.length);
 
     if (nodeOnClick.type === 'source') {
@@ -2296,7 +2352,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
 
     ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
-  }, [ui, mode, isFrenzyEditMode, router, getDetailWindowPlacement, currentStructuralGraphData]);
+  }, [ui, mode, isFrenzyEditMode, router, getDetailWindowPlacement, currentStructuralGraphData, selectionTool]);
   const handleNodeClickRef = useRef(handleNodeClick);
 
   useEffect(() => {
@@ -4785,6 +4841,155 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [frenzyTool, primarySelectedNodeId, stableGraph.nodes, deleteFrenzyNode]);
 
+  const flaggableSelection = useMemo(() => {
+    if (selectedNodeIds.size === 0) return [];
+    const targets: Array<{ id: number; type: 'definition' | 'exercise'; code: string }> = [];
+    selectedNodeIds.forEach(code => {
+      const nodeType = getNodeTypeByCode(code);
+      if (nodeType !== 'definition' && nodeType !== 'exercise') return;
+      const numericId = codeToNumericIdMap.get(code);
+      if (!numericId) return;
+      targets.push({ id: numericId, type: nodeType, code });
+    });
+    return targets;
+  }, [selectedNodeIds, getNodeTypeByCode, codeToNumericIdMap]);
+
+  const handleFlagSelection = useCallback(async (status: NodeStatus, label: string) => {
+    if (flaggableSelection.length === 0) {
+      showToast('Select at least one definition or exercise.', 'warning');
+      return;
+    }
+    try {
+      showToolbarTransient(`Flagging ${flaggableSelection.length} node${flaggableSelection.length > 1 ? 's' : ''}...`, 1200);
+      await Promise.all(
+        flaggableSelection.map(target => updateNodeStatus(target.id, target.type, status))
+      );
+      await srs.refreshDomainData();
+      showToolbarTransient(`Marked ${flaggableSelection.length} as ${label}.`, 2000);
+    } catch (error) {
+      console.error('Failed to update node status:', error);
+      showToast('Failed to update node status.', 'error');
+    }
+  }, [flaggableSelection, srs, showToolbarTransient]);
+
+  const selectableGroupCodes = useMemo(() => {
+    if (selectedNodeIds.size === 0) return [];
+    return Array.from(selectedNodeIds).filter(code => (
+      getNodeTypeByCode(code) === 'definition' || getNodeTypeByCode(code) === 'exercise'
+    ));
+  }, [selectedNodeIds, getNodeTypeByCode]);
+
+  const selectedToolbarGroup = useMemo(() => {
+    if (!toolbarGroupId) return null;
+    return domainGroups.find(group => group.id === toolbarGroupId) ?? null;
+  }, [domainGroups, toolbarGroupId]);
+
+  const handleToolbarGroupSelect = useCallback((value: string) => {
+    if (!value) {
+      setToolbarGroupId(null);
+      setToolbarGroupAction(null);
+      return;
+    }
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) {
+      setToolbarGroupId(parsed);
+      setToolbarGroupAction(null);
+    }
+  }, []);
+
+  const handleAddSelectionToGroup = useCallback(async () => {
+    if (!toolbarGroupId || selectableGroupCodes.length === 0) return;
+    const group = selectedToolbarGroup;
+    if (!group) return;
+    try {
+      if (group.isExact) {
+        const existing: string[] = (group.members && group.members.length > 0)
+          ? group.members.map(member => member.nodeCode)
+          : Array.from(groupMembersById.get(group.id) ?? []);
+        const memberCodes = Array.from(new Set([...existing, ...selectableGroupCodes]));
+        await updateGroupData(group.id, { memberCodes });
+      } else {
+        const existing = (group.seeds || []).map(seed => seed.nodeCode);
+        const seedCodes = Array.from(new Set([...existing, ...selectableGroupCodes]));
+        await updateGroupData(group.id, { seedCodes });
+      }
+      showToolbarTransient(`Added ${selectableGroupCodes.length} node${selectableGroupCodes.length > 1 ? 's' : ''} to group.`, 2000);
+    } catch (error) {
+      console.error('Failed to add nodes to group:', error);
+      showToast('Failed to add nodes to group.', 'error');
+    }
+  }, [toolbarGroupId, selectableGroupCodes, selectedToolbarGroup, groupMembersById, updateGroupData, showToolbarTransient]);
+
+  const handleRemoveSelectionFromGroup = useCallback(async () => {
+    if (!toolbarGroupId || selectableGroupCodes.length === 0) return;
+    const group = selectedToolbarGroup;
+    if (!group) return;
+    try {
+      if (group.isExact) {
+        const existing: string[] = (group.members && group.members.length > 0)
+          ? group.members.map(member => member.nodeCode)
+          : Array.from(groupMembersById.get(group.id) ?? []);
+        const memberCodes = existing.filter(code => !selectableGroupCodes.includes(code));
+        if (memberCodes.length === 0) {
+          showToast('Group must contain at least one member.', 'warning');
+          return;
+        }
+        await updateGroupData(group.id, { memberCodes });
+      } else {
+        const seedCodes = (group.seeds || [])
+          .map(seed => seed.nodeCode)
+          .filter(code => !selectableGroupCodes.includes(code));
+        if (seedCodes.length === 0) {
+          showToast('Group must contain at least one seed.', 'warning');
+          return;
+        }
+        await updateGroupData(group.id, { seedCodes });
+      }
+      showToolbarTransient(`Removed ${selectableGroupCodes.length} node${selectableGroupCodes.length > 1 ? 's' : ''} from group.`, 2000);
+    } catch (error) {
+      console.error('Failed to remove nodes from group:', error);
+      showToast('Failed to remove nodes from group.', 'error');
+    }
+  }, [toolbarGroupId, selectableGroupCodes, selectedToolbarGroup, groupMembersById, updateGroupData, showToolbarTransient]);
+
+  const handleCreateGroupPrompt = useCallback(() => {
+    if (selectableGroupCodes.length === 0) {
+      showToast('Select at least one node to create a group.', 'warning');
+      return;
+    }
+    setToolbarGroupNameDraft('');
+    setToolbarGroupAction('create');
+  }, [selectableGroupCodes.length]);
+
+  const handleCreateGroupConfirm = useCallback(async () => {
+    const name = toolbarGroupNameDraft.trim();
+    if (!name) {
+      showToast('Group name is required.', 'warning');
+      return;
+    }
+    const created = await createGroupFromNodes(name, selectableGroupCodes, false);
+    if (created) {
+      setToolbarGroupId(created.id);
+      showToolbarTransient(`Group "${created.name}" created.`, 2000);
+    }
+    setToolbarGroupAction(null);
+    setToolbarGroupNameDraft('');
+  }, [toolbarGroupNameDraft, selectableGroupCodes, createGroupFromNodes, showToolbarTransient]);
+
+  const handleDeleteGroupPrompt = useCallback(() => {
+    if (!toolbarGroupId) return;
+    setToolbarGroupAction('delete');
+  }, [toolbarGroupId]);
+
+  const handleDeleteGroupConfirm = useCallback(async () => {
+    if (!toolbarGroupId) return;
+    const name = selectedToolbarGroup?.name ?? 'group';
+    await deleteGroupById(toolbarGroupId);
+    setToolbarGroupId(null);
+    setToolbarGroupAction(null);
+    showToolbarTransient(`Deleted ${name}.`, 2000);
+  }, [toolbarGroupId, selectedToolbarGroup, deleteGroupById, showToolbarTransient]);
+
   const undoFrenzyDelete = useCallback(async () => {
     if (!lastDeletedNode) return;
     if (!canEdit) {
@@ -4973,7 +5178,69 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
     return null;
   }, [isFrenzyEditMode, frenzyTool, pendingLinkSourceId]);
+  const groupActionContent = useMemo(() => {
+    if (toolbarGroupAction === 'create') {
+      return (
+        <div className="flex items-center justify-center gap-1 text-[9px] text-gray-600">
+          <span className="text-gray-500">Group name</span>
+          <input
+            value={toolbarGroupNameDraft}
+            onChange={(event) => setToolbarGroupNameDraft(event.target.value)}
+            placeholder="Name"
+            className="h-5 w-28 rounded border border-gray-200 bg-white px-2 text-[10px] text-gray-700"
+          />
+          <Button size="sm" onClick={handleCreateGroupConfirm} className="h-5 px-2 text-[9px]">
+            Create
+          </Button>
+        </div>
+      );
+    }
+    if (toolbarGroupAction === 'delete') {
+      return (
+        <div className="flex items-center justify-center gap-1 text-[9px] text-gray-600">
+          <span>Delete group</span>
+          <span className="font-semibold">{selectedToolbarGroup?.name ?? 'group'}</span>
+          <Button size="sm" variant="destructive" onClick={handleDeleteGroupConfirm} className="h-5 px-2 text-[9px]">
+            Delete
+          </Button>
+        </div>
+      );
+    }
+    return null;
+  }, [
+    toolbarGroupAction,
+    toolbarGroupNameDraft,
+    handleCreateGroupConfirm,
+    handleDeleteGroupConfirm,
+    selectedToolbarGroup,
+  ]);
   const toolbarInstruction = toolbarTransientMessage ?? toolInstruction ?? undefined;
+  const toolbarInstructionContent = groupActionContent ?? (toolbarInstruction ? <span>{toolbarInstruction}</span> : undefined);
+
+  const hasGroups = groupSummaries.length > 0;
+  const selectedGroupSummary = toolbarGroupId
+    ? groupSummaries.find(group => group.id === toolbarGroupId) ?? null
+    : null;
+  const canModifyGroup = canEdit && !!toolbarGroupId;
+  const canEditGroupSelection = canModifyGroup && selectableGroupCodes.length > 0;
+  const groupSelectValue = toolbarGroupId ? String(toolbarGroupId) : '';
+  const groupSelectControl = (
+    <select
+      value={groupSelectValue}
+      onChange={(event) => handleToolbarGroupSelect(event.target.value)}
+      disabled={!hasGroups}
+      className="h-4 rounded border border-gray-200 bg-white px-1 text-[9px] text-gray-700 disabled:bg-gray-100 disabled:text-gray-400"
+    >
+      <option value="">
+        {hasGroups ? 'Select group' : 'No groups'}
+      </option>
+      {groupSummaries.map(group => (
+        <option key={group.id} value={group.id}>
+          {group.name}
+        </option>
+      ))}
+    </select>
+  );
 
   const toolboxLayouts: ToolbarLayout[] = useMemo(() => ([
     {
@@ -5072,6 +5339,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               toolboxButton('Box Select', <Maximize size={10} />, { enabled: false, variant: 'ghost' }),
             ],
             [
+              toolboxButton('Add selection', <Plus size={10} />, {
+                onClick: () => toggleSelectionTool('add'),
+                variant: selectionTool === 'add' ? 'secondary' : 'outline',
+              }),
+              toolboxButton('Remove selection', <Minus size={10} />, {
+                onClick: () => toggleSelectionTool('remove'),
+                variant: selectionTool === 'remove' ? 'secondary' : 'ghost',
+              }),
+            ],
+            [
               toolboxButton('Clear', <EyeOff size={10} />, {
                 onClick: handleClearSelection,
                 enabled: selectedNodeIds.size > 0,
@@ -5081,16 +5358,26 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           ],
         },
         {
-          id: 'status',
-          title: 'Status',
+          id: 'flag',
+          title: 'Flag',
           rows: [
             [
-              toolboxButton('New', <Plus size={10} />, { enabled: false }),
-              toolboxButton('Learning', <BarChart size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Grasping', <FlagTriangleLeft size={10} />, {
+                onClick: () => void handleFlagSelection('grasped', 'Grasping'),
+                enabled: flaggableSelection.length > 0,
+              }),
+              toolboxButton('Tackling', <Flag size={10} />, {
+                onClick: () => void handleFlagSelection('tackling', 'Tackling'),
+                enabled: flaggableSelection.length > 0,
+                variant: 'ghost',
+              }),
             ],
             [
-              toolboxButton('Review', <Play size={10} />, { enabled: false, variant: 'ghost' }),
-              toolboxButton('Reset', <RefreshCw size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Learned', <Check size={10} />, {
+                onClick: () => void handleFlagSelection('learned', 'Learned'),
+                enabled: flaggableSelection.length > 0,
+                variant: 'ghost',
+              }),
             ],
           ],
         },
@@ -5099,12 +5386,45 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           title: 'Group',
           rows: [
             [
-              toolboxButton('Create', <Users size={10} />, { enabled: false }),
-              toolboxButton('Merge', <MoreVertical size={10} />, { enabled: false, variant: 'ghost' }),
+              groupSelectControl,
             ],
             [
-              toolboxButton('Collapse', <EyeOff size={10} />, { enabled: false, variant: 'ghost' }),
-              toolboxButton('Expand', <Eye size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Collapse', <EyeOff size={10} />, {
+                onClick: () => {
+                  if (toolbarGroupId) toggleGroupCollapse(toolbarGroupId, true);
+                },
+                enabled: canModifyGroup && !selectedGroupSummary?.collapsed,
+                variant: 'ghost',
+              }),
+              toolboxButton('Expand', <Eye size={10} />, {
+                onClick: () => {
+                  if (toolbarGroupId) toggleGroupCollapse(toolbarGroupId, false);
+                },
+                enabled: canModifyGroup && !!selectedGroupSummary?.collapsed,
+                variant: 'ghost',
+              }),
+            ],
+            [
+              toolboxButton('Add selection', <UserPlus size={10} />, {
+                onClick: () => void handleAddSelectionToGroup(),
+                enabled: canEditGroupSelection,
+              }),
+              toolboxButton('Remove selection', <UserMinus size={10} />, {
+                onClick: () => void handleRemoveSelectionFromGroup(),
+                enabled: canEditGroupSelection,
+                variant: 'ghost',
+              }),
+            ],
+            [
+              toolboxButton('Create group', <Plus size={10} />, {
+                onClick: handleCreateGroupPrompt,
+                enabled: canEdit && selectableGroupCodes.length > 0,
+              }),
+              toolboxButton('Delete group', <Trash2 size={10} />, {
+                onClick: handleDeleteGroupPrompt,
+                enabled: canEdit && !!toolbarGroupId,
+                variant: 'destructive',
+              }),
             ],
           ],
         },
@@ -5131,7 +5451,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     handleFrenzyToolChange,
     lastDeletedNode,
     undoFrenzyDelete,
+    handleFlagSelection,
+    flaggableSelection.length,
+    groupSelectControl,
+    canModifyGroup,
+    selectedGroupSummary?.collapsed,
+    handleAddSelectionToGroup,
+    handleRemoveSelectionFromGroup,
+    handleCreateGroupPrompt,
+    handleDeleteGroupPrompt,
+    canEdit,
+    selectableGroupCodes.length,
+    toolbarGroupId,
     selectedNodeIds.size,
+    selectionTool,
+    toggleSelectionTool,
   ]);
 
   const handleFrenzyNodeAction = useCallback(async (node: GraphNode) => {
@@ -5222,7 +5556,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.sources,
   ]);
 
-  const handleGraphNodeClick = useCallback((node: GraphNode) => {
+  const handleGraphNodeClick = useCallback((node: GraphNode, event?: MouseEvent) => {
     if (node.type === 'group') {
       const groupId = node.groupId ?? parseGroupNodeId(node.id);
       const group = domainGroups.find(entry => entry.id === groupId);
@@ -5288,7 +5622,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }, FRENZY_SINGLE_CLICK_DELAY_MS);
       return;
     }
-    handleNodeClick(node, false, 'click');
+    handleNodeClick(node, false, 'click', event);
   }, [dagModeEnabled, domainGroups, mode, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick, toggleGroupCollapse]);
 
   const handleGraphLinkClick = useCallback((link: GraphLink) => {
@@ -5419,8 +5753,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         frenzyLastBackgroundClickRef.current = null;
         setSelectedNodeIds(new Set());
       }, FRENZY_SINGLE_CLICK_DELAY_MS);
+      return;
     }
-  }, [mode, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode]);
+    if (selectedNodeIds.size > 0) {
+      setSelectedNodeIds(new Set());
+    }
+  }, [mode, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode, selectedNodeIds]);
 
   const handleGraphNodeDrag = useCallback((node: GraphNode) => {
     if (mode !== 'frenzy' || !isFrenzyEditMode) return;
@@ -5705,7 +6043,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               onLayoutChange={handleToolbarModeChange}
               displayMode={toolbarDisplayMode}
               onDisplayModeChange={setToolbarDisplayMode}
-              instructionText={toolbarInstruction}
+              instructionContent={toolbarInstructionContent}
             />
             {isRefreshing ? (
               <div className="flex items-center justify-center h-full text-gray-500">
