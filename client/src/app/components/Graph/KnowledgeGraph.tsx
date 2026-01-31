@@ -6483,45 +6483,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           subjectMatterId={domainName}
           mode={mode}
           onModeChange={changeMode}
-          onBack={onBack}
-          labelDisplayMode={labelDisplayMode}
-          onCycleLabelDisplay={cycleLabelDisplay}
-          onZoomToFit={() => zoomToFitVisibleNodes(400)}
           onCreateDefinition={() => createNewNode('definition')}
           onCreateExercise={() => createNewNode('exercise')}
           onStartStudy={handleStartStudy}
-          positionsChanged={positionsChanged}
-          isSavingPositions={isSavingPositions}
-          onSavePositions={savePositions}
           
           onEnroll={() => setShowEnrollmentModal(true)}
           onOpenSurvey={() => ui.openSurveyWindow()}
           surveyDueCount={surveyDueCount}
           currentDomainId={parseInt(subjectMatterId, 10)}
-          currentDomainName={domainName}
-          isOwner={currentUser && domainData && domainData.ownerId === currentUser.id}
           canEdit={canEdit}
           isEnrolled={hasAccess ?? undefined}
-          onDataImported={refreshGraphAndSRSData}
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
-          onManageAccess={() => setShowAccessModal(true)}
-          groups={groupSummaries}
-          selectedNodeIds={Array.from(selectedNodeIds)}
-          onCreateGroup={async (name, seedCodes, isExact, memberCodes) => {
-            await createGroupFromNodes(name, seedCodes, isExact, memberCodes);
-          }}
-          onToggleGroupCollapse={toggleGroupCollapse}
-          onDeleteGroup={async (groupId) => {
-            await deleteGroupById(groupId);
-          }}
-          dagModeEnabled={dagModeEnabled}
-          onToggleDagMode={handleToggleDagMode}
-          dagOrientation={dagOrientation}
-          onDagOrientationChange={handleDagOrientationChange}
-          expandedCycleCount={expandedCycleIds.size}
-          onCollapseCycles={collapseAllCycles}
-          questVisibilityMode={questVisibilityMode}
-          onQuestVisibilityChange={setQuestVisibilityMode}
         />
 
         {/* Main Content */}
