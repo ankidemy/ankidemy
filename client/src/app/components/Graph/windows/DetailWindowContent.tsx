@@ -342,7 +342,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Get node progress
   const numericId = codeToNumericIdMap.get(currentNode.id);
-  const nodeProgress = numericId && currentNode.type !== 'group' ? srs.getNodeProgress(numericId, currentNode.type) : null;
+  const isSrsNodeType = (type: GraphNode['type']): type is 'definition' | 'exercise' =>
+    type === 'definition' || type === 'exercise';
+  const srsNodeType = isSrsNodeType(currentNode.type) ? currentNode.type : null;
+  const nodeProgress = numericId && srsNodeType ? srs.getNodeProgress(numericId, srsNodeType) : null;
 
   // Review handlers
   const handleReviewDefinition = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
@@ -407,6 +410,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     try {
       if (!metaDetails) return;
       const ver = await getNextMetaExerciseVersion(metaDetails.id);
+      if (!ver) {
+        showToast('No alternative version available', 'warning');
+        return;
+      }
       setCurrentVersion(ver);
       setNodeDetails({ ...(ver as any), id: ver.id, code: metaDetails.code, name: metaDetails.name, type: 'exercise' } as Exercise);
       setUserAnswer(''); setAnswerFeedback(null); setShowSolution(false); setExerciseAttemptCompleted(false);
@@ -417,26 +424,26 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Status change handler
   const handleStatusChange = useCallback(async (status: NodeStatus) => {
-    if (!numericId || currentNode.type === 'group') return;
+    if (!numericId || !srsNodeType) return;
 
-    await srs.updateNodeStatus(numericId, currentNode.type, status);
+    await srs.updateNodeStatus(numericId, srsNodeType, status);
     showToast(`Status updated to ${status}`, 'success');
-  }, [numericId, currentNode.type, srs]);
+  }, [numericId, srsNodeType, srs]);
 
   // Review history fetching
   const fetchHistory = useCallback(async () => {
-    if (!numericId || currentNode.type === 'group') return;
+    if (!numericId || !srsNodeType) return;
 
     setHistoryLoading(true);
     try {
-      const data = await getReviewHistory(numericId, currentNode.type, 10);
+      const data = await getReviewHistory(numericId, srsNodeType, 10);
       setHistory(data);
     } catch (error) {
       console.error('Error fetching history:', error);
     } finally {
       setHistoryLoading(false);
     }
-  }, [numericId, currentNode.type]);
+  }, [numericId, srsNodeType]);
 
   useEffect(() => {
     if (showHistory && numericId) {

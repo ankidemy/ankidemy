@@ -169,15 +169,18 @@ const RightPanel: React.FC<RightPanelProps> = ({
   availableExercises = [],
 }) => {
   const srs = useSRS();
-  const nodeProgress = selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number' && selectedNode.type !== 'group'
-    ? srs.getNodeProgress(selectedNodeDetails.id, selectedNode.type)
+  const isSrsNodeType = (type: GraphNode['type']): type is 'definition' | 'exercise' =>
+    type === 'definition' || type === 'exercise';
+  const srsNodeType = selectedNode && isSrsNodeType(selectedNode.type) ? selectedNode.type : null;
+  const nodeProgress = selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number' && srsNodeType
+    ? srs.getNodeProgress(selectedNodeDetails.id, srsNodeType)
     : null;
 
   const handleStatusSelection = useCallback(async (status: NodeStatus) => {
-    if (selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number') {
+    if (selectedNode && selectedNodeDetails && typeof selectedNodeDetails.id === 'number' && srsNodeType) {
       await onStatusChange(selectedNodeDetails.id.toString(), status);
     }
-  }, [selectedNode, selectedNodeDetails, onStatusChange]);
+  }, [selectedNode, selectedNodeDetails, srsNodeType, onStatusChange]);
 
   // Show empty state when panel is not visible or no node is selected
   if (!isVisible || !selectedNode) {
@@ -313,8 +316,8 @@ const RightPanel: React.FC<RightPanelProps> = ({
                 
                 <ProgressDisplay progress={nodeProgress} />
                 
-                {selectedNodeDetails?.id && selectedNode.type !== 'group' && (
-                  <ReviewHistory nodeId={selectedNodeDetails.id} nodeType={selectedNode.type} />
+                {selectedNodeDetails?.id && srsNodeType && (
+                  <ReviewHistory nodeId={selectedNodeDetails.id} nodeType={srsNodeType} />
                 )}
               </TabsContent>
             </Tabs>

@@ -41,7 +41,7 @@ interface ContextToolbarProps {
   onPositionCommit?: (position: { x: number; y: number }) => void;
   centered?: boolean;
   topOffset?: number;
-  boundsRef?: React.RefObject<HTMLElement>;
+  boundsRef?: React.RefObject<HTMLDivElement | null>;
   instructionText?: string;
   instructionContent?: React.ReactNode;
   className?: string;

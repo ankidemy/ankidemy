@@ -383,7 +383,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, []);
 
   // FIX: Add new method
-  const closeWindowsByType = useCallback((type: 'detail' | 'review') => {
+  const closeWindowsByType = useCallback((type: 'detail' | 'review' | 'source' | 'quest' | 'survey') => {
     dispatch({ type: 'CLOSE_WINDOWS_BY_TYPE', payload: { type } });
   }, []);
 

@@ -107,7 +107,7 @@ export interface MetaQuest {
   ownerId?: number;
   visibility?: 'private' | 'domain';
   active?: boolean;
-  nextDueAt?: string;
+  nextDueAt?: string | null;
   versions?: QuestVersion[];
   type?: 'quest';
 }

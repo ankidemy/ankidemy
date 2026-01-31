@@ -88,11 +88,17 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const rafRefreshRef = useRef<number | null>(null);
   const prewarmKeyRef = useRef<string>('');
   const [graphInstanceNonce, setGraphInstanceNonce] = useState(0);
+  const graphInstanceRef = useRef<any>(null);
+  const lastGraphInstanceRef = useRef<any>(null);
 
-  const attachGraphInstance = useCallback((instance: any) => {
-    graphRef.current = instance;
-    if (instance) setGraphInstanceNonce(n => n + 1);
-  }, [graphRef]);
+  useEffect(() => {
+    const instance = graphInstanceRef.current;
+    if (instance && instance !== lastGraphInstanceRef.current) {
+      lastGraphInstanceRef.current = instance;
+      graphRef.current = instance;
+      setGraphInstanceNonce(n => n + 1);
+    }
+  });
 
   const scheduleRafRefresh = useCallback(() => {
     if (rafRefreshRef.current != null) return;
@@ -810,7 +816,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
-        ref={attachGraphInstance}
+        ref={graphInstanceRef}
         graphData={memoizedGraphData}
         width={canvasWidth}
         height={canvasHeight}
