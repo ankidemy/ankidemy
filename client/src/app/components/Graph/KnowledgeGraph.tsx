@@ -14,7 +14,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
@@ -986,7 +986,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>('td');
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
   const [questVisibilityMode, setQuestVisibilityMode] = useState<'on' | 'nodes' | 'off'>('on');
-  const [toolbarDisplayMode, setToolbarDisplayMode] = useState<'compact' | 'descriptive'>('compact');
+  const [toolbarDisplayMode, setToolbarDisplayMode] = useState<'compact' | 'descriptive'>('descriptive');
   const [toolbarGroupId, setToolbarGroupId] = useState<number | null>(null);
   const [toolbarGroupAction, setToolbarGroupAction] = useState<'create' | 'delete' | null>(null);
   const [toolbarGroupNameDraft, setToolbarGroupNameDraft] = useState('');
@@ -994,6 +994,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   const [selectionTool, setSelectionTool] = useState<'none' | 'add' | 'remove'>('none');
+  const [infoFilters, setInfoFilters] = useState<Array<'general' | 'versions' | 'links' | 'groups' | 'status'>>([]);
+  const [expandedInfoNodes, setExpandedInfoNodes] = useState<Set<string>>(new Set());
   const [newlyCreatedNodeId, setNewlyCreatedNodeId] = useState<string | null>(null);
 
   // Interactive state
@@ -1302,6 +1304,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return map;
   }, [domainGroups, localAdjacency]);
 
+  const nodeGroupsByCode = useMemo(() => {
+    const map = new Map<string, string[]>();
+    domainGroups.forEach(group => {
+      const members = groupMembersById.get(group.id);
+      if (!members) return;
+      members.forEach(code => {
+        const existing = map.get(code) ?? [];
+        existing.push(group.name);
+        map.set(code, existing);
+      });
+    });
+    return map;
+  }, [domainGroups, groupMembersById]);
+
   const collapsedGroupIds = useMemo(() => {
     return new Set(domainGroups.filter(group => group.collapsed).map(group => group.id));
   }, [domainGroups, updateGroupState]);
@@ -1353,6 +1369,22 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.relations || [],
     externalPrerequisites
   );
+
+  const fullAdjacency = useMemo(() => {
+    const outgoing = new Map<string, Set<string>>();
+    const incoming = new Map<string, Set<string>>();
+    baseGraphStructure.nodes.forEach((_, id) => {
+      outgoing.set(id, new Set());
+      incoming.set(id, new Set());
+    });
+    baseGraphStructure.links.forEach(link => {
+      if (!outgoing.has(link.source)) outgoing.set(link.source, new Set());
+      if (!incoming.has(link.target)) incoming.set(link.target, new Set());
+      outgoing.get(link.source)?.add(link.target);
+      incoming.get(link.target)?.add(link.source);
+    });
+    return { outgoing, incoming };
+  }, [baseGraphStructure]);
 
   const groupedGraphStructure = useMemo(() => {
     if (collapsedGroupIds.size === 0) {
@@ -1740,6 +1772,62 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const toggleSelectionTool = useCallback((next: 'add' | 'remove') => {
     setSelectionTool(prev => (prev === next ? 'none' : next));
   }, []);
+
+  const handleAddParentsToSelection = useCallback(() => {
+    if (selectedNodeIds.size === 0) {
+      showToast('Select at least one node.', 'warning');
+      return;
+    }
+    const baseSelection = Array.from(selectedNodeIds);
+    const next = new Set(selectedNodeIds);
+    baseSelection.forEach(nodeId => {
+      const parents = fullAdjacency.incoming.get(nodeId);
+      parents?.forEach(parentId => next.add(parentId));
+    });
+    setSelectedNodeIds(next);
+  }, [selectedNodeIds, fullAdjacency.incoming]);
+
+  const handleAddChildrenToSelection = useCallback(() => {
+    if (selectedNodeIds.size === 0) {
+      showToast('Select at least one node.', 'warning');
+      return;
+    }
+    const baseSelection = Array.from(selectedNodeIds);
+    const next = new Set(selectedNodeIds);
+    baseSelection.forEach(nodeId => {
+      const children = fullAdjacency.outgoing.get(nodeId);
+      children?.forEach(childId => next.add(childId));
+    });
+    setSelectedNodeIds(next);
+  }, [selectedNodeIds, fullAdjacency.outgoing]);
+
+  const toggleInfoFilter = useCallback((filter: 'general' | 'versions' | 'links' | 'groups' | 'status') => {
+    setInfoFilters(prev => (
+      prev.includes(filter)
+        ? prev.filter(entry => entry !== filter)
+        : [...prev, filter]
+    ));
+  }, []);
+
+  const toggleInfoNodeExpanded = useCallback((nodeId: string) => {
+    setExpandedInfoNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    setExpandedInfoNodes(prev => {
+      if (prev.size === 0) return prev;
+      const next = new Set<string>();
+      selectedNodeIds.forEach(id => {
+        if (prev.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [selectedNodeIds]);
 
   useEffect(() => {
     if (isFrenzyEditMode) {
@@ -4897,6 +4985,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, []);
 
+  const handleSelectGroupMembers = useCallback(() => {
+    if (!toolbarGroupId) return;
+    const members = groupMembersById.get(toolbarGroupId);
+    if (!members || members.size === 0) {
+      showToast('Group has no members to select.', 'warning');
+      return;
+    }
+    setSelectedNodeIds(new Set(members));
+  }, [toolbarGroupId, groupMembersById]);
+
   const handleAddSelectionToGroup = useCallback(async () => {
     if (!toolbarGroupId || selectableGroupCodes.length === 0) return;
     const group = selectedToolbarGroup;
@@ -5217,12 +5315,133 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const toolbarInstruction = toolbarTransientMessage ?? toolInstruction ?? undefined;
   const toolbarInstructionContent = groupActionContent ?? (toolbarInstruction ? <span>{toolbarInstruction}</span> : undefined);
 
+  const infoFilterSet = useMemo(() => new Set(infoFilters), [infoFilters]);
+  const showAllInfoFields = infoFilters.length === 0;
+
+  const infoSectionContent = useMemo(() => {
+    const shouldShow = (filter: 'general' | 'versions' | 'links' | 'groups' | 'status') => (
+      showAllInfoFields || infoFilterSet.has(filter)
+    );
+    const selectedIds = Array.from(selectedNodeIds);
+    const nodeMap = new Map(stableGraph.nodes.map(node => [node.id, node]));
+
+    const filterButton = (
+      label: string,
+      shortLabel: string,
+      filter: 'general' | 'versions' | 'links' | 'groups' | 'status'
+    ) => (
+      toolboxButton(label, <span className="text-[8px] font-semibold">{shortLabel}</span>, {
+        onClick: () => toggleInfoFilter(filter),
+        variant: infoFilterSet.has(filter) ? 'secondary' : 'outline',
+      })
+    );
+
+    const formatList = (items: string[]) => (items.length > 0 ? items.join(', ') : 'None');
+
+    return (
+      <div className="w-48">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center justify-center gap-0.5">
+            {filterButton('G', 'G', 'general')}
+            {filterButton('V', 'V', 'versions')}
+            {filterButton('L', 'L', 'links')}
+            {filterButton('GR', 'GR', 'groups')}
+            {filterButton('S', 'S', 'status')}
+          </div>
+
+          {selectedIds.length === 0 && (
+            <div className="rounded border border-gray-100 bg-gray-50 px-2 py-1 text-left text-[9px] text-gray-500">
+              No nodes selected.
+            </div>
+          )}
+
+          {selectedIds.length > 0 && (
+            <div className="max-h-36 space-y-1 overflow-auto pr-0.5">
+              {selectedIds.map(nodeId => {
+                const node = nodeMap.get(nodeId);
+                if (!node) return null;
+                const isExpanded = expandedInfoNodes.has(nodeId);
+                const groups = nodeGroupsByCode.get(nodeId) ?? [];
+                const incoming = Array.from(fullAdjacency.incoming.get(nodeId) ?? []);
+                const outgoing = Array.from(fullAdjacency.outgoing.get(nodeId) ?? []);
+                const cached = nodeDataCache.get(nodeId) as { versionCount?: number; versions?: unknown[] } | undefined;
+                const versionCount = cached?.versionCount ?? cached?.versions?.length;
+                const statusValue = node.progress?.status ?? node.status;
+
+                return (
+                  <div key={nodeId} className="rounded border border-gray-100 bg-white px-1 py-1 text-[9px] text-gray-600">
+                    <button
+                      type="button"
+                      onClick={() => toggleInfoNodeExpanded(nodeId)}
+                      className="flex w-full items-center justify-between gap-1 text-left text-[9px] font-semibold text-gray-700"
+                    >
+                      <span className="truncate">{node.name}</span>
+                      <span className="text-[8px] font-semibold text-gray-400">{isExpanded ? 'v' : '>'}</span>
+                    </button>
+                    <div className="text-[8px] text-gray-400">{node.id}</div>
+                    {isExpanded && (
+                      <div className="mt-1 space-y-0.5">
+                        {shouldShow('general') && (
+                          <div>
+                            <div>Type: {node.type}</div>
+                            <div>Code: {node.id}</div>
+                            <div>Name: {node.name}</div>
+                          </div>
+                        )}
+                        {shouldShow('versions') && (
+                          <div>
+                            Versions: {typeof versionCount === 'number' ? versionCount : 'n/a'}
+                          </div>
+                        )}
+                        {shouldShow('links') && (
+                          <div>
+                            <div>Parents ({incoming.length}): {formatList(incoming)}</div>
+                            <div>Children ({outgoing.length}): {formatList(outgoing)}</div>
+                          </div>
+                        )}
+                        {shouldShow('groups') && (
+                          <div>
+                            Groups ({groups.length}): {formatList(groups)}
+                          </div>
+                        )}
+                        {shouldShow('status') && (
+                          <div>
+                            Status: {statusValue ?? 'n/a'}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }, [
+    expandedInfoNodes,
+    fullAdjacency.incoming,
+    fullAdjacency.outgoing,
+    infoFilterSet,
+    infoFilters.length,
+    nodeDataCache,
+    nodeGroupsByCode,
+    selectedNodeIds,
+    showAllInfoFields,
+    stableGraph.nodes,
+    toggleInfoFilter,
+    toggleInfoNodeExpanded,
+    toolboxButton,
+  ]);
+
   const hasGroups = groupSummaries.length > 0;
   const selectedGroupSummary = toolbarGroupId
     ? groupSummaries.find(group => group.id === toolbarGroupId) ?? null
     : null;
   const canModifyGroup = canEdit && !!toolbarGroupId;
   const canEditGroupSelection = canModifyGroup && selectableGroupCodes.length > 0;
+  const canSelectGroupMembers = canModifyGroup && (groupMembersById.get(toolbarGroupId ?? -1)?.size ?? 0) > 0;
   const groupSelectValue = toolbarGroupId ? String(toolbarGroupId) : '';
   const groupSelectControl = (
     <select
@@ -5335,23 +5554,37 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           title: 'Select',
           rows: [
             [
-              toolboxButton('Click Select', <Eye size={10} />, { enabled: false }),
-              toolboxButton('Box Select', <Maximize size={10} />, { enabled: false, variant: 'ghost' }),
-            ],
-            [
-              toolboxButton('Add selection', <Plus size={10} />, {
+              toolboxButton('Clear', <EyeOff size={10} />, {
+                onClick: handleClearSelection,
+                enabled: selectedNodeIds.size > 0,
+                variant: 'ghost',
+              }),
+              toolboxButton('Add', <Plus size={10} />, {
                 onClick: () => toggleSelectionTool('add'),
                 variant: selectionTool === 'add' ? 'secondary' : 'outline',
               }),
-              toolboxButton('Remove selection', <Minus size={10} />, {
+              toolboxButton('Remove', <Minus size={10} />, {
                 onClick: () => toggleSelectionTool('remove'),
                 variant: selectionTool === 'remove' ? 'secondary' : 'ghost',
               }),
             ],
             [
-              toolboxButton('Clear', <EyeOff size={10} />, {
-                onClick: handleClearSelection,
+              toolboxButton('Parents', <ArrowUp size={10} />, {
+                onClick: handleAddParentsToSelection,
                 enabled: selectedNodeIds.size > 0,
+                variant: 'ghost',
+              }),
+              toolboxButton('Children', <ArrowDown size={10} />, {
+                onClick: handleAddChildrenToSelection,
+                enabled: selectedNodeIds.size > 0,
+                variant: 'ghost',
+              }),
+            ],
+            [
+              toolboxButton('Box Select', <Maximize size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Select group', <Users size={10} />, {
+                onClick: handleSelectGroupMembers,
+                enabled: canSelectGroupMembers,
                 variant: 'ghost',
               }),
             ],
@@ -5366,6 +5599,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 onClick: () => void handleFlagSelection('grasped', 'Grasping'),
                 enabled: flaggableSelection.length > 0,
               }),
+            ],
+            [
               toolboxButton('Tackling', <Flag size={10} />, {
                 onClick: () => void handleFlagSelection('tackling', 'Tackling'),
                 enabled: flaggableSelection.length > 0,
@@ -5403,13 +5638,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 enabled: canModifyGroup && !!selectedGroupSummary?.collapsed,
                 variant: 'ghost',
               }),
-            ],
-            [
-              toolboxButton('Add selection', <UserPlus size={10} />, {
+              toolboxButton('Add', <UserPlus size={10} />, {
                 onClick: () => void handleAddSelectionToGroup(),
                 enabled: canEditGroupSelection,
               }),
-              toolboxButton('Remove selection', <UserMinus size={10} />, {
+              toolboxButton('Remove', <UserMinus size={10} />, {
                 onClick: () => void handleRemoveSelectionFromGroup(),
                 enabled: canEditGroupSelection,
                 variant: 'ghost',
@@ -5429,11 +5662,26 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           ],
         },
         {
+          id: 'info',
+          title: 'Info',
+          collapsible: true,
+          defaultExpanded: false,
+          rows: [
+            [
+              infoSectionContent,
+            ],
+          ],
+        },
+        {
           id: 'export',
           title: 'Export',
+          collapsible: true,
+          defaultExpanded: false,
           rows: [
             [
               toolboxButton('PNG', <Download size={10} />, { enabled: false }),
+            ],
+            [
               toolboxButton('JSON', <Download size={10} />, { enabled: false, variant: 'ghost' }),
             ],
             [
@@ -5448,6 +5696,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     createFrenzyNode,
     canUseEditTools,
     handleClearSelection,
+    handleAddParentsToSelection,
+    handleAddChildrenToSelection,
+    handleSelectGroupMembers,
     handleFrenzyToolChange,
     lastDeletedNode,
     undoFrenzyDelete,
@@ -5455,11 +5706,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     flaggableSelection.length,
     groupSelectControl,
     canModifyGroup,
+    canSelectGroupMembers,
     selectedGroupSummary?.collapsed,
     handleAddSelectionToGroup,
     handleRemoveSelectionFromGroup,
     handleCreateGroupPrompt,
     handleDeleteGroupPrompt,
+    infoSectionContent,
     canEdit,
     selectableGroupCodes.length,
     toolbarGroupId,

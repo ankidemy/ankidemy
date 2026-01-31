@@ -7,6 +7,8 @@ export type ToolbarSection = {
   id: string;
   title: string;
   rows: React.ReactNode[][];
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
 };
 
 export type ToolbarLayout = {
@@ -52,6 +54,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [swapKey, setSwapKey] = useState(0);
   const [showInstruction, setShowInstruction] = useState(!!instructionText);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   const layout = useMemo(
     () => layouts.find((entry) => entry.id === activeLayoutId) ?? layouts[0],
@@ -69,6 +72,40 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   useEffect(() => {
     setSwapKey((prev) => prev + 1);
   }, [activeLayoutId]);
+
+  useEffect(() => {
+    setExpandedSections(prev => {
+      const next = { ...prev };
+      layouts.forEach(layout => {
+        layout.sections.forEach(section => {
+          if (!section.collapsible) {
+            next[section.id] = true;
+            return;
+          }
+          if (next[section.id] === undefined) {
+            next[section.id] = section.defaultExpanded ?? true;
+          }
+        });
+      });
+      return next;
+    });
+  }, [layouts]);
+
+  const isSectionExpanded = useCallback((section: ToolbarSection) => {
+    if (!section.collapsible) return true;
+    const expanded = expandedSections[section.id];
+    if (expanded === undefined) return section.defaultExpanded ?? true;
+    return expanded;
+  }, [expandedSections]);
+
+  const toggleSection = useCallback((section: ToolbarSection) => {
+    if (!section.collapsible) return;
+    setExpandedSections(prev => {
+      const current = prev[section.id];
+      const nextValue = current === undefined ? !(section.defaultExpanded ?? true) : !current;
+      return { ...prev, [section.id]: nextValue };
+    });
+  }, []);
 
   const hasInstruction = !!instructionContent || !!instructionText;
 
@@ -255,30 +292,73 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
             key={`${layout.id}-${swapKey}`}
             className="flex flex-wrap items-stretch gap-0.5 px-0.5 pb-0.5 pt-0.5 animate-toolbar-swap"
           >
-            {layout.sections.map((section) => (
-              <div
-                key={section.id}
-                className="flex w-fit flex-col rounded-md border border-gray-100 bg-white p-0.5 shadow-sm"
-              >
-                <div className="text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500">
-                  {section.title}
-                </div>
-                <div className="mt-0.5 flex flex-1 flex-col justify-center gap-0.5">
-                  {section.rows.map((row, rowIndex) => (
-                    <div
-                      key={`${section.id}-row-${rowIndex}`}
-                      className="flex flex-wrap items-center justify-center gap-0.5"
+            {layout.sections.map((section) => {
+              const expanded = isSectionExpanded(section);
+              if (section.collapsible && !expanded) {
+                return (
+                  <div
+                    key={section.id}
+                    className="flex w-4 items-stretch rounded-md border border-gray-100 bg-white shadow-sm"
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Expand ${section.title}`}
+                      title={`Expand ${section.title}`}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSection(section);
+                      }}
+                      className="flex w-4 items-center justify-center text-[9px] text-gray-400 hover:bg-gray-50 hover:text-gray-700"
                     >
-                      {row.map((control, controlIndex) => (
-                        <div key={`${section.id}-control-${controlIndex}`}>
-                          {control}
+                      {'>'}
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={section.id}
+                  className="flex w-fit flex-row items-stretch rounded-md border border-gray-100 bg-white shadow-sm"
+                >
+                  {section.collapsible && (
+                    <button
+                      type="button"
+                      aria-label={`Collapse ${section.title}`}
+                      title={`Collapse ${section.title}`}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSection(section);
+                      }}
+                      className="flex w-4 items-center justify-center border-r border-gray-100 text-[9px] text-gray-400 hover:bg-gray-50 hover:text-gray-700"
+                    >
+                      {'<'}
+                    </button>
+                  )}
+                  <div className="flex flex-col p-0.5">
+                    <div className="text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500">
+                      {section.title}
+                    </div>
+                    <div className="mt-0.5 flex flex-1 flex-col justify-center gap-0.5">
+                      {section.rows.map((row, rowIndex) => (
+                        <div
+                          key={`${section.id}-row-${rowIndex}`}
+                          className="flex flex-wrap items-center justify-center gap-0.5"
+                        >
+                          {row.map((control, controlIndex) => (
+                            <div key={`${section.id}-control-${controlIndex}`}>
+                              {control}
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
