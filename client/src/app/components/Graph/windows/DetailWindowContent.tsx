@@ -1017,8 +1017,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               {currentNode.type === 'definition' && (
                 <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
               )}
-              <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
               <TabsTrigger value="groups" className="text-sm h-8">Groups</TabsTrigger>
+              <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
             </TabsList>
             {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
               <TabsContent value="versions" className="mt-3">
@@ -1197,69 +1197,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               )}
             </TabsContent>
             
-            <TabsContent value="srs" className="mt-3 space-y-3">
-              <StatusIndicator
-                status={nodeProgress?.status || 'fresh'}
-                isDue={nodeProgress?.isDue}
-                daysUntilReview={nodeProgress?.daysUntilReview}
-                nextReviewDate={nodeProgress?.nextReview}
-              />
-              
-              <div>
-                <label className="block text-xs font-medium mb-1 text-gray-600">Set Status:</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(['fresh', 'tackling', 'grasped', 'learned'] as NodeStatus[]).map(status => (
-                    <Button
-                      key={status}
-                      variant={nodeProgress?.status === status ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleStatusChange(status)}
-                      className="text-xs h-7 capitalize"
-                      disabled={srs.state.loading}
-                    >
-                      {status}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              
-              <ProgressDisplay progress={nodeProgress} />
-              
-              {/* Review History */}
-              <div className="mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowHistory(!showHistory)}
-                  className="w-full flex justify-between items-center text-xs h-7"
-                >
-                  <span>Review History</span>
-                  {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </Button>
-                {showHistory && (
-                  <div className="mt-2 p-2 border rounded-md bg-gray-50 max-h-48 overflow-y-auto text-xs space-y-1.5">
-                    {historyLoading && <p>Loading history...</p>}
-                    {!historyLoading && history.length === 0 && <p>No review history found.</p>}
-                    {history.map(item => (
-                      <div key={item.id} className={`p-1.5 rounded border-l-4 ${
-                        item.success ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'
-                      }`}>
-                        <p>
-                          <strong>{new Date(item.reviewTime).toLocaleString()}</strong> - 
-                          {item.success ? 'Success' : 'Fail'} (Q: {item.quality})
-                        </p>
-                        {item.intervalAfter !== undefined && (
-                          <p className="text-gray-600">
-                            Interval: {item.intervalBefore?.toFixed(1)}d → {item.intervalAfter?.toFixed(1)}d
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </TabsContent>
-
             <TabsContent value="groups" className="mt-3 space-y-4">
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-gray-800">Create group</div>
@@ -1347,6 +1284,69 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="srs" className="mt-3 space-y-3">
+              <StatusIndicator
+                status={nodeProgress?.status || 'fresh'}
+                isDue={nodeProgress?.isDue}
+                daysUntilReview={nodeProgress?.daysUntilReview}
+                nextReviewDate={nodeProgress?.nextReview}
+              />
+              
+              <div>
+                <label className="block text-xs font-medium mb-1 text-gray-600">Set Status:</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(['fresh', 'tackling', 'grasped', 'learned'] as NodeStatus[]).map(status => (
+                    <Button
+                      key={status}
+                      variant={nodeProgress?.status === status ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleStatusChange(status)}
+                      className="text-xs h-7 capitalize"
+                      disabled={srs.state.loading}
+                    >
+                      {status}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              
+              <ProgressDisplay progress={nodeProgress} />
+              
+              {/* Review History */}
+              <div className="mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="w-full flex justify-between items-center text-xs h-7"
+                >
+                  <span>Review History</span>
+                  {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </Button>
+                {showHistory && (
+                  <div className="mt-2 p-2 border rounded-md bg-gray-50 max-h-48 overflow-y-auto text-xs space-y-1.5">
+                    {historyLoading && <p>Loading history...</p>}
+                    {!historyLoading && history.length === 0 && <p>No review history found.</p>}
+                    {history.map(item => (
+                      <div key={item.id} className={`p-1.5 rounded border-l-4 ${
+                        item.success ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'
+                      }`}>
+                        <p>
+                          <strong>{new Date(item.reviewTime).toLocaleString()}</strong> - 
+                          {item.success ? 'Success' : 'Fail'} (Q: {item.quality})
+                        </p>
+                        {item.intervalAfter !== undefined && (
+                          <p className="text-gray-600">
+                            Interval: {item.intervalBefore?.toFixed(1)}d → {item.intervalAfter?.toFixed(1)}d
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

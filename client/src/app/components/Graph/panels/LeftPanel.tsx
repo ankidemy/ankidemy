@@ -4,7 +4,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Search, Filter, X, CheckSquare, Square, Trash2, Eye, MousePointer, Users } from 'lucide-react';
+import { Search, Filter, X, CheckSquare, Square, Eye, MousePointer, Users } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
@@ -317,46 +317,46 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
       {/* Enhanced Selection Controls */}
       {selectionMode && (
         <div className="p-3 border-b border-gray-200 bg-blue-50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="text-sm font-medium text-blue-900">
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <div className="text-sm font-medium text-blue-900 whitespace-nowrap">
                 {selectionStats.total} selected
               </div>
               {selectionStats.total > 0 && (
-                <div className="text-xs text-blue-700 bg-blue-100 px-2 py-1 rounded">
+                <div className="text-xs text-blue-700 bg-blue-100 px-2 py-1 rounded whitespace-nowrap flex-shrink-0">
                   {selectionStats.definitions}D • {selectionStats.exercises}E
                   {selectionStats.due > 0 && ` • ${selectionStats.due} due`}
                 </div>
               )}
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center justify-center gap-2 flex-wrap">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={handleSelectAll}
-                className="h-7 px-2 text-xs text-blue-700 hover:bg-blue-100"
+                className="h-7 px-2 text-xs text-blue-700 border-blue-200 hover:bg-blue-100"
                 title="Select all visible nodes"
               >
                 All
               </Button>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={handleDeselectAll}
-                className="h-7 px-2 text-xs text-blue-700 hover:bg-blue-100"
+                className="h-7 px-2 text-xs text-blue-700 border-blue-200 hover:bg-blue-100"
                 title="Deselect all nodes"
               >
                 Clear
               </Button>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                onClick={onClearSelection}
-                className="h-7 px-2 text-xs text-red-600 hover:bg-red-100"
-                title="Exit selection mode and clear all selections"
+                onClick={toggleSelectionMode}
+                className="h-7 w-7 text-red-600 border-red-200 hover:bg-red-100"
+                title="Exit selection mode"
               >
-                <Trash2 size={12} />
+                <X size={12} />
               </Button>
             </div>
           </div>

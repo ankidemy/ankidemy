@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export type ToolbarSection = {
@@ -55,6 +55,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const [position, setPosition] = useState(initialPosition);
+  const [isPositioned, setIsPositioned] = useState(!centered);
   const [isDragging, setIsDragging] = useState(false);
   const [swapKey, setSwapKey] = useState(0);
   const [showInstruction, setShowInstruction] = useState(!!instructionText);
@@ -146,7 +147,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     [getBoundsRect]
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!centered || hasAutoCenteredRef.current) return;
     const bounds = getBoundsRect();
     const rect = toolbarRef.current?.getBoundingClientRect();
@@ -155,7 +156,18 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     const targetY = topOffset;
     setPosition(clampToBounds(targetX, targetY));
     hasAutoCenteredRef.current = true;
+    setIsPositioned(true);
   }, [centered, getBoundsRect, clampToBounds, topOffset]);
+
+  useEffect(() => {
+    if (!centered) {
+      setIsPositioned(true);
+      return;
+    }
+    if (!hasAutoCenteredRef.current) {
+      setIsPositioned(false);
+    }
+  }, [centered]);
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -206,8 +218,9 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
       ref={toolbarRef}
       data-toolbar-id={id}
       className={cn(
-        "absolute left-0 top-0 z-30",
+        "absolute left-0 top-0 z-20",
         isDragging && "cursor-grabbing",
+        !isPositioned && centered && "opacity-0 pointer-events-none",
         className
       )}
       style={{

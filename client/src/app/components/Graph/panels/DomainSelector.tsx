@@ -75,6 +75,14 @@ const DomainSelector: React.FC<DomainSelectorProps> = ({ currentDomainName }) =>
     fetchDomains();
   }, [isOpen]);
 
+  useEffect(() => {
+    const handleCanvasClick = () => setIsOpen(false);
+    window.addEventListener('canvas-click', handleCanvasClick);
+    return () => {
+      window.removeEventListener('canvas-click', handleCanvasClick);
+    };
+  }, []);
+
   const handleDomainSelect = (domain: Domain) => {
     setIsOpen(false);
     router.push(`/main/domains/${domain.id}/study`);

@@ -1,14 +1,15 @@
 // TopControls.tsx - Enhanced version with import/export functionality
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Book, BarChart, Plus, Play, Users, AlertTriangle, Zap, List, Wrench } from 'lucide-react';
+import { Book, BarChart, Plus, Play, Users, AlertTriangle, Zap, List, Wrench, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
+import { getSurveyQueue, SurveyQueueItem } from '@/lib/api';
 
 interface TopControlsProps {
   subjectMatterId: string;
@@ -48,11 +49,17 @@ const TopControls: React.FC<TopControlsProps> = ({
   const srs = useSRS();
 
   const [showReviewQueue, setShowReviewQueue] = useState(false);
+  const [showSurveyQueue, setShowSurveyQueue] = useState(false);
   const [hasNewDue, setHasNewDue] = useState(false);
   const reviewQueueRef = useRef<HTMLDivElement>(null);
+  const surveyQueueRef = useRef<HTMLDivElement>(null);
   const lastSeenReviewIdsRef = useRef<Set<string>>(new Set());
   const wasReviewQueueOpenRef = useRef(false);
+  const wasSurveyQueueOpenRef = useRef(false);
   const canEdit = canEditProp ?? false;
+  const [surveyQueue, setSurveyQueue] = useState<SurveyQueueItem[]>([]);
+  const [surveyLoading, setSurveyLoading] = useState(false);
+  const [surveyError, setSurveyError] = useState<string | null>(null);
 
   const dueReviews = srs.state.dueReviews;
   const dueCount = isEnrolled ? dueReviews.length : 0;
@@ -119,6 +126,70 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showReviewQueue]);
 
   useEffect(() => {
+    if (isEnrolled) return;
+    setShowSurveyQueue(false);
+  }, [isEnrolled]);
+
+  useEffect(() => {
+    setShowSurveyQueue(false);
+  }, [currentDomainId]);
+
+  useEffect(() => {
+    const handleCanvasClick = () => {
+      setShowReviewQueue(false);
+      setShowSurveyQueue(false);
+    };
+    window.addEventListener('canvas-click', handleCanvasClick);
+    return () => {
+      window.removeEventListener('canvas-click', handleCanvasClick);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (surveyQueueRef.current && !surveyQueueRef.current.contains(event.target as Node)) {
+        setShowSurveyQueue(false);
+      }
+    };
+
+    if (showSurveyQueue) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSurveyQueue]);
+
+  const refreshSurveyQueue = useCallback(async () => {
+    if (!currentDomainId) return;
+    setSurveyLoading(true);
+    setSurveyError(null);
+    try {
+      const items = await getSurveyQueue(currentDomainId);
+      setSurveyQueue(items);
+    } catch (error) {
+      console.warn('Failed to refresh survey queue:', error);
+      setSurveyError('Failed to load survey queue.');
+    } finally {
+      setSurveyLoading(false);
+    }
+  }, [currentDomainId]);
+
+  useEffect(() => {
+    if (!showSurveyQueue) {
+      wasSurveyQueueOpenRef.current = false;
+      return;
+    }
+
+    if (!wasSurveyQueueOpenRef.current) {
+      refreshSurveyQueue();
+    }
+
+    wasSurveyQueueOpenRef.current = true;
+  }, [showSurveyQueue, refreshSurveyQueue]);
+
+  useEffect(() => {
     if (!showReviewQueue) {
       wasReviewQueueOpenRef.current = false;
       return;
@@ -140,7 +211,14 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showReviewQueue, dueReviews, isEnrolled, currentDomainId, currentSrsDomainId, loadDueReviews]);
 
   const handleToggleReviewQueue = () => {
+    setShowSurveyQueue(false);
     setShowReviewQueue(prev => !prev);
+  };
+
+  const handleToggleSurveyQueue = () => {
+    if (!isEnrolled) return;
+    setShowReviewQueue(false);
+    setShowSurveyQueue(prev => !prev);
   };
 
   // NEW: Calculate available space info for debugging
@@ -253,77 +331,150 @@ const TopControls: React.FC<TopControlsProps> = ({
           )}
 
           {showReviewQueue && (
-            <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-xl border z-30 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                <div className="text-sm font-semibold text-gray-800">Review Queue</div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (currentDomainId && currentSrsDomainId === currentDomainId) {
-                      loadDueReviews('mixed');
-                    }
-                  }}
-                  className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-orange-500"
-                >
-                  <RefreshCw size={12} />
-                  Refresh
-                </button>
+            <>
+              <div
+                className="fixed inset-0 z-20"
+                onClick={() => setShowReviewQueue(false)}
+              />
+              <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-xl border z-30 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <div className="text-sm font-semibold text-gray-800">Review Queue</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (currentDomainId && currentSrsDomainId === currentDomainId) {
+                        loadDueReviews('mixed');
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-orange-500"
+                  >
+                    <RefreshCw size={12} />
+                    Refresh
+                  </button>
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {dueReviews.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-gray-500">No items due for review yet.</div>
+                  ) : (
+                    <ul className="py-2">
+                      {dueReviews.map((review, index) => (
+                        <li key={`${review.nodeType}-${review.nodeId}-${index}`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onNavigateToNode && review.nodeCode) {
+                                onNavigateToNode(review.nodeCode);
+                              }
+                              setShowReviewQueue(false);
+                            }}
+                            className="w-full text-left px-4 py-3 hover:bg-orange-50 transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-gray-800 truncate">
+                                {review.nodeName || review.nodeCode}
+                              </span>
+                              <span className="text-[10px] font-semibold uppercase text-gray-400">
+                                {review.nodeType === 'definition' ? 'Def' : 'Ex'}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                              <span className="truncate">{review.nodeCode}</span>
+                              <span>{review.isDue ? 'Due now' : 'Scheduled'}</span>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
-              <div className="max-h-80 overflow-y-auto">
-                {dueReviews.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-gray-500">No items due for review yet.</div>
-                ) : (
-                  <ul className="py-2">
-                    {dueReviews.map((review, index) => (
-                      <li key={`${review.nodeType}-${review.nodeId}-${index}`}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onNavigateToNode && review.nodeCode) {
-                              onNavigateToNode(review.nodeCode);
-                            }
-                            setShowReviewQueue(false);
-                          }}
-                          className="w-full text-left px-4 py-3 hover:bg-orange-50 transition-colors"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-medium text-gray-800 truncate">
-                              {review.nodeName || review.nodeCode}
-                            </span>
-                            <span className="text-[10px] font-semibold uppercase text-gray-400">
-                              {review.nodeType === 'definition' ? 'Def' : 'Ex'}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                            <span className="truncate">{review.nodeCode}</span>
-                            <span>{review.isDue ? 'Due now' : 'Scheduled'}</span>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
+            </>
           )}
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onOpenSurvey}
-          disabled={!isEnrolled || !onOpenSurvey}
-          className="flex items-center"
-          title={!isEnrolled ? "Enroll in domain to access Survey" : "Open Survey"}
-        >
-          <List size={14} className="mr-1" />
-          Survey
-          {surveyDueCount > 0 && (
-            <span className="ml-2 rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5">
-              {surveyDueCount}
-            </span>
+        <div className="relative" ref={surveyQueueRef}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleSurveyQueue}
+            disabled={!isEnrolled}
+            className="flex items-center"
+            title={!isEnrolled ? "Enroll in domain to access Survey" : "Survey queue"}
+          >
+            <List size={14} className="mr-1" />
+            Survey
+            {surveyDueCount > 0 && (
+              <span className="ml-2 rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5">
+                {surveyDueCount}
+              </span>
+            )}
+          </Button>
+
+          {showSurveyQueue && (
+            <>
+              <div
+                className="fixed inset-0 z-20"
+                onClick={() => setShowSurveyQueue(false)}
+              />
+              <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-xl border z-30 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <div className="text-sm font-semibold text-gray-800">Survey Queue</div>
+                  <button
+                    type="button"
+                    onClick={refreshSurveyQueue}
+                    className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-orange-500"
+                  >
+                    <RefreshCw size={12} />
+                    Refresh
+                  </button>
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {surveyLoading ? (
+                    <div className="px-4 py-6 text-sm text-gray-500">Loading survey queue...</div>
+                  ) : surveyError ? (
+                    <div className="px-4 py-6 text-sm text-red-500">{surveyError}</div>
+                  ) : surveyQueue.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-gray-500">No quests due right now.</div>
+                  ) : (
+                    <ul className="py-2">
+                      {surveyQueue.map((item) => (
+                        <li key={item.questId}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onNavigateToNode && item.questCode) {
+                                onNavigateToNode(item.questCode);
+                              }
+                              setShowSurveyQueue(false);
+                            }}
+                            className="w-full text-left px-4 py-3 hover:bg-amber-50 transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-gray-800 truncate">
+                                {item.questName || item.questCode}
+                              </span>
+                              <span className="text-[10px] font-semibold uppercase text-gray-400">
+                                {item.questKind}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                              <span className="truncate">{item.questCode}</span>
+                              <span>
+                                {item.nextDueAt
+                                  ? `${item.isOverdue ? 'Overdue' : 'Due'} ${new Date(item.nextDueAt).toLocaleString()}`
+                                  : 'Not scheduled'}
+                              </span>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </>
           )}
-        </Button>
+        </div>
       </div>
 
       {/* Right: Creation + Alerts + Options */}
@@ -360,8 +511,8 @@ const TopControls: React.FC<TopControlsProps> = ({
           className="flex items-center"
           title="Options"
         >
-          <Wrench size={14} className="mr-1" />
           Options
+          <Wrench size={14} className="ml-1" />
         </Button>
       </div>
     </div>

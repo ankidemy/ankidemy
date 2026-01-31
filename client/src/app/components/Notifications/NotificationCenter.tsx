@@ -59,6 +59,14 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
     }
   }, [open, markAllAsRead]);
 
+  useEffect(() => {
+    const handleCanvasClick = () => setOpen(false);
+    window.addEventListener('canvas-click', handleCanvasClick);
+    return () => {
+      window.removeEventListener('canvas-click', handleCanvasClick);
+    };
+  }, []);
+
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -76,83 +84,86 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-xl border z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <div className="text-sm font-semibold text-gray-800">Notifications</div>
-            <div className="flex items-center gap-3 text-xs">
-              <button
-                type="button"
-                onClick={() => markAllAsRead()}
-                className="text-gray-500 hover:text-orange-500"
-              >
-                Mark all read
-              </button>
-              <button
-                type="button"
-                onClick={() => refreshNotifications()}
-                className="inline-flex items-center gap-1 text-gray-500 hover:text-orange-500"
-                disabled={loading}
-              >
-                <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                Refresh
-              </button>
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-xl border z-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <div className="text-sm font-semibold text-gray-800">Notifications</div>
+              <div className="flex items-center gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => markAllAsRead()}
+                  className="text-gray-500 hover:text-orange-500"
+                >
+                  Mark all read
+                </button>
+                <button
+                  type="button"
+                  onClick={() => refreshNotifications()}
+                  className="inline-flex items-center gap-1 text-gray-500 hover:text-orange-500"
+                  disabled={loading}
+                >
+                  <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="max-h-80 overflow-y-auto">
-            {loading && notifications.length === 0 && (
-              <div className="px-4 py-6 text-sm text-gray-500">Loading notifications...</div>
-            )}
-            {!loading && notifications.length === 0 && (
-              <div className="px-4 py-6 text-sm text-gray-500">No notifications right now.</div>
-            )}
-            {notifications.length > 0 && (
-              <ul className="py-2">
-                {notifications.map(notification => (
-                  <li key={notification.id}>
-                    {notification.href ? (
-                      <Link
-                        href={notification.href}
-                        className="block px-4 py-3 hover:bg-orange-50 transition-colors"
-                        onClick={() => setOpen(false)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-800">
-                            {notification.title}
-                          </span>
-                          {notification.meta?.dueCount !== undefined &&
-                            (!suppressDomainId || notification.meta?.domainId !== suppressDomainId) && (
-                            <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
-                              {notification.meta.dueCount}
+            <div className="max-h-80 overflow-y-auto">
+              {loading && notifications.length === 0 && (
+                <div className="px-4 py-6 text-sm text-gray-500">Loading notifications...</div>
+              )}
+              {!loading && notifications.length === 0 && (
+                <div className="px-4 py-6 text-sm text-gray-500">No notifications right now.</div>
+              )}
+              {notifications.length > 0 && (
+                <ul className="py-2">
+                  {notifications.map(notification => (
+                    <li key={notification.id}>
+                      {notification.href ? (
+                        <Link
+                          href={notification.href}
+                          className="block px-4 py-3 hover:bg-orange-50 transition-colors"
+                          onClick={() => setOpen(false)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-800">
+                              {notification.title}
                             </span>
+                            {notification.meta?.dueCount !== undefined &&
+                              (!suppressDomainId || notification.meta?.domainId !== suppressDomainId) && (
+                              <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+                                {notification.meta.dueCount}
+                              </span>
+                            )}
+                          </div>
+                          {notification.description && (
+                            <p className="text-xs text-gray-500 mt-1">{notification.description}</p>
+                          )}
+                        </Link>
+                      ) : (
+                        <div className="px-4 py-3">
+                          <div className="text-sm font-medium text-gray-800">
+                            {notification.title}
+                          </div>
+                          {notification.description && (
+                            <p className="text-xs text-gray-500 mt-1">{notification.description}</p>
                           )}
                         </div>
-                        {notification.description && (
-                          <p className="text-xs text-gray-500 mt-1">{notification.description}</p>
-                        )}
-                      </Link>
-                    ) : (
-                      <div className="px-4 py-3">
-                        <div className="text-sm font-medium text-gray-800">
-                          {notification.title}
-                        </div>
-                        {notification.description && (
-                          <p className="text-xs text-gray-500 mt-1">{notification.description}</p>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {lastUpdated && (
+              <div className="px-4 py-2 border-t border-gray-100 text-[11px] text-gray-400">
+                Updated {new Date(lastUpdated).toLocaleTimeString()}
+              </div>
             )}
           </div>
-
-          {lastUpdated && (
-            <div className="px-4 py-2 border-t border-gray-100 text-[11px] text-gray-400">
-              Updated {new Date(lastUpdated).toLocaleTimeString()}
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   );

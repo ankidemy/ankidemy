@@ -14,7 +14,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
@@ -1001,6 +1001,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [selectionTool, setSelectionTool] = useState<'none' | 'add' | 'remove'>('none');
   const [infoFilters, setInfoFilters] = useState<Array<'general' | 'versions' | 'links' | 'groups' | 'status'>>([]);
   const [expandedInfoNodes, setExpandedInfoNodes] = useState<Set<string>>(new Set());
+  const [infoVersionCounts, setInfoVersionCounts] = useState<Map<string, number>>(new Map());
   const [newlyCreatedNodeId, setNewlyCreatedNodeId] = useState<string | null>(null);
 
   // Interactive state
@@ -1833,6 +1834,56 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, []);
 
   useEffect(() => {
+    if (selectedNodeIds.size === 0) return;
+    let cancelled = false;
+    const nodeMap = new Map(stableGraph.nodes.map(node => [node.id, node]));
+    const targets = Array.from(selectedNodeIds).reduce<Array<{ id: string; type: 'definition' | 'exercise'; metaId: number }>>((acc, nodeId) => {
+      if (infoVersionCounts.has(nodeId)) return acc;
+      const node = nodeMap.get(nodeId);
+      if (!node || (node.type !== 'definition' && node.type !== 'exercise')) return acc;
+      const metaId = codeToNumericIdMap.get(nodeId);
+      if (!metaId) return acc;
+      acc.push({ id: nodeId, type: node.type, metaId });
+      return acc;
+    }, []);
+
+    if (targets.length === 0) return;
+
+    const loadCounts = async () => {
+      const results = await Promise.all(targets.map(async target => {
+        try {
+          const meta = target.type === 'definition'
+            ? await getMetaDefinition(target.metaId)
+            : await getMetaExercise(target.metaId);
+          const count = Array.isArray(meta?.versions)
+            ? meta.versions.length
+            : (typeof meta?.versionCount === 'number' ? meta.versionCount : 0);
+          return { id: target.id, count };
+        } catch (error) {
+          console.warn('Failed to load version count:', error);
+          return null;
+        }
+      }));
+
+      if (cancelled) return;
+      setInfoVersionCounts(prev => {
+        const next = new Map(prev);
+        results.forEach(result => {
+          if (result && result.count > 0) {
+            next.set(result.id, result.count);
+          }
+        });
+        return next;
+      });
+    };
+
+    void loadCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNodeIds, stableGraph.nodes, nodeDataCache, codeToNumericIdMap, infoVersionCounts]);
+
+  useEffect(() => {
     setExpandedInfoNodes(prev => {
       if (prev.size === 0) return prev;
       const next = new Set<string>();
@@ -1848,6 +1899,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setSelectionTool('none');
     }
   }, [isFrenzyEditMode]);
+
+  useEffect(() => {
+    setInfoVersionCounts(new Map());
+  }, [subjectMatterId]);
 
   const refreshExternalPrerequisites = useCallback(async (domainId?: number) => {
     const resolvedId = domainId ?? parseInt(subjectMatterId, 10);
@@ -5432,6 +5487,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     (label: string, icon: React.ReactNode, options: ToolboxButtonOptions = {}) => {
       const { variant = "outline", enabled = true, onClick } = options;
       const isCompact = toolbarDisplayMode === 'compact';
+      const hasIcon = icon !== null && icon !== undefined && icon !== false;
       return (
         <Button
           variant={variant}
@@ -5442,8 +5498,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onClick={enabled ? onClick : undefined}
           className={isCompact ? "h-4 w-4 p-0" : "h-4 px-1.5 py-0 text-[9px] leading-none gap-1"}
         >
-          {icon}
-          {!isCompact && <span className="text-[9px] font-medium leading-none">{label}</span>}
+          {hasIcon ? icon : <span className="text-[9px] font-medium leading-none">{label}</span>}
+          {!isCompact && hasIcon && <span className="text-[9px] font-medium leading-none">{label}</span>}
         </Button>
       );
     },
@@ -5593,10 +5649,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     const filterButton = (
       label: string,
-      shortLabel: string,
       filter: 'general' | 'versions' | 'links' | 'groups' | 'status'
     ) => (
-      toolboxButton(label, <span className="text-[8px] font-semibold">{shortLabel}</span>, {
+      toolboxButton(label, null, {
         onClick: () => toggleInfoFilter(filter),
         variant: infoFilterSet.has(filter) ? 'secondary' : 'outline',
       })
@@ -5608,11 +5663,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       <div className="w-48">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center justify-center gap-0.5">
-            {filterButton('G', 'G', 'general')}
-            {filterButton('V', 'V', 'versions')}
-            {filterButton('L', 'L', 'links')}
-            {filterButton('GR', 'GR', 'groups')}
-            {filterButton('S', 'S', 'status')}
+            {filterButton('G', 'general')}
+            {filterButton('V', 'versions')}
+            {filterButton('L', 'links')}
+            {filterButton('GR', 'groups')}
+            {filterButton('S', 'status')}
           </div>
 
           {selectedIds.length === 0 && (
@@ -5631,8 +5686,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 const incoming = Array.from(fullAdjacency.incoming.get(nodeId) ?? []);
                 const outgoing = Array.from(fullAdjacency.outgoing.get(nodeId) ?? []);
                 const cached = nodeDataCache.get(nodeId) as { versionCount?: number; versions?: unknown[] } | undefined;
-                const versionCount = cached?.versionCount ?? cached?.versions?.length;
+                const cachedCount = typeof cached?.versionCount === 'number'
+                  ? cached.versionCount
+                  : (Array.isArray(cached?.versions) ? cached.versions.length : undefined);
+                const rawVersionCount = infoVersionCounts.get(nodeId) ?? cachedCount;
+                const versionCount = (node.type === 'definition' || node.type === 'exercise')
+                  ? (typeof rawVersionCount === 'number' && rawVersionCount > 0 ? rawVersionCount : undefined)
+                  : rawVersionCount;
                 const statusValue = node.progress?.status ?? node.status;
+                const versionLabel = (node.type === 'definition' || node.type === 'exercise')
+                  ? (typeof versionCount === 'number' ? versionCount : '...')
+                  : (typeof versionCount === 'number' ? versionCount : 'n/a');
 
                 return (
                   <div key={nodeId} className="rounded border border-gray-100 bg-white px-1 py-1 text-[9px] text-gray-600">
@@ -5656,7 +5720,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                         )}
                         {shouldShow('versions') && (
                           <div>
-                            Versions: {typeof versionCount === 'number' ? versionCount : 'n/a'}
+                            Versions: {versionLabel}
                           </div>
                         )}
                         {shouldShow('links') && (
@@ -5691,6 +5755,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     fullAdjacency.outgoing,
     infoFilterSet,
     infoFilters.length,
+    infoVersionCounts,
     nodeDataCache,
     nodeGroupsByCode,
     selectedNodeIds,
@@ -5883,8 +5948,31 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           ],
         },
         {
+          id: 'display',
+          title: 'Display',
+          rows: [
+            [
+              toolboxButton('Fit', <Maximize size={10} />, {
+                onClick: () => zoomToFitVisibleNodes(400),
+              }),
+            ],
+            [
+              toolboxButton(labelDisplayConfig.label, labelDisplayConfig.icon, {
+                onClick: cycleLabelDisplay,
+              }),
+            ],
+            [
+              toolboxButton(questDisplayConfig.label, questDisplayConfig.icon, {
+                onClick: cycleQuestVisibility,
+              }),
+            ],
+          ],
+        },
+        {
           id: 'group',
           title: 'Group',
+          collapsible: true,
+          defaultExpanded: false,
           rows: [
             [
               groupSelectControl,
@@ -5923,27 +6011,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 onClick: handleDeleteGroupPrompt,
                 enabled: canEdit && !!toolbarGroupId,
                 variant: 'destructive',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'display',
-          title: 'Display',
-          rows: [
-            [
-              toolboxButton('Fit', <Maximize size={10} />, {
-                onClick: () => zoomToFitVisibleNodes(400),
-              }),
-            ],
-            [
-              toolboxButton(labelDisplayConfig.label, labelDisplayConfig.icon, {
-                onClick: cycleLabelDisplay,
-              }),
-            ],
-            [
-              toolboxButton(questDisplayConfig.label, questDisplayConfig.icon, {
-                onClick: cycleQuestVisibility,
               }),
             ],
           ],
@@ -6022,7 +6089,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
-              toolboxButton('Backup', isBackingUp ? <RefreshCw size={10} className="animate-spin" /> : <Download size={10} />, {
+              toolboxButton('Backup', isBackingUp ? <RefreshCw size={10} className="animate-spin" /> : <Archive size={10} />, {
                 onClick: () => void handleToolbarBackup(),
                 enabled: canBackup && !isBackingUp,
                 variant: 'ghost',
@@ -6195,6 +6262,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   const handleGraphNodeClick = useCallback((node: GraphNode, event?: MouseEvent) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('canvas-click'));
+    }
     if (node.type === 'group') {
       const groupId = node.groupId ?? parseGroupNodeId(node.id);
       const group = domainGroups.find(entry => entry.id === groupId);
@@ -6364,6 +6434,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('canvas-click'));
+    }
     if (showHelpPanel) setShowHelpPanel(false);
     if (mode === 'frenzy' && isFrenzyEditMode) {
       setPendingLinkSourceId(null);
@@ -6570,7 +6643,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         {/* Main Content */}
         <div className="flex flex-1 overflow-hidden relative">
           {/* Left Panel */}
-          <div className={`left-panel-class absolute top-0 left-0 h-full z-20 bg-white border-r shadow-lg transition-transform duration-300 ease-in-out ${showLeftPanel ? 'translate-x-0 w-64' : '-translate-x-full w-64'}`}>
+          <div className={`left-panel-class absolute top-0 left-0 h-full z-20 bg-white border-r shadow-lg transition-transform duration-300 ease-in-out ${showLeftPanel ? 'translate-x-0 w-80' : '-translate-x-full w-80'}`}>
             {showLeftPanel && (
               <LeftPanel
                 isVisible={showLeftPanel}
@@ -6703,7 +6776,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             
             {!isProcessingData && !isRefreshing && stableGraph.nodes.length > 0 && (
               <>
-                <div className="absolute bottom-3 left-3 z-30 flex flex-col items-start gap-1">
+                <div className="absolute bottom-3 left-3 z-30 flex flex-col items-start gap-1 ml-80">
                   <Button
                     variant={showLegend ? 'secondary' : 'outline'}
                     size="sm"
@@ -6731,7 +6804,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 )}
 
                 {showHelpPanel && (
-                  <div className="absolute bottom-16 left-32 z-30 w-[520px] rounded-lg border border-gray-200 bg-white shadow-xl">
+                  <div className="absolute bottom-16 left-32 z-30 w-[520px] rounded-lg border border-gray-200 bg-white shadow-xl ml-80">
                     <div className="flex">
                       <div className="w-44 border-r border-gray-100 p-3">
                         <div className="text-[10px] font-semibold uppercase text-gray-500">Categories</div>
