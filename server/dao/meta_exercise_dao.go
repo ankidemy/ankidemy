@@ -243,11 +243,33 @@ func (d *MetaExerciseDAO) Delete(id uint) error {
 		if err := tx.First(&meta, id).Error; err != nil {
 			return err
 		}
+		// Cleanup SRS-related data for this exercise pool.
+		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "meta_exercise"}).Delete(&models.UserNodeProgress{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "meta_exercise"}).Delete(&models.ReviewHistory{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "meta_exercise"}).Delete(&models.SessionReview{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("meta_exercise_id = ?", id).Delete(&models.UserMetaExerciseStats{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
+		}
+		var versionIDs []uint
+		if err := tx.Model(&models.Exercise{}).Where("meta_exercise_id = ?", id).Pluck("id", &versionIDs).Error; err != nil {
+			return err
+		}
+		if len(versionIDs) > 0 {
+			if err := tx.Where("exercise_id IN ?", versionIDs).Delete(&models.UserExerciseVersionStats{}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Where("meta_exercise_id = ?", id).Delete(&models.Exercise{}).Error; err != nil {
 			return err

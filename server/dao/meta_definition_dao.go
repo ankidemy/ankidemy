@@ -315,18 +315,31 @@ func (d *MetaDefinitionDAO) DeleteVersion(versionID uint) error {
 	})
 }
 
-// Delete removes a meta-definition, its versions, and related prerequisites.
-func (d *MetaDefinitionDAO) Delete(id uint) error {
-	return d.DB.Transaction(func(tx *gorm.DB) error {
-		var meta models.MetaDefinition
-		if err := tx.First(&meta, id).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
-			return err
+	// Delete removes a meta-definition, its versions, and related prerequisites.
+	func (d *MetaDefinitionDAO) Delete(id uint) error {
+		return d.DB.Transaction(func(tx *gorm.DB) error {
+			var meta models.MetaDefinition
+			if err := tx.First(&meta, id).Error; err != nil {
+				return err
+			}
+			// Cleanup SRS-related data for this definition pool.
+			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "meta_definition"}).Delete(&models.UserNodeProgress{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "meta_definition"}).Delete(&models.ReviewHistory{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "meta_definition"}).Delete(&models.SessionReview{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("meta_definition_id = ?", id).Delete(&models.UserMetaDefinitionStats{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+				return err
 		}
 
 		var versionIDs []uint
@@ -335,6 +348,9 @@ func (d *MetaDefinitionDAO) Delete(id uint) error {
 		}
 		if len(versionIDs) > 0 {
 			if err := tx.Where("definition_id IN ?", versionIDs).Delete(&models.Reference{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("definition_id IN ?", versionIDs).Delete(&models.UserDefinitionVersionStats{}).Error; err != nil {
 				return err
 			}
 		}

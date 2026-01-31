@@ -215,16 +215,20 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const meta = await getMetaDefinition(mid);
         setMetaDetails(meta);
         const ver = await getNextMetaDefinitionVersion(mid);
-        setCurrentVersion(ver as any);
+        const fallbackVersion = ver ?? meta.versions?.[0] ?? null;
+        if (!fallbackVersion) {
+          throw new Error('No definition versions available');
+        }
+        setCurrentVersion(fallbackVersion as any);
         // If the suggested version exists in the list, align selection index
-        if (meta.versions && ver?.id != null) {
-          const idx = meta.versions.findIndex(v => v.id === (ver as any).id);
+        if (meta.versions && fallbackVersion?.id != null) {
+          const idx = meta.versions.findIndex(v => v.id === fallbackVersion.id);
           if (idx >= 0) setSelectedDefinitionIndex(idx);
         }
         details = {
           code: meta.code,
           name: meta.name,
-          description: ver.description || '',
+          description: fallbackVersion.description || '',
           prerequisites: meta.prerequisites || [],
           prerequisiteWeights: meta.prerequisiteWeights || {},
           type: 'definition'
@@ -236,10 +240,14 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const meta = await getMetaExercise(mid);
         setMetaDetails(meta);
         const ver = await getNextMetaExerciseVersion(mid);
-        setCurrentVersion(ver as any);
+        const fallbackVersion = ver ?? meta.versions?.[0] ?? null;
+        if (!fallbackVersion) {
+          throw new Error('No exercise versions available');
+        }
+        setCurrentVersion(fallbackVersion as any);
         details = {
-          ...(ver as any),
-          id: ver.id,
+          ...(fallbackVersion as any),
+          id: fallbackVersion.id,
           code: meta.code,
           name: meta.name,
           prerequisites: meta.prerequisites || [],

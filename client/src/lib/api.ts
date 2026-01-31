@@ -1638,10 +1638,13 @@ export const deleteMetaDefinitionVersion = async (id: number, versionId: number)
 /**
  * Get next version for review (used by review UI)
  */
-export const getNextMetaDefinitionVersion = async (id: number): Promise<DefinitionVersion> => {
+export const getNextMetaDefinitionVersion = async (id: number): Promise<DefinitionVersion | null> => {
   const response = await fetch(`${API_URL}/api/meta-definitions/${id}/next-version`, {
     headers: getAuthHeaders(),
   });
+  if (response.status === 204 || response.status === 404) {
+    return null;
+  }
   return handleResponse(response);
 };
 
@@ -1741,8 +1744,11 @@ export const deleteMetaExerciseVersion = async (metaId: number, versionId: numbe
   return handleResponse(response);
 };
 
-export const getNextMetaExerciseVersion = async (metaId: number): Promise<ExerciseVersion & { code?: string; name?: string }> => {
+export const getNextMetaExerciseVersion = async (metaId: number): Promise<(ExerciseVersion & { code?: string; name?: string }) | null> => {
   const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/next-version`, { headers: getAuthHeaders() });
+  if (response.status === 204 || response.status === 404) {
+    return null;
+  }
   return handleResponse(response);
 };
 

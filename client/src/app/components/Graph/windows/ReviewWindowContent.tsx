@@ -83,6 +83,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   
   // FIX 1: Add refresh mechanism to update item details when nodes are edited
   const currentItemIdRef = useRef<string | null>(null);
+  const reviewQueueRef = useRef<ReviewQueueItem[]>([]);
 
   const frenzyGraphRef = useRef<Map<string, FrenzyGraphNode>>(new Map());
   const frenzyPoolRef = useRef<Set<string>>(new Set());
@@ -107,6 +108,10 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       hasInitialized.current = true;
     }
   }, [domainId, srs]);
+
+  useEffect(() => {
+    reviewQueueRef.current = reviewQueue;
+  }, [reviewQueue]);
 
   useEffect(() => {
     if (!allowedSessionTypes.includes(sessionType)) {
@@ -602,7 +607,15 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       }
 
       if (!details) {
-        throw new Error("No version available for review.");
+        console.warn("No version available for review, skipping.", review);
+        const missingKey = getQueueItemKey(review);
+        const currentQueue = reviewQueueRef.current;
+        const nextQueue = currentQueue.filter(item => getQueueItemKey(item) !== missingKey);
+        setReviewQueue(nextQueue);
+        if (nextQueue.length > 0) {
+          loadReviewItem(nextQueue[0]);
+        }
+        return;
       }
 
       setItemDetails(details);
@@ -613,6 +626,19 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         }, 100);
       }
     } catch (error) {
+      const isNotFound = error instanceof Error && /not found/i.test(error.message);
+      if (isNotFound && review) {
+        console.warn("Review item not found, skipping.", review);
+        showToast("Review item not found. Skipping.", "warning");
+        const missingKey = getQueueItemKey(review);
+        const currentQueue = reviewQueueRef.current;
+        const nextQueue = currentQueue.filter(item => getQueueItemKey(item) !== missingKey);
+        setReviewQueue(nextQueue);
+        if (nextQueue.length > 0) {
+          loadReviewItem(nextQueue[0]);
+        }
+        return;
+      }
       console.error("Error fetching item details:", error);
       showToast("Failed to load review item.", "error");
     } finally {
@@ -621,6 +647,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   }, [
     autoNavigateToNodes,
     onNavigateToNode,
+    reviewQueue,
     srs,
     ui,
     isFrenzyMode,
