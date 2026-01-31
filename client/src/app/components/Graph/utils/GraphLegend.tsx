@@ -2,15 +2,17 @@
 
 import React from 'react';
 import { AppMode } from './types';
+import { cn } from '@/lib/utils';
 
 interface GraphLegendProps {
   mode: AppMode;
   hasExercises: boolean;
+  className?: string;
 }
 
-const GraphLegend: React.FC<GraphLegendProps> = ({ mode, hasExercises }) => {
+const GraphLegend: React.FC<GraphLegendProps> = ({ mode, hasExercises, className }) => {
   return (
-    <div className="absolute bottom-3 left-3 bg-white p-2 rounded shadow-md text-xs border max-w-[150px] z-10">
+    <div className={cn("absolute bottom-3 left-3 bg-white p-2 rounded shadow-md text-xs border max-w-[150px] z-10", className)}>
       <div className="font-semibold mb-1">Legend</div>
       <div className="flex items-center mb-1">
         <div className="w-3 h-3 rounded-full mr-1.5 border border-gray-400 flex-shrink-0" style={{ backgroundColor: '#94A3B8' }}></div>

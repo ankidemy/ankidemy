@@ -26,6 +26,8 @@ interface ContextToolbarProps {
   displayMode?: 'compact' | 'descriptive';
   onDisplayModeChange?: (mode: 'compact' | 'descriptive') => void;
   initialPosition?: { x: number; y: number };
+  centered?: boolean;
+  topOffset?: number;
   boundsRef?: React.RefObject<HTMLElement>;
   instructionText?: string;
   instructionContent?: React.ReactNode;
@@ -43,6 +45,8 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   displayMode = 'compact',
   onDisplayModeChange,
   initialPosition = { x: 24, y: 24 },
+  centered = false,
+  topOffset = 12,
   boundsRef,
   instructionText,
   instructionContent,
@@ -55,6 +59,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   const [swapKey, setSwapKey] = useState(0);
   const [showInstruction, setShowInstruction] = useState(!!instructionText);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  const hasAutoCenteredRef = useRef(false);
 
   const layout = useMemo(
     () => layouts.find((entry) => entry.id === activeLayoutId) ?? layouts[0],
@@ -140,6 +145,17 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     },
     [getBoundsRect]
   );
+
+  useEffect(() => {
+    if (!centered || hasAutoCenteredRef.current) return;
+    const bounds = getBoundsRect();
+    const rect = toolbarRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const targetX = (bounds.width - rect.width) / 2;
+    const targetY = topOffset;
+    setPosition(clampToBounds(targetX, targetY));
+    hasAutoCenteredRef.current = true;
+  }, [centered, getBoundsRect, clampToBounds, topOffset]);
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;

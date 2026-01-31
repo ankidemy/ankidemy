@@ -1159,6 +1159,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showLegend, setShowLegend] = useState(false);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [expandedHelpCategories, setExpandedHelpCategories] = useState<Set<string>>(
+    new Set(['Node Types', 'Learning', 'Graph'])
+  );
+  const [selectedHelpTopic, setSelectedHelpTopic] = useState('graph.edit');
 
   // Frenzy edit mode state
   const [isFrenzyEditMode, setIsFrenzyEditMode] = useState(false);
@@ -5534,6 +5540,50 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const infoFilterSet = useMemo(() => new Set(infoFilters), [infoFilters]);
   const showAllInfoFields = infoFilters.length === 0;
 
+  const helpTopics = useMemo(() => ([
+    {
+      id: 'node-types',
+      label: 'Node Types',
+      topics: [
+        { id: 'node.definition', label: 'Definition', content: 'Definitions are concept nodes that capture knowledge units.' },
+        { id: 'node.exercise', label: 'Exercise', content: 'Exercises are practice nodes for applying knowledge.' },
+        { id: 'node.source', label: 'Source', content: 'Sources attach references or materials to the graph.' },
+        { id: 'node.quest', label: 'Quest', content: 'Quests are goal-driven nodes that group related work.' },
+      ],
+    },
+    {
+      id: 'learning',
+      label: 'Learning',
+      topics: [
+        { id: 'learning.study', label: 'Study', content: 'Study mode focuses on reviewing due items.' },
+        { id: 'learning.practice', label: 'Practice', content: 'Practice mode emphasizes exercises and exploration.' },
+      ],
+    },
+    {
+      id: 'graph',
+      label: 'Graph',
+      topics: [
+        { id: 'graph.normal', label: 'Normal mode', content: 'Normal mode is for browsing and selecting nodes.' },
+        {
+          id: 'graph.edit',
+          label: 'Edit mode',
+          content: 'Shortcuts: Click toggles selection. Double-click opens. Double-click empty creates. Drag near to link. Right-click removes.',
+        },
+      ],
+    },
+  ]), []);
+
+  const selectedHelpContent = useMemo(() => {
+    for (const category of helpTopics) {
+      for (const topic of category.topics) {
+        if (topic.id === selectedHelpTopic) {
+          return { title: `${category.label} / ${topic.label}`, content: topic.content };
+        }
+      }
+    }
+    return { title: 'Help', content: 'Select a topic to see details.' };
+  }, [helpTopics, selectedHelpTopic]);
+
   const infoSectionContent = useMemo(() => {
     const shouldShow = (filter: 'general' | 'versions' | 'links' | 'groups' | 'status') => (
       showAllInfoFields || infoFilterSet.has(filter)
@@ -6314,6 +6364,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
+    if (showHelpPanel) setShowHelpPanel(false);
     if (mode === 'frenzy' && isFrenzyEditMode) {
       setPendingLinkSourceId(null);
       if (frenzyClickTimerRef.current) {
@@ -6346,7 +6397,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (selectedNodeIds.size > 0) {
       setSelectedNodeIds(new Set());
     }
-  }, [mode, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode, selectedNodeIds]);
+  }, [showHelpPanel, mode, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode, selectedNodeIds]);
 
   const handleGraphNodeDrag = useCallback((node: GraphNode) => {
     if (mode !== 'frenzy' || !isFrenzyEditMode) return;
@@ -6427,13 +6478,33 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     };
   }, []);
 
-  lifecycleRef.current.tick({
+  useEffect(() => {
+    const handleHelpShortcut = (event: KeyboardEvent) => {
+      if (event.key !== 'F1') return;
+      event.preventDefault();
+      setShowHelpPanel(prev => !prev);
+    };
+    window.addEventListener('keydown', handleHelpShortcut);
+    return () => {
+      window.removeEventListener('keydown', handleHelpShortcut);
+    };
+  }, []);
+
+  useEffect(() => {
+    lifecycleRef.current?.tick({
+      subjectMatterId,
+      stableGraphNodes: stableGraph.nodes,
+      isProcessingData,
+      enhancedCreditFlowAnimationsLength: enhancedCreditFlowAnimations.length,
+      isEnrolled: hasAccess,
+    });
+  }, [
     subjectMatterId,
-    stableGraphNodes: stableGraph.nodes,
+    stableGraph.nodes,
     isProcessingData,
-    enhancedCreditFlowAnimationsLength: enhancedCreditFlowAnimations.length,
-    isEnrolled: hasAccess,
-  });
+    enhancedCreditFlowAnimations.length,
+    hasAccess,
+  ]);
 
   return (
       <div className="h-full flex flex-col overflow-hidden bg-gray-100">
@@ -6531,6 +6602,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               displayMode={toolbarDisplayMode}
               onDisplayModeChange={setToolbarDisplayMode}
               instructionContent={toolbarInstructionContent}
+              centered
+              topOffset={12}
             />
             {isRefreshing ? (
               <div className="flex items-center justify-center h-full text-gray-500">
@@ -6629,80 +6702,90 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             )}
             
             {!isProcessingData && !isRefreshing && stableGraph.nodes.length > 0 && (
-              <GraphLegend mode={mode} hasExercises={mode !== 'study' && stableGraph.nodes.some(n => n.type === 'exercise')} />
-            )}
+              <>
+                <div className="absolute bottom-3 left-3 z-30 flex flex-col items-start gap-1">
+                  <Button
+                    variant={showLegend ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowLegend(prev => !prev)}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    Legend
+                  </Button>
+                  <Button
+                    variant={showHelpPanel ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowHelpPanel(prev => !prev)}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    ? Help
+                  </Button>
+                </div>
 
-            {mode === 'frenzy' && (
-              <div className="absolute top-14 left-3 z-30 flex flex-col items-start gap-2">
-                <Button
-                  variant={isFrenzyEditMode ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={toggleFrenzyEditMode}
-                  disabled={!canEdit}
-                  title={canEdit ? 'Toggle edit tools' : 'Only domain owners or editors can edit'}
-                  className="h-8 px-3"
-                >
-                  {isFrenzyEditMode ? 'Editing' : 'Edit'}
-                </Button>
+                {showLegend && (
+                  <GraphLegend
+                    mode={mode}
+                    hasExercises={mode !== 'study' && stableGraph.nodes.some(n => n.type === 'exercise')}
+                    className="bottom-16"
+                  />
+                )}
 
-                {isFrenzyEditMode && (
-                  <div className="bg-white/95 border border-gray-200 rounded-md shadow-lg p-3 w-60">
-                    <div className="text-xs text-gray-500 mb-2">Frenzy tools</div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('definition')}>
-                        Definition
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('exercise')}>
-                        Exercise
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('source')}>
-                        Source
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => createFrenzyNode('quest')}>
-                        Quest
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Button
-                        size="sm"
-                        variant={frenzyTool === 'link' ? 'default' : 'outline'}
-                        onClick={() => handleFrenzyToolChange('link')}
-                      >
-                        Link
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={frenzyTool === 'unlink' ? 'default' : 'outline'}
-                        onClick={() => handleFrenzyToolChange('unlink')}
-                      >
-                        Unlink
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={frenzyTool === 'delete' ? 'destructive' : 'outline'}
-                        onClick={() => handleFrenzyToolChange('delete')}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                    {pendingLinkSourceId && (
-                      <div className="text-xs text-gray-600 mb-2">
-                        From: <span className="font-semibold">{pendingLinkSourceId}</span>
+                {showHelpPanel && (
+                  <div className="absolute bottom-16 left-32 z-30 w-[520px] rounded-lg border border-gray-200 bg-white shadow-xl">
+                    <div className="flex">
+                      <div className="w-44 border-r border-gray-100 p-3">
+                        <div className="text-[10px] font-semibold uppercase text-gray-500">Categories</div>
+                        <div className="mt-2 space-y-2">
+                          {helpTopics.map(category => {
+                            const isExpanded = expandedHelpCategories.has(category.label);
+                            return (
+                              <div key={category.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedHelpCategories(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(category.label)) next.delete(category.label);
+                                      else next.add(category.label);
+                                      return next;
+                                    });
+                                  }}
+                                  className="flex w-full items-center justify-between text-[11px] font-semibold text-gray-600"
+                                >
+                                  <span>{category.label}</span>
+                                  <span className="text-[9px] text-gray-400">{isExpanded ? 'v' : '>'}</span>
+                                </button>
+                                {isExpanded && (
+                                  <div className="mt-1 space-y-1">
+                                    {category.topics.map(topic => (
+                                      <button
+                                        key={topic.id}
+                                        type="button"
+                                        onClick={() => setSelectedHelpTopic(topic.id)}
+                                        className={`w-full rounded px-2 py-1 text-left text-[11px] ${
+                                          selectedHelpTopic === topic.id
+                                            ? 'bg-gray-100 text-gray-800'
+                                            : 'text-gray-600 hover:bg-gray-50'
+                                        }`}
+                                      >
+                                        {topic.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    )}
-                    {lastDeletedNode && (
-                      <Button size="sm" variant="ghost" onClick={undoFrenzyDelete} className="w-full justify-center">
-                        Undo delete
-                      </Button>
-                    )}
-                    <div className="mt-2 text-[11px] text-gray-500">
-                      Click toggles selection. Double-click opens. Double-click empty creates. Drag near to link. Right-click removes.
+                      <div className="flex-1 p-3">
+                        <div className="text-[11px] font-semibold uppercase text-gray-500">{selectedHelpContent.title}</div>
+                        <div className="mt-2 text-[11px] text-gray-600">{selectedHelpContent.content}</div>
+                      </div>
                     </div>
                   </div>
                 )}
-              </div>
+              </>
             )}
 
             {frenzyNote && (
