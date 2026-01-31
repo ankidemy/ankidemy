@@ -3,7 +3,7 @@
 
 "use client";
 
-import React, { useRef, useCallback, useMemo, useEffect } from 'react';
+import React, { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { AppMode, GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
@@ -87,6 +87,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const labelRendererRef = useRef(new LabelRenderer());
   const rafRefreshRef = useRef<number | null>(null);
   const prewarmKeyRef = useRef<string>('');
+  const [graphInstanceNonce, setGraphInstanceNonce] = useState(0);
+
+  const attachGraphInstance = useCallback((instance: any) => {
+    graphRef.current = instance;
+    if (instance) setGraphInstanceNonce(n => n + 1);
+  }, [graphRef]);
 
   const scheduleRafRefresh = useCallback(() => {
     if (rafRefreshRef.current != null) return;
@@ -260,7 +266,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
       fg.d3ReheatSimulation?.();
     } catch {}
-  }, [dagMode, graphNodes.length, labelDisplayMode, structureVersion, graphRef]);
+  }, [dagMode, graphNodes.length, labelDisplayMode, structureVersion, graphInstanceNonce, graphRef]);
 
   // Memoized node renderer for better performance
 
@@ -804,7 +810,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
-        ref={graphRef}
+        ref={attachGraphInstance}
         graphData={memoizedGraphData}
         width={canvasWidth}
         height={canvasHeight}
