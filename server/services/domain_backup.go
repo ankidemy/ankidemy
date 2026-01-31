@@ -48,6 +48,7 @@ type UserDomainSettingsBackup struct {
 	Timezone              string `json:"timezone"`
 	DailyQuestLimit       int    `json:"dailyQuestLimit"`
 	DailyQuestCooldownDays int   `json:"dailyQuestCooldownDays"`
+	Preferences           json.RawMessage `json:"preferences,omitempty"`
 }
 
 type QuestStateBackup struct {
@@ -328,6 +329,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 			Timezone:               settings.Timezone,
 			DailyQuestLimit:        settings.DailyQuestLimit,
 			DailyQuestCooldownDays: settings.DailyQuestCooldownDays,
+			Preferences:            settings.Preferences,
 		}
 	}
 
@@ -463,6 +465,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				Timezone:              state.UserDomainSettings.Timezone,
 				DailyQuestLimit:       state.UserDomainSettings.DailyQuestLimit,
 				DailyQuestCooldownDays: state.UserDomainSettings.DailyQuestCooldownDays,
+				Preferences:           state.UserDomainSettings.Preferences,
 			}
 			if err := tx.Save(settings).Error; err != nil {
 				return err

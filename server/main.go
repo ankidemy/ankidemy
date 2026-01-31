@@ -78,6 +78,7 @@ func main() {
 	relationDAO := dao.NewNodeRelationDAO(db)
 	codeRegistryDAO := dao.NewCodeRegistryDAO(db)
 	surveyService := services.NewSurveyService(db)
+	userDomainSettingsDAO := dao.NewUserDomainSettingsDAO(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -114,6 +115,7 @@ func main() {
 	questHandler := handlers.NewQuestHandler(metaQuestDAO, domainDAO, permissionDAO, codeRegistryDAO, relationDAO)
 	relationHandler := handlers.NewRelationHandler(relationDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO, sourceDAO, metaQuestDAO)
 	surveyHandler := handlers.NewSurveyHandler(domainDAO, permissionDAO, metaQuestDAO, surveyService)
+	userDomainSettingsHandler := handlers.NewUserDomainSettingsHandler(domainDAO, permissionDAO, userDomainSettingsDAO)
 
 	// Initialize router
 	router := gin.Default()
@@ -230,6 +232,10 @@ func main() {
 				domains.GET("/:id/groups", groupHandler.ListByDomain)
 				domains.POST("/:id/groups", groupHandler.Create)
 				domains.PUT("/:id/groups/positions", groupHandler.UpdatePositions)
+
+				// User domain settings
+				domains.GET("/:id/user-settings", userDomainSettingsHandler.Get)
+				domains.PUT("/:id/user-settings", userDomainSettingsHandler.Update)
 
 				// Graph operations (graph export and positions)
 				domains.GET("/:id/graph", graphHandler.GetVisualGraph)

@@ -13,6 +13,7 @@ import { ReviewQueueItem, ReviewQuality, ReviewRequest, SessionType } from '@/ty
 import { Eye, Loader2, CheckCircle, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
 import { getMetaDefinition, getMetaExercise, getNextMetaExerciseVersion, getNextMetaDefinitionVersion, recordMetaExerciseOutcome, DefinitionVersion, ExerciseVersion, MetaDefinition, MetaExercise } from '@/lib/api';
+import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 import { getReviewQueue } from '@/lib/srs-api';
 
 interface ReviewWindowContentProps {
@@ -21,6 +22,8 @@ interface ReviewWindowContentProps {
   windowId: string;
   reviewMode?: 'normal' | 'frenzy';
   appMode: 'study' | 'practice';
+  domainSettings?: UserDomainSettings | null;
+  onUpdateDomainSettings?: (updates: UserDomainSettingsUpdate) => Promise<UserDomainSettings | void>;
 }
 
 type FrenzyGraphEdge = {
@@ -56,6 +59,8 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   windowId,
   reviewMode = 'normal',
   appMode,
+  domainSettings,
+  onUpdateDomainSettings,
 }) => {
   const srs = useSRS();
   const ui = useUI();
@@ -64,6 +69,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   const allowedSessionTypes = useMemo<SessionType[]>(() => (
     appMode === 'study' ? ['definition'] : ['definition', 'exercise', 'mixed']
   ), [appMode]);
+  const defaultExercisesPerDefinition = domainSettings?.preferences?.review?.exercisesPerDefinition;
   const [sessionType, setSessionType] = useState<SessionType>(() => allowedSessionTypes[0] ?? 'definition');
   const [useReverseOrder, setUseReverseOrder] = useState(false);
   const [currentReviewItem, setCurrentReviewItem] = useState<ReviewQueueItem | null>(null);
@@ -75,7 +81,12 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   const [sessionStats, setSessionStats] = useState({ total: 0, completed: 0, correct: 0 });
   const [startTime, setStartTime] = useState<number | null>(null);
   const [autoNavigateToNodes, setAutoNavigateToNodes] = useState(false);
-  const [exercisesPerDefinition, setExercisesPerDefinition] = useState<number>(1);
+  const [exercisesPerDefinition, setExercisesPerDefinition] = useState<number>(() => {
+    if (typeof defaultExercisesPerDefinition === 'number' && Number.isFinite(defaultExercisesPerDefinition) && defaultExercisesPerDefinition > 0) {
+      return Math.floor(defaultExercisesPerDefinition);
+    }
+    return 1;
+  });
   // User answer state for non-verifiable exercises
   const [userAnswer, setUserAnswer] = useState<string>("");
   const [answerPreview, setAnswerPreview] = useState<boolean>(false);
@@ -118,6 +129,37 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       setSessionType(allowedSessionTypes[0] ?? 'definition');
     }
   }, [allowedSessionTypes, sessionType]);
+
+  useEffect(() => {
+    if (srs.state.currentSession) return;
+    if (typeof defaultExercisesPerDefinition === 'number' && Number.isFinite(defaultExercisesPerDefinition) && defaultExercisesPerDefinition > 0) {
+      setExercisesPerDefinition(Math.floor(defaultExercisesPerDefinition));
+    } else {
+      setExercisesPerDefinition(1);
+    }
+  }, [defaultExercisesPerDefinition, srs.state.currentSession]);
+
+  useEffect(() => {
+    if (!onUpdateDomainSettings) return;
+    if (srs.state.currentSession) return;
+    const normalized = Number.isFinite(exercisesPerDefinition) && exercisesPerDefinition > 0
+      ? Math.floor(exercisesPerDefinition)
+      : 1;
+    const currentDefault = (typeof defaultExercisesPerDefinition === 'number' && Number.isFinite(defaultExercisesPerDefinition) && defaultExercisesPerDefinition > 0)
+      ? Math.floor(defaultExercisesPerDefinition)
+      : 1;
+    if (normalized === currentDefault) return;
+    const timer = setTimeout(() => {
+      onUpdateDomainSettings({
+        preferences: {
+          review: { exercisesPerDefinition: normalized },
+        },
+      }).catch((error) => {
+        console.warn('Failed to update exercises per definition:', error);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [defaultExercisesPerDefinition, exercisesPerDefinition, onUpdateDomainSettings, srs.state.currentSession]);
 
   // FIX 1: Listen for data changes and refresh current item if needed
   useEffect(() => {

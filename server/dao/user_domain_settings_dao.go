@@ -1,6 +1,8 @@
 package dao
 
 import (
+	"encoding/json"
+
 	"gorm.io/gorm"
 	"myapp/server/models"
 )
@@ -17,6 +19,7 @@ func (d *UserDomainSettingsDAO) GetOrCreate(userID uint, domainID uint) (*models
 	settings := &models.UserDomainSettings{
 		UserID:   userID,
 		DomainID: domainID,
+		Preferences: json.RawMessage([]byte("{}")),
 	}
 	if err := d.db.FirstOrCreate(settings, "user_id = ? AND domain_id = ?", userID, domainID).Error; err != nil {
 		return nil, err

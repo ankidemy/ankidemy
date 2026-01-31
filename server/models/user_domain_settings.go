@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // UserDomainSettings stores per-user settings per domain (timezone + daily quest settings).
 type UserDomainSettings struct {
@@ -10,6 +13,7 @@ type UserDomainSettings struct {
 	Timezone              string    `gorm:"column:timezone;not null;default:'UTC'" json:"timezone"`
 	DailyQuestLimit       int       `gorm:"column:daily_quest_limit;not null;default:1" json:"dailyQuestLimit"`
 	DailyQuestCooldownDays int      `gorm:"column:daily_quest_cooldown_days;not null;default:7" json:"dailyQuestCooldownDays"`
+	Preferences           json.RawMessage `gorm:"column:preferences;type:jsonb;default:'{}'" json:"preferences,omitempty"`
 	CreatedAt             time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 	UpdatedAt             time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
 }

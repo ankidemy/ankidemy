@@ -10,6 +10,7 @@ import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
 import { getSurveyQueue, SurveyQueueItem } from '@/lib/api';
+import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 
 interface TopControlsProps {
   subjectMatterId: string;
@@ -28,6 +29,8 @@ interface TopControlsProps {
   currentDomainId?: number;
   onNavigateToNode?: (nodeCode: string) => void;
   canEdit?: boolean;
+  domainSettings?: UserDomainSettings | null;
+  onUpdateDomainSettings?: (updates: UserDomainSettingsUpdate) => Promise<UserDomainSettings | void>;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -45,6 +48,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   currentDomainId,
   onNavigateToNode,
   canEdit: canEditProp,
+  domainSettings,
+  onUpdateDomainSettings,
 }) => {
   const srs = useSRS();
 
@@ -60,6 +65,11 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [surveyQueue, setSurveyQueue] = useState<SurveyQueueItem[]>([]);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [showOptions, setShowOptions] = useState(false);
+  const [optionsSaving, setOptionsSaving] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [optionsDraftExercises, setOptionsDraftExercises] = useState<number>(1);
+  const optionsRef = useRef<HTMLDivElement>(null);
 
   const dueReviews = srs.state.dueReviews;
   const dueCount = isEnrolled ? dueReviews.length : 0;
@@ -135,9 +145,14 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [currentDomainId]);
 
   useEffect(() => {
+    setShowOptions(false);
+  }, [currentDomainId]);
+
+  useEffect(() => {
     const handleCanvasClick = () => {
       setShowReviewQueue(false);
       setShowSurveyQueue(false);
+      setShowOptions(false);
     };
     window.addEventListener('canvas-click', handleCanvasClick);
     return () => {
@@ -160,6 +175,33 @@ const TopControls: React.FC<TopControlsProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showSurveyQueue]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (optionsRef.current && !optionsRef.current.contains(event.target as Node)) {
+        setShowOptions(false);
+      }
+    };
+
+    if (showOptions) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showOptions]);
+
+  useEffect(() => {
+    if (!showOptions) return;
+    const value = domainSettings?.preferences?.review?.exercisesPerDefinition;
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      setOptionsDraftExercises(Math.floor(value));
+    } else {
+      setOptionsDraftExercises(1);
+    }
+    setOptionsError(null);
+  }, [showOptions, domainSettings]);
 
   const refreshSurveyQueue = useCallback(async () => {
     if (!currentDomainId) return;
@@ -209,6 +251,29 @@ const TopControls: React.FC<TopControlsProps> = ({
 
     wasReviewQueueOpenRef.current = true;
   }, [showReviewQueue, dueReviews, isEnrolled, currentDomainId, currentSrsDomainId, loadDueReviews]);
+
+  const canChangeOptions = !!(isEnrolled && onUpdateDomainSettings);
+
+  const handleSaveOptions = useCallback(async () => {
+    if (!canChangeOptions || !onUpdateDomainSettings) return;
+    setOptionsSaving(true);
+    setOptionsError(null);
+    try {
+      await onUpdateDomainSettings({
+        preferences: {
+          review: {
+            exercisesPerDefinition: optionsDraftExercises,
+          },
+        },
+      });
+      setShowOptions(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save options.';
+      setOptionsError(message);
+    } finally {
+      setOptionsSaving(false);
+    }
+  }, [canChangeOptions, onUpdateDomainSettings, optionsDraftExercises]);
 
   const handleToggleReviewQueue = () => {
     setShowSurveyQueue(false);
@@ -494,16 +559,59 @@ const TopControls: React.FC<TopControlsProps> = ({
 
         <NotificationCenter suppressDomainId={currentDomainId} />
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {}}
-          className="flex items-center"
-          title="Options"
-        >
-          Options
-          <Wrench size={14} className="ml-1" />
-        </Button>
+        <div className="relative" ref={optionsRef}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowOptions(prev => !prev)}
+            className="flex items-center"
+            title={canChangeOptions ? "Options" : "Enroll to save options"}
+            disabled={!canChangeOptions}
+          >
+            Options
+            <Wrench size={14} className="ml-1" />
+          </Button>
+          {showOptions && (
+            <div className="absolute right-0 mt-2 w-72 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
+              <div className="font-semibold text-gray-800 mb-3">Options</div>
+              <div className="space-y-3">
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-gray-600">Exercises per definition</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={optionsDraftExercises}
+                    onChange={(e) => {
+                      const parsed = Number(e.target.value);
+                      setOptionsDraftExercises(Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1);
+                    }}
+                    className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                  />
+                </label>
+                {optionsError && (
+                  <div className="text-xs text-red-600">{optionsError}</div>
+                )}
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowOptions(false)}
+                    disabled={optionsSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveOptions}
+                    disabled={optionsSaving}
+                  >
+                    {optionsSaving ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

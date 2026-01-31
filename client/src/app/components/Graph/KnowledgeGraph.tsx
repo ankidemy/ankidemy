@@ -76,7 +76,12 @@ import {
   getCurrentUser,
   User,
   uploadNodeImage,
+  getUserDomainSettings,
+  updateUserDomainSettings,
+  UserDomainSettings,
+  UserDomainSettingsUpdate,
 } from '@/lib/api';
+import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
 import { useSRS } from '../../../contexts/SRSContext';
 import { getStatusColor, isNodeDue, calculateDaysUntilReview, createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
 import { NodeStatus, NodePrerequisite } from '../../../types/srs';
@@ -978,6 +983,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const graphRef = useRef<any>(null);
   const graphContainerRef = useRef<HTMLDivElement>(null);
   const positionManagerRef = useRef(new PositionManager());
+  const numericDomainId = Number.parseInt(subjectMatterId, 10);
+  const hasNumericDomainId = Number.isFinite(numericDomainId);
+  const [explorerPrefs, setExplorerPrefs] = useState<ExplorerUIPreferences>(() => {
+    if (!hasNumericDomainId) return { version: 1 };
+    return loadExplorerUIPreferences(numericDomainId) ?? { version: 1 };
+  });
 
   // Core state
   const [mode, setMode] = useState<AppMode>('practice');
@@ -988,11 +999,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // UI state
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
-  const [dagModeEnabled, setDagModeEnabled] = useState(false);
-  const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>('td');
+  const [dagModeEnabled, setDagModeEnabled] = useState(() => explorerPrefs.dag?.enabled ?? false);
+  const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>(() => explorerPrefs.dag?.orientation ?? 'td');
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
   const [questVisibilityMode, setQuestVisibilityMode] = useState<'on' | 'nodes' | 'off'>('on');
-  const [toolbarDisplayMode, setToolbarDisplayMode] = useState<'compact' | 'descriptive'>('descriptive');
+  const [toolbarDisplayMode, setToolbarDisplayMode] = useState<'compact' | 'descriptive'>(() => explorerPrefs.toolbar?.displayMode ?? 'descriptive');
   const [toolbarGroupId, setToolbarGroupId] = useState<number | null>(null);
   const [toolbarGroupAction, setToolbarGroupAction] = useState<'create' | 'delete' | null>(null);
   const [toolbarGroupNameDraft, setToolbarGroupNameDraft] = useState('');
@@ -1032,6 +1043,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [domainData, setDomainData] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const [domainSettings, setDomainSettings] = useState<UserDomainSettings | null>(null);
   const isDomainOwner = !!(currentUser && domainData && domainData.ownerId === currentUser.id);
   const canEdit = !!(
     currentUser &&
@@ -1039,9 +1051,66 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     (currentUser.isAdmin || isDomainOwner || domainData.permissionRole === 'editor' || domainData.permissionRole === 'owner')
   );
 
+  const applyExplorerPrefs = useCallback((patch: ExplorerUIPreferencesPatch) => {
+    if (!hasNumericDomainId) return;
+    const next = updateExplorerUIPreferences(numericDomainId, patch);
+    if (next) setExplorerPrefs(next);
+  }, [hasNumericDomainId, numericDomainId]);
+
+  useEffect(() => {
+    if (!hasNumericDomainId) return;
+    const loaded = loadExplorerUIPreferences(numericDomainId) ?? { version: 1 };
+    setExplorerPrefs(loaded);
+    setDagModeEnabled(loaded.dag?.enabled ?? false);
+    setDagOrientation(loaded.dag?.orientation ?? 'td');
+    setToolbarDisplayMode(loaded.toolbar?.displayMode ?? 'descriptive');
+  }, [hasNumericDomainId, numericDomainId]);
+
   useEffect(() => {
     setShowAccessModal(false);
   }, [domainData?.id]);
+
+  useEffect(() => {
+    applyExplorerPrefs({
+      dag: {
+        enabled: dagModeEnabled,
+        orientation: dagOrientation,
+      },
+    });
+  }, [applyExplorerPrefs, dagModeEnabled, dagOrientation]);
+
+  useEffect(() => {
+    applyExplorerPrefs({
+      toolbar: {
+        displayMode: toolbarDisplayMode,
+      },
+    });
+  }, [applyExplorerPrefs, toolbarDisplayMode]);
+
+  const loadDomainSettings = useCallback(async (domainId: number) => {
+    try {
+      const settings = await getUserDomainSettings(domainId);
+      setDomainSettings(settings);
+    } catch (error) {
+      console.warn('Failed to load domain settings:', error);
+      setDomainSettings(null);
+    }
+  }, []);
+
+  const handleUpdateDomainSettings = useCallback(async (updates: UserDomainSettingsUpdate) => {
+    if (!domainData?.id) return;
+    const updated = await updateUserDomainSettings(domainData.id, updates);
+    setDomainSettings(updated);
+    return updated;
+  }, [domainData?.id]);
+
+  useEffect(() => {
+    if (!domainData?.id || !currentUser || !hasAccess) {
+      setDomainSettings(null);
+      return;
+    }
+    loadDomainSettings(domainData.id);
+  }, [domainData?.id, currentUser, hasAccess, loadDomainSettings]);
 
   useEffect(() => {
     if (!graphRef.current) return;
@@ -5519,6 +5588,26 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [isFrenzyEditMode, toggleFrenzyEditMode]);
 
+  const toolbarInitialPosition = explorerPrefs.toolbar?.position ?? { x: 24, y: 24 };
+  const toolbarExpandedSections = explorerPrefs.toolbar?.expandedSections ?? {};
+  const toolbarCentered = !explorerPrefs.toolbar?.position;
+
+  const handleToolbarPositionCommit = useCallback((position: { x: number; y: number }) => {
+    applyExplorerPrefs({
+      toolbar: {
+        position,
+      },
+    });
+  }, [applyExplorerPrefs]);
+
+  const handleToolbarExpandedChange = useCallback((sections: Record<string, boolean>) => {
+    applyExplorerPrefs({
+      toolbar: {
+        expandedSections: sections,
+      },
+    });
+  }, [applyExplorerPrefs]);
+
   const toolbarToggles = useMemo(() => ([
     {
       id: 'frenzy',
@@ -6653,6 +6742,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           canEdit={canEdit}
           isEnrolled={hasAccess ?? undefined}
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
+          domainSettings={domainSettings}
+          onUpdateDomainSettings={handleUpdateDomainSettings}
         />
 
         {/* Main Content */}
@@ -6689,9 +6780,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               onLayoutChange={handleToolbarModeChange}
               displayMode={toolbarDisplayMode}
               onDisplayModeChange={setToolbarDisplayMode}
+              initialPosition={toolbarInitialPosition}
+              initialExpandedSections={toolbarExpandedSections}
+              onExpandedSectionsChange={handleToolbarExpandedChange}
+              onPositionCommit={handleToolbarPositionCommit}
               toggles={toolbarToggles}
               instructionContent={toolbarInstructionContent}
-              centered
+              centered={toolbarCentered}
               topOffset={12}
             />
             {isRefreshing ? (
@@ -7260,6 +7355,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   windowId={window.id}
                   reviewMode={isFrenzyEnabled ? 'frenzy' : 'normal'}
                   appMode={mode}
+                  domainSettings={domainSettings}
+                  onUpdateDomainSettings={handleUpdateDomainSettings}
                 />
               )}
               {window.type === 'source' && (

@@ -73,6 +73,33 @@ export interface Domain {
   exercises?: Exercise[];
 }
 
+export interface DomainReviewPreferences {
+  exercisesPerDefinition?: number;
+}
+
+export interface DomainUserPreferences {
+  review?: DomainReviewPreferences;
+}
+
+export interface UserDomainSettings {
+  id: number;
+  userId: number;
+  domainId: number;
+  timezone: string;
+  dailyQuestLimit: number;
+  dailyQuestCooldownDays: number;
+  preferences?: DomainUserPreferences;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserDomainSettingsUpdate {
+  timezone?: string;
+  dailyQuestLimit?: number;
+  dailyQuestCooldownDays?: number;
+  preferences?: DomainUserPreferences;
+}
+
 export interface DomainPermissionInfo {
   userId: number;
   username: string;
@@ -1142,6 +1169,28 @@ export const getDomain = async (id: number): Promise<Domain> => {
     headers: getAuthHeaders(),
   });
   
+  return handleResponse(response);
+};
+
+export const getUserDomainSettings = async (domainId: number): Promise<UserDomainSettings> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/user-settings`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const updateUserDomainSettings = async (
+  domainId: number,
+  updates: UserDomainSettingsUpdate
+): Promise<UserDomainSettings> => {
+  const response = await fetch(`${API_URL}/api/domains/${domainId}/user-settings`, {
+    method: 'PUT',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
+  });
   return handleResponse(response);
 };
 

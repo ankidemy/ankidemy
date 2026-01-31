@@ -36,6 +36,9 @@ interface ContextToolbarProps {
   onDisplayModeChange?: (mode: 'compact' | 'descriptive') => void;
   toggles?: ToolbarToggle[];
   initialPosition?: { x: number; y: number };
+  initialExpandedSections?: Record<string, boolean>;
+  onExpandedSectionsChange?: (sections: Record<string, boolean>) => void;
+  onPositionCommit?: (position: { x: number; y: number }) => void;
   centered?: boolean;
   topOffset?: number;
   boundsRef?: React.RefObject<HTMLElement>;
@@ -56,6 +59,9 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   onDisplayModeChange,
   toggles = [],
   initialPosition = { x: 24, y: 24 },
+  initialExpandedSections,
+  onExpandedSectionsChange,
+  onPositionCommit,
   centered = false,
   topOffset = 12,
   boundsRef,
@@ -70,7 +76,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [swapKey, setSwapKey] = useState(0);
   const [showInstruction, setShowInstruction] = useState(!!instructionText);
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(initialExpandedSections ?? {});
   const hasAutoCenteredRef = useRef(false);
 
   const layout = useMemo(
@@ -87,27 +93,52 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   }, [layouts]);
   const hasToggleColumn = layoutToggleEntries.length > 1 || !!onDisplayModeChange || toggles.length > 0;
 
+  const buildExpandedSections = useCallback((
+    prev: Record<string, boolean>,
+    initial: Record<string, boolean> | undefined,
+    sourceLayouts: ToolbarLayout[]
+  ) => {
+    const next = { ...(initial ?? prev) };
+    sourceLayouts.forEach(layout => {
+      layout.sections.forEach(section => {
+        if (!section.collapsible) {
+          next[section.id] = true;
+          return;
+        }
+        if (next[section.id] === undefined) {
+          next[section.id] = section.defaultExpanded ?? true;
+        }
+      });
+    });
+    return next;
+  }, []);
+
+  const isExpandedEqual = useCallback((a: Record<string, boolean>, b: Record<string, boolean>) => {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const key of aKeys) {
+      if (a[key] !== b[key]) return false;
+    }
+    return true;
+  }, []);
+
   useEffect(() => {
     setSwapKey((prev) => prev + 1);
   }, [activeLayoutId]);
 
   useEffect(() => {
     setExpandedSections(prev => {
-      const next = { ...prev };
-      layouts.forEach(layout => {
-        layout.sections.forEach(section => {
-          if (!section.collapsible) {
-            next[section.id] = true;
-            return;
-          }
-          if (next[section.id] === undefined) {
-            next[section.id] = section.defaultExpanded ?? true;
-          }
-        });
-      });
+      const next = buildExpandedSections(prev, initialExpandedSections, layouts);
+      if (isExpandedEqual(prev, next)) return prev;
       return next;
     });
-  }, [layouts]);
+  }, [layouts, initialExpandedSections, buildExpandedSections, isExpandedEqual]);
+
+  useEffect(() => {
+    if (!onExpandedSectionsChange) return;
+    onExpandedSectionsChange(expandedSections);
+  }, [expandedSections, onExpandedSectionsChange]);
 
   const isSectionExpanded = useCallback((section: ToolbarSection) => {
     if (!section.collapsible) return true;
@@ -181,6 +212,11 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     }
   }, [centered]);
 
+  useEffect(() => {
+    if (centered || isDragging) return;
+    setPosition(initialPosition);
+  }, [centered, initialPosition, isDragging]);
+
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const bounds = getBoundsRect();
@@ -203,7 +239,10 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     };
 
     const handleMouseUp = () => {
-      setIsDragging(false);
+      if (isDragging) {
+        setIsDragging(false);
+        onPositionCommit?.(position);
+      }
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -212,7 +251,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDragging, getBoundsRect, clampToBounds]);
+  }, [isDragging, getBoundsRect, clampToBounds, onPositionCommit, position]);
 
   useEffect(() => {
     const handleResize = () => {
