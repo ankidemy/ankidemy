@@ -190,7 +190,7 @@ export interface GraphData {
 export type FilteredNodeType = 'all' | 'definition' | 'exercise' | 'source' | 'quest' | 'group';
 
 // Mode types
-export type AppMode = 'study' | 'practice' | 'frenzy';
+export type AppMode = 'study' | 'practice';
 
 // Feedback for exercise answers
 export interface AnswerFeedback {

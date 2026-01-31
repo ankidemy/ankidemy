@@ -1,7 +1,7 @@
 // client/src/app/components/Graph/windows/ReviewWindowContent.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger } from "@/app/components/core/tabs";
@@ -20,6 +20,7 @@ interface ReviewWindowContentProps {
   onNavigateToNode?: (nodeCode: string) => void;
   windowId: string;
   reviewMode?: 'normal' | 'frenzy';
+  appMode: 'study' | 'practice';
 }
 
 type FrenzyGraphEdge = {
@@ -54,12 +55,16 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   onNavigateToNode,
   windowId,
   reviewMode = 'normal',
+  appMode,
 }) => {
   const srs = useSRS();
   const ui = useUI();
   const isFrenzyMode = reviewMode === 'frenzy';
   
-  const [sessionType, setSessionType] = useState<SessionType>('mixed');
+  const allowedSessionTypes = useMemo<SessionType[]>(() => (
+    appMode === 'study' ? ['definition'] : ['definition', 'exercise', 'mixed']
+  ), [appMode]);
+  const [sessionType, setSessionType] = useState<SessionType>(() => allowedSessionTypes[0] ?? 'definition');
   const [useReverseOrder, setUseReverseOrder] = useState(false);
   const [currentReviewItem, setCurrentReviewItem] = useState<ReviewQueueItem | null>(null);
   const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([]);
@@ -102,6 +107,12 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       hasInitialized.current = true;
     }
   }, [domainId, srs]);
+
+  useEffect(() => {
+    if (!allowedSessionTypes.includes(sessionType)) {
+      setSessionType(allowedSessionTypes[0] ?? 'definition');
+    }
+  }, [allowedSessionTypes, sessionType]);
 
   // FIX 1: Listen for data changes and refresh current item if needed
   useEffect(() => {
@@ -1278,11 +1289,17 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         {!srs.state.currentSession ? (
           <div className="p-6 text-center flex flex-col justify-center h-full">
             <h2 className="text-xl font-semibold mb-4">Select Session Type</h2>
-            <Tabs defaultValue="mixed" onValueChange={(value) => setSessionType(value as SessionType)}>
+            <Tabs value={sessionType} onValueChange={(value) => setSessionType(value as SessionType)}>
               <TabsList className="mb-4">
-                <TabsTrigger value="definition">Definitions</TabsTrigger>
-                <TabsTrigger value="exercise">Exercises</TabsTrigger>
-                <TabsTrigger value="mixed">Mixed</TabsTrigger>
+                {allowedSessionTypes.includes('definition') && (
+                  <TabsTrigger value="definition">Definitions</TabsTrigger>
+                )}
+                {allowedSessionTypes.includes('exercise') && (
+                  <TabsTrigger value="exercise">Exercises</TabsTrigger>
+                )}
+                {allowedSessionTypes.includes('mixed') && (
+                  <TabsTrigger value="mixed">Mixed</TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
             {!isFrenzyMode && (
@@ -1296,7 +1313,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
                 Reverse order (dependents first)
               </label>
             )}
-            {sessionType !== 'definition' && (
+            {appMode === 'practice' && sessionType !== 'definition' && (
               <label className="flex items-center justify-center text-sm text-gray-600 mb-4">
                 <span className="mr-2">Exercises per definition</span>
                 <input

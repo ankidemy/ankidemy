@@ -18,6 +18,15 @@ export type ToolbarLayout = {
   sections: ToolbarSection[];
 };
 
+export type ToolbarToggle = {
+  id: string;
+  label: string;
+  title?: string;
+  active: boolean;
+  onClick: () => void;
+  icon?: React.ReactNode;
+};
+
 interface ContextToolbarProps {
   id: string;
   layouts: ToolbarLayout[];
@@ -25,6 +34,7 @@ interface ContextToolbarProps {
   onLayoutChange?: (layoutId: string) => void;
   displayMode?: 'compact' | 'descriptive';
   onDisplayModeChange?: (mode: 'compact' | 'descriptive') => void;
+  toggles?: ToolbarToggle[];
   initialPosition?: { x: number; y: number };
   centered?: boolean;
   topOffset?: number;
@@ -44,6 +54,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   onLayoutChange,
   displayMode = 'compact',
   onDisplayModeChange,
+  toggles = [],
   initialPosition = { x: 24, y: 24 },
   centered = false,
   topOffset = 12,
@@ -74,6 +85,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     });
     return entries;
   }, [layouts]);
+  const hasToggleColumn = layoutToggleEntries.length > 1 || !!onDisplayModeChange || toggles.length > 0;
 
   useEffect(() => {
     setSwapKey((prev) => prev + 1);
@@ -245,7 +257,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
             </div>
         </div>
 
-        {(layoutToggleEntries.length > 1 || onDisplayModeChange) && (
+        {hasToggleColumn && (
           <div className="flex flex-col items-center justify-center gap-1 self-stretch border-r border-gray-200 bg-gray-50/80 px-0.5 py-0.5">
             {layoutToggleEntries.length > 1 && onLayoutChange && (
               <div className="flex flex-col items-center gap-0.5 rounded-md border border-gray-200 bg-white px-0.5 py-0.5 text-[8px] font-semibold uppercase text-gray-500 shadow-sm">
@@ -311,6 +323,32 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
                 >
                   D
                 </button>
+              </div>
+            )}
+
+            {toggles.length > 0 && (
+              <div className="flex flex-col items-center gap-0.5 rounded-md border border-gray-200 bg-white px-0.5 py-0.5 text-[8px] font-semibold uppercase text-gray-500 shadow-sm">
+                {toggles.map((toggle) => (
+                  <button
+                    key={toggle.id}
+                    type="button"
+                    title={toggle.title ?? toggle.label}
+                    aria-label={toggle.label}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggle.onClick();
+                    }}
+                    className={cn(
+                      "flex h-3.5 w-3.5 items-center justify-center rounded-sm transition-colors",
+                      toggle.active
+                        ? "bg-gray-900 text-white"
+                        : "hover:text-gray-700"
+                    )}
+                  >
+                    {toggle.icon ?? toggle.label.slice(0, 1)}
+                  </button>
+                ))}
               </div>
             )}
           </div>
