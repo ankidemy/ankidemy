@@ -298,8 +298,11 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
                 return (
                   <div
                     key={section.id}
-                    className="flex w-4 items-stretch rounded-md border border-gray-100 bg-white shadow-sm"
+                    className="flex w-fit flex-col rounded-md border border-gray-100 bg-white shadow-sm"
                   >
+                    <div className="px-1.5 py-0.5 text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500">
+                      {section.title}
+                    </div>
                     <button
                       type="button"
                       aria-label={`Expand ${section.title}`}
@@ -309,7 +312,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
                         event.stopPropagation();
                         toggleSection(section);
                       }}
-                      className="flex w-4 items-center justify-center text-[9px] text-gray-400 hover:bg-gray-50 hover:text-gray-700"
+                      className="flex flex-1 items-center justify-center px-2 py-1 text-[9px] text-gray-400 hover:bg-gray-50 hover:text-gray-700"
                     >
                       {'>'}
                     </button>

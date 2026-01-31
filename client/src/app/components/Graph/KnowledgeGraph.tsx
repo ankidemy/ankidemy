@@ -14,7 +14,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
@@ -45,6 +45,10 @@ import {
   deleteGroup,
   updateGroupState,
   updateGroupPositions,
+  exportDomainAsJson,
+  downloadJsonFile,
+  fetchDomainBackup,
+  downloadZipFile,
   GroupData,
   GroupNodeRefRequest,
   MetaDefinition,
@@ -93,6 +97,7 @@ import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
 import { GraphLifecycle } from './utils/GraphLifecycle';
 import TopControls from './panels/TopControls';
+import ImportDialog from './ImportDialog';
 import LeftPanelToggle from './panels/LeftPanelToggle';
 import ZoomableImage from './components/ZoomableImage';
 import LeftPanel from './panels/LeftPanel';
@@ -1151,6 +1156,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Position saving
   const [positionsChanged, setPositionsChanged] = useState(false);
   const [isSavingPositions, setIsSavingPositions] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // Frenzy edit mode state
   const [isFrenzyEditMode, setIsFrenzyEditMode] = useState(false);
@@ -2802,6 +2810,43 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const cycleLabelDisplay = useCallback(() => {
     setLabelDisplayMode(prev => prev === 'names' ? 'codes' : prev === 'codes' ? 'off' : 'names');
   }, []);
+
+  const cycleQuestVisibility = useCallback(() => {
+    setQuestVisibilityMode(prev => prev === 'on' ? 'nodes' : prev === 'nodes' ? 'off' : 'on');
+  }, []);
+
+  const toggleDagVertical = useCallback(() => {
+    if (!dagModeEnabled) return;
+    if (dagOrientation === 'td') {
+      handleDagOrientationChange('bu');
+    } else if (dagOrientation === 'bu') {
+      handleDagOrientationChange('td');
+    } else {
+      handleDagOrientationChange('td');
+    }
+  }, [dagModeEnabled, dagOrientation, handleDagOrientationChange]);
+
+  const toggleDagHorizontal = useCallback(() => {
+    if (!dagModeEnabled) return;
+    if (dagOrientation === 'lr') {
+      handleDagOrientationChange('rl');
+    } else if (dagOrientation === 'rl') {
+      handleDagOrientationChange('lr');
+    } else {
+      handleDagOrientationChange('lr');
+    }
+  }, [dagModeEnabled, dagOrientation, handleDagOrientationChange]);
+
+  const toggleDagRadial = useCallback(() => {
+    if (!dagModeEnabled) return;
+    if (dagOrientation === 'radialout') {
+      handleDagOrientationChange('radialin');
+    } else if (dagOrientation === 'radialin') {
+      handleDagOrientationChange('radialout');
+    } else {
+      handleDagOrientationChange('radialout');
+    }
+  }, [dagModeEnabled, dagOrientation, handleDagOrientationChange]);
 
   // Additional helper functions
   const handleEnrollment = useCallback(async () => {
@@ -5088,6 +5133,157 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     showToolbarTransient(`Deleted ${name}.`, 2000);
   }, [toolbarGroupId, selectedToolbarGroup, deleteGroupById, showToolbarTransient]);
 
+  // Position saving
+  const savePositions = useCallback(async () => {
+    if (!onPositionUpdate || !positionsChanged) return;
+    
+    setIsSavingPositions(true);
+    
+    try {
+      const allPositions = positionManagerRef.current.getAllPositions();
+      const convertedPositions: Record<string, { x: number; y: number }> = {};
+      const externalPositions: Array<{
+        externalDomainUid: string;
+        externalNodeId: number;
+        externalNodeType: 'meta_definition' | 'meta_exercise';
+        xPosition: number;
+        yPosition: number;
+      }> = [];
+      const groupPositions: Record<string, { x: number; y: number }> = {};
+      
+      for (const [nodeCode, position] of allPositions.entries()) {
+        const externalInfo = parseExternalNodeId(nodeCode);
+        if (externalInfo) {
+          externalPositions.push({
+            externalDomainUid: externalInfo.externalDomainUid,
+            externalNodeId: externalInfo.externalNodeId,
+            externalNodeType: externalInfo.externalNodeType,
+            xPosition: position.x,
+            yPosition: position.y,
+          });
+          continue;
+        }
+
+        const groupId = parseGroupNodeId(nodeCode);
+        if (groupId !== null) {
+          groupPositions[String(groupId)] = { x: position.x, y: position.y };
+          continue;
+        }
+
+        const sourceNode = currentStructuralGraphData.sources?.[nodeCode];
+        if (sourceNode?.id) {
+          convertedPositions[`src_${sourceNode.id}`] = { x: position.x, y: position.y };
+          continue;
+        }
+
+        const questNode = currentStructuralGraphData.quests?.[nodeCode];
+        if (questNode?.id) {
+          convertedPositions[`quest_${questNode.id}`] = { x: position.x, y: position.y };
+          continue;
+        }
+
+        const numericId = codeToNumericIdMap.get(nodeCode);
+        if (numericId) {
+          let nodeType = '';
+          if (currentStructuralGraphData.definitions?.[nodeCode]) nodeType = 'def';
+          else if (currentStructuralGraphData.exercises?.[nodeCode]) nodeType = 'ex';
+          
+          if (nodeType) {
+            const backendNodeId = `${nodeType}_${numericId}`;
+            convertedPositions[backendNodeId] = { x: position.x, y: position.y };
+          }
+        }
+      }
+      
+      if (Object.keys(convertedPositions).length > 0) {
+        await onPositionUpdate(convertedPositions);
+      }
+      if (externalPositions.length > 0) {
+        await updateExternalPrerequisitePositions(parseInt(subjectMatterId, 10), externalPositions);
+      }
+      if (Object.keys(groupPositions).length > 0) {
+        await updateGroupPositions(parseInt(subjectMatterId, 10), groupPositions);
+      }
+      if (Object.keys(convertedPositions).length > 0 || externalPositions.length > 0 || Object.keys(groupPositions).length > 0) {
+        setPositionsChanged(false);
+        showToast("Node positions saved.", "success");
+      }
+    } catch (err) {
+      console.error("Failed to save positions:", err);
+      showToast(err instanceof Error ? err.message : "Failed to save positions.", "error");
+    } finally {
+      setIsSavingPositions(false);
+    }
+  }, [onPositionUpdate, positionsChanged, codeToNumericIdMap, currentStructuralGraphData]);
+
+  const currentDomainId = domainData?.id;
+  const currentDomainName = domainName;
+  const isOwner = !!(currentUser && domainData && domainData.ownerId === currentUser.id);
+  const canImport = !!(currentDomainId && isOwner && hasAccess);
+  const canBackup = !!(currentDomainId && isOwner);
+  const canShare = !!(currentDomainId && isOwner);
+  const canExport = !!currentDomainId;
+
+  const handleToolbarExport = useCallback(async () => {
+    if (!currentDomainId || !currentDomainName) {
+      showToast('No domain selected for export', 'error');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      showToast('Exporting graph...', 'info', 2000);
+      const exportData = await exportDomainAsJson(currentDomainId);
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `${currentDomainName.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}`;
+      downloadJsonFile(exportData, filename);
+      showToast(`Domain "${currentDomainName}" exported successfully!`, 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to export domain', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [currentDomainId, currentDomainName]);
+
+  const handleToolbarBackup = useCallback(async () => {
+    if (!currentDomainId || !currentDomainName) {
+      showToast('No domain selected for backup', 'error');
+      return;
+    }
+    setIsBackingUp(true);
+    try {
+      showToast('Preparing backup...', 'info', 2000);
+      const blob = await fetchDomainBackup(currentDomainId);
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const safeBase = currentDomainName.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `${safeBase}_backup_${timestamp}.zip`;
+      downloadZipFile(blob, filename);
+      showToast(`Backup for "${currentDomainName}" downloaded.`, 'success');
+    } catch (error) {
+      console.error('Backup error:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to download backup', 'error');
+    } finally {
+      setIsBackingUp(false);
+    }
+  }, [currentDomainId, currentDomainName]);
+
+  const handleToolbarImport = useCallback(() => {
+    if (!currentDomainId || !isOwner) {
+      showToast('Only domain owners can import data', 'error');
+      return;
+    }
+    if (!hasAccess) {
+      showToast('You must be enrolled in the domain to import data', 'error');
+      return;
+    }
+    setShowImportDialog(true);
+  }, [currentDomainId, isOwner, hasAccess]);
+
+  const handleToolbarShare = useCallback(() => {
+    if (!canShare) return;
+    setShowAccessModal(true);
+  }, [canShare]);
+
   const undoFrenzyDelete = useCallback(async () => {
     if (!lastDeletedNode) return;
     if (!canEdit) {
@@ -5314,6 +5510,26 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
   const toolbarInstruction = toolbarTransientMessage ?? toolInstruction ?? undefined;
   const toolbarInstructionContent = groupActionContent ?? (toolbarInstruction ? <span>{toolbarInstruction}</span> : undefined);
+
+  const labelDisplayConfig = useMemo(() => {
+    if (labelDisplayMode === 'names') {
+      return { label: 'Names', icon: <Eye size={10} /> };
+    }
+    if (labelDisplayMode === 'codes') {
+      return { label: 'Codes', icon: <Eye size={10} /> };
+    }
+    return { label: 'Off', icon: <EyeOff size={10} /> };
+  }, [labelDisplayMode]);
+
+  const questDisplayConfig = useMemo(() => {
+    if (questVisibilityMode === 'on') {
+      return { label: 'Quests', icon: <RadioTower size={10} /> };
+    }
+    if (questVisibilityMode === 'nodes') {
+      return { label: 'Links Off', icon: <RadioTower size={10} /> };
+    }
+    return { label: 'Off', icon: <RadioTower size={10} /> };
+  }, [questVisibilityMode]);
 
   const infoFilterSet = useMemo(() => new Set(infoFilters), [infoFilters]);
   const showAllInfoFields = infoFilters.length === 0;
@@ -5662,6 +5878,72 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           ],
         },
         {
+          id: 'display',
+          title: 'Display',
+          rows: [
+            [
+              toolboxButton('Fit', <Maximize size={10} />, {
+                onClick: () => zoomToFitVisibleNodes(400),
+              }),
+            ],
+            [
+              toolboxButton(labelDisplayConfig.label, labelDisplayConfig.icon, {
+                onClick: cycleLabelDisplay,
+              }),
+            ],
+            [
+              toolboxButton(questDisplayConfig.label, questDisplayConfig.icon, {
+                onClick: cycleQuestVisibility,
+              }),
+            ],
+          ],
+        },
+        {
+          id: 'dag',
+          title: 'DAG',
+          collapsible: true,
+          defaultExpanded: false,
+          rows: [
+            [
+              toolboxButton(dagModeEnabled ? 'DAG On' : 'DAG Off', <Link2 size={10} />, {
+                onClick: handleToggleDagMode,
+                variant: dagModeEnabled ? 'secondary' : 'outline',
+              }),
+              (
+                <div key="dag-controls" className={dagModeEnabled ? "flex flex-col gap-0.5" : "flex flex-col gap-0.5 opacity-50"}>
+                  {toolboxButton(
+                    dagOrientation === 'bu' ? 'Bottom-Up' : 'Top-Down',
+                    dagOrientation === 'bu' ? <ArrowUp size={10} /> : <ArrowDown size={10} />,
+                    {
+                      onClick: toggleDagVertical,
+                      enabled: dagModeEnabled,
+                      variant: 'ghost',
+                    }
+                  )}
+                  {toolboxButton(
+                    dagOrientation === 'rl' ? 'Right-Left' : 'Left-Right',
+                    dagOrientation === 'rl' ? <ArrowLeft size={10} /> : <ArrowRight size={10} />,
+                    {
+                      onClick: toggleDagHorizontal,
+                      enabled: dagModeEnabled,
+                      variant: 'ghost',
+                    }
+                  )}
+                  {toolboxButton(
+                    dagOrientation === 'radialin' ? 'Radial In' : 'Radial Out',
+                    <RefreshCw size={10} />,
+                    {
+                      onClick: toggleDagRadial,
+                      enabled: dagModeEnabled,
+                      variant: 'ghost',
+                    }
+                  )}
+                </div>
+              ),
+            ],
+          ],
+        },
+        {
           id: 'info',
           title: 'Info',
           collapsible: true,
@@ -5673,19 +5955,48 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           ],
         },
         {
-          id: 'export',
-          title: 'Export',
+          id: 'io',
+          title: 'I/O',
           collapsible: true,
           defaultExpanded: false,
           rows: [
             [
-              toolboxButton('PNG', <Download size={10} />, { enabled: false }),
+              toolboxButton('Import', <Upload size={10} />, {
+                onClick: handleToolbarImport,
+                enabled: canImport,
+                variant: 'ghost',
+              }),
+              toolboxButton('Export', isExporting ? <RefreshCw size={10} className="animate-spin" /> : <Download size={10} />, {
+                onClick: () => void handleToolbarExport(),
+                enabled: canExport && !isExporting,
+              }),
             ],
             [
-              toolboxButton('JSON', <Download size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Backup', isBackingUp ? <RefreshCw size={10} className="animate-spin" /> : <Download size={10} />, {
+                onClick: () => void handleToolbarBackup(),
+                enabled: canBackup && !isBackingUp,
+                variant: 'ghost',
+              }),
             ],
             [
-              toolboxButton('Share', <Upload size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Share', <Users size={10} />, {
+                onClick: handleToolbarShare,
+                enabled: canShare,
+                variant: 'ghost',
+              }),
+            ],
+          ],
+        },
+        {
+          id: 'save',
+          title: 'Save',
+          rows: [
+            [
+              toolboxButton('Save', <Save size={10} />, {
+                onClick: () => void savePositions(),
+                enabled: positionsChanged && !isSavingPositions && canEdit,
+                variant: positionsChanged ? 'secondary' : 'outline',
+              }),
             ],
           ],
         },
@@ -5712,7 +6023,31 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     handleRemoveSelectionFromGroup,
     handleCreateGroupPrompt,
     handleDeleteGroupPrompt,
+    zoomToFitVisibleNodes,
+    labelDisplayConfig,
+    questDisplayConfig,
+    cycleLabelDisplay,
+    cycleQuestVisibility,
+    dagModeEnabled,
+    dagOrientation,
+    handleToggleDagMode,
+    toggleDagVertical,
+    toggleDagHorizontal,
+    toggleDagRadial,
     infoSectionContent,
+    savePositions,
+    positionsChanged,
+    isSavingPositions,
+    handleToolbarImport,
+    handleToolbarExport,
+    handleToolbarBackup,
+    handleToolbarShare,
+    isExporting,
+    isBackingUp,
+    canImport,
+    canExport,
+    canBackup,
+    canShare,
     canEdit,
     selectableGroupCodes.length,
     toolbarGroupId,
@@ -6054,89 +6389,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     };
   }, [isDraggingFrenzyNote]);
 
-  // Position saving
-  const savePositions = useCallback(async () => {
-    if (!onPositionUpdate || !positionsChanged) return;
-    
-    setIsSavingPositions(true);
-    
-    try {
-      const allPositions = positionManagerRef.current.getAllPositions();
-      const convertedPositions: Record<string, { x: number; y: number }> = {};
-      const externalPositions: Array<{
-        externalDomainUid: string;
-        externalNodeId: number;
-        externalNodeType: 'meta_definition' | 'meta_exercise';
-        xPosition: number;
-        yPosition: number;
-      }> = [];
-      const groupPositions: Record<string, { x: number; y: number }> = {};
-      
-      for (const [nodeCode, position] of allPositions.entries()) {
-        const externalInfo = parseExternalNodeId(nodeCode);
-        if (externalInfo) {
-          externalPositions.push({
-            externalDomainUid: externalInfo.externalDomainUid,
-            externalNodeId: externalInfo.externalNodeId,
-            externalNodeType: externalInfo.externalNodeType,
-            xPosition: position.x,
-            yPosition: position.y,
-          });
-          continue;
-        }
-
-        const groupId = parseGroupNodeId(nodeCode);
-        if (groupId !== null) {
-          groupPositions[String(groupId)] = { x: position.x, y: position.y };
-          continue;
-        }
-
-        const sourceNode = currentStructuralGraphData.sources?.[nodeCode];
-        if (sourceNode?.id) {
-          convertedPositions[`src_${sourceNode.id}`] = { x: position.x, y: position.y };
-          continue;
-        }
-
-        const questNode = currentStructuralGraphData.quests?.[nodeCode];
-        if (questNode?.id) {
-          convertedPositions[`quest_${questNode.id}`] = { x: position.x, y: position.y };
-          continue;
-        }
-
-        const numericId = codeToNumericIdMap.get(nodeCode);
-        if (numericId) {
-          let nodeType = '';
-          if (currentStructuralGraphData.definitions?.[nodeCode]) nodeType = 'def';
-          else if (currentStructuralGraphData.exercises?.[nodeCode]) nodeType = 'ex';
-          
-          if (nodeType) {
-            const backendNodeId = `${nodeType}_${numericId}`;
-            convertedPositions[backendNodeId] = { x: position.x, y: position.y };
-          }
-        }
-      }
-      
-      if (Object.keys(convertedPositions).length > 0) {
-        await onPositionUpdate(convertedPositions);
-      }
-      if (externalPositions.length > 0) {
-        await updateExternalPrerequisitePositions(parseInt(subjectMatterId, 10), externalPositions);
-      }
-      if (Object.keys(groupPositions).length > 0) {
-        await updateGroupPositions(parseInt(subjectMatterId, 10), groupPositions);
-      }
-      if (Object.keys(convertedPositions).length > 0 || externalPositions.length > 0 || Object.keys(groupPositions).length > 0) {
-        setPositionsChanged(false);
-        showToast("Node positions saved.", "success");
-      }
-    } catch (err) {
-      console.error("Failed to save positions:", err);
-      showToast(err instanceof Error ? err.message : "Failed to save positions.", "error");
-    } finally {
-      setIsSavingPositions(false);
-    }
-  }, [onPositionUpdate, positionsChanged, codeToNumericIdMap, currentStructuralGraphData]);
-
   // Enhanced credit flow animations
   const enhancedCreditFlowAnimations = useMemo(() => {
     return srs.state.creditFlowAnimations.map((animation: any) => ({
@@ -6213,6 +6465,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             domainId={domainData.id}
             domainName={domainData.name}
             onClose={() => setShowAccessModal(false)}
+          />
+        )}
+
+        {currentDomainId && currentDomainName && (
+          <ImportDialog
+            isOpen={showImportDialog}
+            onClose={() => setShowImportDialog(false)}
+            domainId={currentDomainId}
+            domainName={currentDomainName}
+            onSuccess={refreshGraphAndSRSData}
           />
         )}
 
