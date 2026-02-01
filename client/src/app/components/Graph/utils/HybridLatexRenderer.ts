@@ -231,6 +231,8 @@ export class LabelRenderer {
   private readonly maxCacheSize = 1500;
   // Markdown processor instance (built once and reused for all labels)
   private mdProcessor: ReturnType<typeof buildLabelMarkdownProcessor>;
+  private readonly transparentPixel =
+    'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAACAkQBADs=';
 
   constructor() {
     this.mdProcessor = buildLabelMarkdownProcessor();
@@ -268,18 +270,11 @@ export class LabelRenderer {
       this.renderingInProgress.add(text);
       this.activeCount++;
 
-      this.createImageFromText(text)
+      this.renderLabel(text)
         .then(renderedLabel => {
           this.cache.set(text, renderedLabel);
           this.pruneCache();
           onRendered();
-        })
-        .catch(error => {
-          console.error(`Failed to render label for "${text}":`, error);
-          return this.createFallbackImage(text).then(fallback => {
-            this.cache.set(text, fallback);
-            onRendered();
-          }).catch(() => { /* swallow */ });
         })
         .finally(() => {
           this.renderingInProgress.delete(text);
@@ -354,6 +349,24 @@ export class LabelRenderer {
     });
   }
 
+  private async renderLabel(text: string): Promise<RenderedLabel> {
+    try {
+      return await this.createImageFromText(text);
+    } catch {
+      try {
+        return await this.createFallbackImage(text);
+      } catch {
+        return this.createTransparentLabel();
+      }
+    }
+  }
+
+  private createTransparentLabel(): RenderedLabel {
+    const image = new Image();
+    image.src = this.transparentPixel;
+    return { image, width: 1, height: 1 };
+  }
+
   /**
    * The core SVG-to-Image pipeline. This is a private, async method.
    */
@@ -425,7 +438,11 @@ export class LabelRenderer {
     try {
       // 4. Typeset LaTeX with MathJax.
       if ((window as any).MathJax?.typesetPromise) {
-        await (window as any).MathJax.typesetPromise([container]);
+        try {
+          await (window as any).MathJax.typesetPromise([container]);
+        } catch {
+          return await this.createFallbackImage(truncatedText);
+        }
       }
 
       // 5. Measure the final dimensions of the rendered div.
