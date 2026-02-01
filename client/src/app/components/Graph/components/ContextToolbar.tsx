@@ -92,6 +92,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     return entries;
   }, [layouts]);
   const hasToggleColumn = layoutToggleEntries.length > 1 || !!onDisplayModeChange || toggles.length > 0;
+  const isSectionCollapsible = useCallback((section: ToolbarSection) => section.collapsible ?? true, []);
 
   const buildExpandedSections = useCallback((
     prev: Record<string, boolean>,
@@ -101,7 +102,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
     const next = { ...(initial ?? prev) };
     sourceLayouts.forEach(layout => {
       layout.sections.forEach(section => {
-        if (!section.collapsible) {
+        if (!isSectionCollapsible(section)) {
           next[section.id] = true;
           return;
         }
@@ -111,7 +112,7 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
       });
     });
     return next;
-  }, []);
+  }, [isSectionCollapsible]);
 
   const isExpandedEqual = useCallback((a: Record<string, boolean>, b: Record<string, boolean>) => {
     const aKeys = Object.keys(a);
@@ -141,20 +142,20 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
   }, [expandedSections, onExpandedSectionsChange]);
 
   const isSectionExpanded = useCallback((section: ToolbarSection) => {
-    if (!section.collapsible) return true;
+    if (!isSectionCollapsible(section)) return true;
     const expanded = expandedSections[section.id];
     if (expanded === undefined) return section.defaultExpanded ?? true;
     return expanded;
-  }, [expandedSections]);
+  }, [expandedSections, isSectionCollapsible]);
 
   const toggleSection = useCallback((section: ToolbarSection) => {
-    if (!section.collapsible) return;
+    if (!isSectionCollapsible(section)) return;
     setExpandedSections(prev => {
       const current = prev[section.id];
       const nextValue = current === undefined ? !(section.defaultExpanded ?? true) : !current;
       return { ...prev, [section.id]: nextValue };
     });
-  }, []);
+  }, [isSectionCollapsible]);
 
   const hasInstruction = !!instructionContent || !!instructionText;
 
@@ -400,15 +401,26 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
           >
             {layout.sections.map((section) => {
               const expanded = isSectionExpanded(section);
-              if (section.collapsible && !expanded) {
+              const collapsible = isSectionCollapsible(section);
+              if (collapsible && !expanded) {
                 return (
                   <div
                     key={section.id}
                     className="flex w-fit flex-col rounded-md border border-gray-100 bg-white shadow-sm"
                   >
-                    <div className="px-1.5 py-0.5 text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500">
+                    <button
+                      type="button"
+                      aria-label={`Expand ${section.title}`}
+                      title={`Expand ${section.title}`}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSection(section);
+                      }}
+                      className="px-1.5 py-0.5 text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500 hover:text-gray-700"
+                    >
                       {section.title}
-                    </div>
+                    </button>
                     <button
                       type="button"
                       aria-label={`Expand ${section.title}`}
@@ -431,25 +443,26 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
                   key={section.id}
                   className="flex w-fit flex-row items-stretch rounded-md border border-gray-100 bg-white shadow-sm"
                 >
-                  {section.collapsible && (
-                    <button
-                      type="button"
-                      aria-label={`Collapse ${section.title}`}
-                      title={`Collapse ${section.title}`}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleSection(section);
-                      }}
-                      className="flex w-4 items-center justify-center border-r border-gray-100 text-[9px] text-gray-400 hover:bg-gray-50 hover:text-gray-700"
-                    >
-                      {'<'}
-                    </button>
-                  )}
                   <div className="flex flex-col p-0.5">
-                    <div className="text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500">
-                      {section.title}
-                    </div>
+                    {collapsible ? (
+                      <button
+                        type="button"
+                        aria-label={`Collapse ${section.title}`}
+                        title={`Collapse ${section.title}`}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleSection(section);
+                        }}
+                        className="w-full text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500 hover:text-gray-700"
+                      >
+                        {section.title}
+                      </button>
+                    ) : (
+                      <div className="text-center text-[8px] font-semibold uppercase leading-none tracking-wider text-gray-500">
+                        {section.title}
+                      </div>
+                    )}
                     <div className="mt-0.5 flex flex-1 flex-col justify-center gap-0.5">
                       {section.rows.map((row, rowIndex) => (
                         <div
