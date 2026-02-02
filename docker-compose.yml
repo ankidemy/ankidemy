@@ -46,7 +46,7 @@ services:
 
   # Client Service (NextJS)
   client:
-    image: node:18-alpine
+    image: node:22-alpine
     restart: unless-stopped
     working_dir: /app
     env_file:

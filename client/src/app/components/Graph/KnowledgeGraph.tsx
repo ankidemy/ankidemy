@@ -2142,6 +2142,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId]);
 
+  useEffect(() => {
+    if (!hasAccess) return;
+    refreshSurveyStats();
+    const interval = setInterval(refreshSurveyStats, 60000);
+    return () => clearInterval(interval);
+  }, [hasAccess, refreshSurveyStats]);
+
   const buildRelationEdgesFromDomain = useCallback((relationsRaw: any[]) => {
     const idToCodeByType = new Map<string, string>();
     Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
@@ -4285,9 +4292,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           openFrenzyNote({ id: created.code, name: created.title, type: 'source' } as GraphNode, created.id, spawn);
         }
       } else {
+        const defaultTimezone = domainSettings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
         const schedule = {
           type: 'rrule',
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          timezone: defaultTimezone,
           dtstart: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
           rrule: 'FREQ=DAILY;COUNT=1',
           exdate: [],
@@ -4361,6 +4369,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     openFrenzyNote,
     ui,
     getDetailWindowPlacement,
+    domainSettings,
   ]);
 
   const saveFrenzyNote = useCallback(async (draftOverride?: string) => {

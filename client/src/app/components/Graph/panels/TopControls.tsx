@@ -1,7 +1,7 @@
 // TopControls.tsx - Enhanced version with import/export functionality
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Book, BarChart, Plus, Play, Users, AlertTriangle, List, Wrench, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
@@ -11,6 +11,56 @@ import DomainSelector from './DomainSelector';
 import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
 import { getSurveyQueue, SurveyQueueItem } from '@/lib/api';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
+
+const getBrowserTimeZone = () => {
+  if (typeof window === 'undefined') return 'UTC';
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+const getSupportedTimeZones = () => {
+  try {
+    const supported = (Intl as any).supportedValuesOf?.('timeZone');
+    if (Array.isArray(supported)) return supported;
+  } catch {}
+  return [
+    'UTC',
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'America/Phoenix',
+    'America/Sao_Paulo',
+    'Europe/London',
+    'Europe/Paris',
+    'Europe/Berlin',
+    'Europe/Madrid',
+    'Europe/Rome',
+    'Europe/Amsterdam',
+    'Africa/Johannesburg',
+    'Asia/Dubai',
+    'Asia/Kolkata',
+    'Asia/Singapore',
+    'Asia/Shanghai',
+    'Asia/Tokyo',
+    'Asia/Seoul',
+    'Australia/Sydney',
+    'Pacific/Auckland',
+  ];
+};
+
+const isValidTimeZone = (value: string) => {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 interface TopControlsProps {
   subjectMatterId: string;
@@ -69,7 +119,34 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [optionsSaving, setOptionsSaving] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsDraftExercises, setOptionsDraftExercises] = useState<number>(1);
+  const [optionsDraftTimezone, setOptionsDraftTimezone] = useState<string>('UTC');
+  const [browserTimezone, setBrowserTimezone] = useState('UTC');
   const optionsRef = useRef<HTMLDivElement>(null);
+  const supportedTimezones = useMemo(() => {
+    const supported = getSupportedTimeZones();
+    return supported.length > 0 ? supported : ['UTC'];
+  }, []);
+  const timezoneOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [];
+    const seen = new Set<string>();
+    const browser = browserTimezone && isValidTimeZone(browserTimezone) ? browserTimezone : '';
+    const selected = optionsDraftTimezone?.trim();
+
+    if (selected && !seen.has(selected)) {
+      options.push({ value: selected, label: selected });
+      seen.add(selected);
+    }
+    if (browser && !seen.has(browser)) {
+      options.push({ value: browser, label: `Browser (${browser})` });
+      seen.add(browser);
+    }
+    supportedTimezones.forEach((tz) => {
+      if (seen.has(tz)) return;
+      options.push({ value: tz, label: tz });
+      seen.add(tz);
+    });
+    return options;
+  }, [supportedTimezones, browserTimezone, optionsDraftTimezone]);
 
   const dueReviews = srs.state.dueReviews;
   const dueCount = isEnrolled ? dueReviews.length : 0;
@@ -193,6 +270,10 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showOptions]);
 
   useEffect(() => {
+    setBrowserTimezone(getBrowserTimeZone());
+  }, []);
+
+  useEffect(() => {
     if (!showOptions) return;
     const value = domainSettings?.preferences?.review?.exercisesPerDefinition;
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -200,8 +281,9 @@ const TopControls: React.FC<TopControlsProps> = ({
     } else {
       setOptionsDraftExercises(1);
     }
+    setOptionsDraftTimezone(domainSettings?.timezone || browserTimezone || 'UTC');
     setOptionsError(null);
-  }, [showOptions, domainSettings]);
+  }, [showOptions, domainSettings, browserTimezone]);
 
   const refreshSurveyQueue = useCallback(async () => {
     if (!currentDomainId) return;
@@ -259,7 +341,13 @@ const TopControls: React.FC<TopControlsProps> = ({
     setOptionsSaving(true);
     setOptionsError(null);
     try {
+      const trimmedTimezone = optionsDraftTimezone.trim() || browserTimezone || 'UTC';
+      if (!isValidTimeZone(trimmedTimezone)) {
+        setOptionsError('Enter a valid IANA time zone (e.g., America/New_York).');
+        return;
+      }
       await onUpdateDomainSettings({
+        timezone: trimmedTimezone,
         preferences: {
           review: {
             exercisesPerDefinition: optionsDraftExercises,
@@ -273,7 +361,7 @@ const TopControls: React.FC<TopControlsProps> = ({
     } finally {
       setOptionsSaving(false);
     }
-  }, [canChangeOptions, onUpdateDomainSettings, optionsDraftExercises]);
+  }, [canChangeOptions, onUpdateDomainSettings, optionsDraftExercises, optionsDraftTimezone, browserTimezone]);
 
   const handleToggleReviewQueue = () => {
     setShowSurveyQueue(false);
@@ -575,6 +663,23 @@ const TopControls: React.FC<TopControlsProps> = ({
             <div className="absolute right-0 mt-2 w-72 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
               <div className="font-semibold text-gray-800 mb-3">Options</div>
               <div className="space-y-3">
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-gray-600">Time zone</span>
+                  <select
+                    value={optionsDraftTimezone}
+                    onChange={(e) => {
+                      setOptionsDraftTimezone(e.target.value);
+                      setOptionsError(null);
+                    }}
+                    className="w-40 border border-gray-300 rounded px-2 py-1 text-sm bg-white"
+                  >
+                    {timezoneOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-gray-600">Exercises per definition</span>
                   <input
