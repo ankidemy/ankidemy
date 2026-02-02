@@ -10,6 +10,8 @@ import { createQuest, createRelation, deleteRelation, deleteSource, getDomainRel
 import { useUI } from '@/contexts/UIContext';
 import { GraphData } from '../utils/types';
 import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
+import { Edit, Save, X } from 'lucide-react';
+import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 
 interface SourceWindowContentProps {
   windowId: string;
@@ -26,13 +28,56 @@ type RelationDraft = { id?: number; relationType: string; toType: 'meta_definiti
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
-const toLocalInputValue = (date: Date) => {
+const getErrorMessage = (err: unknown): string => {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return '';
+};
+
+const DEFAULT_REMINDER_OFFSET_MINUTES = 60;
+
+const toLocalDateInputValue = (date: Date) => {
   const yyyy = date.getFullYear();
   const mm = pad2(date.getMonth() + 1);
   const dd = pad2(date.getDate());
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const toLocalTimeInputValue = (date: Date) => {
   const hh = pad2(date.getHours());
   const min = pad2(date.getMinutes());
-  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+  return `${hh}:${min}`;
+};
+
+const getDefaultReminderDateTime = () => new Date(Date.now() + DEFAULT_REMINDER_OFFSET_MINUTES * 60 * 1000);
+
+const getDefaultReminderDraft = () => {
+  const date = getDefaultReminderDateTime();
+  return {
+    date: toLocalDateInputValue(date),
+    time: toLocalTimeInputValue(date),
+  };
+};
+
+const getReminderDraftFromOffsetMinutes = (offsetMinutes: number) => {
+  const date = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  return {
+    date: toLocalDateInputValue(date),
+    time: toLocalTimeInputValue(date),
+  };
+};
+
+const buildReminderDateTime = (dateValue: string, timeValue: string) => {
+  const fallbackDate = getDefaultReminderDateTime();
+  const fallbackDateValue = toLocalDateInputValue(fallbackDate);
+  const fallbackTimeValue = toLocalTimeInputValue(fallbackDate);
+  const date = dateValue || fallbackDateValue;
+  const time = timeValue || fallbackTimeValue;
+  const combined = new Date(`${date}T${time}`);
+  return Number.isNaN(combined.getTime()) ? fallbackDate : combined;
 };
 
 export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
@@ -51,6 +96,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const [codeDraft, setCodeDraft] = useState('');
   const [titleDraft, setTitleDraft] = useState('');
@@ -60,7 +106,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
 
   const [showReminderForm, setShowReminderForm] = useState(false);
   const [reminderTitle, setReminderTitle] = useState('');
-  const [reminderDue, setReminderDue] = useState(() => toLocalInputValue(new Date(Date.now() + 2 * 60 * 60 * 1000)));
+  const [reminderDraft, setReminderDraft] = useState(() => getDefaultReminderDraft());
 
   const [relevantLinks, setRelevantLinks] = useState<RelationDraft[]>([]);
   const [newRelation, setNewRelation] = useState<RelationDraft>({
@@ -122,6 +168,9 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     setBibtexDraft(initial.bibtexKey || '');
     setVisibilityDraft(initial.visibility || 'private');
     setIsDirty(false);
+    setIsEditMode(false);
+    setShowReminderForm(false);
+    setReminderDraft(getDefaultReminderDraft());
   }, [sourceData?.id]);
 
   useEffect(() => {
@@ -217,16 +266,34 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       setIsDirty(false);
       onUpdateSource?.(updated);
       showToast('Source updated.', 'success');
-    } catch (err: any) {
-      if (err?.message?.includes('409') || err?.message?.includes('conflict')) {
+      setIsEditMode(false);
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      if (message.includes('409') || message.toLowerCase().includes('conflict')) {
         showToast('Source code already exists in this domain.', 'error');
       } else {
-        showToast(err instanceof Error ? err.message : 'Failed to update source.', 'error');
+        showToast(message || 'Failed to update source.', 'error');
       }
     } finally {
       setIsSaving(false);
     }
   }, [source?.id, codeDraft, titleDraft, contentDraft, bibtexDraft, visibilityDraft, canSave, onUpdateSource]);
+
+  const handleCancelEdit = useCallback(() => {
+    const base = source;
+    if (!base) {
+      setIsEditMode(false);
+      setIsDirty(false);
+      return;
+    }
+    setCodeDraft(base.code || '');
+    setTitleDraft(base.title || '');
+    setContentDraft(base.contentMd || '');
+    setBibtexDraft(base.bibtexKey || '');
+    setVisibilityDraft(base.visibility || 'private');
+    setIsDirty(false);
+    setIsEditMode(false);
+  }, [source]);
 
   const handleDelete = useCallback(async () => {
     if (!source?.id) return;
@@ -249,7 +316,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       showToast('Source must be saved before creating a reminder.', 'warning');
       return;
     }
-    const dueDate = reminderDue ? new Date(reminderDue) : new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const dueDate = buildReminderDateTime(reminderDraft.date, reminderDraft.time);
     const schedule = {
       type: 'rrule',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -287,7 +354,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to create reminder.', 'error');
     }
-  }, [source?.id, source?.title, source?.code, reminderDue, reminderTitle, domainId, onQuestCreated, existingCodes]);
+  }, [source?.id, source?.title, source?.code, reminderDraft.date, reminderDraft.time, reminderTitle, domainId, onQuestCreated, existingCodes]);
 
   const handleAddRelevantLink = useCallback(async () => {
     if (!source?.id) return;
@@ -361,74 +428,129 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
             <div className="text-xs text-gray-500">Code: {source.code}</div>
           )}
         </div>
-        {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
+        <div className="flex items-center gap-2">
+          {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
+          {!isEditMode ? (
+            <Button size="sm" variant="outline" onClick={() => setIsEditMode(true)} disabled={!source?.id}>
+              <Edit className="h-4 w-4 mr-1" />
+              Edit
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" onClick={handleCancelEdit}>
+                <X className="h-4 w-4 mr-1" />
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={!canSave || isSaving}>
+                <Save className="h-4 w-4 mr-1" />
+                {isSaving ? 'Saving…' : 'Save'}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3">
         <div>
           <label className="text-xs font-medium text-gray-600">Code</label>
-          <Input
-            value={codeDraft}
-            onChange={(e) => {
-              setCodeDraft(e.target.value);
-              setIsDirty(true);
-            }}
-            className="h-8 mt-1"
-          />
+          {isEditMode ? (
+            <Input
+              value={codeDraft}
+              onChange={(e) => {
+                setCodeDraft(e.target.value);
+                setIsDirty(true);
+              }}
+              className="h-8 mt-1"
+            />
+          ) : (
+            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
+              {source?.code || '—'}
+            </div>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium text-gray-600">Title</label>
-          <Input
-            value={titleDraft}
-            onChange={(e) => {
-              setTitleDraft(e.target.value);
+          {isEditMode ? (
+            <Input
+              value={titleDraft}
+              onChange={(e) => {
+                setTitleDraft(e.target.value);
+                setIsDirty(true);
+              }}
+              className="h-8 mt-1"
+            />
+          ) : (
+            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
+              {source?.title || '—'}
+            </div>
+          )}
+        </div>
+        {isEditMode ? (
+          <MarkdownPreviewField
+            label="Content (Markdown)"
+            value={contentDraft}
+            onChange={(value) => {
+              setContentDraft(value);
               setIsDirty(true);
             }}
-            className="h-8 mt-1"
+            rows={6}
+            placeholder="Add source notes, links, citations…"
           />
-        </div>
-        <MarkdownPreviewField
-          label="Content (Markdown)"
-          value={contentDraft}
-          onChange={(value) => {
-            setContentDraft(value);
-            setIsDirty(true);
-          }}
-          rows={6}
-          placeholder="Add source notes, links, citations…"
-        />
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-gray-600">Content</label>
+            </div>
+            <div className="rounded border border-gray-200 bg-gray-50 p-2 text-sm">
+              {(source?.contentMd || '').trim().length > 0 ? (
+                <MarkdownKatex className="whitespace-pre-wrap">{source?.contentMd || ''}</MarkdownKatex>
+              ) : (
+                <span className="text-gray-400 italic">No content</span>
+              )}
+            </div>
+          </div>
+        )}
         <div>
           <label className="text-xs font-medium text-gray-600">BibTeX key</label>
-          <Input
-            value={bibtexDraft}
-            onChange={(e) => {
-              setBibtexDraft(e.target.value);
-              setIsDirty(true);
-            }}
-            placeholder="optional"
-            className="h-8 mt-1"
-          />
+          {isEditMode ? (
+            <Input
+              value={bibtexDraft}
+              onChange={(e) => {
+                setBibtexDraft(e.target.value);
+                setIsDirty(true);
+              }}
+              placeholder="optional"
+              className="h-8 mt-1"
+            />
+          ) : (
+            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
+              {source?.bibtexKey || '—'}
+            </div>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium text-gray-600">Visibility</label>
-          <select
-            value={visibilityDraft}
-            onChange={(e) => {
-              setVisibilityDraft(e.target.value as 'private' | 'domain');
-              setIsDirty(true);
-            }}
-            className="mt-1 h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs text-gray-700"
-          >
-            <option value="private">Private</option>
-            <option value="domain">Domain</option>
-          </select>
+          {isEditMode ? (
+            <select
+              value={visibilityDraft}
+              onChange={(e) => {
+                setVisibilityDraft(e.target.value as 'private' | 'domain');
+                setIsDirty(true);
+              }}
+              className="mt-1 h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs text-gray-700"
+            >
+              <option value="private">Private</option>
+              <option value="domain">Domain</option>
+            </select>
+          ) : (
+            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
+              {source?.visibility === 'domain' ? 'Domain' : 'Private'}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={handleSave} disabled={!canSave || isSaving}>
-          {isSaving ? 'Saving…' : 'Save'}
-        </Button>
         <Button size="sm" variant="destructive" onClick={handleDelete} disabled={isDeleting || !source?.id}>
           {isDeleting ? 'Deleting…' : 'Delete'}
         </Button>
@@ -453,14 +575,44 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               className="h-8 mt-1"
             />
           </div>
-          <div>
-            <label className="text-xs text-gray-600">Due at</label>
-            <Input
-              type="datetime-local"
-              value={reminderDue}
-              onChange={(e) => setReminderDue(e.target.value)}
-              className="h-8 mt-1"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium text-gray-600">Remind in:</span>
+            {[
+              { label: '15 min', minutes: 15 },
+              { label: '1 hour', minutes: 60 },
+              { label: '6 hours', minutes: 6 * 60 },
+              { label: '1 day', minutes: 24 * 60 },
+              { label: '1 week', minutes: 7 * 24 * 60 },
+            ].map(option => (
+              <Button
+                key={option.label}
+                size="sm"
+                variant="outline"
+                onClick={() => setReminderDraft(getReminderDraftFromOffsetMinutes(option.minutes))}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <label className="text-xs text-gray-600">Due date</label>
+              <Input
+                type="date"
+                value={reminderDraft.date}
+                onChange={(e) => setReminderDraft(prev => ({ ...prev, date: e.target.value }))}
+                className="h-8 mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Due time</label>
+              <Input
+                type="time"
+                value={reminderDraft.time}
+                onChange={(e) => setReminderDraft(prev => ({ ...prev, time: e.target.value }))}
+                className="h-8 mt-1"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={handleCreateReminder}>
@@ -481,34 +633,38 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               {link.toType === 'meta_definition' ? 'Definition' : 'Exercise'}
             </span>
             <span className="text-gray-800">{link.toCode}</span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => handleRemoveRelevantLink(link)}
-            >
-              Remove
-            </Button>
+            {isEditMode && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleRemoveRelevantLink(link)}
+              >
+                Remove
+              </Button>
+            )}
           </div>
         ))}
-        <div className="flex items-center gap-2">
-          <select
-            value={newRelation.toType}
-            onChange={(e) => setNewRelation(prev => ({ ...prev, toType: e.target.value as RelationDraft['toType'] }))}
-            className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
-          >
-            <option value="meta_definition">Definition</option>
-            <option value="meta_exercise">Exercise</option>
-          </select>
-          <Input
-            value={newRelation.toCode}
-            onChange={(e) => setNewRelation(prev => ({ ...prev, toCode: e.target.value }))}
-            className="h-7 text-xs"
-            placeholder="Target code"
-          />
-          <Button size="sm" variant="outline" onClick={handleAddRelevantLink}>
-            Add
-          </Button>
-        </div>
+        {isEditMode && (
+          <div className="flex items-center gap-2">
+            <select
+              value={newRelation.toType}
+              onChange={(e) => setNewRelation(prev => ({ ...prev, toType: e.target.value as RelationDraft['toType'] }))}
+              className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
+            >
+              <option value="meta_definition">Definition</option>
+              <option value="meta_exercise">Exercise</option>
+            </select>
+            <Input
+              value={newRelation.toCode}
+              onChange={(e) => setNewRelation(prev => ({ ...prev, toCode: e.target.value }))}
+              className="h-7 text-xs"
+              placeholder="Target code"
+            />
+            <Button size="sm" variant="outline" onClick={handleAddRelevantLink}>
+              Add
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

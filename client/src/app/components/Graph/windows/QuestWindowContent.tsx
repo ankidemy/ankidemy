@@ -55,6 +55,22 @@ const isQuestVisibility = (value: string): value is QuestVisibility => value ===
 const isRelationToType = (value: string): value is RelationDraft['toType'] =>
   value === 'meta_definition' || value === 'meta_exercise' || value === 'source' || value === 'meta_quest';
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+const toLocalDateInputValue = (date: Date) => {
+  const yyyy = date.getFullYear();
+  const mm = pad2(date.getMonth() + 1);
+  const dd = pad2(date.getDate());
+  return `${yyyy}-${mm}-${dd}`;
+};
+const toLocalTimeInputValue = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+const getDueDraftFromOffsetMinutes = (offsetMinutes: number) => {
+  const date = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  return {
+    date: toLocalDateInputValue(date),
+    time: toLocalTimeInputValue(date),
+  };
+};
+
 export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   windowId,
   questData,
@@ -525,6 +541,31 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     }
     return (
       <div className={variant === 'frenzy' ? "space-y-2" : "space-y-3"}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium text-gray-600">Remind in:</span>
+          {[
+            { label: '15 min', minutes: 15 },
+            { label: '1 hour', minutes: 60 },
+            { label: '6 hours', minutes: 6 * 60 },
+            { label: '1 day', minutes: 24 * 60 },
+            { label: '1 week', minutes: 7 * 24 * 60 },
+          ].map(option => (
+            <Button
+              key={option.label}
+              type="button"
+              size="sm"
+              variant="outline"
+              className={variant === 'frenzy' ? "h-7 px-2 text-[11px]" : "h-7 px-2 text-xs"}
+              onClick={() => {
+                const draft = getDueDraftFromOffsetMinutes(option.minutes);
+                setDueDateDraft(draft.date);
+                setDueTimeDraft(draft.time);
+              }}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-gray-600">Set date</label>
