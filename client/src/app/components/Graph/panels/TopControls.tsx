@@ -9,8 +9,9 @@ import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
-import { getSurveyQueue, SurveyQueueItem } from '@/lib/api';
+import { getSurveyQueue, postSurveyEvent, SurveyQueueItem } from '@/lib/api';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
+import { showToast } from '@/app/components/core/ToastNotification';
 
 const getBrowserTimeZone = () => {
   if (typeof window === 'undefined') return 'UTC';
@@ -23,7 +24,8 @@ const getBrowserTimeZone = () => {
 
 const getSupportedTimeZones = () => {
   try {
-    const supported = (Intl as any).supportedValuesOf?.('timeZone');
+    const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+    const supported = intlWithSupportedValues.supportedValuesOf?.('timeZone');
     if (Array.isArray(supported)) return supported;
   } catch {}
   return [
@@ -73,6 +75,7 @@ interface TopControlsProps {
   onEnroll?: () => void;
   onOpenSurvey?: () => void;
   surveyDueCount?: number;
+  onSurveyDueCountUpdated?: (count: number) => void;
   
   // Graph state info (dev)
   graphDimensions?: { width: number; height: number; availableWidth: number; availableHeight: number };
@@ -94,6 +97,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   onEnroll,
   onOpenSurvey,
   surveyDueCount = 0,
+  onSurveyDueCountUpdated,
   graphDimensions,
   currentDomainId,
   onNavigateToNode,
@@ -115,6 +119,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [surveyQueue, setSurveyQueue] = useState<SurveyQueueItem[]>([]);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [surveyCompletingQuestId, setSurveyCompletingQuestId] = useState<number | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const [optionsSaving, setOptionsSaving] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -190,11 +195,12 @@ const TopControls: React.FC<TopControlsProps> = ({
 
   useEffect(() => {
     if (!currentDomainId) return;
+    if ((srs.state.currentDomainId ?? null) !== currentDomainId) return;
     lastSeenReviewIdsRef.current = new Set(
       dueReviews.map(review => `${review.nodeType}_${review.nodeId}`)
     );
     setHasNewDue(false);
-  }, [currentDomainId]);
+  }, [currentDomainId, dueReviews, srs.state.currentDomainId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -292,13 +298,33 @@ const TopControls: React.FC<TopControlsProps> = ({
     try {
       const items = await getSurveyQueue(currentDomainId);
       setSurveyQueue(items);
+      onSurveyDueCountUpdated?.(items.length);
     } catch (error) {
       console.warn('Failed to refresh survey queue:', error);
       setSurveyError('Failed to load survey queue.');
     } finally {
       setSurveyLoading(false);
     }
-  }, [currentDomainId]);
+  }, [currentDomainId, onSurveyDueCountUpdated]);
+
+  const handleCompleteSurveyQuest = useCallback(async (item: SurveyQueueItem) => {
+    if (!item?.questId) return;
+    setSurveyCompletingQuestId(item.questId);
+    try {
+      await postSurveyEvent({
+        metaQuestId: item.questId,
+        eventType: 'completed',
+        questVersionId: item.selectedVersionId,
+      });
+      await refreshSurveyQueue();
+      showToast('Quest completed.', 'success');
+    } catch (error) {
+      console.warn('Failed to complete quest:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to complete quest.', 'error');
+    } finally {
+      setSurveyCompletingQuestId(null);
+    }
+  }, [refreshSurveyQueue]);
 
   useEffect(() => {
     if (!showSurveyQueue) {
@@ -562,14 +588,28 @@ const TopControls: React.FC<TopControlsProps> = ({
               <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-xl border z-30 overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                   <div className="text-sm font-semibold text-gray-800">Survey Queue</div>
-                  <button
-                    type="button"
-                    onClick={refreshSurveyQueue}
-                    className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-orange-500"
-                  >
-                    <RefreshCw size={12} />
-                    Refresh
-                  </button>
+                  <div className="flex items-center gap-3 text-xs">
+                    {onOpenSurvey && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenSurvey();
+                          setShowSurveyQueue(false);
+                        }}
+                        className="text-gray-500 hover:text-orange-500"
+                      >
+                        Open window
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={refreshSurveyQueue}
+                      className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-orange-500"
+                    >
+                      <RefreshCw size={12} />
+                      Refresh
+                    </button>
+                  </div>
                 </div>
                 <div className="max-h-80 overflow-y-auto">
                   {surveyLoading ? (
@@ -582,33 +622,50 @@ const TopControls: React.FC<TopControlsProps> = ({
                     <ul className="py-2">
                       {surveyQueue.map((item) => (
                         <li key={item.questId}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (onNavigateToNode && item.questCode) {
-                                onNavigateToNode(item.questCode);
-                              }
-                              setShowSurveyQueue(false);
-                            }}
-                            className="w-full text-left px-4 py-3 hover:bg-amber-50 transition-colors"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium text-gray-800 truncate">
-                                {item.questName || item.questCode}
-                              </span>
-                              <span className="text-[10px] font-semibold uppercase text-gray-400">
-                                {item.questKind}
-                              </span>
+                          <div className="px-4 py-3 hover:bg-amber-50 transition-colors">
+                            <div className="flex items-start gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onNavigateToNode && item.questCode) {
+                                    onNavigateToNode(item.questCode);
+                                  } else if (onOpenSurvey) {
+                                    onOpenSurvey();
+                                  }
+                                  setShowSurveyQueue(false);
+                                }}
+                                className="flex-1 text-left"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm font-medium text-gray-800 truncate">
+                                    {item.questName || item.questCode}
+                                  </span>
+                                  <span className="text-[10px] font-semibold uppercase text-gray-400">
+                                    {item.questKind}
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                                  <span className="truncate">{item.questCode}</span>
+                                  <span>
+                                    {item.nextDueAt
+                                      ? `${item.isOverdue ? 'Overdue' : 'Due'} ${new Date(item.nextDueAt).toLocaleString()}`
+                                      : 'Not scheduled'}
+                                  </span>
+                                </div>
+                              </button>
+
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => handleCompleteSurveyQuest(item)}
+                                disabled={surveyCompletingQuestId === item.questId}
+                                title="Complete quest"
+                              >
+                                {surveyCompletingQuestId === item.questId ? '…' : 'Complete'}
+                              </Button>
                             </div>
-                            <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                              <span className="truncate">{item.questCode}</span>
-                              <span>
-                                {item.nextDueAt
-                                  ? `${item.isOverdue ? 'Overdue' : 'Due'} ${new Date(item.nextDueAt).toLocaleString()}`
-                                  : 'Not scheduled'}
-                              </span>
-                            </div>
-                          </button>
+                          </div>
                         </li>
                       ))}
                     </ul>

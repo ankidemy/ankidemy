@@ -3061,10 +3061,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           showToast(`Could not navigate to exercise ${nodeId}.`, "error"); 
         }
       }, 300);
+    } else if (currentStructuralGraphData.quests?.[nodeId]) {
+      const questData = currentStructuralGraphData.quests[nodeId];
+      ui.openQuestWindow(questData.code, questData);
     } else {
       showToast(`Node ${nodeId} not found in the current view.`, "warning");
     }
-  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode]);
+  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui]);
 
   // Available definitions for modals (as prerequisite candidates)
   const availableDefinitionsForModals = useMemo(() => {
@@ -6798,6 +6801,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onEnroll={() => setShowEnrollmentModal(true)}
           onOpenSurvey={() => ui.openSurveyWindow()}
           surveyDueCount={surveyDueCount}
+          onSurveyDueCountUpdated={setSurveyDueCount}
           currentDomainId={parseInt(subjectMatterId, 10)}
           canEdit={canEdit}
           isEnrolled={hasAccess ?? undefined}
