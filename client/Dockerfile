@@ -1,4 +1,4 @@
-FROM node:18-slim AS deps
+FROM node:20-slim AS deps
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Build stage
-FROM node:18-slim AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # Production stage
-FROM node:18-slim AS production
+FROM node:20-slim AS production
 
 WORKDIR /app
 

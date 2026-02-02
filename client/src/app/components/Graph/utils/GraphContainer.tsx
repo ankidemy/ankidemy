@@ -5,6 +5,7 @@
 
 import React, { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import type { ForceGraphMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
 import { AppMode, GraphNode, GraphLink, FilteredNodeType } from './types';
 import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
 import { CreditFlowAnimation } from '@/types/srs';
@@ -91,22 +92,34 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const rafRefreshRef = useRef<number | null>(null);
   const prewarmKeyRef = useRef<string>('');
   const [graphInstanceNonce, setGraphInstanceNonce] = useState(0);
-  const lastGraphInstanceRef = useRef<any>(null);
+  const graphRefPropRef = useRef(graphRef);
+  graphRefPropRef.current = graphRef;
+  const lastGraphInstanceRef = useRef<ForceGraphMethods<NodeObject, LinkObject> | null>(null);
+  const graphInstanceRef = useMemo<React.MutableRefObject<ForceGraphMethods<NodeObject, LinkObject> | undefined>>(() => {
+    // `react-force-graph-2d` is loaded via `next/dynamic`, so the instance can
+    // mount later without re-rendering this component. Use a ref object with a
+    // setter to mirror the instance into the shared `graphRef` immediately.
+    let current: ForceGraphMethods<NodeObject, LinkObject> | undefined;
+    return {
+      get current() {
+        return current;
+      },
+      set current(instance) {
+        const next = instance ?? undefined;
+        current = next;
 
-  const handleGraphInstanceRef = useCallback((instance: any) => {
-    // `react-force-graph-2d` is loaded via `next/dynamic`, so this ref callback can
-    // fire after GraphContainer's first render without triggering another render.
-    // We must capture the instance here so toolbar actions (e.g. Fit) work
-    // immediately after page load.
-    if (instance && instance !== lastGraphInstanceRef.current) {
-      lastGraphInstanceRef.current = instance;
-      graphRef.current = instance;
-      setGraphInstanceNonce(n => n + 1);
-    } else if (!instance && lastGraphInstanceRef.current) {
-      lastGraphInstanceRef.current = null;
-      if (graphRef.current) graphRef.current = null;
-    }
-  }, [graphRef]);
+        const sharedGraphRef = graphRefPropRef.current;
+        if (next && next !== lastGraphInstanceRef.current) {
+          lastGraphInstanceRef.current = next;
+          sharedGraphRef.current = next as any;
+          setGraphInstanceNonce(n => n + 1);
+        } else if (!next && lastGraphInstanceRef.current) {
+          lastGraphInstanceRef.current = null;
+          if (sharedGraphRef.current) sharedGraphRef.current = null;
+        }
+      }
+    };
+  }, []);
 
   const scheduleRafRefresh = useCallback(() => {
     if (rafRefreshRef.current != null) return;
@@ -842,7 +855,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
-        ref={handleGraphInstanceRef}
+        ref={graphInstanceRef}
         graphData={memoizedGraphData}
         width={canvasWidth}
         height={canvasHeight}
