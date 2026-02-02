@@ -34,6 +34,7 @@ interface GraphContainerProps {
   selectedNodeIds: Set<string>;
   newlyCreatedNodeId: string | null;
   labelDisplayMode: LabelDisplayMode;
+  labelBackgroundEnabled?: boolean;
   onNodeClick: (node: GraphNode, event?: MouseEvent) => void;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeDrag?: (node: GraphNode) => void;
@@ -64,6 +65,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   selectedNodeIds,
   newlyCreatedNodeId,
   labelDisplayMode,
+  labelBackgroundEnabled = true,
   onNodeClick,
   onNodeHover,
   onNodeDrag,
@@ -462,7 +464,23 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
           const labelWidth = width * scale;
           const labelHeight = height * scale;
           const labelOffset = nodeSize + 6 / globalScale;
-          
+
+          if (labelBackgroundEnabled) {
+            const bg = labelRendererRef.current.getLabelBackground(width, height);
+            ctx.save();
+            // Draw behind the already-painted scene (including links), but keep
+            // text above links.
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.drawImage(
+              bg.source,
+              x - labelWidth / 2,
+              y + labelOffset,
+              labelWidth,
+              labelHeight
+            );
+            ctx.restore();
+          }
+
           ctx.drawImage(
             image,
             x - labelWidth / 2,
@@ -477,7 +495,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
       }
     }
-  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, scheduleRafRefresh, getNodeBaseSize]);
+  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundEnabled, scheduleRafRefresh, getNodeBaseSize]);
 
   // Memoized link color calculation
   const getLinkColor = useCallback((link: any) => {
@@ -903,6 +921,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.selectedNodeIds === nextProps.selectedNodeIds &&
     prevProps.newlyCreatedNodeId === nextProps.newlyCreatedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
+    prevProps.labelBackgroundEnabled === nextProps.labelBackgroundEnabled &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
     prevProps.mode === nextProps.mode &&
     prevProps.width === nextProps.width &&

@@ -14,7 +14,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import {
   getDefinitionByCode,
@@ -999,6 +999,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // UI state
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
+  const [labelBackgroundEnabled, setLabelBackgroundEnabled] = useState(() => explorerPrefs.labels?.backgroundEnabled ?? true);
   const [dagModeEnabled, setDagModeEnabled] = useState(() => explorerPrefs.dag?.enabled ?? false);
   const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>(() => explorerPrefs.dag?.orientation ?? 'td');
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
@@ -1064,6 +1065,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setDagModeEnabled(loaded.dag?.enabled ?? false);
     setDagOrientation(loaded.dag?.orientation ?? 'td');
     setToolbarDisplayMode(loaded.toolbar?.displayMode ?? 'descriptive');
+    setLabelBackgroundEnabled(loaded.labels?.backgroundEnabled ?? true);
   }, [hasNumericDomainId, numericDomainId]);
 
   useEffect(() => {
@@ -1078,6 +1080,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       },
     });
   }, [applyExplorerPrefs, dagModeEnabled, dagOrientation]);
+
+  useEffect(() => {
+    applyExplorerPrefs({
+      labels: {
+        backgroundEnabled: labelBackgroundEnabled,
+      },
+    });
+  }, [applyExplorerPrefs, labelBackgroundEnabled]);
 
   useEffect(() => {
     applyExplorerPrefs({
@@ -2918,6 +2928,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const cycleLabelDisplay = useCallback(() => {
     setLabelDisplayMode(prev => prev === 'names' ? 'codes' : prev === 'codes' ? 'off' : 'names');
+  }, []);
+
+  const toggleLabelBackground = useCallback(() => {
+    setLabelBackgroundEnabled(prev => !prev);
   }, []);
 
   const cycleQuestVisibility = useCallback(() => {
@@ -5687,6 +5701,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return { label: 'Off', icon: <EyeOff size={10} /> };
   }, [labelDisplayMode]);
 
+  const labelBackgroundConfig = useMemo(() => {
+    return { label: labelBackgroundEnabled ? 'Bg' : 'Bg Off', icon: <Layers size={10} /> };
+  }, [labelBackgroundEnabled]);
+
   const questDisplayConfig = useMemo(() => {
     if (questVisibilityMode === 'on') {
       return { label: 'Quests', icon: <RadioTower size={10} /> };
@@ -6066,6 +6084,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
+              toolboxButton(labelBackgroundConfig.label, labelBackgroundConfig.icon, {
+                onClick: toggleLabelBackground,
+                variant: labelBackgroundEnabled ? 'outline' : 'ghost',
+              }),
+            ],
+            [
               toolboxButton(questDisplayConfig.label, questDisplayConfig.icon, {
                 onClick: cycleQuestVisibility,
               }),
@@ -6246,8 +6270,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     handleDeleteGroupPrompt,
     zoomToFitVisibleNodes,
     labelDisplayConfig,
+    labelBackgroundConfig,
     questDisplayConfig,
     cycleLabelDisplay,
+    toggleLabelBackground,
+    labelBackgroundEnabled,
     cycleQuestVisibility,
     dagModeEnabled,
     dagOrientation,
@@ -6838,6 +6865,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 selectedNodeIds={selectedNodeIds}
                 newlyCreatedNodeId={newlyCreatedNodeId}
                 labelDisplayMode={labelDisplayMode}
+                labelBackgroundEnabled={labelBackgroundEnabled}
                 onNodeClick={handleGraphNodeClick}
                 onNodeHover={handleNodeHover}
                 onNodeDrag={handleGraphNodeDrag}

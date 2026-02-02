@@ -11,15 +11,21 @@ export type ExplorerDagPreferences = {
   orientation?: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin';
 };
 
+export type ExplorerLabelPreferences = {
+  backgroundEnabled?: boolean;
+};
+
 export type ExplorerUIPreferences = {
   version: 1;
   toolbar?: ExplorerToolbarPreferences;
   dag?: ExplorerDagPreferences;
+  labels?: ExplorerLabelPreferences;
 };
 
 export type ExplorerUIPreferencesPatch = {
   toolbar?: ExplorerToolbarPreferences;
   dag?: ExplorerDagPreferences;
+  labels?: ExplorerLabelPreferences;
 };
 
 const STORAGE_PREFIX = 'ankidemy:explorer-ui:v1';

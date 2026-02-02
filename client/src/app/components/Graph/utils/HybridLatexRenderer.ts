@@ -17,10 +17,28 @@ const HARD_MAX_LABEL_CHARS = 2000;
 const DEFAULT_MAX_LABEL_LINES = 3;
 const DEFAULT_LINE_HEIGHT = 1.2;
 const MAX_FIT_ATTEMPTS = 7;
-// MathJax SVG output can visually extend below the container box (subscripts,
-// negative vertical-align). Add a small gutter so the foreignObject capture
-// doesn't clip the baseline descenders.
-const EXTRA_RENDER_GUTTER_BOTTOM_PX = 6;
+// Small slack to avoid shaving anti-aliased edges.
+const SVG_EDGE_SLACK_PX = 1;
+const DEFAULT_ALPHA_THRESHOLD = 8; // 0..255
+const DEFAULT_CROP_PADDING_PX = 4; // CSS px added around detected pixels
+const STAGING_PADDING_PX = 24; // CSS px margin inside staging foreignObject
+// Supersample rasterization to reduce pixelation when converting SVG/HTML to PNG.
+// Effective raster scale is roughly `devicePixelRatio * factor`.
+const RASTER_SUPERSAMPLE_FACTOR = 2;
+
+function getRasterScale(): number {
+  const dpr =
+    typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number'
+      ? window.devicePixelRatio
+      : 1;
+  return Math.max(1, Math.round(dpr * RASTER_SUPERSAMPLE_FACTOR));
+}
+
+export interface RenderedLabelBackground {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+}
 
 export interface RenderedLabel {
   image: HTMLImageElement;
@@ -232,9 +250,17 @@ function buildLabelMarkdownProcessor() {
     .use(rehypeStringify);
 }
 
+type TypesetResult = {
+  fits: boolean;
+  htmlForSvg: string;
+  // DOM-measured content box height (CSS px) used only for fit checks
+  contentHeight: number;
+};
+
 export class LabelRenderer {
   // The cache now stores the final RenderedLabel object directly.
   private cache: Map<string, RenderedLabel> = new Map();
+  private backgroundCache: Map<string, RenderedLabelBackground> = new Map();
   // A set to track which labels are currently being rendered to avoid duplicate work.
   private renderingInProgress: Set<string> = new Set();
   // Concurrency-limited queue to avoid blocking the main thread with many MathJax jobs at once
@@ -242,6 +268,7 @@ export class LabelRenderer {
   private activeCount = 0;
   private readonly maxConcurrent = 3;
   private readonly maxCacheSize = 1500;
+  private readonly maxBackgroundCacheSize = 600;
   // Markdown processor instance (built once and reused for all labels)
   private mdProcessor: ReturnType<typeof buildLabelMarkdownProcessor>;
   private readonly transparentPixel =
@@ -307,6 +334,61 @@ export class LabelRenderer {
     return this.cache.get(text);
   }
 
+  public getLabelBackground(width: number, height: number): RenderedLabelBackground {
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    const key = `${w}x${h}`;
+    const cached = this.backgroundCache.get(key);
+    if (cached) return cached;
+
+    const created = this.createBackgroundCanvas(w, h);
+    this.backgroundCache.set(key, created);
+    this.pruneBackgroundCache();
+    return created;
+  }
+
+  private pruneBackgroundCache(): void {
+    if (this.backgroundCache.size <= this.maxBackgroundCacheSize) return;
+    const oldestKey = this.backgroundCache.keys().next().value as string | undefined;
+    if (!oldestKey) return;
+    this.backgroundCache.delete(oldestKey);
+  }
+
+  private createBackgroundCanvas(width: number, height: number): RenderedLabelBackground {
+    const canvas = document.createElement('canvas');
+    const dpr = getRasterScale();
+    canvas.width = Math.max(1, Math.ceil(width * dpr));
+    canvas.height = Math.max(1, Math.ceil(height * dpr));
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(dpr, dpr);
+
+    const radius = 3;
+    const x = 0.5; // crisp 1px stroke alignment
+    const y = 0.5;
+    const w = Math.max(1, width - 1);
+    const h = Math.max(1, height - 1);
+
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    return { source: canvas, width, height };
+  }
+
   /**
    * Creates a simple fallback image using canvas when SVG method fails
    */
@@ -314,11 +396,11 @@ export class LabelRenderer {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
 
-    // Device pixel ratio aware rendering for crisp text
-    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    // Supersampled device pixel ratio aware rendering for crisp text
+    const dpr = getRasterScale();
 
     const fontSize = 12; // Keep consistent with main label renderer defaults
-    const padding = 2;   // CSS pixels
+    const padding = 4;   // CSS pixels
 
     // Measure in CSS pixels first
     ctx.font = `${fontSize}px Arial, sans-serif`;
@@ -337,15 +419,6 @@ export class LabelRenderer {
     // (has effect when browser rescales images; text is drawn at native res)
     (ctx as any).imageSmoothingEnabled = true;
     (ctx as any).imageSmoothingQuality = 'high';
-
-    // Draw background
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
-    ctx.fillRect(0, 0, widthCSS, heightCSS);
-
-    // Subtle border
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, widthCSS, heightCSS);
 
     // Draw sharp text in CSS pixel space (scaled by DPR under the hood)
     ctx.fillStyle = '#1f2937';
@@ -389,9 +462,9 @@ export class LabelRenderer {
   ): Promise<RenderedLabel> {
     const {
       fontSize = 12,
-      padding = 2,
+      padding = 4,
       color = '#333333',
-      backgroundColor = 'rgba(255, 255, 255, 0.95)',
+      backgroundColor = 'transparent',
       fontFamily = 'Arial, sans-serif',
       maxWidth = 250,
       maxLines = DEFAULT_MAX_LABEL_LINES,
@@ -406,10 +479,10 @@ export class LabelRenderer {
     })();
 
     const maxAllowedHeightPx = Math.max(
-      24,
-      // Allow a small slack so we don't truncate due to rounding differences
-      // between font metrics and getBoundingClientRect() results.
-      Math.ceil(fontSize * lineHeight * Math.max(1, maxLines) + padding * 2 + 2 + 6) // +2 border, +6 slack
+      16,
+      // Line budget should be based on the inner DOM box height (lines + padding),
+      // not any potential MathJax overflow outside the box.
+      Math.ceil(fontSize * lineHeight * Math.max(1, maxLines) + padding * 2 + 2)
     );
 
     const sanitizeAndHardenHtml = (markdownText: string): string => {
@@ -436,6 +509,7 @@ export class LabelRenderer {
           a.setAttribute('rel', 'noopener noreferrer');
         }
       });
+
       return tmp.innerHTML;
     };
 
@@ -447,17 +521,17 @@ export class LabelRenderer {
         top: -9999px;
         display: inline-block;
         box-sizing: border-box;
-        padding: ${padding}px;
+        padding: 0px;
         font-family: ${fontFamily};
         font-size: ${fontSize}px;
         color: ${color};
         background-color: ${backgroundColor};
-        border-radius: 2px;
-        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 0px;
+        border: none;
         line-height: ${lineHeight};
         max-width: ${maxWidth}px;
         overflow: visible;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
         word-break: break-word;
         visibility: visible;
       `;
@@ -486,30 +560,31 @@ export class LabelRenderer {
       });
     };
 
-    const measureAndMaybeStore = async (markdownText: string): Promise<{
-      fits: boolean;
-      width: number;
-      height: number;
-      htmlForSvg?: string;
-    }> => {
+    const dpr = getRasterScale();
+    const cropPaddingCssPx = Math.max(0, Math.round(padding ?? DEFAULT_CROP_PADDING_PX));
+    const alphaThreshold = DEFAULT_ALPHA_THRESHOLD;
+    const maxInnerHeightPx = Math.ceil(fontSize * lineHeight * Math.max(1, maxLines));
+
+    const typesetMarkdown = async (markdownText: string): Promise<TypesetResult> => {
       const html = sanitizeAndHardenHtml(markdownText);
       const container = createContainer(html);
       try {
         await typesetIfNeeded(container, markdownText);
         normalizeMathSizing(container);
 
-        // Ensure style/layout changes (including MathJax + normalizeMathSizing)
-        // are reflected before we measure.
+        // Ensure style/layout changes are reflected before we measure.
         void container.offsetHeight;
 
-        const rect = container.getBoundingClientRect();
-        const heightBox = Math.ceil(Math.max(rect.height, container.scrollHeight, container.offsetHeight));
-        const widthBox = Math.ceil(Math.max(rect.width, container.scrollWidth, container.offsetWidth));
-        const width = Math.max(20, widthBox) + 10;
-        const height = Math.max(16, heightBox) + 10 + EXTRA_RENDER_GUTTER_BOTTOM_PX;
+        // Wait for fonts to settle when available (prevents bbox drift).
+        const fontsReady = (document as any).fonts?.ready;
+        if (fontsReady && typeof fontsReady.then === 'function') {
+          try { await fontsReady; } catch {}
+        }
 
-        const fits = rect.height <= maxAllowedHeightPx;
-        return fits ? { fits, width, height, htmlForSvg: container.innerHTML } : { fits, width, height };
+        const rect = container.getBoundingClientRect();
+        const contentHeight = Math.max(1, rect.height);
+        const fits = contentHeight <= maxInnerHeightPx + 0.5;
+        return { fits, htmlForSvg: container.innerHTML, contentHeight };
       } finally {
         const mj = (window as any).MathJax;
         if (mj?.typesetClear) {
@@ -521,27 +596,34 @@ export class LabelRenderer {
       }
     };
 
-    const buildSvgString = (htmlForSvg: string, width: number, height: number): string => {
-      const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-      return `
-        <svg xmlns="http://www.w3.org/2000/svg" width="${width * dpr}" height="${height * dpr}" viewBox="0 0 ${width} ${height}">
-          <foreignObject x="0" y="0" width="${width}" height="${height}">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="padding: ${padding}px; font-family: ${fontFamily}; font-size: ${fontSize}px; color: ${color}; background-color: ${backgroundColor}; border-radius: 2px; border: 1px solid rgba(0,0,0,0.1); line-height: ${lineHeight}; max-width: ${maxWidth}px; overflow: visible; overflow-wrap: anywhere; word-break: break-word; display: inline-block; box-sizing: border-box;">
-              ${htmlForSvg}
+    const svgStringForTypesetHtml = (htmlForSvg: string): { svgString: string; stageWidthCss: number; stageHeightCss: number } => {
+      // Staging surface must be roomy to avoid foreignObject clipping; final
+      // dimensions come from pixel alpha-scan cropping.
+      const stageWidthCss = Math.ceil(maxWidth + STAGING_PADDING_PX * 2);
+      const stageHeightCss = Math.ceil(maxAllowedHeightPx + STAGING_PADDING_PX * 2 + fontSize * 2);
+
+      const svgString = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="${stageWidthCss * dpr}" height="${stageHeightCss * dpr}" viewBox="0 0 ${stageWidthCss} ${stageHeightCss}">
+          <foreignObject x="0" y="0" width="${stageWidthCss}" height="${stageHeightCss}">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="width:${stageWidthCss}px;height:${stageHeightCss}px;">
+              <div style="display:inline-block; margin:${STAGING_PADDING_PX}px; font-family:${fontFamily}; font-size:${fontSize}px; color:${color}; line-height:${lineHeight}; max-width:${maxWidth}px; background:transparent; border:none; overflow-wrap:break-word; word-break:break-word;">
+                ${htmlForSvg}
+              </div>
             </div>
           </foreignObject>
         </svg>`;
+
+      return { svgString, stageWidthCss, stageHeightCss };
     };
 
-    const svgToImage = (svgString: string, width: number, height: number): Promise<RenderedLabel> =>
+    const svgToImageElement = (svgString: string): Promise<HTMLImageElement> =>
       new Promise((resolve, reject) => {
         const image = new Image();
         const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
-
         image.onload = () => {
-          resolve({ image, width, height });
           URL.revokeObjectURL(url);
+          resolve(image);
         };
         image.onerror = (err) => {
           URL.revokeObjectURL(url);
@@ -550,13 +632,101 @@ export class LabelRenderer {
         image.src = url;
       });
 
+    const alphaCrop = async (image: HTMLImageElement): Promise<RenderedLabel> => {
+      const naturalWidth = (image as any).naturalWidth ?? image.width;
+      const naturalHeight = (image as any).naturalHeight ?? image.height;
+      const w = Math.max(1, Number(naturalWidth) || 1);
+      const h = Math.max(1, Number(naturalHeight) || 1);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
+      if (!ctx) {
+        // Worst-case fallback: no crop, but still return correct CSS size.
+        return { image, width: w / dpr, height: h / dpr };
+      }
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(image, 0, 0);
+
+      const img = ctx.getImageData(0, 0, w, h);
+      const data = img.data;
+
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+      for (let y = 0; y < h; y++) {
+        const row = y * w;
+        for (let x = 0; x < w; x++) {
+          const a = data[(row + x) * 4 + 3];
+          if (a >= alphaThreshold) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        return this.createTransparentLabel();
+      }
+
+      const padPx = Math.max(0, Math.round(cropPaddingCssPx * dpr)) + Math.round(SVG_EDGE_SLACK_PX * dpr);
+      const x0 = Math.max(0, minX - padPx);
+      const y0 = Math.max(0, minY - padPx);
+      const x1 = Math.min(w - 1, maxX + padPx);
+      const y1 = Math.min(h - 1, maxY + padPx);
+      const cropW = Math.max(1, x1 - x0 + 1);
+      const cropH = Math.max(1, y1 - y0 + 1);
+
+      const out = document.createElement('canvas');
+      out.width = cropW;
+      out.height = cropH;
+      const outCtx = out.getContext('2d')!;
+      outCtx.drawImage(canvas, x0, y0, cropW, cropH, 0, 0, cropW, cropH);
+
+      const croppedImage = await new Promise<HTMLImageElement>((resolve) => {
+        const done = (src: string) => {
+          const imgEl = new Image();
+          imgEl.onload = () => resolve(imgEl);
+          imgEl.src = src;
+        };
+        if (out.toBlob) {
+          out.toBlob((blob) => {
+            if (!blob) {
+              done(out.toDataURL());
+              return;
+            }
+            const url = URL.createObjectURL(blob);
+            const imgEl = new Image();
+            imgEl.onload = () => {
+              try { URL.revokeObjectURL(url); } catch {}
+              resolve(imgEl);
+            };
+            imgEl.onerror = () => {
+              try { URL.revokeObjectURL(url); } catch {}
+              resolve(imgEl);
+            };
+            imgEl.src = url;
+          }, 'image/png');
+        } else {
+          done(out.toDataURL());
+        }
+      });
+
+      // If we used a blob URL, it may already have been revoked after load; cache eviction
+      // can still attempt to revoke without harm.
+      return { image: croppedImage, width: cropW / dpr, height: cropH / dpr };
+    };
+
     // First: attempt full render without truncation. This fixes cases where
     // formulas were previously chopped purely due to a character cap even
     // though wrapping would have fit them.
     try {
-      const full = await measureAndMaybeStore(baseText);
-      if (full.fits && full.htmlForSvg) {
-        return await svgToImage(buildSvgString(full.htmlForSvg, full.width, full.height), full.width, full.height);
+      const full = await typesetMarkdown(baseText);
+      if (full.fits) {
+        const { svgString } = svgStringForTypesetHtml(full.htmlForSvg);
+        const staged = await svgToImageElement(svgString);
+        return await alphaCrop(staged);
       }
     } catch {
       return await this.createFallbackImage(baseText);
@@ -564,7 +734,8 @@ export class LabelRenderer {
 
     // Second: if it doesn't fit, search for the longest smart-truncated text
     // that fits within the max line budget.
-    let best: { text: string; width: number; height: number; htmlForSvg: string } | null = null;
+    // If full text doesn't fit, search for the longest safe truncation that fits.
+    let bestFit: TypesetResult | null = null;
     let low = 1;
     let high = baseText.length;
     let attempts = 0;
@@ -575,9 +746,9 @@ export class LabelRenderer {
       const candidate = smartTruncateTeXGfm(baseText, mid).text;
 
       try {
-        const measured = await measureAndMaybeStore(candidate);
-        if (measured.fits && measured.htmlForSvg) {
-          best = { text: candidate, width: measured.width, height: measured.height, htmlForSvg: measured.htmlForSvg };
+        const measured = await typesetMarkdown(candidate);
+        if (measured.fits) {
+          bestFit = measured;
           low = mid + 1;
         } else {
           high = mid - 1;
@@ -587,17 +758,19 @@ export class LabelRenderer {
       }
     }
 
-    if (best) {
-      return await svgToImage(buildSvgString(best.htmlForSvg, best.width, best.height), best.width, best.height);
+    if (bestFit) {
+      const { svgString } = svgStringForTypesetHtml(bestFit.htmlForSvg);
+      const staged = await svgToImageElement(svgString);
+      return await alphaCrop(staged);
     }
 
     // Last resort: fall back to the legacy truncation cap so we always render something.
     const legacy = smartTruncateTeXGfm(baseText, LEGACY_MAX_LABEL_CHARS).text;
     try {
-      const measured = await measureAndMaybeStore(legacy);
-      if (measured.htmlForSvg) {
-        return await svgToImage(buildSvgString(measured.htmlForSvg, measured.width, measured.height), measured.width, measured.height);
-      }
+      const measured = await typesetMarkdown(legacy);
+      const { svgString } = svgStringForTypesetHtml(measured.htmlForSvg);
+      const staged = await svgToImageElement(svgString);
+      return await alphaCrop(staged);
     } catch {}
 
     return await this.createFallbackImage(legacy);
@@ -626,6 +799,7 @@ export class LabelRenderer {
     this.cache.forEach(renderedLabel => this.revokeObjectURL(renderedLabel));
     this.cache.clear();
     this.renderingInProgress.clear();
+    this.backgroundCache.clear();
   }
 
   private revokeObjectURL(renderedLabel: RenderedLabel): void {
