@@ -9,7 +9,18 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeStringify from 'rehype-stringify';
 
 // Maximum characters for graph label truncation
-const MAX_LABEL_CHARS = 140;
+// NOTE: We do *not* hard-truncate all labels by character count anymore. We first
+// try to render the full label within a max line budget (see createImageFromText)
+// and only truncate if it exceeds that budget.
+const LEGACY_MAX_LABEL_CHARS = 140;
+const HARD_MAX_LABEL_CHARS = 2000;
+const DEFAULT_MAX_LABEL_LINES = 3;
+const DEFAULT_LINE_HEIGHT = 1.2;
+const MAX_FIT_ATTEMPTS = 7;
+// MathJax SVG output can visually extend below the container box (subscripts,
+// negative vertical-align). Add a small gutter so the foreignObject capture
+// doesn't clip the baseline descenders.
+const EXTRA_RENDER_GUTTER_BOTTOM_PX = 6;
 
 export interface RenderedLabel {
   image: HTMLImageElement;
@@ -24,6 +35,8 @@ interface RenderOptions {
   backgroundColor?: string;
   fontFamily?: string;
   maxWidth?: number;
+  maxLines?: number;
+  lineHeight?: number;
 }
 
 type RenderCallback = () => void;
@@ -35,7 +48,7 @@ type RenderCallback = () => void;
  */
 export function smartTruncateTeXGfm(
   input: string,
-  maxChars = MAX_LABEL_CHARS
+  maxChars = LEGACY_MAX_LABEL_CHARS
 ): { text: string; wasTruncated: boolean } {
   if (!input || input.length <= maxChars) {
     return { text: input, wasTruncated: false };
@@ -304,7 +317,7 @@ export class LabelRenderer {
     // Device pixel ratio aware rendering for crisp text
     const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
 
-    const fontSize = 14; // CSS pixels seen by ForceGraph coordinates
+    const fontSize = 12; // Keep consistent with main label renderer defaults
     const padding = 2;   // CSS pixels
 
     // Measure in CSS pixels first
@@ -381,91 +394,147 @@ export class LabelRenderer {
       backgroundColor = 'rgba(255, 255, 255, 0.95)',
       fontFamily = 'Arial, sans-serif',
       maxWidth = 250,
+      maxLines = DEFAULT_MAX_LABEL_LINES,
+      lineHeight = DEFAULT_LINE_HEIGHT,
     } = options;
 
-    // 1. Smart truncation that preserves TeX delimiters and code spans
-    const { text: truncatedText } = smartTruncateTeXGfm(text, MAX_LABEL_CHARS);
+    const baseText = (() => {
+      const raw = text ?? '';
+      if (raw.length <= HARD_MAX_LABEL_CHARS) return raw;
+      // Guardrail against pathological long labels (keeps rendering bounded)
+      return smartTruncateTeXGfm(raw, HARD_MAX_LABEL_CHARS).text;
+    })();
 
-    // 2. Convert Markdown (with GFM) to sanitized HTML, preserving TeX delimiters for MathJax
-    let html = String(this.mdProcessor.processSync(truncatedText));
+    const maxAllowedHeightPx = Math.max(
+      24,
+      // Allow a small slack so we don't truncate due to rounding differences
+      // between font metrics and getBoundingClientRect() results.
+      Math.ceil(fontSize * lineHeight * Math.max(1, maxLines) + padding * 2 + 2 + 6) // +2 border, +6 slack
+    );
 
-    // Post-process HTML: ensure paragraph margins don't introduce extra spacing
-    // Add inline style margin:0 to all <p> elements (sanitizer stripped styles earlier)
-    if (html.includes('<p')) {
-      html = html.replace(/<p(?![^>]*style=)/g, '<p style="margin:0"');
-    }
+    const sanitizeAndHardenHtml = (markdownText: string): string => {
+      let html = String(this.mdProcessor.processSync(markdownText));
 
-    // Harden <a> tags: enforce target/rel and reject unsafe protocols
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    tmp.querySelectorAll('a').forEach(a => {
-      const href = a.getAttribute('href') || '';
-      const isExternal = /^(https?:)?\/\//i.test(href);
-      // Drop obviously unsafe protocols if somehow present
-      if (/^\s*javascript:/i.test(href)) {
-        a.removeAttribute('href');
+      // Post-process HTML: ensure paragraph margins don't introduce extra spacing
+      // Add inline style margin:0 to all <p> elements (sanitizer stripped styles earlier)
+      if (html.includes('<p')) {
+        html = html.replace(/<p(?![^>]*style=)/g, '<p style="margin:0"');
       }
-      if (isExternal) {
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
+
+      // Harden <a> tags: enforce target/rel and reject unsafe protocols
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      tmp.querySelectorAll('a').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        const isExternal = /^(https?:)?\/\//i.test(href);
+        // Drop obviously unsafe protocols if somehow present
+        if (/^\s*javascript:/i.test(href) || /^\s*data:/i.test(href)) {
+          a.removeAttribute('href');
+        }
+        if (isExternal) {
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener noreferrer');
+        }
+      });
+      return tmp.innerHTML;
+    };
+
+    const createContainer = (html: string): HTMLDivElement => {
+      const container = document.createElement('div');
+      container.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        top: -9999px;
+        display: inline-block;
+        box-sizing: border-box;
+        padding: ${padding}px;
+        font-family: ${fontFamily};
+        font-size: ${fontSize}px;
+        color: ${color};
+        background-color: ${backgroundColor};
+        border-radius: 2px;
+        border: 1px solid rgba(0,0,0,0.1);
+        line-height: ${lineHeight};
+        max-width: ${maxWidth}px;
+        overflow: visible;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        visibility: visible;
+      `;
+      container.innerHTML = html;
+      document.body.appendChild(container);
+      return container;
+    };
+
+    const typesetIfNeeded = async (container: HTMLDivElement, fallbackText: string) => {
+      if (!(window as any).MathJax?.typesetPromise) return;
+      try {
+        await (window as any).MathJax.typesetPromise([container]);
+      } catch {
+        throw new Error(`MathJax typeset failed for label: ${fallbackText}`);
       }
-    });
-    html = tmp.innerHTML;
+    };
 
-    // 3. Create a temporary off-screen div to render the content with styles.
-    const container = document.createElement('div');
-    container.style.cssText = `
-      position: absolute;
-      left: -9999px;
-      top: -9999px;
-      display: inline-block;
-      padding: ${padding}px;
-      font-family: ${fontFamily};
-      font-size: ${fontSize}px;
-      color: ${color};
-      background-color: ${backgroundColor};
-      border-radius: 2px;
-      border: 1px solid rgba(0,0,0,0.1);
-      line-height: 1.2;
-      max-width: ${maxWidth}px;
-      word-wrap: break-word;
-      visibility: visible;
-    `;
-    // Set sanitized HTML from Markdown processor (MathJax will parse TeX delimiters in the HTML)
-    container.innerHTML = html;
-    document.body.appendChild(container);
+    const normalizeMathSizing = (container: HTMLDivElement) => {
+      // MathJax SVG output can look slightly larger than adjacent text in a
+      // foreignObject capture. Nudge it down to visually match surrounding
+      // markdown text.
+      container.querySelectorAll('mjx-container').forEach(el => {
+        const node = el as HTMLElement;
+        node.style.fontSize = '0.95em';
+        node.style.lineHeight = '1';
+      });
+    };
 
-    try {
-      // 4. Typeset LaTeX with MathJax.
-      if ((window as any).MathJax?.typesetPromise) {
-        try {
-          await (window as any).MathJax.typesetPromise([container]);
-        } catch {
-          return await this.createFallbackImage(truncatedText);
+    const measureAndMaybeStore = async (markdownText: string): Promise<{
+      fits: boolean;
+      width: number;
+      height: number;
+      htmlForSvg?: string;
+    }> => {
+      const html = sanitizeAndHardenHtml(markdownText);
+      const container = createContainer(html);
+      try {
+        await typesetIfNeeded(container, markdownText);
+        normalizeMathSizing(container);
+
+        // Ensure style/layout changes (including MathJax + normalizeMathSizing)
+        // are reflected before we measure.
+        void container.offsetHeight;
+
+        const rect = container.getBoundingClientRect();
+        const heightBox = Math.ceil(Math.max(rect.height, container.scrollHeight, container.offsetHeight));
+        const widthBox = Math.ceil(Math.max(rect.width, container.scrollWidth, container.offsetWidth));
+        const width = Math.max(20, widthBox) + 10;
+        const height = Math.max(16, heightBox) + 10 + EXTRA_RENDER_GUTTER_BOTTOM_PX;
+
+        const fits = rect.height <= maxAllowedHeightPx;
+        return fits ? { fits, width, height, htmlForSvg: container.innerHTML } : { fits, width, height };
+      } finally {
+        const mj = (window as any).MathJax;
+        if (mj?.typesetClear) {
+          try { mj.typesetClear([container]); } catch {}
+        }
+        if (document.body.contains(container)) {
+          document.body.removeChild(container);
         }
       }
+    };
 
-      // 5. Measure the final dimensions of the rendered div.
-      const rect = container.getBoundingClientRect();
-      const width = Math.max(20, Math.ceil(rect.width)) + 10;
-      const height = Math.max(16, Math.ceil(rect.height)) + 10;
-
-      // Render at device-pixel ratio for crisp results while keeping CSS size
+    const buildSvgString = (htmlForSvg: string, width: number, height: number): string => {
       const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-
-      // 6. Create an SVG with <foreignObject> to capture the styled HTML.
-      // This is the magic step that leverages the browser's high-quality rendering engine.
-      const svgString = `
+      return `
         <svg xmlns="http://www.w3.org/2000/svg" width="${width * dpr}" height="${height * dpr}" viewBox="0 0 ${width} ${height}">
           <foreignObject x="0" y="0" width="${width}" height="${height}">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="padding: ${padding}px; font-family: ${fontFamily}; font-size: ${fontSize}px; color: ${color}; background-color: ${backgroundColor}; border-radius: 2px; border: 1px solid rgba(0,0,0,0.1); line-height: 1.05; max-width: ${maxWidth}px; word-wrap: break-word; display: inline-block; box-sizing: border-box;">
-              ${container.innerHTML}
+            <div xmlns="http://www.w3.org/1999/xhtml" style="padding: ${padding}px; font-family: ${fontFamily}; font-size: ${fontSize}px; color: ${color}; background-color: ${backgroundColor}; border-radius: 2px; border: 1px solid rgba(0,0,0,0.1); line-height: ${lineHeight}; max-width: ${maxWidth}px; overflow: visible; overflow-wrap: anywhere; word-break: break-word; display: inline-block; box-sizing: border-box;">
+              ${htmlForSvg}
             </div>
           </foreignObject>
         </svg>`;
+    };
 
-      // 7. Convert the SVG string into a usable Image object via a Blob.
-      return new Promise((resolve, reject) => {
+    const svgToImage = (svgString: string, width: number, height: number): Promise<RenderedLabel> =>
+      new Promise((resolve, reject) => {
         const image = new Image();
         const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
@@ -480,16 +549,58 @@ export class LabelRenderer {
         };
         image.src = url;
       });
-    } finally {
-      const mj = (window as any).MathJax;
-      if (mj?.typesetClear) {
-        try { mj.typesetClear([container]); } catch {}
+
+    // First: attempt full render without truncation. This fixes cases where
+    // formulas were previously chopped purely due to a character cap even
+    // though wrapping would have fit them.
+    try {
+      const full = await measureAndMaybeStore(baseText);
+      if (full.fits && full.htmlForSvg) {
+        return await svgToImage(buildSvgString(full.htmlForSvg, full.width, full.height), full.width, full.height);
       }
-      // 8. Always clean up the temporary div.
-      if (document.body.contains(container)) {
-        document.body.removeChild(container);
+    } catch {
+      return await this.createFallbackImage(baseText);
+    }
+
+    // Second: if it doesn't fit, search for the longest smart-truncated text
+    // that fits within the max line budget.
+    let best: { text: string; width: number; height: number; htmlForSvg: string } | null = null;
+    let low = 1;
+    let high = baseText.length;
+    let attempts = 0;
+
+    while (low <= high && attempts < MAX_FIT_ATTEMPTS) {
+      attempts++;
+      const mid = Math.floor((low + high) / 2);
+      const candidate = smartTruncateTeXGfm(baseText, mid).text;
+
+      try {
+        const measured = await measureAndMaybeStore(candidate);
+        if (measured.fits && measured.htmlForSvg) {
+          best = { text: candidate, width: measured.width, height: measured.height, htmlForSvg: measured.htmlForSvg };
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      } catch {
+        high = mid - 1;
       }
     }
+
+    if (best) {
+      return await svgToImage(buildSvgString(best.htmlForSvg, best.width, best.height), best.width, best.height);
+    }
+
+    // Last resort: fall back to the legacy truncation cap so we always render something.
+    const legacy = smartTruncateTeXGfm(baseText, LEGACY_MAX_LABEL_CHARS).text;
+    try {
+      const measured = await measureAndMaybeStore(legacy);
+      if (measured.htmlForSvg) {
+        return await svgToImage(buildSvgString(measured.htmlForSvg, measured.width, measured.height), measured.width, measured.height);
+      }
+    } catch {}
+
+    return await this.createFallbackImage(legacy);
   }
 
   /**
