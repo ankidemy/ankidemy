@@ -12,6 +12,17 @@ export type ExplorerDagPreferences = {
 };
 
 export type ExplorerLabelPreferences = {
+  /**
+   * Label background rendering mode.
+   * - off: no label background image
+   * - behind_links: background drawn behind links (links overlay)
+   * - behind_text: background drawn above links but behind text (classic/legacy)
+   */
+  backgroundMode?: 'off' | 'behind_links' | 'behind_text';
+  /**
+   * Legacy boolean (pre-3-state toggle). Kept for backwards compatibility with
+   * older stored preferences.
+   */
   backgroundEnabled?: boolean;
 };
 

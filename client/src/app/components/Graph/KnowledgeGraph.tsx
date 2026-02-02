@@ -98,7 +98,7 @@ import {
   FilteredNodeType,
   KnowledgeGraphProps,
 } from './utils/types';
-import GraphContainer, { LabelDisplayMode } from './utils/GraphContainer';
+import GraphContainer, { LabelBackgroundMode, LabelDisplayMode } from './utils/GraphContainer';
 import GraphLegend from './utils/GraphLegend';
 import { GraphLifecycle } from './utils/GraphLifecycle';
 import TopControls from './panels/TopControls';
@@ -999,7 +999,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // UI state
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('names');
-  const [labelBackgroundEnabled, setLabelBackgroundEnabled] = useState(() => explorerPrefs.labels?.backgroundEnabled ?? true);
+  const [labelBackgroundMode, setLabelBackgroundMode] = useState<LabelBackgroundMode>(() => {
+    const storedMode = explorerPrefs.labels?.backgroundMode;
+    if (storedMode) return storedMode as LabelBackgroundMode;
+    // Backward compatibility: legacy boolean maps to the previously shipped "behind links" mode.
+    const legacy = explorerPrefs.labels?.backgroundEnabled;
+    if (legacy === false) return 'off';
+    if (legacy === true) return 'behind_links';
+    return 'behind_links';
+  });
   const [dagModeEnabled, setDagModeEnabled] = useState(() => explorerPrefs.dag?.enabled ?? false);
   const [dagOrientation, setDagOrientation] = useState<'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin'>(() => explorerPrefs.dag?.orientation ?? 'td');
   const [expandedCycleIds, setExpandedCycleIds] = useState<Set<string>>(new Set());
@@ -1058,15 +1066,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (next) setExplorerPrefs(next);
   }, [hasNumericDomainId, numericDomainId]);
 
-  useEffect(() => {
-    if (!hasNumericDomainId) return;
-    const loaded = loadExplorerUIPreferences(numericDomainId) ?? { version: 1 };
-    setExplorerPrefs(loaded);
-    setDagModeEnabled(loaded.dag?.enabled ?? false);
-    setDagOrientation(loaded.dag?.orientation ?? 'td');
-    setToolbarDisplayMode(loaded.toolbar?.displayMode ?? 'descriptive');
-    setLabelBackgroundEnabled(loaded.labels?.backgroundEnabled ?? true);
-  }, [hasNumericDomainId, numericDomainId]);
+	  useEffect(() => {
+	    if (!hasNumericDomainId) return;
+	    const loaded = loadExplorerUIPreferences(numericDomainId) ?? { version: 1 };
+	    setExplorerPrefs(loaded);
+	    setDagModeEnabled(loaded.dag?.enabled ?? false);
+	    setDagOrientation(loaded.dag?.orientation ?? 'td');
+	    setToolbarDisplayMode(loaded.toolbar?.displayMode ?? 'descriptive');
+	    const storedMode = loaded.labels?.backgroundMode;
+	    if (storedMode) {
+	      setLabelBackgroundMode(storedMode as LabelBackgroundMode);
+	      return;
+	    }
+	    const legacy = loaded.labels?.backgroundEnabled;
+	    setLabelBackgroundMode(legacy === false ? 'off' : 'behind_links');
+	  }, [hasNumericDomainId, numericDomainId]);
 
   useEffect(() => {
     setShowAccessModal(false);
@@ -1081,13 +1095,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     });
   }, [applyExplorerPrefs, dagModeEnabled, dagOrientation]);
 
-  useEffect(() => {
-    applyExplorerPrefs({
-      labels: {
-        backgroundEnabled: labelBackgroundEnabled,
-      },
-    });
-  }, [applyExplorerPrefs, labelBackgroundEnabled]);
+	  useEffect(() => {
+	    applyExplorerPrefs({
+	      labels: {
+	        backgroundMode: labelBackgroundMode,
+	      },
+	    });
+	  }, [applyExplorerPrefs, labelBackgroundMode]);
 
   useEffect(() => {
     applyExplorerPrefs({
@@ -2931,7 +2945,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, []);
 
   const toggleLabelBackground = useCallback(() => {
-    setLabelBackgroundEnabled(prev => !prev);
+    setLabelBackgroundMode(prev => {
+      if (prev === 'off') return 'behind_links';
+      if (prev === 'behind_links') return 'behind_text';
+      return 'off';
+    });
   }, []);
 
   const cycleQuestVisibility = useCallback(() => {
@@ -5702,8 +5720,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [labelDisplayMode]);
 
   const labelBackgroundConfig = useMemo(() => {
-    return { label: labelBackgroundEnabled ? 'Bg' : 'Bg Off', icon: <Layers size={10} /> };
-  }, [labelBackgroundEnabled]);
+    if (labelBackgroundMode === 'off') {
+      return { label: 'Bg Off', icon: <Layers size={10} /> };
+    }
+    if (labelBackgroundMode === 'behind_links') {
+      return { label: 'Bg Back', icon: <Layers size={10} /> };
+    }
+    return { label: 'Bg Front', icon: <Layers size={10} /> };
+  }, [labelBackgroundMode]);
 
   const questDisplayConfig = useMemo(() => {
     if (questVisibilityMode === 'on') {
@@ -6084,11 +6108,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
-              toolboxButton(labelBackgroundConfig.label, labelBackgroundConfig.icon, {
-                onClick: toggleLabelBackground,
-                variant: labelBackgroundEnabled ? 'outline' : 'ghost',
-              }),
-            ],
+	              toolboxButton(labelBackgroundConfig.label, labelBackgroundConfig.icon, {
+	                onClick: toggleLabelBackground,
+	                variant: labelBackgroundMode === 'off' ? 'ghost' : labelBackgroundMode === 'behind_links' ? 'outline' : 'secondary',
+	              }),
+	            ],
             [
               toolboxButton(questDisplayConfig.label, questDisplayConfig.icon, {
                 onClick: cycleQuestVisibility,
@@ -6274,7 +6298,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     questDisplayConfig,
     cycleLabelDisplay,
     toggleLabelBackground,
-    labelBackgroundEnabled,
+    labelBackgroundMode,
     cycleQuestVisibility,
     dagModeEnabled,
     dagOrientation,
@@ -6862,14 +6886,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 mode={mode}
                 width={graphSize.width}
                 height={graphSize.height}
-                selectedNodeIds={selectedNodeIds}
-                newlyCreatedNodeId={newlyCreatedNodeId}
-                labelDisplayMode={labelDisplayMode}
-                labelBackgroundEnabled={labelBackgroundEnabled}
-                onNodeClick={handleGraphNodeClick}
-                onNodeHover={handleNodeHover}
-                onNodeDrag={handleGraphNodeDrag}
-                onNodeDragEnd={handleNodeDragEnd}
+	                selectedNodeIds={selectedNodeIds}
+	                newlyCreatedNodeId={newlyCreatedNodeId}
+	                labelDisplayMode={labelDisplayMode}
+	                labelBackgroundMode={labelBackgroundMode}
+	                onNodeClick={handleGraphNodeClick}
+	                onNodeHover={handleNodeHover}
+	                onNodeDrag={handleGraphNodeDrag}
+	                onNodeDragEnd={handleNodeDragEnd}
                 onLinkClick={handleGraphLinkClick}
                 onNodeRightClick={handleGraphNodeRightClick}
                 onLinkRightClick={handleGraphLinkRightClick}

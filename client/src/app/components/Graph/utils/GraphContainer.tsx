@@ -21,6 +21,7 @@ const SELECTED_HIGHLIGHT_COLOR = '139, 92, 246';
 const HOVER_HIGHLIGHT_COLOR = '14, 165, 233';
 
 export type LabelDisplayMode = 'off' | 'codes' | 'names';
+export type LabelBackgroundMode = 'off' | 'behind_links' | 'behind_text';
 
 interface GraphContainerProps {
   graphNodes: GraphNode[];
@@ -34,7 +35,7 @@ interface GraphContainerProps {
   selectedNodeIds: Set<string>;
   newlyCreatedNodeId: string | null;
   labelDisplayMode: LabelDisplayMode;
-  labelBackgroundEnabled?: boolean;
+  labelBackgroundMode?: LabelBackgroundMode;
   onNodeClick: (node: GraphNode, event?: MouseEvent) => void;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeDrag?: (node: GraphNode) => void;
@@ -65,7 +66,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   selectedNodeIds,
   newlyCreatedNodeId,
   labelDisplayMode,
-  labelBackgroundEnabled = true,
+  labelBackgroundMode = 'behind_links',
   onNodeClick,
   onNodeHover,
   onNodeDrag,
@@ -470,12 +471,14 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
           const labelHeight = height * scale;
           const labelOffset = nodeSize + 6 / globalScale;
 
-          if (labelBackgroundEnabled) {
+          if (labelBackgroundMode !== 'off') {
             const bg = labelRendererRef.current.getLabelBackground(width, height);
             ctx.save();
-            // Draw behind the already-painted scene (including links), but keep
-            // text above links.
-            ctx.globalCompositeOperation = 'destination-over';
+            if (labelBackgroundMode === 'behind_links') {
+              // Draw behind the already-painted scene (including links), but keep
+              // text above links.
+              ctx.globalCompositeOperation = 'destination-over';
+            }
             ctx.drawImage(
               bg.source,
               x - labelWidth / 2,
@@ -500,7 +503,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
       }
     }
-  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundEnabled, scheduleRafRefresh, getNodeBaseSize]);
+  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundMode, scheduleRafRefresh, getNodeBaseSize]);
 
   // Memoized link color calculation
   const getLinkColor = useCallback((link: any) => {
@@ -926,7 +929,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.selectedNodeIds === nextProps.selectedNodeIds &&
     prevProps.newlyCreatedNodeId === nextProps.newlyCreatedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
-    prevProps.labelBackgroundEnabled === nextProps.labelBackgroundEnabled &&
+    prevProps.labelBackgroundMode === nextProps.labelBackgroundMode &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
     prevProps.mode === nextProps.mode &&
     prevProps.width === nextProps.width &&
