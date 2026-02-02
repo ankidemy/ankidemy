@@ -51,6 +51,108 @@ func NewSurveyService(db *gorm.DB) *SurveyService {
 	}
 }
 
+// EnsureQuestNextDue updates/persists state.NextDueAt based on the quest schedule.
+// This is intentionally used outside of Survey flows so the UI can show a correct "Next due".
+func (s *SurveyService) EnsureQuestNextDue(userID uint, meta *models.MetaQuest, state *models.UserMetaQuestState) (*models.UserMetaQuestState, error) {
+	if meta == nil || state == nil {
+		return state, nil
+	}
+
+	now := time.Now().UTC()
+	settings, err := s.settingsDAO.GetOrCreate(userID, meta.DomainID)
+	if err != nil {
+		return state, err
+	}
+	userLoc, _ := time.LoadLocation(coalesceTimezone(settings.Timezone))
+	return s.ensureQuestNextDueWithContext(meta, state, now, userLoc)
+}
+
+func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, state *models.UserMetaQuestState, now time.Time, userLoc *time.Location) (*models.UserMetaQuestState, error) {
+	if meta == nil || state == nil {
+		return state, nil
+	}
+
+	if !state.Active {
+		if state.NextDueAt != nil {
+			state.NextDueAt = nil
+			_ = s.metaQuestDAO.UpdateUserState(state)
+		}
+		return state, nil
+	}
+
+	// Snooze takes precedence.
+	if state.SnoozedUntil != nil && state.SnoozedUntil.After(now) {
+		desired := state.SnoozedUntil.UTC()
+		if state.NextDueAt == nil || !desired.Equal(*state.NextDueAt) {
+			state.NextDueAt = &desired
+			_ = s.metaQuestDAO.UpdateUserState(state)
+		}
+		return state, nil
+	}
+
+	// If the quest is already due/overdue, keep NextDueAt as-is so it stays visible in the queue
+	// until the user takes an action (complete/skip/snooze/deactivate).
+	if state.NextDueAt != nil && !state.NextDueAt.After(now) {
+		return state, nil
+	}
+
+	// At this point NextDueAt is nil or in the future: safe to (re)compute without "advancing away" a due quest.
+	var desired *time.Time
+	if state.LastCompletedAt != nil {
+		next, err := s.computeNextDue(meta, state, now, userLoc)
+		if err != nil {
+			return state, err
+		}
+		desired = next
+	} else {
+		// Initialize from dtstart so newly created one-off reminders become due at their scheduled time.
+		scheduleType, err := parseScheduleType(meta.Schedule)
+		if err != nil {
+			return state, err
+		}
+		switch scheduleType {
+		case "rrule":
+			sched, err := parseRRuleSchedule(meta.Schedule)
+			if err != nil {
+				return state, err
+			}
+			loc, _ := time.LoadLocation(coalesceTimezone(sched.Timezone))
+			dtstart, err := parseScheduleTime(sched.Dtstart, loc)
+			if err != nil {
+				return state, err
+			}
+			utc := dtstart.In(time.UTC)
+			desired = &utc
+		case "habit":
+			sched, err := parseHabitSchedule(meta.Schedule)
+			if err != nil {
+				return state, err
+			}
+			loc, _ := time.LoadLocation(coalesceTimezone(sched.Timezone))
+			dtstart, err := parseScheduleTime(sched.Dtstart, loc)
+			if err != nil {
+				return state, err
+			}
+			utc := dtstart.In(time.UTC)
+			desired = &utc
+		case "daily_pool":
+			desired = nil
+		default:
+			return state, errors.New("unsupported schedule type")
+		}
+	}
+
+	// Never clear a future NextDueAt here; only explicit events should clear or advance it.
+	if desired == nil {
+		return state, nil
+	}
+	if state.NextDueAt == nil || !desired.Equal(*state.NextDueAt) {
+		state.NextDueAt = desired
+		_ = s.metaQuestDAO.UpdateUserState(state)
+	}
+	return state, nil
+}
+
 func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem, error) {
 	now := time.Now().UTC()
 	quests, err := s.metaQuestDAO.ListVisible(domainID, userID)
@@ -107,7 +209,7 @@ func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem,
 			continue
 		}
 
-		updated, err := s.computeAndPersistNextDue(&q, state, now, userLoc)
+		updated, err := s.ensureQuestNextDueWithContext(&q, state, now, userLoc)
 		if err != nil {
 			return nil, err
 		}

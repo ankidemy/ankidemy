@@ -112,7 +112,7 @@ func main() {
 	externalPrerequisiteHandler := handlers.NewExternalPrerequisiteHandler(domainDAO, permissionDAO, externalPrerequisiteDAO, metaDefinitionDAO, metaExerciseDAO)
 	groupHandler := handlers.NewGroupHandler(groupDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO)
 	sourceHandler := handlers.NewSourceHandler(sourceDAO, domainDAO, permissionDAO, codeRegistryDAO)
-	questHandler := handlers.NewQuestHandler(metaQuestDAO, domainDAO, permissionDAO, codeRegistryDAO, relationDAO)
+	questHandler := handlers.NewQuestHandler(metaQuestDAO, domainDAO, permissionDAO, codeRegistryDAO, relationDAO, surveyService)
 	relationHandler := handlers.NewRelationHandler(relationDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO, sourceDAO, metaQuestDAO)
 	surveyHandler := handlers.NewSurveyHandler(domainDAO, permissionDAO, metaQuestDAO, surveyService)
 	userDomainSettingsHandler := handlers.NewUserDomainSettingsHandler(domainDAO, permissionDAO, userDomainSettingsDAO)

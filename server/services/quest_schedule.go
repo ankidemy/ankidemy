@@ -314,7 +314,7 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 		if rdLocal.Before(dtstart) {
 			continue
 		}
-		if spec.until != nil && rdLocal.After(spec.until.In(loc)) {
+		if spec.until != nil && rdLocal.After((*spec.until).In(loc)) {
 			continue
 		}
 		if rdLocal.After(afterLocal) {
@@ -350,7 +350,7 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 				if occ.Before(dtstart) {
 					continue
 				}
-				if spec.until != nil && occ.After(spec.until.In(loc)) {
+				if spec.until != nil && occ.After((*spec.until).In(loc)) {
 					return candidate
 				}
 				if exclude[occ.Unix()] {

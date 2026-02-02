@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
 	"myapp/server/models"
+	"myapp/server/services"
 )
 
 type QuestHandler struct {
@@ -18,15 +19,17 @@ type QuestHandler struct {
 	permissionDAO *dao.DomainPermissionDAO
 	codeRegistry  *dao.CodeRegistryDAO
 	relationDAO   *dao.NodeRelationDAO
+	surveyService *services.SurveyService
 }
 
-func NewQuestHandler(metaQuestDAO *dao.MetaQuestDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, registry *dao.CodeRegistryDAO, relationDAO *dao.NodeRelationDAO) *QuestHandler {
+func NewQuestHandler(metaQuestDAO *dao.MetaQuestDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, registry *dao.CodeRegistryDAO, relationDAO *dao.NodeRelationDAO, surveyService *services.SurveyService) *QuestHandler {
 	return &QuestHandler{
 		metaQuestDAO:  metaQuestDAO,
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
 		codeRegistry:  registry,
 		relationDAO:   relationDAO,
+		surveyService: surveyService,
 	}
 }
 
@@ -219,6 +222,14 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 			},
 		},
 	}
+	// Populate NextDueAt immediately for the creator.
+	if h.surveyService != nil {
+		if state, err := h.metaQuestDAO.EnsureUserState(userID, meta.ID); err == nil && state != nil {
+			if updated, err := h.surveyService.EnsureQuestNextDue(userID, meta, state); err == nil && updated != nil {
+				resp.NextDueAt = updated.NextDueAt
+			}
+		}
+	}
 	c.JSON(http.StatusCreated, resp)
 }
 
@@ -259,6 +270,11 @@ func (h *QuestHandler) GetQuest(c *gin.Context) {
 	}
 
 	state, _ := h.metaQuestDAO.EnsureUserState(userID, meta.ID)
+	if h.surveyService != nil {
+		if updated, err := h.surveyService.EnsureQuestNextDue(userID, meta, state); err == nil && updated != nil {
+			state = updated
+		}
+	}
 	resp := models.MetaQuestResponse{
 		ID:         meta.ID,
 		DomainID:   meta.DomainID,
@@ -334,14 +350,14 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check code"})
 				return
 			}
-		if exists {
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", newCode)})
-			return
+			if exists {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", newCode)})
+				return
+			}
+			meta.Code = newCode
+			codeChanged = true
 		}
-		meta.Code = newCode
-		codeChanged = true
 	}
-}
 
 	if req.Name != nil {
 		newName := strings.TrimSpace(*req.Name)
@@ -394,6 +410,11 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 	}
 
 	state, _ := h.metaQuestDAO.EnsureUserState(userID, meta.ID)
+	if h.surveyService != nil {
+		if updated, err := h.surveyService.EnsureQuestNextDue(userID, meta, state); err == nil && updated != nil {
+			state = updated
+		}
+	}
 	resp := models.MetaQuestResponse{
 		ID:         meta.ID,
 		DomainID:   meta.DomainID,
