@@ -90,17 +90,22 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const rafRefreshRef = useRef<number | null>(null);
   const prewarmKeyRef = useRef<string>('');
   const [graphInstanceNonce, setGraphInstanceNonce] = useState(0);
-  const graphInstanceRef = useRef<any>(null);
   const lastGraphInstanceRef = useRef<any>(null);
 
-  useEffect(() => {
-    const instance = graphInstanceRef.current;
+  const handleGraphInstanceRef = useCallback((instance: any) => {
+    // `react-force-graph-2d` is loaded via `next/dynamic`, so this ref callback can
+    // fire after GraphContainer's first render without triggering another render.
+    // We must capture the instance here so toolbar actions (e.g. Fit) work
+    // immediately after page load.
     if (instance && instance !== lastGraphInstanceRef.current) {
       lastGraphInstanceRef.current = instance;
       graphRef.current = instance;
       setGraphInstanceNonce(n => n + 1);
+    } else if (!instance && lastGraphInstanceRef.current) {
+      lastGraphInstanceRef.current = null;
+      if (graphRef.current) graphRef.current = null;
     }
-  });
+  }, [graphRef]);
 
   const scheduleRafRefresh = useCallback(() => {
     if (rafRefreshRef.current != null) return;
@@ -834,7 +839,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ForceGraph2D
-        ref={graphInstanceRef}
+        ref={handleGraphInstanceRef}
         graphData={memoizedGraphData}
         width={canvasWidth}
         height={canvasHeight}
