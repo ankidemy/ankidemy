@@ -14,8 +14,18 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers, Clock } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
+import {
+  buildQuestSchedulePayload,
+  coalesceTimezone,
+  CustomRepeatPeriod,
+  DurationMode,
+  parseScheduleToDrafts,
+  RepeatPreset,
+  WeekdayCode,
+  weekdayLabels,
+} from './windows/questScheduleDrafts';
 import {
   getDefinitionByCode,
   getExerciseByCode,
@@ -49,14 +59,15 @@ import {
   downloadJsonFile,
   fetchDomainBackup,
   downloadZipFile,
-  GroupData,
-  GroupNodeRefRequest,
-  MetaDefinition,
-  MetaExercise,
-  ExternalPrerequisiteLink,
-  createMetaDefinition,
-  createMetaExercise,
-  getMetaDefinition,
+	  GroupData,
+	  GroupNodeRefRequest,
+	  MetaDefinition,
+	  MetaExercise,
+	  MetaQuestDTO,
+	  ExternalPrerequisiteLink,
+	  createMetaDefinition,
+	  createMetaExercise,
+	  getMetaDefinition,
   getMetaExercise,
   updateMetaDefinition,
   updateMetaExercise,
@@ -217,6 +228,22 @@ interface FrenzyNoteState {
   solution: string;
   solutionImagePath: string;
 }
+
+interface FrenzyQuestNoteState {
+  nodeId: string;
+  questId: number;
+  nodeName: string;
+  kind: 'todo' | 'habit' | 'daily';
+  visibility: 'private' | 'domain';
+  active: boolean;
+  schedule: unknown;
+}
+
+const isQuestKindValue = (value: unknown): value is FrenzyQuestNoteState['kind'] =>
+  value === 'todo' || value === 'habit' || value === 'daily';
+
+const isQuestVisibilityValue = (value: unknown): value is FrenzyQuestNoteState['visibility'] =>
+  value === 'private' || value === 'domain';
 
 interface FrenzyDeletedNodeSnapshot {
   nodeType: 'definition' | 'exercise';
@@ -1278,6 +1305,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyNotePreview, setFrenzyNotePreview] = useState(false);
   const [isSavingFrenzyNote, setIsSavingFrenzyNote] = useState(false);
   const [frenzyNoteIsNewVersion, setFrenzyNoteIsNewVersion] = useState(false);
+  const [frenzyQuestNote, setFrenzyQuestNote] = useState<FrenzyQuestNoteState | null>(null);
+  const [frenzyQuestCodeDraft, setFrenzyQuestCodeDraft] = useState('');
+  const [frenzyQuestNameDraft, setFrenzyQuestNameDraft] = useState('');
+  const [frenzyQuestKindDraft, setFrenzyQuestKindDraft] = useState<'todo' | 'habit' | 'daily'>('todo');
+  const [frenzyQuestVisibilityDraft, setFrenzyQuestVisibilityDraft] = useState<'private' | 'domain'>('private');
+  const [frenzyQuestActiveDraft, setFrenzyQuestActiveDraft] = useState(true);
+  const [frenzyQuestTimezoneDraft, setFrenzyQuestTimezoneDraft] = useState(coalesceTimezone());
+  const [frenzyQuestDueDateDraft, setFrenzyQuestDueDateDraft] = useState('');
+  const [frenzyQuestDueTimeDraft, setFrenzyQuestDueTimeDraft] = useState('');
+  const [frenzyQuestRepeatEnabledDraft, setFrenzyQuestRepeatEnabledDraft] = useState(false);
+  const [frenzyQuestRepeatPresetDraft, setFrenzyQuestRepeatPresetDraft] = useState<RepeatPreset>('daily');
+  const [frenzyQuestCustomRepeatEveryDraft, setFrenzyQuestCustomRepeatEveryDraft] = useState(1);
+  const [frenzyQuestCustomRepeatPeriodDraft, setFrenzyQuestCustomRepeatPeriodDraft] = useState<CustomRepeatPeriod>('days');
+  const [frenzyQuestCustomRepeatWeekdaysDraft, setFrenzyQuestCustomRepeatWeekdaysDraft] = useState<Set<WeekdayCode>>(new Set(['MO']));
+  const [frenzyQuestDurationModeDraft, setFrenzyQuestDurationModeDraft] = useState<DurationMode>('forever');
+  const [frenzyQuestDurationCountDraft, setFrenzyQuestDurationCountDraft] = useState(10);
+  const [frenzyQuestUntilDateDraft, setFrenzyQuestUntilDateDraft] = useState('');
+  const [isSavingFrenzyQuestNote, setIsSavingFrenzyQuestNote] = useState(false);
+  const [frenzyQuestAutoSaveStatus, setFrenzyQuestAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const frenzyQuestLastAutoSavedRef = useRef<string>('');
+  const saveFrenzyQuestNoteRef = useRef<(force?: boolean) => void | Promise<void>>(async () => {});
   const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
   const [lastDeletedNode, setLastDeletedNode] = useState<FrenzyDeletedNodeSnapshot | null>(null);
   const [toolbarTransientMessage, setToolbarTransientMessage] = useState<string | null>(null);
@@ -1298,6 +1346,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const frenzyPromptImageInputRef = useRef<HTMLInputElement | null>(null);
   const frenzyContentImageInputRef = useRef<HTMLInputElement | null>(null);
   const frenzySolutionImageInputRef = useRef<HTMLInputElement | null>(null);
+  const frenzyQuestTimeInputRef = useRef<HTMLInputElement | null>(null);
+  const openFrenzyNoteRef = useRef<(node: GraphNode, metaIdOverride?: number, anchorGraph?: { x: number; y: number }) => void | Promise<void>>(async () => {});
 
   // Refs for stable callbacks
   const isInitializedRef = useRef<boolean>(false);
@@ -3037,11 +3087,27 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [hasAccess, domainData, ui]);
 
   // Navigation helpers
-  const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
-    const targetNode = stableGraph.nodes.find(n => n.id === nodeId);
-    if (targetNode) {
-      if (mode === 'study' && targetNode.type === 'exercise') {
-        showToast("Switching to Practice Mode to view exercise...", "info", 1500);
+	  const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
+	    const questData = currentStructuralGraphData.quests?.[nodeId];
+	    if (questData) {
+	      if (isFrenzyEnabled && isFrenzyEditMode) {
+	        const anchor = (typeof questData.xPosition === 'number' && typeof questData.yPosition === 'number')
+	          ? { x: questData.xPosition, y: questData.yPosition }
+	          : undefined;
+	        void openFrenzyNoteRef.current(
+	          { id: questData.code, name: questData.name || questData.code, type: 'quest', xPosition: questData.xPosition, yPosition: questData.yPosition } as GraphNode,
+	          questData.id,
+	          anchor
+	        );
+	        return;
+	      }
+	      ui.openQuestWindow(questData.code, questData);
+	      return;
+	    }
+	    const targetNode = stableGraph.nodes.find(n => n.id === nodeId);
+	    if (targetNode) {
+	      if (mode === 'study' && targetNode.type === 'exercise') {
+	        showToast("Switching to Practice Mode to view exercise...", "info", 1500);
         changeMode('practice');
         setTimeout(() => {
           handleNodeClick(targetNode, false, context);
@@ -3059,15 +3125,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           handleNodeClick({ id: exData.code, name: exData.name, type: 'exercise' } as GraphNode, false, context); 
         } else { 
           showToast(`Could not navigate to exercise ${nodeId}.`, "error"); 
-        }
-      }, 300);
-    } else if (currentStructuralGraphData.quests?.[nodeId]) {
-      const questData = currentStructuralGraphData.quests[nodeId];
-      ui.openQuestWindow(questData.code, questData);
-    } else {
-      showToast(`Node ${nodeId} not found in the current view.`, "warning");
-    }
-  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui]);
+	        }
+	      }, 300);
+	    } else {
+	      showToast(`Node ${nodeId} not found in the current view.`, "warning");
+	    }
+	  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui, isFrenzyEnabled, isFrenzyEditMode]);
 
   // Available definitions for modals (as prerequisite candidates)
   const availableDefinitionsForModals = useMemo(() => {
@@ -3110,6 +3173,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     && frenzyNoteCodeDraft.trim().length > 0
     && frenzyNoteCodeDraft.trim() !== frenzyNote.nodeId
     && existingCodes.has(frenzyNoteCodeDraft.trim());
+
+  const frenzyQuestCodeConflict = !!frenzyQuestNote
+    && frenzyQuestCodeDraft.trim().length > 0
+    && frenzyQuestCodeDraft.trim() !== frenzyQuestNote.nodeId
+    && existingCodes.has(frenzyQuestCodeDraft.trim());
 
   const numericIdToCodeMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -3712,23 +3780,44 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     void maybeCreateFrenzyDragLink(node);
   }, [currentStructuralGraphData, groupMembersById, maybeCreateFrenzyDragLink]);
 
-  const openFrenzyNote = useCallback(async (
-    node: GraphNode,
-    metaIdOverride?: number,
-    anchorGraph?: { x: number; y: number }
-  ) => {
-    if (!canEdit && node.type !== 'source') {
-      showToast('Only domain owners or editors can edit nodes.', 'warning');
-      return;
-    }
-    if (node.type === 'group') {
-      showToast('Cannot edit group nodes.', 'warning');
-      return;
-    }
-    if (node.type === 'source') {
-      const sourceData = currentStructuralGraphData.sources?.[node.id];
-      const sourceId = metaIdOverride ?? sourceData?.id;
-      if (!sourceId) {
+	  const openFrenzyNote = useCallback(async (
+	    node: GraphNode,
+	    metaIdOverride?: number,
+	    anchorGraph?: { x: number; y: number }
+	  ) => {
+	    if (!canEdit && node.type !== 'source') {
+	      showToast('Only domain owners or editors can edit nodes.', 'warning');
+	      return;
+	    }
+	    if (node.type === 'group') {
+	      showToast('Cannot edit group nodes.', 'warning');
+	      return;
+	    }
+	    if (node.type !== 'quest' && frenzyQuestNote) {
+	      setFrenzyQuestNote(null);
+	      setFrenzyQuestCodeDraft('');
+	      setFrenzyQuestNameDraft('');
+	      setFrenzyQuestKindDraft('todo');
+	      setFrenzyQuestVisibilityDraft('private');
+	      setFrenzyQuestActiveDraft(true);
+	      setFrenzyQuestTimezoneDraft(coalesceTimezone());
+	      setFrenzyQuestDueDateDraft('');
+	      setFrenzyQuestDueTimeDraft('');
+	      setFrenzyQuestRepeatEnabledDraft(false);
+	      setFrenzyQuestRepeatPresetDraft('daily');
+	      setFrenzyQuestCustomRepeatEveryDraft(1);
+	      setFrenzyQuestCustomRepeatPeriodDraft('days');
+	      setFrenzyQuestCustomRepeatWeekdaysDraft(new Set(['MO']));
+	      setFrenzyQuestDurationModeDraft('forever');
+	      setFrenzyQuestDurationCountDraft(10);
+	      setFrenzyQuestUntilDateDraft('');
+	      setFrenzyQuestAutoSaveStatus('idle');
+	      frenzyQuestLastAutoSavedRef.current = '';
+	    }
+	    if (node.type === 'source') {
+	      const sourceData = currentStructuralGraphData.sources?.[node.id];
+	      const sourceId = metaIdOverride ?? sourceData?.id;
+	      if (!sourceId) {
         showToast('Missing source metadata.', 'error');
         return;
       }
@@ -3812,23 +3901,99 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         showToast('Failed to load source content.', 'error');
       }
       return;
-    }
-    if (node.type === 'quest') {
-      const questData = currentStructuralGraphData.quests?.[node.id];
-      const isOwner = !!(currentUser && questData?.ownerId === currentUser.id);
-      if (!isOwner && !currentUser?.isAdmin) {
-        showToast('Only the owner can edit this quest.', 'warning');
-        return;
-      }
-      const questId = metaIdOverride ?? questData?.id;
-      if (!questId) {
-        showToast('Missing quest metadata.', 'error');
-        return;
-      }
-      const position = getDetailWindowPlacement(node, ui.state.windows.length);
-      ui.openQuestWindow(node.id, questData || node, position);
-      return;
-    }
+	    }
+	    if (node.type === 'quest') {
+	      if (frenzyQuestNote?.nodeId === node.id) {
+	        return;
+	      }
+
+	      const questData = currentStructuralGraphData.quests?.[node.id];
+	      const questId = metaIdOverride ?? questData?.id;
+	      if (!questId) {
+	        showToast('Missing quest metadata.', 'error');
+	        return;
+	      }
+	      try {
+	        const quest = await getQuest(questId);
+	        const isOwner = !!(currentUser && quest?.ownerId === currentUser.id);
+	        if (!isOwner && !currentUser?.isAdmin) {
+	          showToast('Only the owner can edit this quest.', 'warning');
+	          return;
+	        }
+
+		        const resolvedName = quest.name || questData?.name || node.name;
+		        const resolvedCode = quest.code || questData?.code || node.id;
+		        const kindRaw = (quest as { kind?: unknown }).kind;
+		        const visibilityRaw = (quest as { visibility?: unknown }).visibility;
+		        const kind = isQuestKindValue(kindRaw) ? kindRaw : 'todo';
+		        const visibility = isQuestVisibilityValue(visibilityRaw) ? visibilityRaw : 'private';
+		        const anchor = anchorGraph
+		          || (typeof node.x === 'number' && typeof node.y === 'number'
+		            ? { x: node.x, y: node.y }
+		            : (typeof node.xPosition === 'number' && typeof node.yPosition === 'number'
+	              ? { x: node.xPosition, y: node.yPosition }
+	              : undefined));
+	        const notePosition = getFrenzyNotePlacement(anchor);
+	        if (notePosition) {
+	          setFrenzyNotePosition(notePosition);
+	        }
+
+	        setFrenzyNote(null);
+	        setFrenzyNoteCodeDraft('');
+	        setFrenzyNoteDraft('');
+	        setFrenzyNoteNameDraft('');
+	        setFrenzyNotePromptDraft('');
+	        setFrenzyNotePromptImagePath('');
+	        setFrenzyNoteContentImagePath('');
+	        setFrenzyNoteSolutionDraft('');
+	        setFrenzyNoteSolutionImagePath('');
+	        setShowFrenzySolution(false);
+	        setFrenzyNotePreview(false);
+	        setFrenzyNoteIsNewVersion(false);
+
+		        setFrenzyQuestNote({
+		          nodeId: resolvedCode,
+		          questId,
+		          nodeName: resolvedName,
+		          kind,
+		          visibility,
+		          active: quest.active ?? true,
+		          schedule: quest.schedule,
+		        });
+		        setFrenzyQuestCodeDraft(resolvedCode);
+		        setFrenzyQuestNameDraft(resolvedName);
+		        setFrenzyQuestKindDraft(kind);
+		        setFrenzyQuestVisibilityDraft(visibility);
+		        setFrenzyQuestActiveDraft(quest.active ?? true);
+		        const drafts = parseScheduleToDrafts(quest.schedule);
+		        setFrenzyQuestTimezoneDraft(drafts.timezone);
+		        setFrenzyQuestDueDateDraft(drafts.date);
+		        setFrenzyQuestDueTimeDraft(drafts.time);
+		        setFrenzyQuestRepeatEnabledDraft(kind === 'habit' ? true : drafts.repeatEnabled);
+		        setFrenzyQuestRepeatPresetDraft(drafts.preset);
+		        setFrenzyQuestCustomRepeatEveryDraft(drafts.customEvery);
+		        setFrenzyQuestCustomRepeatPeriodDraft(drafts.customPeriod);
+		        setFrenzyQuestCustomRepeatWeekdaysDraft(drafts.customWeekdays);
+	        setFrenzyQuestDurationModeDraft(drafts.durationMode);
+	        setFrenzyQuestDurationCountDraft(drafts.durationCount);
+	        setFrenzyQuestUntilDateDraft(drafts.untilDate);
+	        setFrenzyQuestAutoSaveStatus('idle');
+	        frenzyQuestLastAutoSavedRef.current = '';
+
+	        if (anchor) {
+	          requestAnimationFrame(() => {
+	            const adjusted = getFrenzyNotePlacement(anchor);
+	            if (adjusted) {
+	              setFrenzyNotePosition(adjusted);
+	            }
+	          });
+	        }
+	      } catch (error) {
+	        console.error('Failed to load quest note:', error);
+	        showToast('Failed to load quest.', 'error');
+	      }
+	      return;
+	    }
     const metaId = metaIdOverride ?? codeToNumericIdMap.get(node.id);
     if (!metaId) {
       showToast('Missing node metadata.', 'error');
@@ -3943,16 +4108,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     getDefaultFrenzyContent,
     getDefaultFrenzyPrompt,
     getFrenzyNotePlacement,
-    getDetailWindowPlacement,
-    currentStructuralGraphData.sources,
-    currentStructuralGraphData.quests,
-    currentUser,
-    ui,
-  ]);
+	    getDetailWindowPlacement,
+	    currentStructuralGraphData.sources,
+	    currentStructuralGraphData.quests,
+	    currentUser,
+	    frenzyQuestNote,
+	    ui,
+	  ]);
 
-  const removeAuxNodeFromGraph = useCallback((nodeType: 'source' | 'quest', code: string) => {
-    setCurrentStructuralGraphData(prev => {
-      const next = { ...prev };
+  useEffect(() => {
+    openFrenzyNoteRef.current = openFrenzyNote;
+  }, [openFrenzyNote]);
+
+	  const removeAuxNodeFromGraph = useCallback((nodeType: 'source' | 'quest', code: string) => {
+	    setCurrentStructuralGraphData(prev => {
+	      const next = { ...prev };
       if (nodeType === 'source') {
         const nextSources = { ...(prev.sources || {}) };
         delete nextSources[code];
@@ -3984,7 +4154,51 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyNotePreview(false);
       setIsDraggingFrenzyNote(false);
     }
-  }, [pendingLinkSourceId, frenzyNote]);
+    if (frenzyQuestNote?.nodeId === code) {
+      setFrenzyQuestNote(null);
+      setFrenzyQuestCodeDraft('');
+      setFrenzyQuestNameDraft('');
+      setFrenzyQuestKindDraft('todo');
+      setFrenzyQuestVisibilityDraft('private');
+      setFrenzyQuestActiveDraft(true);
+      setFrenzyQuestTimezoneDraft(coalesceTimezone());
+      setFrenzyQuestDueDateDraft('');
+      setFrenzyQuestDueTimeDraft('');
+      setFrenzyQuestRepeatEnabledDraft(false);
+      setFrenzyQuestRepeatPresetDraft('daily');
+      setFrenzyQuestCustomRepeatEveryDraft(1);
+      setFrenzyQuestCustomRepeatPeriodDraft('days');
+      setFrenzyQuestCustomRepeatWeekdaysDraft(new Set(['MO']));
+      setFrenzyQuestDurationModeDraft('forever');
+      setFrenzyQuestDurationCountDraft(10);
+      setFrenzyQuestUntilDateDraft('');
+      setFrenzyQuestAutoSaveStatus('idle');
+      frenzyQuestLastAutoSavedRef.current = '';
+      setIsDraggingFrenzyNote(false);
+    }
+  }, [pendingLinkSourceId, frenzyNote, frenzyQuestNote]);
+
+	  const applyQuestUpdateToGraph = useCallback((updated: MetaQuestDTO) => {
+	    if (!updated?.id || !updated?.code) return;
+	    setCurrentStructuralGraphData(prev => {
+	      const nextQuests = { ...(prev.quests || {}) };
+	      const existingCode = Object.keys(nextQuests).find(code => nextQuests[code]?.id === updated.id);
+      if (existingCode && existingCode !== updated.code) {
+        delete nextQuests[existingCode];
+      }
+      nextQuests[updated.code] = {
+        ...(nextQuests[updated.code] || {}),
+        ...updated,
+        type: 'quest',
+      };
+      const nextRelations = (prev.relations || []).map(rel => ({
+        ...rel,
+        fromCode: existingCode && rel.fromCode === existingCode ? updated.code : rel.fromCode,
+        toCode: existingCode && rel.toCode === existingCode ? updated.code : rel.toCode,
+      }));
+      return { ...prev, quests: nextQuests, relations: nextRelations };
+    });
+  }, []);
 
   const switchFrenzyNoteVersion = useCallback((newIndex: number) => {
     if (!frenzyNote) return;
@@ -4330,13 +4544,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             yPosition: spawn.y,
           };
           return { ...prev, quests: nextQuests };
-        });
-        pendingFocusNodeIdRef.current = created.code;
-        if (isFrenzyEditMode) {
-          const position = getDetailWindowPlacement({ id: created.code, type: 'quest', name: created.code, x: spawn.x, y: spawn.y } as GraphNode, ui.state.windows.length);
-          ui.openQuestWindow(created.code, created, position);
-        }
-      }
+	        });
+	        pendingFocusNodeIdRef.current = created.code;
+	        if (isFrenzyEditMode) {
+	          void openFrenzyNote(
+	            { id: created.code, type: 'quest', name: created.name || created.code, x: spawn.x, y: spawn.y } as GraphNode,
+	            created.id,
+	            { x: spawn.x, y: spawn.y }
+	          );
+	        }
+	      }
       const label = type === 'definition'
         ? 'Definition'
         : type === 'exercise'
@@ -4766,13 +4983,214 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     updateMetaExercise,
     updateMetaExerciseVersion,
     updateSource,
-    switchFrenzyNoteVersion,
+	    switchFrenzyNoteVersion,
+	    existingCodes,
+	  ]);
+
+  const saveFrenzyQuestNote = useCallback(async (force?: boolean) => {
+    if (!frenzyQuestNote) return;
+    if (isSavingFrenzyQuestNote) return;
+
+    const codeDraft = frenzyQuestCodeDraft.trim();
+    const nameDraft = frenzyQuestNameDraft.trim();
+
+    if (codeDraft.length === 0) {
+      showToast('Quest code cannot be empty.', 'warning');
+      return;
+    }
+    if (nameDraft.length === 0) {
+      showToast('Quest name cannot be empty.', 'warning');
+      return;
+    }
+
+    const snapshot = JSON.stringify({
+      id: frenzyQuestNote.questId,
+      code: codeDraft,
+      name: nameDraft,
+      kind: frenzyQuestKindDraft,
+      visibility: frenzyQuestVisibilityDraft,
+      active: frenzyQuestActiveDraft,
+      timezone: frenzyQuestTimezoneDraft,
+      date: frenzyQuestDueDateDraft,
+      time: frenzyQuestDueTimeDraft,
+      repeatEnabled: frenzyQuestRepeatEnabledDraft,
+      preset: frenzyQuestRepeatPresetDraft,
+      customEvery: frenzyQuestCustomRepeatEveryDraft,
+      customPeriod: frenzyQuestCustomRepeatPeriodDraft,
+      customWeekdays: Array.from(frenzyQuestCustomRepeatWeekdaysDraft).sort(),
+      durationMode: frenzyQuestDurationModeDraft,
+      durationCount: frenzyQuestDurationCountDraft,
+      untilDate: frenzyQuestUntilDateDraft,
+    });
+
+    if (!force && snapshot === frenzyQuestLastAutoSavedRef.current) return;
+    if (codeDraft !== frenzyQuestNote.nodeId && existingCodes.has(codeDraft)) {
+      showToast('Quest code already exists in this domain.', 'error');
+      return;
+    }
+
+    setIsSavingFrenzyQuestNote(true);
+    setFrenzyQuestAutoSaveStatus('saving');
+    try {
+      const schedule = buildQuestSchedulePayload({
+        existingSchedule: frenzyQuestNote.schedule,
+        kind: frenzyQuestKindDraft,
+        timezone: frenzyQuestTimezoneDraft,
+        dueDate: frenzyQuestDueDateDraft,
+        dueTime: frenzyQuestDueTimeDraft,
+        repeatEnabled: frenzyQuestRepeatEnabledDraft,
+        preset: frenzyQuestRepeatPresetDraft,
+        customEvery: frenzyQuestCustomRepeatEveryDraft,
+        customPeriod: frenzyQuestCustomRepeatPeriodDraft,
+        customWeekdays: frenzyQuestCustomRepeatWeekdaysDraft,
+        durationMode: frenzyQuestDurationModeDraft,
+        durationCount: frenzyQuestDurationCountDraft,
+        untilDate: frenzyQuestUntilDateDraft,
+      });
+
+	      const updated = await updateQuest(frenzyQuestNote.questId, {
+	        code: codeDraft,
+	        name: nameDraft,
+	        kind: frenzyQuestKindDraft,
+	        visibility: frenzyQuestVisibilityDraft,
+	        active: frenzyQuestActiveDraft,
+	        schedule,
+	      });
+
+	      applyQuestUpdateToGraph(updated);
+	      const updatedKindRaw = (updated as { kind?: unknown }).kind;
+	      const updatedVisibilityRaw = (updated as { visibility?: unknown }).visibility;
+	      setFrenzyQuestNote(prev => prev ? {
+	        ...prev,
+	        nodeId: updated.code || prev.nodeId,
+	        nodeName: updated.name || prev.nodeName,
+	        kind: isQuestKindValue(updatedKindRaw) ? updatedKindRaw : prev.kind,
+	        visibility: isQuestVisibilityValue(updatedVisibilityRaw) ? updatedVisibilityRaw : prev.visibility,
+	        active: updated.active ?? prev.active,
+	        schedule: updated.schedule,
+	      } : prev);
+      setFrenzyQuestCodeDraft(updated.code || codeDraft);
+      setFrenzyQuestNameDraft(updated.name || nameDraft);
+
+      frenzyQuestLastAutoSavedRef.current = snapshot;
+      setFrenzyQuestAutoSaveStatus('saved');
+      window.setTimeout(() => {
+        setFrenzyQuestAutoSaveStatus(prev => (prev === 'saved' ? 'idle' : prev));
+      }, 900);
+    } catch (error) {
+      console.error('Failed to save frenzy quest note:', error);
+      setFrenzyQuestAutoSaveStatus('error');
+      showToast('Failed to save quest.', 'error');
+    } finally {
+      setIsSavingFrenzyQuestNote(false);
+    }
+  }, [
+    frenzyQuestNote,
+    isSavingFrenzyQuestNote,
+    frenzyQuestCodeDraft,
+    frenzyQuestNameDraft,
+    frenzyQuestKindDraft,
+    frenzyQuestVisibilityDraft,
+    frenzyQuestActiveDraft,
+    frenzyQuestTimezoneDraft,
+    frenzyQuestDueDateDraft,
+    frenzyQuestDueTimeDraft,
+    frenzyQuestRepeatEnabledDraft,
+    frenzyQuestRepeatPresetDraft,
+    frenzyQuestCustomRepeatEveryDraft,
+    frenzyQuestCustomRepeatPeriodDraft,
+    frenzyQuestCustomRepeatWeekdaysDraft,
+    frenzyQuestDurationModeDraft,
+    frenzyQuestDurationCountDraft,
+    frenzyQuestUntilDateDraft,
     existingCodes,
+    applyQuestUpdateToGraph,
   ]);
 
-  const uploadFrenzyImage = useCallback(async (file: File, target: 'prompt' | 'content' | 'solution') => {
-    if (!frenzyNote) return;
-    if (frenzyNote.nodeType === 'source') {
+  useEffect(() => {
+    saveFrenzyQuestNoteRef.current = saveFrenzyQuestNote;
+  }, [saveFrenzyQuestNote]);
+
+  useEffect(() => {
+    if (!frenzyQuestNote) return;
+    // Establish a baseline so we don't auto-save immediately on open.
+    const baseline = JSON.stringify({
+      id: frenzyQuestNote.questId,
+      code: frenzyQuestCodeDraft.trim(),
+      name: frenzyQuestNameDraft.trim(),
+      kind: frenzyQuestKindDraft,
+      visibility: frenzyQuestVisibilityDraft,
+      active: frenzyQuestActiveDraft,
+      timezone: frenzyQuestTimezoneDraft,
+      date: frenzyQuestDueDateDraft,
+      time: frenzyQuestDueTimeDraft,
+      repeatEnabled: frenzyQuestRepeatEnabledDraft,
+      preset: frenzyQuestRepeatPresetDraft,
+      customEvery: frenzyQuestCustomRepeatEveryDraft,
+      customPeriod: frenzyQuestCustomRepeatPeriodDraft,
+      customWeekdays: Array.from(frenzyQuestCustomRepeatWeekdaysDraft).sort(),
+      durationMode: frenzyQuestDurationModeDraft,
+      durationCount: frenzyQuestDurationCountDraft,
+      untilDate: frenzyQuestUntilDateDraft,
+    });
+    frenzyQuestLastAutoSavedRef.current = baseline;
+    setFrenzyQuestAutoSaveStatus('idle');
+    return () => {
+      void saveFrenzyQuestNoteRef.current();
+    };
+  }, [frenzyQuestNote?.questId]);
+
+  useEffect(() => {
+    if (!frenzyQuestNote) return;
+    const snapshot = JSON.stringify({
+      id: frenzyQuestNote.questId,
+      code: frenzyQuestCodeDraft.trim(),
+      name: frenzyQuestNameDraft.trim(),
+      kind: frenzyQuestKindDraft,
+      visibility: frenzyQuestVisibilityDraft,
+      active: frenzyQuestActiveDraft,
+      timezone: frenzyQuestTimezoneDraft,
+      date: frenzyQuestDueDateDraft,
+      time: frenzyQuestDueTimeDraft,
+      repeatEnabled: frenzyQuestRepeatEnabledDraft,
+      preset: frenzyQuestRepeatPresetDraft,
+      customEvery: frenzyQuestCustomRepeatEveryDraft,
+      customPeriod: frenzyQuestCustomRepeatPeriodDraft,
+      customWeekdays: Array.from(frenzyQuestCustomRepeatWeekdaysDraft).sort(),
+      durationMode: frenzyQuestDurationModeDraft,
+      durationCount: frenzyQuestDurationCountDraft,
+      untilDate: frenzyQuestUntilDateDraft,
+    });
+    if (snapshot === frenzyQuestLastAutoSavedRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      void saveFrenzyQuestNote();
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [
+    frenzyQuestNote,
+    frenzyQuestCodeDraft,
+    frenzyQuestNameDraft,
+    frenzyQuestKindDraft,
+    frenzyQuestVisibilityDraft,
+    frenzyQuestActiveDraft,
+    frenzyQuestTimezoneDraft,
+    frenzyQuestDueDateDraft,
+    frenzyQuestDueTimeDraft,
+    frenzyQuestRepeatEnabledDraft,
+    frenzyQuestRepeatPresetDraft,
+    frenzyQuestCustomRepeatEveryDraft,
+    frenzyQuestCustomRepeatPeriodDraft,
+    frenzyQuestCustomRepeatWeekdaysDraft,
+    frenzyQuestDurationModeDraft,
+    frenzyQuestDurationCountDraft,
+    frenzyQuestUntilDateDraft,
+    saveFrenzyQuestNote,
+  ]);
+
+	  const uploadFrenzyImage = useCallback(async (file: File, target: 'prompt' | 'content' | 'solution') => {
+	    if (!frenzyNote) return;
+	    if (frenzyNote.nodeType === 'source') {
       showToast('Source images are not supported yet.', 'warning');
       return;
     }
@@ -4879,21 +5297,45 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [uploadFrenzyImage]);
 
   const closeFrenzyNote = useCallback(async () => {
-    await saveFrenzyNote();
-    setFrenzyNote(null);
-    setFrenzyNoteCodeDraft('');
-    setFrenzyNoteDraft('');
-    setFrenzyNoteNameDraft('');
-    setFrenzyNotePromptDraft('');
-    setFrenzyNotePromptImagePath('');
-    setFrenzyNoteContentImagePath('');
-    setFrenzyNoteSolutionDraft('');
-    setFrenzyNoteSolutionImagePath('');
-    setShowFrenzySolution(false);
-    setFrenzyNotePreview(false);
-    setFrenzyNoteIsNewVersion(false);
+    if (frenzyNote) {
+      await saveFrenzyNote();
+      setFrenzyNote(null);
+      setFrenzyNoteCodeDraft('');
+      setFrenzyNoteDraft('');
+      setFrenzyNoteNameDraft('');
+      setFrenzyNotePromptDraft('');
+      setFrenzyNotePromptImagePath('');
+      setFrenzyNoteContentImagePath('');
+      setFrenzyNoteSolutionDraft('');
+      setFrenzyNoteSolutionImagePath('');
+      setShowFrenzySolution(false);
+      setFrenzyNotePreview(false);
+      setFrenzyNoteIsNewVersion(false);
+    }
+    if (frenzyQuestNote) {
+      await saveFrenzyQuestNote(true);
+      setFrenzyQuestNote(null);
+      setFrenzyQuestCodeDraft('');
+      setFrenzyQuestNameDraft('');
+      setFrenzyQuestKindDraft('todo');
+      setFrenzyQuestVisibilityDraft('private');
+      setFrenzyQuestActiveDraft(true);
+      setFrenzyQuestTimezoneDraft(coalesceTimezone());
+      setFrenzyQuestDueDateDraft('');
+      setFrenzyQuestDueTimeDraft('');
+      setFrenzyQuestRepeatEnabledDraft(false);
+      setFrenzyQuestRepeatPresetDraft('daily');
+      setFrenzyQuestCustomRepeatEveryDraft(1);
+      setFrenzyQuestCustomRepeatPeriodDraft('days');
+      setFrenzyQuestCustomRepeatWeekdaysDraft(new Set(['MO']));
+      setFrenzyQuestDurationModeDraft('forever');
+      setFrenzyQuestDurationCountDraft(10);
+      setFrenzyQuestUntilDateDraft('');
+      setFrenzyQuestAutoSaveStatus('idle');
+      frenzyQuestLastAutoSavedRef.current = '';
+    }
     setIsDraggingFrenzyNote(false);
-  }, [saveFrenzyNote]);
+  }, [frenzyNote, frenzyQuestNote, saveFrenzyNote, saveFrenzyQuestNote]);
 
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
@@ -4911,14 +5353,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         setSelectedNodeIds(new Set());
       }
       setPendingLinkSourceId(null);
-      if (frenzyNote) {
+      if (frenzyNote || frenzyQuestNote) {
         void closeFrenzyNote();
       }
     };
 
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [isFrenzyEnabled, isFrenzyEditMode, selectedNodeIds, frenzyNote, closeFrenzyNote]);
+  }, [isFrenzyEnabled, isFrenzyEditMode, selectedNodeIds, frenzyNote, frenzyQuestNote, closeFrenzyNote]);
 
   const getNodeTypeByCode = useCallback((code: string) => {
     if (currentStructuralGraphData.definitions?.[code]) return 'definition';
@@ -6648,7 +7090,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [isFrenzyEnabled, isFrenzyEditMode, maybeCreateFrenzyDragLink]);
 
   const handleFrenzyNoteMouseDown = useCallback((event: React.MouseEvent) => {
-    if (!frenzyNote) return;
+    if (!frenzyNote && !frenzyQuestNote) return;
     if ((event.target as HTMLElement).closest('button, textarea, input')) return;
     setIsDraggingFrenzyNote(true);
     frenzyNoteDragOffsetRef.current = {
@@ -6656,7 +7098,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       y: event.clientY - frenzyNotePosition.y,
     };
     event.preventDefault();
-  }, [frenzyNote, frenzyNotePosition]);
+  }, [frenzyNote, frenzyQuestNote, frenzyNotePosition]);
 
   useEffect(() => {
     if (!isDraggingFrenzyNote) return;
@@ -7375,12 +7817,337 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     <span className="text-xs text-gray-600">Saving...</span>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
+	              </div>
+	            )}
+	            {frenzyQuestNote && (
+	              <div
+	                ref={frenzyNoteRef}
+	                className="absolute z-40 w-80 bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-3"
+	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
+	              >
+	                <div
+	                  className="flex items-start justify-between gap-3 cursor-move select-none"
+	                  onMouseDown={handleFrenzyNoteMouseDown}
+	                >
+	                  <div className="min-w-0">
+	                    <div className="text-sm font-semibold text-yellow-900 truncate">
+	                      {frenzyQuestCodeDraft.trim() || frenzyQuestNote.nodeId}
+	                    </div>
+	                    <div className="text-xs text-yellow-700 truncate">
+	                      {frenzyQuestNameDraft.trim() || frenzyQuestNote.nodeName}
+	                    </div>
+	                  </div>
+	                  <Button
+	                    size="sm"
+	                    variant="ghost"
+	                    onClick={closeFrenzyNote}
+	                    disabled={isSavingFrenzyQuestNote}
+	                    className="text-xs"
+	                  >
+	                    Close
+	                  </Button>
+	                </div>
 
-          {/* Render draggable windows */}
-          {ui.state.windows.map(window => (
+	                <div className="mt-2">
+	                  <div className="mb-2">
+	                    <label className="block text-xs text-yellow-800 mb-1">Code</label>
+	                    <input
+	                      value={frenzyQuestCodeDraft}
+	                      onChange={(e) => setFrenzyQuestCodeDraft(e.target.value)}
+	                      onBlur={() => { void saveFrenzyQuestNote(true); }}
+	                      className={`w-full bg-yellow-50 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
+	                        frenzyQuestCodeConflict
+	                          ? 'border-red-400 focus:ring-red-200 text-red-700'
+	                          : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
+	                      }`}
+	                      aria-invalid={frenzyQuestCodeConflict}
+	                    />
+	                    {frenzyQuestCodeConflict && (
+	                      <div className="mt-1 text-xs text-red-600">
+	                        Code already exists in this domain.
+	                      </div>
+	                    )}
+	                  </div>
+
+	                  <div className="mb-2">
+	                    <label className="block text-xs text-yellow-800 mb-1">Name</label>
+	                    <input
+	                      value={frenzyQuestNameDraft}
+	                      onChange={(e) => setFrenzyQuestNameDraft(e.target.value)}
+	                      onBlur={() => { void saveFrenzyQuestNote(true); }}
+	                      className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                    />
+	                  </div>
+
+	                  <div className="grid grid-cols-2 gap-2 mb-2">
+	                    <div>
+	                      <label className="block text-xs text-yellow-800 mb-1">Kind</label>
+	                      <select
+	                        value={frenzyQuestKindDraft}
+	                        onChange={(e) => {
+	                          const next = e.target.value as 'todo' | 'habit' | 'daily';
+	                          setFrenzyQuestKindDraft(next);
+	                          if (next === 'habit') setFrenzyQuestRepeatEnabledDraft(true);
+	                          if (next === 'daily') setFrenzyQuestRepeatEnabledDraft(false);
+	                        }}
+	                        className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                      >
+	                        <option value="todo">todo</option>
+	                        <option value="habit">habit</option>
+	                        <option value="daily">daily</option>
+	                      </select>
+	                    </div>
+	                    <div>
+	                      <label className="block text-xs text-yellow-800 mb-1">Visibility</label>
+	                      <select
+	                        value={frenzyQuestVisibilityDraft}
+	                        onChange={(e) => setFrenzyQuestVisibilityDraft(e.target.value as 'private' | 'domain')}
+	                        className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                      >
+	                        <option value="private">private</option>
+	                        <option value="domain">domain</option>
+	                      </select>
+	                    </div>
+	                  </div>
+
+	                  <div className="mb-2 flex items-center justify-between">
+	                    <label className="text-xs text-yellow-800">Active</label>
+	                    <input
+	                      type="checkbox"
+	                      checked={frenzyQuestActiveDraft}
+	                      onChange={(e) => setFrenzyQuestActiveDraft(e.target.checked)}
+	                    />
+	                  </div>
+
+	                  <div className="mb-2">
+	                    <label className="block text-xs text-yellow-800 mb-1">Timezone</label>
+	                    <div className="flex items-center gap-2">
+	                      <input
+	                        value={frenzyQuestTimezoneDraft}
+	                        onChange={(e) => setFrenzyQuestTimezoneDraft(e.target.value)}
+	                        onBlur={() => { void saveFrenzyQuestNote(true); }}
+	                        className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                      />
+	                      <Button
+	                        size="sm"
+	                        variant="outline"
+	                        onClick={() => setFrenzyQuestTimezoneDraft(coalesceTimezone())}
+	                        className="h-7 px-2 text-[11px]"
+	                      >
+	                        Local
+	                      </Button>
+	                    </div>
+	                  </div>
+
+	                  <div className="grid grid-cols-2 gap-2 mb-2">
+	                    <div>
+	                      <label className="block text-xs text-yellow-800 mb-1">Date</label>
+	                      <input
+	                        type="date"
+	                        value={frenzyQuestDueDateDraft}
+	                        onChange={(e) => setFrenzyQuestDueDateDraft(e.target.value)}
+	                        className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                      />
+	                    </div>
+	                    <div>
+	                      <label className="block text-xs text-yellow-800 mb-1">Time</label>
+	                      <div className="flex items-center gap-2">
+	                        <input
+	                          ref={frenzyQuestTimeInputRef}
+	                          type="time"
+	                          value={frenzyQuestDueTimeDraft}
+	                          onChange={(e) => setFrenzyQuestDueTimeDraft(e.target.value)}
+	                          className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                        />
+	                        <Button
+	                          size="sm"
+	                          variant="outline"
+	                          className="h-7 w-8 px-0"
+	                          onClick={() => {
+	                            const el = frenzyQuestTimeInputRef.current as any;
+	                            if (!el) return;
+	                            if (typeof el.showPicker === 'function') {
+	                              el.showPicker();
+	                              return;
+	                            }
+	                            el.focus();
+	                          }}
+	                        >
+	                          <Clock className="h-4 w-4" />
+	                        </Button>
+	                      </div>
+	                    </div>
+	                  </div>
+
+	                  <div className="mb-2">
+	                    <div className="flex items-center justify-between gap-2">
+	                      <label className="text-xs text-yellow-800">Repeat</label>
+	                      <input
+	                        type="checkbox"
+	                        checked={frenzyQuestKindDraft === 'habit' ? true : frenzyQuestRepeatEnabledDraft}
+	                        disabled={frenzyQuestKindDraft === 'habit'}
+	                        onChange={(e) => {
+	                          const next = e.target.checked;
+	                          setFrenzyQuestRepeatEnabledDraft(next);
+	                          if (next && !frenzyQuestRepeatPresetDraft) {
+	                            setFrenzyQuestRepeatPresetDraft('daily');
+	                          }
+	                        }}
+	                      />
+	                    </div>
+
+	                    {(frenzyQuestKindDraft === 'habit' || frenzyQuestRepeatEnabledDraft) && (
+	                      <div className="mt-2">
+	                        <div className="flex flex-wrap gap-1">
+	                          {([
+	                            { id: 'daily' as RepeatPreset, label: 'Daily' },
+	                            { id: 'weekdays' as RepeatPreset, label: 'Weekdays' },
+	                            { id: 'weekly' as RepeatPreset, label: 'Weekly' },
+	                            { id: 'monthly' as RepeatPreset, label: 'Monthly' },
+	                            { id: 'yearly' as RepeatPreset, label: 'Yearly' },
+	                            { id: 'custom' as RepeatPreset, label: 'Custom' },
+	                          ]).map(opt => (
+	                            <Button
+	                              key={opt.id}
+	                              variant={frenzyQuestRepeatPresetDraft === opt.id ? 'default' : 'outline'}
+	                              size="sm"
+	                              onClick={() => setFrenzyQuestRepeatPresetDraft(opt.id)}
+	                              className="h-6 px-2 text-[10px]"
+	                            >
+	                              {opt.label}
+	                            </Button>
+	                          ))}
+	                        </div>
+
+	                        {frenzyQuestRepeatPresetDraft === 'custom' && (
+	                          <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2">
+	                            <div className="flex items-center gap-2 mb-2">
+	                              <span className="text-xs text-yellow-800">Repeat every</span>
+	                              <input
+	                                type="number"
+	                                min={1}
+	                                value={frenzyQuestCustomRepeatEveryDraft}
+	                                onChange={(e) => setFrenzyQuestCustomRepeatEveryDraft(Math.max(1, Number(e.target.value) || 1))}
+	                                className="w-16 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                              />
+	                              <select
+	                                value={frenzyQuestCustomRepeatPeriodDraft}
+	                                onChange={(e) => setFrenzyQuestCustomRepeatPeriodDraft(e.target.value as CustomRepeatPeriod)}
+	                                className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                              >
+	                                <option value="days">days</option>
+	                                <option value="weeks">weeks</option>
+	                                <option value="months">months</option>
+	                                <option value="years">years</option>
+	                              </select>
+	                            </div>
+
+	                            {frenzyQuestCustomRepeatPeriodDraft === 'weeks' && (
+	                              <div className="flex flex-wrap gap-1">
+	                                {weekdayLabels.map(d => {
+	                                  const selected = frenzyQuestCustomRepeatWeekdaysDraft.has(d.code);
+	                                  return (
+	                                    <Button
+	                                      key={d.code}
+	                                      size="sm"
+	                                      variant={selected ? 'default' : 'outline'}
+	                                      className="h-6 px-2 text-[10px]"
+	                                      onClick={() => {
+	                                        setFrenzyQuestCustomRepeatWeekdaysDraft(prev => {
+	                                          const next = new Set(prev);
+	                                          if (next.has(d.code)) next.delete(d.code);
+	                                          else next.add(d.code);
+	                                          if (next.size === 0) next.add(d.code);
+	                                          return next;
+	                                        });
+	                                      }}
+	                                    >
+	                                      {d.label}
+	                                    </Button>
+	                                  );
+	                                })}
+	                              </div>
+	                            )}
+	                          </div>
+	                        )}
+
+	                        <div className="mt-2">
+	                          <label className="block text-xs text-yellow-800 mb-1">Duration</label>
+	                          <div className="flex flex-wrap gap-1">
+	                            {([
+	                              { id: 'forever' as DurationMode, label: 'Forever' },
+	                              { id: 'count' as DurationMode, label: 'n times' },
+	                              { id: 'until' as DurationMode, label: 'Until' },
+	                            ]).map(opt => (
+	                              <Button
+	                                key={opt.id}
+	                                variant={frenzyQuestDurationModeDraft === opt.id ? 'default' : 'outline'}
+	                                size="sm"
+	                                onClick={() => setFrenzyQuestDurationModeDraft(opt.id)}
+	                                className="h-6 px-2 text-[10px]"
+	                              >
+	                                {opt.label}
+	                              </Button>
+	                            ))}
+	                          </div>
+
+	                          {frenzyQuestDurationModeDraft === 'count' && (
+	                            <div className="mt-2 flex items-center gap-2">
+	                              <span className="text-xs text-yellow-800">Times</span>
+	                              <input
+	                                type="number"
+	                                min={1}
+	                                value={frenzyQuestDurationCountDraft}
+	                                onChange={(e) => setFrenzyQuestDurationCountDraft(Math.max(1, Number(e.target.value) || 1))}
+	                                className="w-20 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                              />
+	                            </div>
+	                          )}
+
+	                          {frenzyQuestDurationModeDraft === 'until' && (
+	                            <div className="mt-2 flex items-center gap-2">
+	                              <span className="text-xs text-yellow-800">Until</span>
+	                              <input
+	                                type="date"
+	                                value={frenzyQuestUntilDateDraft}
+	                                onChange={(e) => setFrenzyQuestUntilDateDraft(e.target.value)}
+	                                className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                              />
+	                            </div>
+	                          )}
+	                        </div>
+	                      </div>
+	                    )}
+	                  </div>
+
+	                  <div className="mt-2 flex items-center justify-between">
+	                    <Button
+	                      size="sm"
+	                      variant="outline"
+	                      onClick={() => { void saveFrenzyQuestNote(true); }}
+	                      disabled={isSavingFrenzyQuestNote}
+	                    >
+	                      Save
+	                    </Button>
+	                    {(isSavingFrenzyQuestNote || frenzyQuestAutoSaveStatus !== 'idle') && (
+	                      <span className="text-xs text-gray-600">
+	                        {frenzyQuestAutoSaveStatus === 'saving'
+	                          ? 'Saving...'
+	                          : frenzyQuestAutoSaveStatus === 'saved'
+	                            ? 'Saved'
+	                            : frenzyQuestAutoSaveStatus === 'error'
+	                              ? 'Error'
+	                              : ''}
+	                      </span>
+	                    )}
+	                  </div>
+	                </div>
+	              </div>
+	            )}
+	          </div>
+
+	          {/* Render draggable windows */}
+	          {ui.state.windows.map(window => (
             <DraggableWindow
               key={window.id}
               id={window.id}
@@ -7473,67 +8240,32 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   }}
                 />
               )}
-              {window.type === 'quest' && (
-                <QuestWindowContent
-                  windowId={window.id}
-                  questData={window.contentProps.questData || window.contentProps.nodeData}
-                  domainId={parseInt(subjectMatterId, 10)}
-                  graphData={currentStructuralGraphData}
-                  isFrenzyEditMode={isFrenzyEditMode}
-                  onUpdateQuest={(updated) => {
-                    setCurrentStructuralGraphData(prev => {
-                      const nextQuests = { ...(prev.quests || {}) };
-                      const existingCode = Object.keys(nextQuests).find(code => nextQuests[code]?.id === updated.id);
-                      if (existingCode && existingCode !== updated.code) {
-                        delete nextQuests[existingCode];
-                      }
-                      nextQuests[updated.code] = {
-                        ...(nextQuests[updated.code] || {}),
-                        ...updated,
-                        type: 'quest',
-                      };
-                      const nextRelations = (prev.relations || []).map(rel => ({
-                        ...rel,
-                        fromCode: existingCode && rel.fromCode === existingCode ? updated.code : rel.fromCode,
-                        toCode: existingCode && rel.toCode === existingCode ? updated.code : rel.toCode,
-                      }));
-                      return { ...prev, quests: nextQuests, relations: nextRelations };
-                    });
-                  }}
-                  onDeleteQuest={(code) => {
-                    removeAuxNodeFromGraph('quest', code);
-                  }}
+	              {window.type === 'quest' && (
+	                <QuestWindowContent
+	                  windowId={window.id}
+	                  questData={window.contentProps.questData || window.contentProps.nodeData}
+	                  domainId={parseInt(subjectMatterId, 10)}
+	                  graphData={currentStructuralGraphData}
+	                  onUpdateQuest={(updated) => {
+	                    applyQuestUpdateToGraph(updated);
+	                  }}
+	                  onDeleteQuest={(code) => {
+	                    removeAuxNodeFromGraph('quest', code);
+	                  }}
                   onRelevantLinksUpdated={refreshDomainRelations}
                 />
               )}
               {window.type === 'survey' && (
                 <SurveyWindowContent
                   domainId={parseInt(subjectMatterId, 10)}
-                  graphData={currentStructuralGraphData}
-                  onNavigateToNode={navigateToNodeById}
-                  onQuestUpdated={(updated) => {
-                    setCurrentStructuralGraphData(prev => {
-                      const nextQuests = { ...(prev.quests || {}) };
-                      const existingCode = Object.keys(nextQuests).find(code => nextQuests[code]?.id === updated.id);
-                      if (existingCode && existingCode !== updated.code) {
-                        delete nextQuests[existingCode];
-                      }
-                      nextQuests[updated.code] = {
-                        ...(nextQuests[updated.code] || {}),
-                        ...updated,
-                        type: 'quest',
-                      };
-                      const nextRelations = (prev.relations || []).map(rel => ({
-                        ...rel,
-                        fromCode: existingCode && rel.fromCode === existingCode ? updated.code : rel.fromCode,
-                        toCode: existingCode && rel.toCode === existingCode ? updated.code : rel.toCode,
-                      }));
-                      return { ...prev, quests: nextQuests, relations: nextRelations };
-                    });
-                  }}
-                  onStatsUpdated={(count) => setSurveyDueCount(count)}
-                />
-              )}
+	                  graphData={currentStructuralGraphData}
+	                  onNavigateToNode={navigateToNodeById}
+	                  onQuestUpdated={(updated) => {
+	                    applyQuestUpdateToGraph(updated);
+	                  }}
+	                  onStatsUpdated={(count) => setSurveyDueCount(count)}
+	                />
+	              )}
             </DraggableWindow>
           ))}
         </div>
