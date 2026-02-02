@@ -136,7 +136,6 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
 
   // Meta-level editing (name only)
   const [metaDraft, setMetaDraft] = useState({ name: meta.name });
-  const [isEditingMeta, setIsEditingMeta] = useState(false);
 
   const performMetaSave = async (payload: { name?: string }) => {
     if (!onUpdateMeta) return;
@@ -192,9 +191,6 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
       <div className="p-3 border border-blue-200 rounded bg-blue-50">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold text-blue-900">Edit Concept Pool</h2>
-          {!isEditingMeta ? (
-            <Button size="sm" variant="outline" onClick={() => setIsEditingMeta(true)}>Edit</Button>
-          ) : null}
         </div>
         <div className="grid grid-cols-1 gap-2">
           <div>
@@ -202,18 +198,15 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
             <Input
               value={metaDraft.name}
               onChange={(e) => setMetaDraft(d => ({ ...d, name: e.target.value }))}
-              className={`text-sm ${!isEditingMeta ? 'bg-gray-100 text-gray-600' : ''}`}
-              disabled={!isEditingMeta}
+              className="text-sm"
             />
           </div>
         </div>
-        {isEditingMeta && (
-          <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={async () => { await handleMetaSave(); setIsEditingMeta(false); }}>
-              Save Name
-            </Button>
-          </div>
-        )}
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" onClick={handleMetaSave}>
+            Save Name
+          </Button>
+        </div>
         <p className="text-xs text-gray-500 mt-2">{versions.length} version{versions.length !== 1 ? 's' : ''} total</p>
       </div>
 

@@ -1,5 +1,5 @@
 "use client";
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import type { MetaExercise, ExerciseVersion } from '@/lib/api';
@@ -125,7 +125,6 @@ const MetaExerciseEditForm: React.FC<Props> = ({
 
   // Meta-level editing (name only)
   const [metaDraft, setMetaDraft] = useState({ name: meta.name });
-  const [isEditingMeta, setIsEditingMeta] = useState(false);
 
   const performMetaSave = async (payload: { name?: string }) => {
     if (!onUpdateMeta) return;
@@ -181,9 +180,6 @@ const MetaExerciseEditForm: React.FC<Props> = ({
         <div className="p-3 border border-blue-200 rounded bg-blue-50">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-blue-900">Meta-Exercise Details</h3>
-            {!isEditingMeta ? (
-              <Button size="sm" variant="outline" onClick={() => setIsEditingMeta(true)}>Edit</Button>
-            ) : null}
           </div>
           <div className="space-y-2">
             <div>
@@ -192,17 +188,18 @@ const MetaExerciseEditForm: React.FC<Props> = ({
                 value={metaDraft.name}
                 onChange={(e) => setMetaDraft(d => ({ ...d, name: e.target.value }))}
                 placeholder="Exercise name"
-                className={`text-sm ${!isEditingMeta ? 'bg-gray-100 text-gray-600' : ''}`}
-                disabled={!isEditingMeta}
+                className="text-sm"
               />
             </div>
-            {isEditingMeta && (
-              <div className="flex gap-2">
-                <Button size="sm" variant="default" onClick={async () => { await handleMetaSave(); setIsEditingMeta(false); }}>
-                  Save Name
-                </Button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleMetaSave}
+              >
+                Save Name
+              </Button>
+            </div>
           </div>
         </div>
       )}

@@ -907,9 +907,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   setMetaDetails(fresh);
 
                   // Update current node identity (code/name) so header and future loads are correct
-                  setCurrentNode(prev => ({ ...prev, id: updated.code, name: updated.name }));
-                  // Update window title immediately
-                  ui.updateWindow(windowId, { title: updated.name });
+                  const updatedNode = { ...currentNode, id: updated.code, name: updated.name };
+                  setCurrentNode(updatedNode);
+                  // Update window title immediately (and keep window nodeData in sync)
+                  ui.updateWindow(windowId, { title: updated.name, contentProps: { nodeData: updatedNode } });
 
                   // If code changed, force a full graph refresh to rebuild code-indexed maps and links
                   if (updated.code !== prevCode) {
@@ -991,6 +992,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 }}
                 onUpdateMeta={async (payload) => {
                   if (!metaDetails) return;
+                  const prevCode = metaDetails.code;
                   const updated = await updateMetaExercise(metaDetails.id, payload);
 
                   // Re-fetch full meta with versions to avoid losing versions in state
@@ -998,20 +1000,38 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   setMetaDetails(fresh);
 
                   // Update current node identity (code/name) so header and future loads are correct
-                  setCurrentNode(prev => ({ ...prev, id: updated.code, name: updated.name }));
+                  const updatedNode = { ...currentNode, id: updated.code, name: updated.name };
+                  setCurrentNode(updatedNode);
 
-                  // Update window title immediately
-                  ui.updateWindow(windowId, { title: updated.name });
+                  // Update window title immediately (and keep window nodeData in sync)
+                  ui.updateWindow(windowId, { title: updated.name, contentProps: { nodeData: updatedNode } });
 
-                  // Keep nodeDetails in sync for current view
+                  // If code changed, force a full graph refresh to rebuild code-indexed maps and links
+                  if (updated.code !== prevCode) {
+                    showToast('Exercise code updated. Refreshing graph…', 'success');
+                    onRefresh?.();
+                    return;
+                  }
+
+                  // Keep nodeDetails in sync for current view (surgical)
                   setNodeDetails(prev => prev ? { ...prev, code: updated.code, name: updated.name } as any : prev);
 
                   // Clamp selected version index to available range
                   const maxIndex = Math.max(0, (fresh.versions?.length || 1) - 1);
                   setSelectedVersionIndex(i => Math.max(0, Math.min(i, maxIndex)));
 
-                  // Full graph refresh to rebuild maps and keys after potential code rename
-                  onRefresh?.();
+                  // Notify parent for surgical update so labels/left panel update without a full graph rebuild
+                  onUpdateNodeData?.(updated.code, {
+                    code: updated.code,
+                    name: updated.name,
+                    prerequisites: fresh.prerequisites || [],
+                    prerequisiteWeights: fresh.prerequisiteWeights || {},
+                    xPosition: fresh.xPosition,
+                    yPosition: fresh.yPosition,
+                    domainId: fresh.domainId,
+                    id: fresh.id,
+                    type: 'exercise',
+                  } as any);
                 }}
                 onBack={() => setIsEditMode(false)}
               />
