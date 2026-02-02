@@ -7475,6 +7475,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   questData={window.contentProps.questData || window.contentProps.nodeData}
                   domainId={parseInt(subjectMatterId, 10)}
                   graphData={currentStructuralGraphData}
+                  isFrenzyEditMode={isFrenzyEditMode}
                   onUpdateQuest={(updated) => {
                     setCurrentStructuralGraphData(prev => {
                       const nextQuests = { ...(prev.quests || {}) };

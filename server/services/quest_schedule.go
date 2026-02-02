@@ -94,6 +94,7 @@ type rruleSpec struct {
 	byday    []time.Weekday
 	byhour   []int
 	byminute []int
+	interval int
 	count    int
 	until    *time.Time
 }
@@ -149,6 +150,12 @@ func parseRRuleSpec(rrule string) rruleSpec {
 					spec.byminute = append(spec.byminute, n)
 				}
 			}
+		case "INTERVAL":
+			if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+				if n > 0 {
+					spec.interval = n
+				}
+			}
 		case "COUNT":
 			if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
 				spec.count = n
@@ -193,9 +200,99 @@ func uniqueInts(values []int) []int {
 	return out
 }
 
+func daysBetweenDates(a time.Time, b time.Time) int {
+	aa := time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
+	bb := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, time.UTC)
+	return int(bb.Sub(aa).Hours() / 24)
+}
+
+func startOfWeekMonday(day time.Time) time.Time {
+	// day is expected to be local-midnight
+	wd := int(day.Weekday()) // Sunday=0
+	shift := (wd + 6) % 7    // Monday=0
+	return day.AddDate(0, 0, -shift)
+}
+
+func monthsBetween(a time.Time, b time.Time) int {
+	return (b.Year()-a.Year())*12 + int(b.Month()) - int(a.Month())
+}
+
+func matchesRRuleDay(spec rruleSpec, dtstart time.Time, day time.Time) bool {
+	freq := strings.ToUpper(strings.TrimSpace(spec.freq))
+	if freq == "" {
+		freq = "DAILY"
+	}
+	interval := spec.interval
+	if interval <= 0 {
+		interval = 1
+	}
+
+	loc := dtstart.Location()
+	startDay := time.Date(dtstart.Year(), dtstart.Month(), dtstart.Day(), 0, 0, 0, 0, loc)
+	day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
+
+	switch freq {
+	case "DAILY":
+		delta := daysBetweenDates(startDay, day)
+		if delta < 0 {
+			return false
+		}
+		return delta%interval == 0
+	case "WEEKLY":
+		startWeek := startOfWeekMonday(startDay)
+		week := startOfWeekMonday(day)
+		deltaDays := daysBetweenDates(startWeek, week)
+		if deltaDays < 0 {
+			return false
+		}
+		weeks := deltaDays / 7
+		if weeks%interval != 0 {
+			return false
+		}
+		bydays := spec.byday
+		if len(bydays) == 0 {
+			bydays = []time.Weekday{dtstart.Weekday()}
+		}
+		for _, wd := range bydays {
+			if day.Weekday() == wd {
+				return true
+			}
+		}
+		return false
+	case "MONTHLY":
+		months := monthsBetween(startDay, day)
+		if months < 0 {
+			return false
+		}
+		if months%interval != 0 {
+			return false
+		}
+		return day.Day() == startDay.Day()
+	case "YEARLY":
+		years := day.Year() - startDay.Year()
+		if years < 0 {
+			return false
+		}
+		if years%interval != 0 {
+			return false
+		}
+		return day.Month() == startDay.Month() && day.Day() == startDay.Day()
+	default:
+		// Fall back to daily behavior for unknown FREQ values.
+		delta := daysBetweenDates(startDay, day)
+		if delta < 0 {
+			return false
+		}
+		return delta%interval == 0
+	}
+}
+
 func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates []time.Time, rdates []time.Time) *time.Time {
 	loc := dtstart.Location()
 	afterLocal := after.In(loc)
+	if spec.interval <= 0 {
+		spec.interval = 1
+	}
 	if len(spec.byhour) == 0 {
 		spec.byhour = []int{dtstart.Hour()}
 	}
@@ -214,6 +311,12 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 	var candidate *time.Time
 	for _, rd := range rdates {
 		rdLocal := rd.In(loc)
+		if rdLocal.Before(dtstart) {
+			continue
+		}
+		if spec.until != nil && rdLocal.After(spec.until.In(loc)) {
+			continue
+		}
 		if rdLocal.After(afterLocal) {
 			if candidate == nil || rdLocal.Before(*candidate) {
 				copy := rdLocal
@@ -222,30 +325,24 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 		}
 	}
 
-	if spec.count == 1 {
-		occ := dtstart.In(loc)
-		if occ.After(afterLocal) && !exclude[occ.Unix()] {
-			return &occ
-		}
-		return candidate
+	startDay := time.Date(dtstart.Year(), dtstart.Month(), dtstart.Day(), 0, 0, 0, 0, loc)
+	endDay := time.Date(afterLocal.Year(), afterLocal.Month(), afterLocal.Day(), 0, 0, 0, 0, loc).AddDate(5, 0, 0)
+	if endDay.Before(startDay) {
+		endDay = startDay.AddDate(5, 0, 0)
+	}
+	maxDays := daysBetweenDates(startDay, endDay) + 1
+	if maxDays < 0 {
+		maxDays = 0
+	}
+	if maxDays > 365*50 {
+		maxDays = 365 * 50
 	}
 
-	startDate := time.Date(afterLocal.Year(), afterLocal.Month(), afterLocal.Day(), 0, 0, 0, 0, loc)
-	maxDays := 365 * 5
 	occurrences := 0
 	for i := 0; i < maxDays; i++ {
-		day := startDate.AddDate(0, 0, i)
-		if spec.freq == "WEEKLY" && len(spec.byday) > 0 {
-			match := false
-			for _, wd := range spec.byday {
-				if day.Weekday() == wd {
-					match = true
-					break
-				}
-			}
-			if !match {
-				continue
-			}
+		day := startDay.AddDate(0, 0, i)
+		if !matchesRRuleDay(spec, dtstart, day) {
+			continue
 		}
 		for _, h := range spec.byhour {
 			for _, m := range spec.byminute {
@@ -253,11 +350,8 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 				if occ.Before(dtstart) {
 					continue
 				}
-				if spec.until != nil && occ.After(*spec.until) {
+				if spec.until != nil && occ.After(spec.until.In(loc)) {
 					return candidate
-				}
-				if !occ.After(afterLocal) {
-					continue
 				}
 				if exclude[occ.Unix()] {
 					continue
@@ -266,10 +360,14 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 				if spec.count > 0 && occurrences > spec.count {
 					return candidate
 				}
+				if !occ.After(afterLocal) {
+					continue
+				}
 				if candidate != nil && candidate.Before(occ) {
 					return candidate
 				}
-				return &occ
+				copy := occ
+				return &copy
 			}
 		}
 	}
