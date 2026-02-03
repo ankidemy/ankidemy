@@ -10,7 +10,7 @@ import { createQuest, createRelation, deleteRelation, deleteSource, getDomainRel
 import { useUI } from '@/contexts/UIContext';
 import { GraphData } from '../utils/types';
 import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
-import { Edit, Save, X } from 'lucide-react';
+import { Edit, Save, X, Lock, Unlock } from 'lucide-react';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 
 interface SourceWindowContentProps {
@@ -22,6 +22,7 @@ interface SourceWindowContentProps {
   onQuestCreated?: (quest: MetaQuestDTO, relation: { fromCode: string; toCode: string; relationType: string }) => void;
   onDeleteSource?: (code: string) => void;
   onRelevantLinksUpdated?: () => void | Promise<void>;
+  onNavigateToNode?: (nodeId: string) => void;
 }
 
 type RelationDraft = { id?: number; relationType: string; toType: 'meta_definition' | 'meta_exercise'; toCode: string };
@@ -89,6 +90,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   onQuestCreated,
   onDeleteSource,
   onRelevantLinksUpdated,
+  onNavigateToNode,
 }) => {
   const ui = useUI();
   const [source, setSource] = useState<SourceDTO | null>(null);
@@ -419,21 +421,67 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     }
   }, [source?.id, domainId, codeLookup, onRelevantLinksUpdated]);
 
+  const handleToggleVisibility = useCallback(async () => {
+    if (!source?.id) return;
+    const nextVisibility = source.visibility === 'domain' ? 'private' : 'domain';
+    try {
+      const updated = await updateSource(source.id, { visibility: nextVisibility });
+      setSource(updated);
+      setVisibilityDraft(updated.visibility || nextVisibility);
+      onUpdateSource?.(updated);
+      showToast(`Visibility set to ${updated.visibility === 'domain' ? 'Domain' : 'Private'}.`, 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to update visibility.', 'error');
+    }
+  }, [source?.id, source?.visibility, onUpdateSource]);
+
+  const getLinkLabel = useCallback((link: RelationDraft): string => {
+    if (!graphData) return link.toCode;
+    if (link.toType === 'meta_definition') {
+      return graphData.definitions?.[link.toCode]?.name || link.toCode;
+    }
+    if (link.toType === 'meta_exercise') {
+      return graphData.exercises?.[link.toCode]?.name || link.toCode;
+    }
+    return link.toCode;
+  }, [graphData]);
+
   return (
     <div className="flex flex-col gap-4 text-sm p-4">
       <div className="flex items-center justify-between">
-        <div>
-          <div className="text-base font-semibold text-gray-900">{source?.title?.trim() || 'Source'}</div>
-          {source?.code && (
-            <div className="text-xs text-gray-500">Code: {source.code}</div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleToggleVisibility}
+              disabled={!source?.id || isEditMode}
+              title={source?.visibility === 'domain' ? 'Make private' : 'Make public'}
+            >
+              {source?.visibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
+            </Button>
+            <div className="text-base font-semibold text-gray-900 truncate">{source?.title?.trim() || 'Source'}</div>
+          </div>
+          {source?.bibtexKey && (
+            <div className="text-xs text-gray-500">BibTeX: {source.bibtexKey}</div>
           )}
         </div>
         <div className="flex items-center gap-2">
           {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
+          {!isEditMode && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowReminderForm(prev => !prev)}
+              disabled={!source?.id}
+            >
+              {showReminderForm ? 'Close Reminder' : 'Remind Me'}
+            </Button>
+          )}
           {!isEditMode ? (
-            <Button size="sm" variant="outline" onClick={() => setIsEditMode(true)} disabled={!source?.id}>
-              <Edit className="h-4 w-4 mr-1" />
-              Edit
+            <Button size="icon" variant="ghost" onClick={() => setIsEditMode(true)} disabled={!source?.id} className="h-8 w-8">
+              <Edit size={16} />
             </Button>
           ) : (
             <>
@@ -451,9 +499,9 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       </div>
 
       <div className="grid grid-cols-1 gap-3">
-        <div>
-          <label className="text-xs font-medium text-gray-600">Code</label>
-          {isEditMode ? (
+        {isEditMode && (
+          <div>
+            <label className="text-xs font-medium text-gray-600">Code</label>
             <Input
               value={codeDraft}
               onChange={(e) => {
@@ -462,15 +510,11 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               }}
               className="h-8 mt-1"
             />
-          ) : (
-            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
-              {source?.code || '—'}
-            </div>
-          )}
-        </div>
-        <div>
-          <label className="text-xs font-medium text-gray-600">Title</label>
-          {isEditMode ? (
+          </div>
+        )}
+        {isEditMode && (
+          <div>
+            <label className="text-xs font-medium text-gray-600">Title</label>
             <Input
               value={titleDraft}
               onChange={(e) => {
@@ -479,12 +523,8 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               }}
               className="h-8 mt-1"
             />
-          ) : (
-            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
-              {source?.title || '—'}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
         {isEditMode ? (
           <MarkdownPreviewField
             label="Content (Markdown)"
@@ -510,9 +550,9 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
             </div>
           </div>
         )}
-        <div>
-          <label className="text-xs font-medium text-gray-600">BibTeX key</label>
-          {isEditMode ? (
+        {isEditMode && (
+          <div>
+            <label className="text-xs font-medium text-gray-600">BibTeX key</label>
             <Input
               value={bibtexDraft}
               onChange={(e) => {
@@ -522,15 +562,11 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               placeholder="optional"
               className="h-8 mt-1"
             />
-          ) : (
-            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
-              {source?.bibtexKey || '—'}
-            </div>
-          )}
-        </div>
-        <div>
-          <label className="text-xs font-medium text-gray-600">Visibility</label>
-          {isEditMode ? (
+          </div>
+        )}
+        {isEditMode && (
+          <div>
+            <label className="text-xs font-medium text-gray-600">Visibility</label>
             <select
               value={visibilityDraft}
               onChange={(e) => {
@@ -542,27 +578,17 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               <option value="private">Private</option>
               <option value="domain">Domain</option>
             </select>
-          ) : (
-            <div className="mt-1 h-8 flex items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs text-gray-800">
-              {source?.visibility === 'domain' ? 'Domain' : 'Private'}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant="destructive" onClick={handleDelete} disabled={isDeleting || !source?.id}>
-          {isDeleting ? 'Deleting…' : 'Delete'}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setShowReminderForm(prev => !prev)}
-          disabled={!source?.id}
-        >
-          {showReminderForm ? 'Close Reminder' : 'Create Reminder'}
-        </Button>
-      </div>
+      {isEditMode && (
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="destructive" onClick={handleDelete} disabled={isDeleting || !source?.id}>
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </Button>
+        </div>
+      )}
 
       {showReminderForm && (
         <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 space-y-2">
@@ -627,21 +653,40 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
         {relevantLinks.length === 0 && (
           <div className="text-xs text-gray-500">No relevant links yet.</div>
         )}
-        {relevantLinks.map((link, idx) => (
+        {!isEditMode && relevantLinks.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {relevantLinks.map((link, idx) => {
+              const style =
+                link.toType === 'meta_definition'
+                  ? 'bg-blue-50 hover:bg-blue-100 border-blue-200'
+                  : 'bg-orange-50 hover:bg-orange-100 border-orange-200';
+              return (
+                <Button
+                  key={`${link.toCode}-${idx}`}
+                  variant="outline"
+                  size="sm"
+                  className={`h-6 text-xs px-1.5 ${style}`}
+                  onClick={() => onNavigateToNode?.(link.toCode)}
+                >
+                  {getLinkLabel(link)}
+                </Button>
+              );
+            })}
+          </div>
+        )}
+        {isEditMode && relevantLinks.map((link, idx) => (
           <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
             <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">
               {link.toType === 'meta_definition' ? 'Definition' : 'Exercise'}
             </span>
             <span className="text-gray-800">{link.toCode}</span>
-            {isEditMode && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleRemoveRelevantLink(link)}
-              >
-                Remove
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => handleRemoveRelevantLink(link)}
+            >
+              Remove
+            </Button>
           </div>
         ))}
         {isEditMode && (

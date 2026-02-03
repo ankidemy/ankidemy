@@ -3113,6 +3113,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	      ui.openQuestWindow(questData.code, questData);
 	      return;
 	    }
+	    const sourceData = currentStructuralGraphData.sources?.[nodeId];
+	    if (sourceData) {
+	      ui.openSourceWindow(sourceData.code, sourceData);
+	      return;
+	    }
 	    const targetNode = stableGraph.nodes.find(n => n.id === nodeId);
 	    if (targetNode) {
 	      if (mode === 'study' && targetNode.type === 'exercise') {
@@ -8192,6 +8197,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   sourceData={window.contentProps.sourceData || window.contentProps.nodeData}
                   domainId={parseInt(subjectMatterId, 10)}
                   graphData={currentStructuralGraphData}
+                  onNavigateToNode={navigateToNodeById}
                   onUpdateSource={(updated) => {
                     setCurrentStructuralGraphData(prev => {
                       const nextSources = { ...(prev.sources || {}) };
@@ -8235,15 +8241,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   }}
                 />
               )}
-	              {window.type === 'quest' && (
-	                <QuestWindowContent
-	                  windowId={window.id}
-	                  questData={window.contentProps.questData || window.contentProps.nodeData}
-	                  domainId={parseInt(subjectMatterId, 10)}
-	                  graphData={currentStructuralGraphData}
-	                  onUpdateQuest={(updated) => {
-	                    applyQuestUpdateToGraph(updated);
-	                  }}
+              {window.type === 'quest' && (
+                <QuestWindowContent
+                  windowId={window.id}
+                  questData={window.contentProps.questData || window.contentProps.nodeData}
+                  domainId={parseInt(subjectMatterId, 10)}
+                  graphData={currentStructuralGraphData}
+                  onNavigateToNode={navigateToNodeById}
+                  onUpdateQuest={(updated) => {
+                    applyQuestUpdateToGraph(updated);
+                  }}
 	                  onDeleteQuest={(code) => {
 	                    removeAuxNodeFromGraph('quest', code);
 	                  }}

@@ -3,8 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
-import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, SlidersHorizontal } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
@@ -14,9 +13,8 @@ import MetaDefinitionEditForm from '../details/MetaDefinitionEditForm';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
-import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
-import { getReviewHistory, getDomainPrerequisites, getStatusColor } from '@/lib/srs-api';
+import { getReviewHistory, getDomainPrerequisites, getStatusColor, formatNextReview } from '@/lib/srs-api';
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import {
   getDefinitionByCode,
@@ -115,7 +113,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'prerequisites' | 'srs' | 'groups'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'advanced' | 'statistics'>('details');
+  const [showStatusPicker, setShowStatusPicker] = useState(false);
 
   const handleToggleGroupExact = useCallback(async (group: GroupData, nextExact: boolean) => {
     if (!onUpdateGroup) return;
@@ -251,6 +250,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   }, [loadNodeDetails, currentNode]);
   useEffect(() => {
     setActiveTab('details');
+    setShowStatusPicker(false);
   }, [currentNode.id]);
 
   // Navigation within window
@@ -383,6 +383,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
     await srs.updateNodeStatus(numericId, srsNodeType, status);
     showToast(`Status updated to ${status}`, 'success');
+    setShowStatusPicker(false);
   }, [numericId, srsNodeType, srs]);
 
   // Review history fetching
@@ -780,94 +781,155 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Header with navigation */}
-      <div className="border-b p-3 flex items-center gap-2">
-        {isEditMode ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsEditMode(false)}
-            className="h-8 w-8"
-            title="Back to details"
-          >
-            <ArrowLeft size={16} />
-          </Button>
-        ) : (
-          nodeHistory.length > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={navigateBack}
-              className="h-8 w-8"
-              title="Go back"
-            >
-              <ArrowLeft size={16} />
-            </Button>
-          )
-        )}
-        <div className="flex-1 min-w-0">
+      <div className="border-b p-3 flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
+            {(isEditMode || activeTab !== 'details' || nodeHistory.length > 0) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => {
+                  if (isEditMode) {
+                    setIsEditMode(false);
+                    return;
+                  }
+                  if (activeTab !== 'details') {
+                    setActiveTab('details');
+                    return;
+                  }
+                  if (nodeHistory.length > 0) {
+                    navigateBack();
+                  }
+                }}
+                title="Back"
+              >
+                <ArrowLeft size={16} />
+              </Button>
+            )}
             <h3 className="font-semibold text-base truncate">
               <InlineMarkdownKatex>{currentNode.name}</InlineMarkdownKatex>
             </h3>
-            {nodeProgress?.status && nodeProgress.status !== 'fresh' && (
-              <span className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 rounded px-2 py-0.5">
+          </div>
+          <div className="flex items-center gap-1">
+            {currentNode.type !== 'source' && currentNode.type !== 'quest' && (
+              <>
+                <Button
+                  variant={activeTab === 'advanced' ? 'outline' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setActiveTab('advanced')}
+                  disabled={isEditMode}
+                  title="Advanced"
+                >
+                  <SlidersHorizontal size={16} />
+                </Button>
+                <Button
+                  variant={activeTab === 'statistics' ? 'outline' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setActiveTab('statistics')}
+                  disabled={isEditMode}
+                  title="Statistics"
+                >
+                  <BarChart3 size={16} />
+                </Button>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleEditMode}
+              disabled={!canEdit && !isEditMode}
+              className="h-8 w-8"
+              title={
+                !canEdit
+                  ? "Only domain owners or editors can edit nodes"
+                  : isEditMode
+                  ? "View Mode"
+                  : "Edit Mode"
+              }
+            >
+              <Edit size={16} />
+            </Button>
+          </div>
+        </div>
+        {(nodeProgress?.nextReview || nodeProgress?.status || showStatusPicker || (versionCount > 1 && !isEditMode)) && (
+          <div className="flex items-center gap-2 text-xs text-gray-600">
+            {showStatusPicker ? (
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-gray-500">Select:</span>
+                {(['tackling', 'grasped', 'learned'] as NodeStatus[]).map(status => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => handleStatusChange(status)}
+                    className="h-4 w-4 rounded-full border border-gray-300"
+                    style={{ backgroundColor: getStatusColor(status) }}
+                    title={`Set status to ${status}`}
+                    aria-label={`Set status to ${status}`}
+                  />
+                ))}
+              </div>
+            ) : nodeProgress?.status && nodeProgress.status !== 'fresh' ? (
+              <button
+                type="button"
+                onClick={() => setShowStatusPicker(true)}
+                className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 rounded px-2 py-0.5"
+                title="Change status"
+              >
                 <span
                   className="w-2 h-2 rounded-full"
                   style={{ backgroundColor: getStatusColor(nodeProgress.status) }}
                 />
                 <span className="capitalize">{nodeProgress.status}</span>
+              </button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-1"
+                onClick={() => setShowStatusPicker(true)}
+              >
+                Set status
+              </Button>
+            )}
+            {nodeProgress?.nextReview && (
+              <span
+                className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${nodeProgress.isDue ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}
+              >
+                {formatNextReview(nodeProgress.nextReview)}
               </span>
             )}
-            {nodeProgress?.isDue && (
-              <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-orange-100 text-orange-600 flex items-center">
-                <AlertTriangle size={12} className="mr-1" /> Due
-              </span>
+            {!isEditMode && versionCount > 1 && (
+              <div className="ml-auto flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePrevVersion}
+                  disabled={versionIndex <= 0}
+                  className="h-8 w-8"
+                  title="Previous version"
+                >
+                  <ChevronLeft size={16} />
+                </Button>
+                <span className="text-xs text-gray-500 min-w-[70px] text-center">
+                  Ver {versionIndex + 1}/{versionCount}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleNextVersion}
+                  disabled={versionIndex >= versionCount - 1}
+                  className="h-8 w-8"
+                  title="Next version"
+                >
+                  <ChevronRight size={16} />
+                </Button>
+              </div>
             )}
-          </div>
-        </div>
-        {!isEditMode && versionCount > 1 && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handlePrevVersion}
-              disabled={versionIndex <= 0}
-              className="h-8 w-8"
-              title="Previous version"
-            >
-              <ChevronLeft size={16} />
-            </Button>
-            <span className="text-xs text-gray-500 min-w-[70px] text-center">
-              Ver {versionIndex + 1}/{versionCount}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleNextVersion}
-              disabled={versionIndex >= versionCount - 1}
-              className="h-8 w-8"
-              title="Next version"
-            >
-              <ChevronRight size={16} />
-            </Button>
           </div>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleEditMode}
-          disabled={!canEdit && !isEditMode}
-          className="h-8 w-8"
-          title={
-            !canEdit
-              ? "Only domain owners or editors can edit nodes"
-              : isEditMode
-              ? "View Mode"
-              : "Edit Mode"
-          }
-        >
-          <Edit size={16} />
-        </Button>
       </div>
 
       {/* Content */}
@@ -1097,115 +1159,55 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             <div className="text-center py-5 text-gray-500">Loading details...</div>
           )
         ) : (
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
-            <TabsList className="grid w-full grid-cols-4 h-9">
-              <TabsTrigger value="details" className="text-sm h-8">Details</TabsTrigger>
-              {currentNode.type === 'exercise' && (
-                <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
-              )}
-              {currentNode.type === 'definition' && (
-                <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
-              )}
-              <TabsTrigger value="groups" className="text-sm h-8">Groups</TabsTrigger>
-              <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
-            </TabsList>
-            {currentNode.type === 'exercise' && (
-              <TabsContent value="prerequisites" className="mt-3">
-                {numericId && domainData?.id ? (
-                  <PrerequisitesPanel
-                    domainId={domainData.id}
-                    nodeId={numericId}
-                    nodeType={'meta_exercise'}
-                    availableDefinitions={availableDefinitions}
-                    canEdit={canEdit}
-                    externalLinks={externalPrerequisites}
-                    onExternalChanged={onExternalChanged}
-                    onChanged={async () => {
-                      // Surgical update: fetch fresh meta-exercise and update only this node
-                      try {
-                        const fresh = await getMetaExercise(numericId);
-                        onUpdateNodeData?.(fresh.code, {
-                          code: fresh.code,
-                          name: fresh.name,
-                          prerequisites: fresh.prerequisites || [],
-                          prerequisiteWeights: fresh.prerequisiteWeights || {},
-                          xPosition: fresh.xPosition,
-                          yPosition: fresh.yPosition,
-                          id: fresh.id,
-                          type: 'exercise',
-                        } as any);
-                      } catch (e) {
-                        console.warn('Failed to fetch updated meta exercise; falling back to refresh.', e);
-                        onRefresh?.();
-                      }
-                    }}
-                  />
+          <>
+            {activeTab === 'details' && (
+              <div className="mt-3 space-y-4">
+                {currentNode.type === 'definition' ? (
+                  definitionDetailsForView ? (
+                    <DefinitionView
+                      definition={definitionDetailsForView as Definition}
+                      mode="practice" // Always show content in detail windows
+                      showDefinition={showDefinition}
+                      onToggleDefinition={() => setShowDefinition(!showDefinition)}
+                      selectedDefinitionIndex={selectedDefinitionIndex}
+                      totalDescriptions={totalDescriptionsCount()}
+                      currentDescription={currentDescriptionText()}
+                      currentPrompt={currentPromptText()}
+                      currentNotes={currentNotesText()}
+                      promptImagePath={currentPromptImagePath()}
+                      descriptionImagePath={currentDescriptionImagePath()}
+                      onNavigatePrev={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
+                      onNavigateNext={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
+                      relatedExercises={relatedExercises}
+                      onNavigateToNode={navigateToNode}
+                      onReview={handleReviewDefinition}
+                      availableDefinitions={availableDefinitions.map((d: any) => ({
+                        code: d.code,
+                        name: d.name
+                      }))}
+                      availableExercises={availableExercises.map((e: any) => ({
+                        code: e.code,
+                        name: e.name
+                      }))}
+                      srsStatus={nodeProgress?.status}
+                    />
+                  ) : (
+                    <div className="text-sm text-gray-500">Definition details unavailable.</div>
+                  )
                 ) : (
-                  <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
-                )}
-              </TabsContent>
-            )}
-            {currentNode.type === 'definition' && (
-              <TabsContent value="prerequisites" className="mt-3">
-                {numericId && domainData?.id ? (
-                  <PrerequisitesPanel
-                    domainId={domainData.id}
-                    nodeId={numericId}
-                    nodeType={'meta_definition'}
-                    availableDefinitions={availableDefinitions}
-                    allowKinds={['meta_definition']}
-                    canEdit={canEdit}
-                    externalLinks={externalPrerequisites}
-                    onExternalChanged={onExternalChanged}
-                    onChanged={async () => {
-                      // Surgical update for concept prerequisites: reload meta-definition and apply its codes/weights
-                      try {
-                        const fresh = await getMetaDefinition(numericId);
-                        const enriched = {
-                          code: fresh.code,
-                          name: fresh.name,
-                          type: 'definition',
-                          prerequisites: fresh.prerequisites || [],
-                          prerequisiteWeights: fresh.prerequisiteWeights || {},
-                          xPosition: fresh.xPosition,
-                          yPosition: fresh.yPosition,
-                          domainId: fresh.domainId,
-                          id: fresh.id,
-                        } as Definition;
-                        setNodeDetails(enriched);
-                        onUpdateNodeData?.(fresh.code, enriched as any);
-                      } catch (e) {
-                        console.warn('Failed to surgically update concept prerequisites; falling back to refresh.', e);
-                        onRefresh?.();
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
-                )}
-              </TabsContent>
-            )}
-            
-            <TabsContent value="details" className="mt-3 space-y-4">
-              {currentNode.type === 'definition' ? (
-                definitionDetailsForView ? (
-                  <DefinitionView
-                    definition={definitionDetailsForView as Definition}
-                    mode="practice" // Always show content in detail windows
-                    showDefinition={showDefinition}
-                    onToggleDefinition={() => setShowDefinition(!showDefinition)}
-                    selectedDefinitionIndex={selectedDefinitionIndex}
-                    totalDescriptions={totalDescriptionsCount()}
-                    currentDescription={currentDescriptionText()}
-                    currentPrompt={currentPromptText()}
-                    currentNotes={currentNotesText()}
-                    promptImagePath={currentPromptImagePath()}
-                    descriptionImagePath={currentDescriptionImagePath()}
-                    onNavigatePrev={() => setSelectedDefinitionIndex(i => Math.max(0, i - 1))}
-                    onNavigateNext={() => setSelectedDefinitionIndex(i => Math.min(totalDescriptionsCount() - 1, i + 1))}
-                    relatedExercises={relatedExercises}
+                  <ExerciseView
+                    exercise={nodeDetails as Exercise}
+                    showSolution={showSolution}
+                    onToggleSolution={() => setShowSolution(!showSolution)}
+                    showHints={showHints}
+                    onToggleHints={() => setShowHints(!showHints)}
+                    userAnswer={userAnswer}
+                    onUpdateAnswer={setUserAnswer}
+                    answerFeedback={answerFeedback}
+                    onVerifyAnswer={verifyAnswer}
+                    onRateExercise={handleRateExercise}
+                    exerciseAttemptCompleted={exerciseAttemptCompleted}
                     onNavigateToNode={navigateToNode}
-                    onReview={handleReviewDefinition}
                     availableDefinitions={availableDefinitions.map((d: any) => ({
                       code: d.code,
                       name: d.name
@@ -1214,170 +1216,200 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       code: e.code,
                       name: e.name
                     }))}
+                    definitionPrerequisites={definitionPrereqsForView}
+                    exercisePrerequisites={exercisePrereqsForView}
                     srsStatus={nodeProgress?.status}
+                    statementImagePath={(nodeDetails as Exercise | null)?.statementImagePath}
+                    descriptionImagePath={(nodeDetails as Exercise | null)?.descriptionImagePath}
                   />
-                ) : (
-                  <div className="text-sm text-gray-500">Definition details unavailable.</div>
-                )
-              ) : (
-                <ExerciseView
-                  exercise={nodeDetails as Exercise}
-                  showSolution={showSolution}
-                  onToggleSolution={() => setShowSolution(!showSolution)}
-                  showHints={showHints}
-                  onToggleHints={() => setShowHints(!showHints)}
-                  userAnswer={userAnswer}
-                  onUpdateAnswer={setUserAnswer}
-                  answerFeedback={answerFeedback}
-                  onVerifyAnswer={verifyAnswer}
-                  onRateExercise={handleRateExercise}
-                  exerciseAttemptCompleted={exerciseAttemptCompleted}
-                  onNavigateToNode={navigateToNode}
-                  availableDefinitions={availableDefinitions.map((d: any) => ({
-                    code: d.code,
-                    name: d.name
-                  }))}
-                  availableExercises={availableExercises.map((e: any) => ({
-                    code: e.code,
-                    name: e.name
-                  }))}
-                  definitionPrerequisites={definitionPrereqsForView}
-                  exercisePrerequisites={exercisePrereqsForView}
-                  srsStatus={nodeProgress?.status}
-                  statementImagePath={(nodeDetails as Exercise | null)?.statementImagePath}
-                  descriptionImagePath={(nodeDetails as Exercise | null)?.descriptionImagePath}
-                />
-              )}
-            </TabsContent>
-            
-            <TabsContent value="groups" className="mt-3 space-y-4">
-              <div className="space-y-2">
-                <div className="text-sm font-semibold text-gray-800">Groups</div>
-                {groups.length === 0 ? (
-                  <div className="text-xs text-gray-500">No groups yet.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {groups.map(group => {
-                      const members = groupMembersById.get(group.id) ?? new Set<string>();
-                      const isMember = members.has(currentNode.id);
-                      const isSeed = (group.seeds || []).some(seed => seed.nodeCode === currentNode.id);
-                      const isExact = group.isExact;
-                      const isDerived = isMember && !isSeed && !isExact;
-                      const canRemove = isExact || isSeed;
-                      const actionLabel = isMember ? (canRemove ? 'Remove' : 'Derived') : 'Add';
+                )}
+              </div>
+            )}
 
-                      return (
-                        <div key={group.id} className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-xs">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-gray-800">{group.name}</span>
-                              <span className="text-[10px] text-gray-500">{members.size}</span>
+            {activeTab === 'advanced' && (
+              <div className="mt-3 space-y-4">
+                {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold text-gray-800">Prerequisites</div>
+                    {currentNode.type === 'exercise' ? (
+                      numericId && domainData?.id ? (
+                        <PrerequisitesPanel
+                          domainId={domainData.id}
+                          nodeId={numericId}
+                          nodeType={'meta_exercise'}
+                          availableDefinitions={availableDefinitions}
+                          canEdit={canEdit}
+                          externalLinks={externalPrerequisites}
+                          onExternalChanged={onExternalChanged}
+                          onChanged={async () => {
+                            // Surgical update: fetch fresh meta-exercise and update only this node
+                            try {
+                              const fresh = await getMetaExercise(numericId);
+                              onUpdateNodeData?.(fresh.code, {
+                                code: fresh.code,
+                                name: fresh.name,
+                                prerequisites: fresh.prerequisites || [],
+                                prerequisiteWeights: fresh.prerequisiteWeights || {},
+                                xPosition: fresh.xPosition,
+                                yPosition: fresh.yPosition,
+                                id: fresh.id,
+                                type: 'exercise',
+                              } as any);
+                            } catch (e) {
+                              console.warn('Failed to fetch updated meta exercise; falling back to refresh.', e);
+                              onRefresh?.();
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
+                      )
+                    ) : (
+                      numericId && domainData?.id ? (
+                        <PrerequisitesPanel
+                          domainId={domainData.id}
+                          nodeId={numericId}
+                          nodeType={'meta_definition'}
+                          availableDefinitions={availableDefinitions}
+                          allowKinds={['meta_definition']}
+                          canEdit={canEdit}
+                          externalLinks={externalPrerequisites}
+                          onExternalChanged={onExternalChanged}
+                          onChanged={async () => {
+                            // Surgical update for concept prerequisites: reload meta-definition and apply its codes/weights
+                            try {
+                              const fresh = await getMetaDefinition(numericId);
+                              const enriched = {
+                                code: fresh.code,
+                                name: fresh.name,
+                                type: 'definition',
+                                prerequisites: fresh.prerequisites || [],
+                                prerequisiteWeights: fresh.prerequisiteWeights || {},
+                                xPosition: fresh.xPosition,
+                                yPosition: fresh.yPosition,
+                                domainId: fresh.domainId,
+                                id: fresh.id,
+                              } as Definition;
+                              setNodeDetails(enriched);
+                              onUpdateNodeData?.(fresh.code, enriched as any);
+                            } catch (e) {
+                              console.warn('Failed to surgically update concept prerequisites; falling back to refresh.', e);
+                              onRefresh?.();
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="text-sm text-gray-500">Unavailable (missing IDs)</div>
+                      )
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-gray-800">Groups</div>
+                  {groups.length === 0 ? (
+                    <div className="text-xs text-gray-500">No groups yet.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {groups.map(group => {
+                        const members = groupMembersById.get(group.id) ?? new Set<string>();
+                        const isMember = members.has(currentNode.id);
+                        const isSeed = (group.seeds || []).some(seed => seed.nodeCode === currentNode.id);
+                        const isExact = group.isExact;
+                        const isDerived = isMember && !isSeed && !isExact;
+                        const canRemove = isExact || isSeed;
+                        const actionLabel = isMember ? (canRemove ? 'Remove' : 'Derived') : 'Add';
+
+                        return (
+                          <div key={group.id} className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-xs">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-800">{group.name}</span>
+                                <span className="text-[10px] text-gray-500">{members.size}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                                  {isExact ? 'Exact' : 'Convex'}
+                                </span>
+                                {isSeed && <span className="text-[10px] text-blue-600">Seed</span>}
+                                {isDerived && <span className="text-[10px] text-gray-400">Derived</span>}
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] uppercase tracking-wide text-gray-500">
-                                {isExact ? 'Exact' : 'Convex'}
-                              </span>
-                              {isSeed && <span className="text-[10px] text-blue-600">Seed</span>}
-                              {isDerived && <span className="text-[10px] text-gray-400">Derived</span>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {onUpdateGroup && (
+                              {onUpdateGroup && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleToggleGroupExact(group, !group.isExact)}
+                                >
+                                  {group.isExact ? 'Unpin' : 'Pin'}
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
-                                variant="outline"
-                                onClick={() => handleToggleGroupExact(group, !group.isExact)}
+                                variant={isMember ? 'outline' : 'default'}
+                                disabled={isMember && !canRemove}
+                                onClick={() => {
+                                  if (!onUpdateGroup) return;
+                                  if (isMember) {
+                                    handleRemoveNodeFromGroup(group);
+                                  } else {
+                                    handleAddNodeToGroup(group);
+                                  }
+                                }}
                               >
-                                {group.isExact ? 'Unpin' : 'Pin'}
+                                {actionLabel}
                               </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant={isMember ? 'outline' : 'default'}
-                              disabled={isMember && !canRemove}
-                              onClick={() => {
-                                if (!onUpdateGroup) return;
-                                if (isMember) {
-                                  handleRemoveNodeFromGroup(group);
-                                } else {
-                                  handleAddNodeToGroup(group);
-                                }
-                              }}
-                            >
-                              {actionLabel}
-                            </Button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="srs" className="mt-3 space-y-3">
-              <StatusIndicator
-                status={nodeProgress?.status || 'fresh'}
-                isDue={nodeProgress?.isDue}
-                daysUntilReview={nodeProgress?.daysUntilReview}
-                nextReviewDate={nodeProgress?.nextReview}
-              />
-              
-              <div>
-                <label className="block text-xs font-medium mb-1 text-gray-600">Set Status:</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(['fresh', 'tackling', 'grasped', 'learned'] as NodeStatus[]).map(status => (
-                    <Button
-                      key={status}
-                      variant={nodeProgress?.status === status ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleStatusChange(status)}
-                      className="text-xs h-7 capitalize"
-                      disabled={srs.state.loading}
-                    >
-                      {status}
-                    </Button>
-                  ))}
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-              
-              <ProgressDisplay progress={nodeProgress} />
-              
-              {/* Review History */}
-              <div className="mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowHistory(!showHistory)}
-                  className="w-full flex justify-between items-center text-xs h-7"
-                >
-                  <span>Review History</span>
-                  {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </Button>
-                {showHistory && (
-                  <div className="mt-2 p-2 border rounded-md bg-gray-50 max-h-48 overflow-y-auto text-xs space-y-1.5">
-                    {historyLoading && <p>Loading history...</p>}
-                    {!historyLoading && history.length === 0 && <p>No review history found.</p>}
-                    {history.map(item => (
-                      <div key={item.id} className={`p-1.5 rounded border-l-4 ${
-                        item.success ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'
-                      }`}>
-                        <p>
-                          <strong>{new Date(item.reviewTime).toLocaleString()}</strong> - 
-                          {item.success ? 'Success' : 'Fail'} (Q: {item.quality})
-                        </p>
-                        {item.intervalAfter !== undefined && (
-                          <p className="text-gray-600">
-                            Interval: {item.intervalBefore?.toFixed(1)}d → {item.intervalAfter?.toFixed(1)}d
+            )}
+
+            {activeTab === 'statistics' && (
+              <div className="mt-3 space-y-3">
+                <ProgressDisplay progress={nodeProgress} />
+
+                {/* Review History */}
+                <div className="mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowHistory(!showHistory)}
+                    className="w-full flex justify-between items-center text-xs h-7"
+                  >
+                    <span>Review History</span>
+                    {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </Button>
+                  {showHistory && (
+                    <div className="mt-2 p-2 border rounded-md bg-gray-50 max-h-48 overflow-y-auto text-xs space-y-1.5">
+                      {historyLoading && <p>Loading history...</p>}
+                      {!historyLoading && history.length === 0 && <p>No review history found.</p>}
+                      {history.map(item => (
+                        <div key={item.id} className={`p-1.5 rounded border-l-4 ${
+                          item.success ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'
+                        }`}>
+                          <p>
+                            <strong>{new Date(item.reviewTime).toLocaleString()}</strong> - 
+                            {item.success ? 'Success' : 'Fail'} (Q: {item.quality})
                           </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                          {item.intervalAfter !== undefined && (
+                            <p className="text-gray-600">
+                              Interval: {item.intervalBefore?.toFixed(1)}d → {item.intervalAfter?.toFixed(1)}d
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </TabsContent>
-          </Tabs>
+            )}
+          </>
         )}
       </div>
     </div>
