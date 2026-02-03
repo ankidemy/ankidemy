@@ -35,33 +35,60 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
   const [isLoading, setIsLoading] = useState(true);
   const [hasBeenFitted, setHasBeenFitted] = useState(false);
   const [links, setLinks] = useState<DomainLink[]>([]);
+  const subjectMattersKeyRef = useRef<string>('');
+  const initialZoomAppliedRef = useRef(false);
+
+  const buildSubjectMattersKey = useCallback((items: SubjectMatter[]) => {
+    return items
+      .map(item => `${item.id}:${item.name ?? ''}:${item.nodeCount ?? 0}:${item.exerciseCount ?? 0}`)
+      .sort()
+      .join('|');
+  }, []);
 
   // Choose subjects: prefer provided; else fetch enrolled
   useEffect(() => {
+    let cancelled = false;
+
+    const loadFromProp = (items: SubjectMatter[]) => {
+      const nextKey = buildSubjectMattersKey(items);
+      if (nextKey === subjectMattersKeyRef.current) return;
+      subjectMattersKeyRef.current = nextKey;
+      initialZoomAppliedRef.current = false;
+      setSubjectMatters(items);
+      setError(null);
+      setIsLoading(false);
+    };
+
     const load = async () => {
       try {
-        setIsLoading(true);
-        if (subjectMattersProp && subjectMattersProp.length) {
-          setSubjectMatters(subjectMattersProp);
-        } else {
-          const domains = await getEnrolledDomains();
-          const mapped = domains.map((domain: any) => ({
-            id: String(domain.id),
-            name: domain.name,
-            nodeCount: domain.nodeCount || 0,
-            exerciseCount: domain.exerciseCount || 0,
-          }));
-          setSubjectMatters(mapped);
+        if (Array.isArray(subjectMattersProp)) {
+          loadFromProp(subjectMattersProp);
+          return;
         }
+
+        setIsLoading(true);
+        const domains = await getEnrolledDomains();
+        if (cancelled) return;
+        const mapped = domains.map((domain: any) => ({
+          id: String(domain.id),
+          name: domain.name,
+          nodeCount: domain.nodeCount || 0,
+          exerciseCount: domain.exerciseCount || 0,
+        }));
+        loadFromProp(mapped);
       } catch (err) {
+        if (cancelled) return;
         console.error('Error fetching domains:', err);
         setError('Error loading domains. Please try again.');
-      } finally {
         setIsLoading(false);
       }
     };
+
     load();
-  }, [subjectMattersProp]);
+    return () => {
+      cancelled = true;
+    };
+  }, [buildSubjectMattersKey, subjectMattersProp]);
 
   // Load links for current subjects
   useEffect(() => {
@@ -103,11 +130,14 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
       try {
         if (!graphRef.current || hasBeenFitted) return;
         if (typeof graphRef.current.zoomToFit === 'function') {
-          graphRef.current.zoomToFit(600, 40);
+          const minDim = Math.min(dimensions.width, dimensions.height);
+          const basePadding = Math.max(40, Math.round(minDim * 0.1));
+          const padding = Math.round(basePadding * 1.3225);
+          graphRef.current.zoomToFit(600, padding);
         } else {
           // Fallback: center and set a reasonable zoom
           graphRef.current.centerAt(0, 0, 600);
-          graphRef.current.zoom(1, 600);
+          graphRef.current.zoom(0.85, 600);
         }
         setHasBeenFitted(true);
       } catch (error) {
@@ -118,11 +148,43 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
 
   const handleEngineStop = useCallback(() => { fitGraphToView(); }, [fitGraphToView]);
 
-  // Also trigger fit once when data and dimensions are ready (independent of engine stop)
+  const applyInitialZoomOut = useCallback(() => {
+    const fg = graphRef.current;
+    if (!fg || initialZoomAppliedRef.current) return false;
+    try {
+      if (typeof fg.centerAt === 'function') {
+        fg.centerAt(0, 0, 0);
+      }
+      if (typeof fg.zoom === 'function') {
+        fg.zoom(1.4, 0);
+      }
+      initialZoomAppliedRef.current = true;
+      return true;
+    } catch {}
+    return false;
+  }, []);
+
+  // Start slightly zoomed-out so the eventual fit feels like a zoom-in.
+  // We poll briefly because the graph instance mounts after next/dynamic.
   useEffect(() => {
     if (!autoFitOnLoad) return;
-    fitGraphToView();
-  }, [autoFitOnLoad, graphData.nodes.length, dimensions.width, dimensions.height, fitGraphToView]);
+    if (initialZoomAppliedRef.current) return;
+    if (graphData.nodes.length === 0) return;
+    if (dimensions.width <= 0 || dimensions.height <= 0) return;
+
+    if (applyInitialZoomOut()) return;
+
+    let attempts = 0;
+    const maxAttempts = 40; // ~2s
+    const interval = setInterval(() => {
+      attempts += 1;
+      if (applyInitialZoomOut() || attempts >= maxAttempts) {
+        clearInterval(interval);
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [autoFitOnLoad, graphData.nodes.length, dimensions.width, dimensions.height, applyInitialZoomOut]);
 
   // Forces for less crowding
   useEffect(() => {
@@ -202,7 +264,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
       const statsSize = Math.max(6, fontSize * 0.75);
       ctx.font = `${statsSize}px Arial`;
       ctx.fillStyle = '#6B7280';
-      ctx.fillText(statsText, x, y + size + 12);
+      ctx.fillText(statsText, x, y + size + 6);
     }
   }, [hoveredNode]);
 
@@ -295,7 +357,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
           cooldownTicks={180}
           enableZoomInteraction={true}
           enablePanInteraction={true}
-          minZoom={0.5}
+          minZoom={0.2}
           maxZoom={8}
           warmupTicks={10}
           enablePointerInteraction={true}
