@@ -2992,7 +2992,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       );
     }
     return tempNodes.sort((a, b) => (a.displayId ?? a.id).localeCompare(b.displayId ?? b.id));
-  }, [mode, stableGraph.nodes, filteredNodeType, searchQuery, srs.state.lastUpdated, questVisibilityMode]);
+  }, [
+    mode,
+    stableGraph.nodes,
+    stableGraph.structureVersion,
+    graphMetadata.version,
+    filteredNodeType,
+    searchQuery,
+    srs.state.lastUpdated,
+    questVisibilityMode,
+  ]);
 
   // Basic handlers
   const toggleLeftPanel = useCallback(() => setShowLeftPanel(prev => !prev), []);
