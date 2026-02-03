@@ -1,7 +1,7 @@
 // File: src/app/components/Graph/details/ExerciseView.tsx
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
@@ -28,7 +28,6 @@ interface ExerciseViewProps {
   definitionPrerequisites?: string[];
   exercisePrerequisites?: string[];
   srsStatus?: NodeStatus;
-  onAnotherVersion?: () => void;
   statementImagePath?: string;
   descriptionImagePath?: string;
 }
@@ -51,19 +50,26 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   definitionPrerequisites,
   exercisePrerequisites,
   srsStatus,
-  onAnotherVersion,
   statementImagePath,
   descriptionImagePath,
 }) => {
   const [showNotes, setShowNotes] = useState(false);
   const [answerPreview, setAnswerPreview] = useState(false);
+  const [showAnswerSection, setShowAnswerSection] = useState(false);
+  const [showRating, setShowRating] = useState(false);
   const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
 
+  useEffect(() => {
+    setShowAnswerSection(false);
+    setAnswerPreview(false);
+    setShowRating(false);
+  }, [exercise.id]);
+
   const qualityRatingButtons = [
-    { label: 'Again', value: 'again', color: 'bg-red-50 hover:bg-red-100 border-red-200 text-red-700' },
-    { label: 'Hard', value: 'hard', color: 'bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700' },
-    { label: 'Good', value: 'good', color: 'bg-green-50 hover:bg-green-100 border-green-200 text-green-700' },
-    { label: 'Easy', value: 'easy', color: 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700' },
+    { label: 'Again', value: 'again', color: 'bg-red-50 hover:bg-red-100 border-red-200' },
+    { label: 'Hard', value: 'hard', color: 'bg-orange-50 hover:bg-orange-100 border-orange-200' },
+    { label: 'Good', value: 'good', color: 'bg-green-50 hover:bg-green-100 border-green-200' },
+    { label: 'Easy', value: 'easy', color: 'bg-blue-50 hover:bg-blue-100 border-blue-200' },
   ] as const;
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
@@ -118,6 +124,73 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       )}
 
       <div>
+        <div className="flex items-center justify-between mb-1">
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Try to answer</h4>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs px-1"
+            onClick={() => {
+              setShowAnswerSection(v => {
+                const next = !v;
+                if (!next) setAnswerPreview(false);
+                return next;
+              });
+            }}
+          >
+            {showAnswerSection ? 'Hide' : 'Show'}
+          </Button>
+        </div>
+
+        {showAnswerSection && (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Write Your Answer</h4>
+              {!exercise.verifiable && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs px-1"
+                  onClick={() => setAnswerPreview(v => !v)}
+                >
+                  {answerPreview ? 'Edit' : 'Preview'}
+                </Button>
+              )}
+            </div>
+
+            {(!answerPreview || exercise.verifiable) ? (
+              <textarea
+                className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
+                placeholder="Enter your answer..."
+                value={userAnswer}
+                onChange={(e) => onUpdateAnswer(e.target.value)}
+                disabled={exerciseAttemptCompleted && !showSolution}
+              />
+            ) : (
+              <div className="bg-gray-50 border border-gray-200 rounded p-2 text-sm">
+                {userAnswer?.trim() ? (
+                  <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
+                ) : (
+                  <span className="text-gray-400 italic">Nothing to preview</span>
+                )}
+              </div>
+            )}
+
+            {exercise.verifiable && !exerciseAttemptCompleted && (
+              <div className="mt-1.5 flex justify-end">
+                <Button size="sm" onClick={onVerifyAnswer} className="h-7 text-xs">Verify Answer</Button>
+              </div>
+            )}
+            {answerFeedback && (
+              <div className={`mt-2 p-2 text-xs rounded border ${answerFeedback.correct ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'}`}>
+                {answerFeedback.message}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div>
         <div className="flex justify-between items-center mb-1">
           <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Solution</h4>
           <Button variant="ghost" size="sm" onClick={onToggleSolution} className="h-6 text-xs px-1">
@@ -161,74 +234,36 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
         </div>
       )}
 
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Your Answer</h4>
-          {/* For non-verifiable exercises, allow markdown preview toggle */}
-          {!exercise.verifiable && (
+      {(exerciseAttemptCompleted || showSolution) && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Rate Understanding</h4>
             <Button
               variant="ghost"
               size="sm"
               className="h-6 text-xs px-1"
-              onClick={() => setAnswerPreview(v => !v)}
+              onClick={() => setShowRating(v => !v)}
+              disabled={!canReview}
+              title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : "Rate your understanding"}
             >
-              {answerPreview ? 'Edit' : 'Preview'}
+              {showRating ? 'Hide' : 'Rate'}
             </Button>
-          )}
-        </div>
-
-        {/* Editable textarea unless in preview mode (for non-verifiable). */}
-        {(!answerPreview || exercise.verifiable) ? (
-          <textarea
-            className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
-            placeholder="Enter your answer..."
-            value={userAnswer}
-            onChange={(e) => onUpdateAnswer(e.target.value)}
-            disabled={exerciseAttemptCompleted && !showSolution}
-          />
-        ) : (
-          <div className="bg-gray-50 border border-gray-200 rounded p-2 text-sm">
-            {userAnswer?.trim() ? (
-              <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
-            ) : (
-              <span className="text-gray-400 italic">Nothing to preview</span>
-            )}
           </div>
-        )}
-
-        {exercise.verifiable && !exerciseAttemptCompleted && (
-          <div className="mt-1.5 flex justify-end">
-            <Button size="sm" onClick={onVerifyAnswer} className="h-7 text-xs">Verify Answer</Button>
-          </div>
-        )}
-        {answerFeedback && (
-          <div className={`mt-2 p-2 text-xs rounded border ${answerFeedback.correct ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'}`}>
-            {answerFeedback.message}
-          </div>
-        )}
-      </div>
-
-      {(exerciseAttemptCompleted || showSolution) && (
-        <div className="mt-3">
-          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Rate Your Understanding</h4>
-          <div className="grid grid-cols-2 gap-1.5">
-            {qualityRatingButtons.map((btn) => (
-              <Button
-                key={btn.value}
-                variant="outline"
-                size="sm"
-                className={`h-7 px-2 text-xs ${btn.color} ${!canReview ? 'opacity-50 cursor-not-allowed' : ''}`}
-                onClick={() => onRateExercise(btn.value)}
-                disabled={!canReview}
-                title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : `Rate as ${btn.label}`}
-              >
-                {btn.label}
-              </Button>
-            ))}
-          </div>
-          {onAnotherVersion && (
-            <div className="mt-2 flex justify-end">
-              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onAnotherVersion}>Another problem</Button>
+          {showRating && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {qualityRatingButtons.map((btn) => (
+                <Button
+                  key={btn.value}
+                  variant="outline"
+                  size="sm"
+                  className={`h-6 px-2 text-xs ${btn.color} ${!canReview ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  onClick={() => onRateExercise(btn.value)}
+                  disabled={!canReview}
+                  title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : `Rate as ${btn.label}`}
+                >
+                  {btn.label}
+                </Button>
+              ))}
             </div>
           )}
         </div>
@@ -236,7 +271,7 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
 
       <div>
         <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1 mt-3">Prerequisites</h4>
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Definitions</div>
             {definitionPrereqs.length ? (

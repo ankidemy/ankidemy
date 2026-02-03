@@ -7,7 +7,7 @@ import { Input } from "@/app/components/core/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { Clock, Edit, Loader2, Save, X } from 'lucide-react';
+import { Clock, Edit, Loader2, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   MetaQuestDTO,
   QuestVersionDTO,
@@ -119,6 +119,22 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const effectiveEditMode = isFrenzyEditMode || isEditMode;
 
+  const activeVersionIndex = useMemo(() => {
+    if (versions.length === 0) return 0;
+    const idx = versions.findIndex(v => v.id === selectedVersionId);
+    return idx >= 0 ? idx : 0;
+  }, [versions, selectedVersionId]);
+
+  const activeVersion = useMemo(() => {
+    if (versions.length === 0) return null;
+    return versions[activeVersionIndex] || versions[0] || null;
+  }, [versions, activeVersionIndex]);
+
+  const activeVersionLabel = useMemo(() => {
+    if (!activeVersion) return 'No version';
+    return activeVersion.title?.trim() || `Version ${activeVersionIndex + 1}`;
+  }, [activeVersion, activeVersionIndex]);
+
   const codeLookup = useMemo(() => {
     const map = new Map<string, string>();
     Object.values(graphData?.definitions || {}).forEach(def => {
@@ -212,6 +228,50 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     setVersionDrafts(drafts);
   }, [versions]);
 
+  useEffect(() => {
+    if (versions.length === 0) {
+      if (selectedVersionId !== null) setSelectedVersionId(null);
+      return;
+    }
+    if (!selectedVersionId || !versions.some(v => v.id === selectedVersionId)) {
+      setSelectedVersionId(versions[0].id ?? null);
+    }
+  }, [versions, selectedVersionId]);
+
+  useEffect(() => {
+    if (!effectiveEditMode && activeTab === 'versions') {
+      setActiveTab('details');
+    }
+  }, [effectiveEditMode, activeTab]);
+
+  const currentWindowTitle = useMemo(() => {
+    return ui.state.windows.find(w => w.id === windowId)?.title;
+  }, [ui.state.windows, windowId]);
+
+  const nextWindowTitle = useMemo(() => {
+    return (
+      quest?.name?.trim()
+      || quest?.versions?.[0]?.title?.trim()
+      || questData?.name?.trim()
+      || questData?.versions?.[0]?.title?.trim()
+      || quest?.code
+      || questData?.code
+      || 'Quest'
+    );
+  }, [
+    quest?.name,
+    quest?.code,
+    quest?.versions?.[0]?.title,
+    questData?.name,
+    questData?.code,
+    questData?.versions?.[0]?.title,
+  ]);
+
+  useEffect(() => {
+    if (!nextWindowTitle || nextWindowTitle === currentWindowTitle) return;
+    ui.updateWindow(windowId, { title: nextWindowTitle });
+  }, [nextWindowTitle, currentWindowTitle, ui, windowId]);
+
   const loadRelevantLinks = useCallback(async (versionId: number | null) => {
     if (!quest?.id || !versionId) {
       setRelevantLinks([]);
@@ -245,6 +305,18 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   useEffect(() => {
     loadRelevantLinks(selectedVersionId);
   }, [selectedVersionId, loadRelevantLinks]);
+
+  const handlePrevVersion = useCallback(() => {
+    if (versions.length <= 1) return;
+    const nextIndex = Math.max(0, activeVersionIndex - 1);
+    setSelectedVersionId(versions[nextIndex]?.id ?? null);
+  }, [versions, activeVersionIndex]);
+
+  const handleNextVersion = useCallback(() => {
+    if (versions.length <= 1) return;
+    const nextIndex = Math.min(versions.length - 1, activeVersionIndex + 1);
+    setSelectedVersionId(versions[nextIndex]?.id ?? null);
+  }, [versions, activeVersionIndex]);
 
   const buildSchedulePayload = useCallback((existingSchedule: unknown) => {
     return buildQuestSchedulePayload({
@@ -771,9 +843,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   return (
     <div className={isFrenzyEditMode ? "p-3 text-sm bg-amber-50/70" : "flex flex-col gap-4 text-sm p-4"}>
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-base font-semibold text-gray-900">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-base font-semibold text-gray-900 truncate">
             {quest?.name?.trim() || questData.name?.trim() || 'Quest'}
           </div>
           {(quest?.code || questData.code) && (
@@ -782,6 +854,33 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {versions.length > 1 && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handlePrevVersion}
+                disabled={activeVersionIndex <= 0}
+                className="h-7 w-7"
+                title="Previous version"
+              >
+                <ChevronLeft size={14} />
+              </Button>
+              <span className="text-xs text-gray-500 min-w-[70px] text-center">
+                Ver {activeVersionIndex + 1}/{versions.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleNextVersion}
+                disabled={activeVersionIndex >= versions.length - 1}
+                className="h-7 w-7"
+                title="Next version"
+              >
+                <ChevronRight size={14} />
+              </Button>
+            </div>
+          )}
           {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
 
           {isFrenzyEditMode ? (
@@ -887,16 +986,31 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
         >
           <TabsList className="w-full justify-start">
             <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="versions">Versions</TabsTrigger>
+            {effectiveEditMode && <TabsTrigger value="versions">Versions</TabsTrigger>}
             <TabsTrigger value="relations">Relevant Links</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="mt-3 space-y-3">
             {!effectiveEditMode ? (
               <div className="space-y-3">
+                {versions.length > 0 ? (
+                  <div className="rounded-md border border-gray-200 p-3 space-y-2">
+                    <div className="text-xs font-semibold text-gray-700">Version {activeVersionIndex + 1}</div>
+                    <div className="text-sm text-gray-900">{activeVersion?.title || '—'}</div>
+                    {activeVersion?.descriptionMd?.trim() ? (
+                      <div className="rounded-md border border-gray-100 bg-gray-50 p-2 text-xs text-gray-800 whitespace-pre-wrap">
+                        {activeVersion.descriptionMd}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-500">No description.</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500">No versions yet.</div>
+                )}
                 <div>
                   <div className="text-xs text-gray-600">Name</div>
-                  <div className="text-sm text-gray-900">{quest?.name || quest?.versions?.[0]?.title || '—'}</div>
+                  <div className="text-sm text-gray-900">{quest?.name || activeVersion?.title || '—'}</div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -991,108 +1105,81 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
             )}
           </TabsContent>
 
-          <TabsContent value="versions" className="mt-3 space-y-3">
-            {!effectiveEditMode ? (
-              <>
-                {versions.length === 0 && <div className="text-xs text-gray-500">No versions yet.</div>}
-                {versions.map((version, index) => (
+          {effectiveEditMode && (
+            <TabsContent value="versions" className="mt-3 space-y-3">
+              {versions.length === 0 && <div className="text-xs text-gray-500">No versions yet.</div>}
+              {versions.map((version, index) => {
+                const draft = versionDrafts[version.id || 0] || { title: version.title || '', descriptionMd: version.descriptionMd || '' };
+                return (
                   <div key={version.id} className="rounded-md border border-gray-200 p-3 space-y-2">
-                    <div className="text-xs font-semibold text-gray-700">Version {index + 1}</div>
-                    <div className="text-sm text-gray-900">{version.title || '—'}</div>
-                    {version.descriptionMd?.trim() ? (
-                      <div className="rounded-md border border-gray-100 bg-gray-50 p-2 text-xs text-gray-800 whitespace-pre-wrap">
-                        {version.descriptionMd}
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-gray-700">Version {index + 1}</div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => handleSaveVersion(version.id || 0)} disabled={!version.id}>
+                          Save
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => handleDeleteVersion(version.id || 0)} disabled={!version.id || versions.length <= 1}>
+                          Delete
+                        </Button>
                       </div>
-                    ) : (
-                      <div className="text-xs text-gray-500">No description.</div>
-                    )}
-                  </div>
-                ))}
-              </>
-            ) : (
-              <>
-                {versions.length === 0 && <div className="text-xs text-gray-500">No versions yet.</div>}
-                {versions.map((version, index) => {
-                  const draft = versionDrafts[version.id || 0] || { title: version.title || '', descriptionMd: version.descriptionMd || '' };
-                  return (
-                    <div key={version.id} className="rounded-md border border-gray-200 p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-semibold text-gray-700">Version {index + 1}</div>
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" onClick={() => handleSaveVersion(version.id || 0)} disabled={!version.id}>
-                            Save
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleDeleteVersion(version.id || 0)} disabled={!version.id || versions.length <= 1}>
-                            Delete
-                          </Button>
-                        </div>
-                      </div>
-                      <Input
-                        value={draft.title}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setVersionDrafts(prev => ({ ...prev, [version.id || 0]: { ...draft, title: value } }));
-                        }}
-                        className="h-8"
-                        placeholder="Version title"
-                      />
-                      <MarkdownPreviewField
-                        label="Description (Markdown)"
-                        value={draft.descriptionMd}
-                        onChange={(value) => {
-                          setVersionDrafts(prev => ({ ...prev, [version.id || 0]: { ...draft, descriptionMd: value } }));
-                        }}
-                        rows={4}
-                      />
                     </div>
-                  );
-                })}
-
-                {showAddVersionForm ? (
-                  <div className="rounded-md border border-dashed border-gray-200 p-3 space-y-2">
-                    <div className="text-xs font-semibold text-gray-700">Add New Version</div>
                     <Input
-                      value={newVersionTitle}
-                      onChange={(e) => setNewVersionTitle(e.target.value)}
+                      value={draft.title}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setVersionDrafts(prev => ({ ...prev, [version.id || 0]: { ...draft, title: value } }));
+                      }}
                       className="h-8"
                       placeholder="Version title"
                     />
                     <MarkdownPreviewField
                       label="Description (Markdown)"
-                      value={newVersionDescription}
-                      onChange={(value) => setNewVersionDescription(value)}
-                      rows={3}
+                      value={draft.descriptionMd}
+                      onChange={(value) => {
+                        setVersionDrafts(prev => ({ ...prev, [version.id || 0]: { ...draft, descriptionMd: value } }));
+                      }}
+                      rows={4}
                     />
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" onClick={handleAddVersion} disabled={!quest?.id}>
-                        Add Version
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setShowAddVersionForm(false)}>
-                        Cancel
-                      </Button>
-                    </div>
                   </div>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={() => setShowAddVersionForm(true)}>
-                    Add New Version
-                  </Button>
-                )}
-              </>
-            )}
-          </TabsContent>
+                );
+              })}
+
+              {showAddVersionForm ? (
+                <div className="rounded-md border border-dashed border-gray-200 p-3 space-y-2">
+                  <div className="text-xs font-semibold text-gray-700">Add New Version</div>
+                  <Input
+                    value={newVersionTitle}
+                    onChange={(e) => setNewVersionTitle(e.target.value)}
+                    className="h-8"
+                    placeholder="Version title"
+                  />
+                  <MarkdownPreviewField
+                    label="Description (Markdown)"
+                    value={newVersionDescription}
+                    onChange={(value) => setNewVersionDescription(value)}
+                    rows={3}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={handleAddVersion} disabled={!quest?.id}>
+                      Add Version
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddVersionForm(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setShowAddVersionForm(true)}>
+                  Add New Version
+                </Button>
+              )}
+            </TabsContent>
+          )}
 
           <TabsContent value="relations" className="mt-3 space-y-2">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold text-gray-700">Relevant Links</div>
-              <select
-                value={selectedVersionId ?? ''}
-                onChange={(e) => setSelectedVersionId(Number(e.target.value))}
-                className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
-              >
-                {versions.map((v, idx) => (
-                  <option key={v.id} value={v.id}>{v.title || `Version ${idx + 1}`}</option>
-                ))}
-              </select>
+              <div className="text-xs text-gray-500">Version: {activeVersionLabel}</div>
             </div>
             {relevantLinks.length === 0 && (
               <div className="text-xs text-gray-500">No relevant links for this version.</div>

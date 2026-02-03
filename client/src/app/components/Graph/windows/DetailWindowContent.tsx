@@ -3,24 +3,20 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Input } from "@/app/components/core/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
-import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
-import NodeEditForm from '../details/NodeEditForm';
 import PrerequisitesPanel from '../details/PrerequisitesPanel';
 import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
-import MetaExerciseVersionsViewer from '../details/MetaExerciseVersionsViewer';
 import MetaDefinitionEditForm from '../details/MetaDefinitionEditForm';
-import MetaDefinitionVersionsViewer from '../details/MetaDefinitionVersionsViewer';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
 import StatusIndicator from '../components/StatusIndicator';
 import ProgressDisplay from '../components/ProgressDisplay';
-import { getReviewHistory, getDomainPrerequisites } from '@/lib/srs-api';
+import { getReviewHistory, getDomainPrerequisites, getStatusColor } from '@/lib/srs-api';
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import {
   getDefinitionByCode,
@@ -82,7 +78,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   onExternalChanged,
   groups = [],
   groupMembersById = new Map(),
-  onCreateGroup,
   onUpdateGroup,
   onDeleteGroup: _onDeleteGroup,
 }) => {
@@ -120,35 +115,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<SRSReviewHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'versions' | 'prerequisites' | 'srs' | 'groups'>('details');
-
-  // Group UI state
-  const [groupNameDraft, setGroupNameDraft] = useState('');
-  const [groupExactDraft, setGroupExactDraft] = useState(false);
-  const [isSavingGroup, setIsSavingGroup] = useState(false);
-
-  const handleCreateGroup = useCallback(async () => {
-    if (!onCreateGroup) return;
-    const name = groupNameDraft.trim();
-    if (!name) {
-      showToast('Group name is required.', 'warning');
-      return;
-    }
-    setIsSavingGroup(true);
-    try {
-      const seedCodes = [currentNode.id];
-      const memberCodes = groupExactDraft ? [currentNode.id] : undefined;
-      await onCreateGroup(name, seedCodes, groupExactDraft, memberCodes);
-      setGroupNameDraft('');
-      setGroupExactDraft(false);
-      showToast('Group created.', 'success');
-    } catch (error) {
-      console.error('Failed to create group:', error);
-      showToast('Failed to create group.', 'error');
-    } finally {
-      setIsSavingGroup(false);
-    }
-  }, [onCreateGroup, groupNameDraft, groupExactDraft, currentNode.id]);
+  const [activeTab, setActiveTab] = useState<'details' | 'prerequisites' | 'srs' | 'groups'>('details');
 
   const handleToggleGroupExact = useCallback(async (group: GroupData, nextExact: boolean) => {
     if (!onUpdateGroup) return;
@@ -245,6 +212,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           throw new Error('No exercise versions available');
         }
         setCurrentVersion(fallbackVersion as any);
+        if (meta.versions && fallbackVersion?.id != null) {
+          const idx = meta.versions.findIndex(v => v.id === fallbackVersion.id);
+          if (idx >= 0) setSelectedVersionIndex(idx);
+        }
         details = {
           ...(fallbackVersion as any),
           id: fallbackVersion.id,
@@ -405,22 +376,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     if (!showSolution) setShowSolution(true);
   }, [nodeDetails, currentNode.type, userAnswer, showSolution]);
 
-  // Get another version (pass)
-  const handleAnotherVersion = useCallback(async () => {
-    try {
-      if (!metaDetails) return;
-      const ver = await getNextMetaExerciseVersion(metaDetails.id);
-      if (!ver) {
-        showToast('No alternative version available', 'warning');
-        return;
-      }
-      setCurrentVersion(ver);
-      setNodeDetails({ ...(ver as any), id: ver.id, code: metaDetails.code, name: metaDetails.name, type: 'exercise' } as Exercise);
-      setUserAnswer(''); setAnswerFeedback(null); setShowSolution(false); setExerciseAttemptCompleted(false);
-    } catch (e) {
-      showToast('No alternative version available', 'warning');
-    }
-  }, [metaDetails]);
 
   // Status change handler
   const handleStatusChange = useCallback(async (status: NodeStatus) => {
@@ -665,6 +620,25 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [selectedDefinitionIndex, metaDetails, currentNode.type]);
 
+  // Keep currentVersion and nodeDetails in sync with selected exercise version
+  useEffect(() => {
+    if (currentNode.type !== 'exercise') return;
+    const meta = metaDetails as MetaExercise | null;
+    if (!meta || !Array.isArray(meta.versions) || meta.versions.length === 0) return;
+    const idx = Math.max(0, Math.min(selectedVersionIndex, meta.versions.length - 1));
+    const ver = meta.versions[idx];
+    if (!ver) return;
+    if (!currentVersion || currentVersion.id !== ver.id) {
+      setCurrentVersion(ver as any);
+      setNodeDetails({ ...(ver as any), id: ver.id, code: meta.code, name: meta.name, type: 'exercise' } as Exercise);
+      setUserAnswer('');
+      setAnswerFeedback(null);
+      setShowSolution(false);
+      setShowHints(false);
+      setExerciseAttemptCompleted(false);
+    }
+  }, [selectedVersionIndex, metaDetails, currentNode.type]);
+
   const availableDefinitions = useMemo(() => {
     if (!graphData?.definitions) return [];
     return Object.values(graphData.definitions).map((def: any) => ({
@@ -756,6 +730,44 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     return { ...(nodeDetails as Definition), prerequisites: definitionPrereqsForView };
   }, [nodeDetails, currentNode.type, definitionPrereqsForView]);
 
+  const versionCount = useMemo(() => {
+    if (currentNode.type === 'definition') {
+      return (metaDetails as MetaDefinition | null)?.versions?.length || 0;
+    }
+    if (currentNode.type === 'exercise') {
+      return (metaDetails as MetaExercise | null)?.versions?.length || 0;
+    }
+    return 0;
+  }, [currentNode.type, metaDetails]);
+
+  const versionIndex = useMemo(() => {
+    const raw = currentNode.type === 'definition' ? selectedDefinitionIndex : selectedVersionIndex;
+    if (versionCount <= 0) return 0;
+    return Math.max(0, Math.min(raw, versionCount - 1));
+  }, [currentNode.type, selectedDefinitionIndex, selectedVersionIndex, versionCount]);
+
+  const handlePrevVersion = useCallback(() => {
+    if (versionCount <= 1) return;
+    if (currentNode.type === 'definition') {
+      setSelectedDefinitionIndex(i => Math.max(0, i - 1));
+      return;
+    }
+    if (currentNode.type === 'exercise') {
+      setSelectedVersionIndex(i => Math.max(0, i - 1));
+    }
+  }, [currentNode.type, versionCount]);
+
+  const handleNextVersion = useCallback(() => {
+    if (versionCount <= 1) return;
+    if (currentNode.type === 'definition') {
+      setSelectedDefinitionIndex(i => Math.min(versionCount - 1, i + 1));
+      return;
+    }
+    if (currentNode.type === 'exercise') {
+      setSelectedVersionIndex(i => Math.min(versionCount - 1, i + 1));
+    }
+  }, [currentNode.type, versionCount]);
+
   if (isLoading) {
     return (
       <div className="p-4 text-center">
@@ -792,9 +804,54 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             </Button>
           )
         )}
-        <h3 className="flex-1 font-semibold text-base truncate">
-          <InlineMarkdownKatex>{currentNode.name}</InlineMarkdownKatex>
-        </h3>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="font-semibold text-base truncate">
+              <InlineMarkdownKatex>{currentNode.name}</InlineMarkdownKatex>
+            </h3>
+            {nodeProgress?.status && nodeProgress.status !== 'fresh' && (
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 rounded px-2 py-0.5">
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: getStatusColor(nodeProgress.status) }}
+                />
+                <span className="capitalize">{nodeProgress.status}</span>
+              </span>
+            )}
+            {nodeProgress?.isDue && (
+              <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-orange-100 text-orange-600 flex items-center">
+                <AlertTriangle size={12} className="mr-1" /> Due
+              </span>
+            )}
+          </div>
+        </div>
+        {!isEditMode && versionCount > 1 && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handlePrevVersion}
+              disabled={versionIndex <= 0}
+              className="h-8 w-8"
+              title="Previous version"
+            >
+              <ChevronLeft size={16} />
+            </Button>
+            <span className="text-xs text-gray-500 min-w-[70px] text-center">
+              Ver {versionIndex + 1}/{versionCount}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNextVersion}
+              disabled={versionIndex >= versionCount - 1}
+              className="h-8 w-8"
+              title="Next version"
+            >
+              <ChevronRight size={16} />
+            </Button>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -1041,11 +1098,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           )
         ) : (
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
-            <TabsList className="grid w-full grid-cols-5 h-9">
+            <TabsList className="grid w-full grid-cols-4 h-9">
               <TabsTrigger value="details" className="text-sm h-8">Details</TabsTrigger>
-              {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
-                <TabsTrigger value="versions" className="text-sm h-8">Versions</TabsTrigger>
-              )}
               {currentNode.type === 'exercise' && (
                 <TabsTrigger value="prerequisites" className="text-sm h-8">Prerequisites</TabsTrigger>
               )}
@@ -1055,41 +1109,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               <TabsTrigger value="groups" className="text-sm h-8">Groups</TabsTrigger>
               <TabsTrigger value="srs" className="text-sm h-8">SRS Progress</TabsTrigger>
             </TabsList>
-            {(currentNode.type === 'exercise' || currentNode.type === 'definition') && (
-              <TabsContent value="versions" className="mt-3">
-                {currentNode.type === 'exercise' ? (
-                  metaDetails ? (
-                    <MetaExerciseVersionsViewer
-                      meta={metaDetails as MetaExercise}
-                      activeIndex={selectedVersionIndex}
-                      setActiveIndex={setSelectedVersionIndex}
-                      isOwner={canEdit}
-                      onEditVersion={canEdit ? (index) => {
-                        setSelectedVersionIndex(index);
-                        setIsEditMode(true);
-                      } : undefined}
-                    />
-                  ) : (
-                    <div className="text-center py-5 text-gray-500">Loading versions…</div>
-                  )
-                ) : (
-                  metaDetails ? (
-                    <MetaDefinitionVersionsViewer
-                      meta={metaDetails as MetaDefinition}
-                      activeIndex={selectedDefinitionIndex}
-                      setActiveIndex={setSelectedDefinitionIndex}
-                      isOwner={canEdit}
-                      onEditVersion={canEdit ? (index) => {
-                        setSelectedDefinitionIndex(index);
-                        setIsEditMode(true);
-                      } : undefined}
-                    />
-                  ) : (
-                    <div className="text-center py-5 text-gray-500">Loading versions…</div>
-                  )
-                )}
-              </TabsContent>
-            )}
             {currentNode.type === 'exercise' && (
               <TabsContent value="prerequisites" className="mt-3">
                 {numericId && domainData?.id ? (
@@ -1225,7 +1244,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   definitionPrerequisites={definitionPrereqsForView}
                   exercisePrerequisites={exercisePrereqsForView}
                   srsStatus={nodeProgress?.status}
-                  onAnotherVersion={handleAnotherVersion}
                   statementImagePath={(nodeDetails as Exercise | null)?.statementImagePath}
                   descriptionImagePath={(nodeDetails as Exercise | null)?.descriptionImagePath}
                 />
@@ -1234,33 +1252,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             
             <TabsContent value="groups" className="mt-3 space-y-4">
               <div className="space-y-2">
-                <div className="text-sm font-semibold text-gray-800">Create group</div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={groupNameDraft}
-                    onChange={(e) => setGroupNameDraft(e.target.value)}
-                    placeholder="Group name"
-                    className="h-8 text-sm"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleCreateGroup}
-                    disabled={!onCreateGroup || isSavingGroup}
-                  >
-                    Create
-                  </Button>
-                </div>
-                <label className="flex items-center gap-2 text-xs text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={groupExactDraft}
-                    onChange={(e) => setGroupExactDraft(e.target.checked)}
-                  />
-                  Pin exact membership (test)
-                </label>
-              </div>
-
-              <div className="border-t pt-3 space-y-2">
                 <div className="text-sm font-semibold text-gray-800">Groups</div>
                 {groups.length === 0 ? (
                   <div className="text-xs text-gray-500">No groups yet.</div>

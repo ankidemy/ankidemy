@@ -56,6 +56,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   const hasMultipleDescriptions = totalDescriptions > 1;
   const [showNotes, setShowNotes] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
+  const [showRating, setShowRating] = useState(false);
   const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
@@ -72,6 +73,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   React.useEffect(() => {
     setShowDescription(false);
     setShowNotes(false);
+    setShowRating(false);
   }, [selectedDefinitionIndex]);
 
   return (
@@ -88,14 +90,6 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
         {(showDefinition || mode !== 'study') && (
           <Card className="bg-gray-50 border shadow-sm">
             <CardContent className="p-3 text-sm">
-              {hasMultipleDescriptions && (
-                <div className="flex justify-between items-center mb-2 text-xs border-b pb-1">
-                  <Button variant="ghost" size="sm" disabled={selectedDefinitionIndex === 0} onClick={onNavigatePrev} className="h-5 px-1 text-xs">Prev</Button>
-                  <span>Ver {selectedDefinitionIndex + 1}/{totalDescriptions}</span>
-                  <Button variant="ghost" size="sm" disabled={selectedDefinitionIndex >= totalDescriptions - 1} onClick={onNavigateNext} className="h-5 px-1 text-xs">Next</Button>
-                </div>
-              )}
-
               {currentPrompt && currentPrompt.trim().length > 0 ? (
                 <MarkdownKatex key={`prompt-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentPrompt}</MarkdownKatex>
               ) : (
@@ -127,20 +121,60 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
             </Button>
           </div>
           {showDescription && (
-            <Card className="bg-white border shadow-sm">
-              <CardContent className="p-3 text-sm">
-                {currentDescription && currentDescription.trim().length > 0 ? (
-                  <MarkdownKatex key={`desc-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentDescription}</MarkdownKatex>
-                ) : (
-                  <span className="text-gray-400 italic">N/A</span>
-                )}
-                {descriptionImagePath && (
-                  <div className="mt-2">
-                    <ZoomableImage src={descriptionImagePath} alt="Description image" />
+            <>
+              <Card className="bg-white border shadow-sm">
+                <CardContent className="p-3 text-sm">
+                  {currentDescription && currentDescription.trim().length > 0 ? (
+                    <MarkdownKatex key={`desc-${selectedDefinitionIndex}`} className="whitespace-pre-wrap">{currentDescription}</MarkdownKatex>
+                  ) : (
+                    <span className="text-gray-400 italic">N/A</span>
+                  )}
+                  {descriptionImagePath && (
+                    <div className="mt-2">
+                      <ZoomableImage src={descriptionImagePath} alt="Description image" />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="mt-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider">Rate Understanding</h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs px-1"
+                    onClick={() => setShowRating(v => !v)}
+                    disabled={!canReview}
+                    title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : "Rate your understanding"}
+                  >
+                    {showRating ? 'Hide' : 'Rate'}
+                  </Button>
+                </div>
+                {showRating && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {(['again', 'hard', 'good', 'easy'] as const).map((r) => (
+                      <Button
+                        key={r}
+                        variant="outline"
+                        size="sm"
+                        className={`h-6 px-2 text-xs ${
+                          r === 'again' ? 'bg-red-50 hover:bg-red-100 border-red-200' :
+                          r === 'hard' ? 'bg-orange-50 hover:bg-orange-100 border-orange-200' :
+                          r === 'good' ? 'bg-green-50 hover:bg-green-100 border-green-200' :
+                          'bg-blue-50 hover:bg-blue-100 border-blue-200'
+                        } ${!canReview ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        onClick={() => onReview(r)}
+                        disabled={!canReview}
+                        title={!canReview ? "Mark as 'Grasped' or 'Learned' to enable review" : `Rate as ${r}`}
+                      >
+                        {r[0].toUpperCase() + r.slice(1)}
+                      </Button>
+                    ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -184,56 +218,57 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
         </div>
       )}
 
-      <div>
-        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Prerequisites</h4>
-        {definition.prerequisites?.length ? (
-          <div className="flex flex-wrap gap-1">
-            {definition.prerequisites.map((prereqCode) => (
-              <Button
-                key={prereqCode}
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigateToNode(prereqCode)}
-                className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                title={`Navigate to ${getPrerequisiteDisplayText(prereqCode)}`}
-              >
-                {/* Render LaTeX inside button label */}
-                <span className="truncate max-w-[220px] inline-block align-middle">
-                  {/* Using InlineMath to typeset within a button */}
-                  {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                  <InlineMarkdownKatex className="pointer-events-none">
-                    {getPrerequisiteDisplayText(prereqCode)}
-                  </InlineMarkdownKatex>
-                </span>
-              </Button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500 italic">None</p>
-        )}
-      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Prerequisites</h4>
+          {definition.prerequisites?.length ? (
+            <div className="flex flex-wrap gap-1">
+              {definition.prerequisites.map((prereqCode) => (
+                <Button
+                  key={prereqCode}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigateToNode(prereqCode)}
+                  className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
+                  title={`Navigate to ${getPrerequisiteDisplayText(prereqCode)}`}
+                >
+                  <span className="truncate max-w-[220px] inline-block align-middle">
+                    <InlineMarkdownKatex className="pointer-events-none">
+                      {getPrerequisiteDisplayText(prereqCode)}
+                    </InlineMarkdownKatex>
+                  </span>
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 italic">None</p>
+          )}
+        </div>
 
-      {relatedExercises.length > 0 && (
         <div>
           <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Related Exercises</h4>
-          <div className="flex flex-wrap gap-1">
-            {relatedExercises.map((exerciseCode) => (
-              <Button
-                key={exerciseCode}
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigateToNode(exerciseCode)}
-                className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
-                title={`Navigate to ${getRelatedExerciseDisplayText(exerciseCode)}`}
-              >
-                <InlineMarkdownKatex className="pointer-events-none">
-                  {getRelatedExerciseDisplayText(exerciseCode)}
-                </InlineMarkdownKatex>
-              </Button>
-            ))}
-          </div>
+          {relatedExercises.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {relatedExercises.map((exerciseCode) => (
+                <Button
+                  key={exerciseCode}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigateToNode(exerciseCode)}
+                  className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
+                  title={`Navigate to ${getRelatedExerciseDisplayText(exerciseCode)}`}
+                >
+                  <InlineMarkdownKatex className="pointer-events-none">
+                    {getRelatedExerciseDisplayText(exerciseCode)}
+                  </InlineMarkdownKatex>
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 italic">None</p>
+          )}
         </div>
-      )}
+      </div>
 
       {definition.references?.length ? (
         <div>
@@ -246,29 +281,6 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
         </div>
       ) : null}
 
-      <div>
-        <h4 className="font-medium text-xs text-gray-500 uppercase tracking-wider mb-1">Rate Understanding</h4>
-        <div className="flex flex-wrap gap-1.5">
-          {(['again', 'hard', 'good', 'easy'] as const).map((r) => (
-            <Button
-              key={r}
-              variant="outline"
-              size="sm"
-              className={`h-6 px-2 text-xs ${
-                r === 'again' ? 'bg-red-50 hover:bg-red-100 border-red-200' :
-                r === 'hard' ? 'bg-orange-50 hover:bg-orange-100 border-orange-200' :
-                r === 'good' ? 'bg-green-50 hover:bg-green-100 border-green-200' :
-                'bg-blue-50 hover:bg-blue-100 border-blue-200'
-              } ${!(srsStatus === 'grasped' || srsStatus === 'learned') ? 'opacity-50 cursor-not-allowed' : ''}`}
-              onClick={() => onReview(r)}
-              disabled={!(srsStatus === 'grasped' || srsStatus === 'learned')}
-              title={!(srsStatus === 'grasped' || srsStatus === 'learned') ? "Mark as 'Grasped' or 'Learned' to enable review" : `Rate as ${r}`}
-            >
-              {r[0].toUpperCase() + r.slice(1)}
-            </Button>
-          ))}
-        </div>
-      </div>
     </>
   );
 };

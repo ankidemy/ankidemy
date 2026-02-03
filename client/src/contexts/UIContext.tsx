@@ -301,7 +301,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       payload: {
         id: windowId,
         type: 'quest',
-        title: questData?.code || 'Quest',
+        title: questData?.name || questData?.versions?.[0]?.title || questData?.code || 'Quest',
         contentProps: { questData },
         position: defaultPosition,
         size: { width: 560, height: 560 },
