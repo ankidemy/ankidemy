@@ -691,6 +691,8 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
              try {
                 const stats = await srsApi.getDomainStats(domainId);
                 dispatch({ type: 'SET_DOMAIN_STATS', payload: stats });
+                // Also refresh due reviews to the full mixed queue
+                await loadDueReviews('mixed');
              } catch (refreshError) {
                 console.warn('Could not refresh stats after ending session (no active session API call):', refreshError);
              }
@@ -707,8 +709,8 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
           const stats = await srsApi.getDomainStats(domainId);
           dispatch({ type: 'SET_DOMAIN_STATS', payload: stats });
-          // Also refresh due reviews just in case
-          await loadDueReviews(currentSession.sessionType); // Refresh based on session type
+          // Also refresh due reviews to the full mixed queue
+          await loadDueReviews('mixed');
         } catch (refreshError) {
           console.warn('Could not refresh stats/reviews after ending session:', refreshError);
         }

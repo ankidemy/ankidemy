@@ -2602,12 +2602,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Handle node click
   const handleNodeClick = useCallback(async (
     nodeOnClick: GraphNode,
-    isRefresh: boolean = false,
-    context: 'click' | 'study' | 'navigation' = 'click',
-    event?: MouseEvent
-  ) => {
-    if (!nodeOnClick?.id) return;
-    if (isFrenzyEnabled && isFrenzyEditMode) return;
+	    isRefresh: boolean = false,
+	    context: 'click' | 'study' | 'navigation' = 'click',
+	    event?: MouseEvent
+	  ) => {
+	    if (!nodeOnClick?.id) return;
+	    if (isFrenzyEditMode) return;
 
     if (nodeOnClick.isExternal) {
       if (nodeOnClick.externalDomainId) {
@@ -2659,8 +2659,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
-  }, [ui, isFrenzyEnabled, isFrenzyEditMode, router, getDetailWindowPlacement, currentStructuralGraphData, selectionTool]);
+	    ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
+	  }, [ui, isFrenzyEditMode, router, getDetailWindowPlacement, currentStructuralGraphData, selectionTool]);
   const handleNodeClickRef = useRef(handleNodeClick);
 
   useEffect(() => {
@@ -3096,20 +3096,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [hasAccess, domainData, ui]);
 
   // Navigation helpers
-	  const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
-	    const questData = currentStructuralGraphData.quests?.[nodeId];
-	    if (questData) {
-	      if (isFrenzyEnabled && isFrenzyEditMode) {
-	        const anchor = (typeof questData.xPosition === 'number' && typeof questData.yPosition === 'number')
-	          ? { x: questData.xPosition, y: questData.yPosition }
-	          : undefined;
-	        void openFrenzyNoteRef.current(
+		  const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
+		    const questData = currentStructuralGraphData.quests?.[nodeId];
+		    if (questData) {
+		      if (isFrenzyEditMode) {
+		        const anchor = (typeof questData.xPosition === 'number' && typeof questData.yPosition === 'number')
+		          ? { x: questData.xPosition, y: questData.yPosition }
+		          : undefined;
+		        void openFrenzyNoteRef.current(
 	          { id: questData.code, name: questData.name || questData.code, type: 'quest', xPosition: questData.xPosition, yPosition: questData.yPosition } as GraphNode,
 	          questData.id,
 	          anchor
 	        );
-	        return;
-	      }
+		      return;
+		    }
 	      ui.openQuestWindow(questData.code, questData);
 	      return;
 	    }
@@ -3137,9 +3137,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	        }
 	      }, 300);
 	    } else {
-	      showToast(`Node ${nodeId} not found in the current view.`, "warning");
-	    }
-	  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui, isFrenzyEnabled, isFrenzyEditMode]);
+		      showToast(`Node ${nodeId} not found in the current view.`, "warning");
+		    }
+		  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui, isFrenzyEditMode]);
 
   // Available definitions for modals (as prerequisite candidates)
   const availableDefinitionsForModals = useMemo(() => {
@@ -3276,34 +3276,23 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     frenzyLastBackgroundClickRef.current = null;
   }, []);
 
-  const toggleFrenzyEditMode = useCallback(async () => {
-    if (!canEdit) {
-      showToast('Only domain owners or editors can edit nodes.', 'warning');
-      return;
-    }
-    if (!isFrenzyEditMode) {
-      if (!isFrenzyEnabled) {
-        setIsFrenzyEnabled(true);
-      }
-      ui.closeAllWindows();
-      await loadFrenzyPrerequisites();
-    } else {
-      resetFrenzyEditState();
-    }
-    setIsFrenzyEditMode(prev => !prev);
-  }, [canEdit, isFrenzyEditMode, isFrenzyEnabled, loadFrenzyPrerequisites, resetFrenzyEditState, ui]);
+	  const toggleFrenzyEditMode = useCallback(async () => {
+	    if (!canEdit) {
+	      showToast('Only domain owners or editors can edit nodes.', 'warning');
+	      return;
+	    }
+	    if (!isFrenzyEditMode) {
+	      ui.closeAllWindows();
+	      await loadFrenzyPrerequisites();
+	    } else {
+	      resetFrenzyEditState();
+	    }
+	    setIsFrenzyEditMode(prev => !prev);
+	  }, [canEdit, isFrenzyEditMode, loadFrenzyPrerequisites, resetFrenzyEditState, ui]);
 
-  const toggleFrenzyEnabled = useCallback(() => {
-    if (isFrenzyEnabled) {
-      if (isFrenzyEditMode) {
-        resetFrenzyEditState();
-        setIsFrenzyEditMode(false);
-      }
-      setIsFrenzyEnabled(false);
-    } else {
-      setIsFrenzyEnabled(true);
-    }
-  }, [isFrenzyEnabled, isFrenzyEditMode, resetFrenzyEditState]);
+	  const toggleFrenzyEnabled = useCallback(() => {
+	    setIsFrenzyEnabled(prev => !prev);
+	  }, []);
 
   const applyPrerequisiteUpdate = useCallback((
     sourceCode: string,
@@ -3657,11 +3646,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [frenzyPrerequisiteMap, applyPrerequisiteUpdate]);
 
-  const maybeCreateFrenzyDragLink = useCallback(async (sourceNode: GraphNode) => {
-    if (!isFrenzyEnabled || !isFrenzyEditMode || !canEdit) return;
-    if (frenzyTool !== 'none') return;
-    if (sourceNode.type === 'group' || sourceNode.isExternal) return;
-    if (typeof sourceNode.x !== 'number' || typeof sourceNode.y !== 'number') return;
+	  const maybeCreateFrenzyDragLink = useCallback(async (sourceNode: GraphNode) => {
+	    if (!isFrenzyEditMode || !canEdit) return;
+	    if (frenzyTool !== 'none') return;
+	    if (sourceNode.type === 'group' || sourceNode.isExternal) return;
+	    if (typeof sourceNode.x !== 'number' || typeof sourceNode.y !== 'number') return;
 
     const candidates = stableGraphRef.current?.nodes ?? [];
     let closest: GraphNode | null = null;
@@ -3710,21 +3699,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const key = `${closest.id}-${sourceNode.id}`;
     if (frenzyPrerequisiteMap.has(key) || frenzyPendingLinkRef.current.has(key)) return;
     frenzyPendingLinkRef.current.add(key);
-    try {
-      await addFrenzyPrerequisite(closest, sourceNode);
-    } finally {
-      frenzyPendingLinkRef.current.delete(key);
-    }
-  }, [
-    isFrenzyEnabled,
-    isFrenzyEditMode,
-    canEdit,
-    frenzyTool,
-    frenzyPrerequisiteMap,
-    addFrenzyPrerequisite,
-    createQuestRelevantRelation,
-    createSourceRelevantRelation,
-  ]);
+	    try {
+	      await addFrenzyPrerequisite(closest, sourceNode);
+	    } finally {
+	      frenzyPendingLinkRef.current.delete(key);
+	    }
+	  }, [
+	    isFrenzyEditMode,
+	    canEdit,
+	    frenzyTool,
+	    frenzyPrerequisiteMap,
+	    addFrenzyPrerequisite,
+	    createQuestRelevantRelation,
+	    createSourceRelevantRelation,
+	  ]);
 
   // Handle node drag end with position manager
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
@@ -5346,14 +5334,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setIsDraggingFrenzyNote(false);
   }, [frenzyNote, frenzyQuestNote, saveFrenzyNote, saveFrenzyQuestNote]);
 
-  useEffect(() => {
-    const handleEsc = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      if (!isFrenzyEnabled || !isFrenzyEditMode) return;
-      if (frenzyClickTimerRef.current) {
-        clearTimeout(frenzyClickTimerRef.current);
-        frenzyClickTimerRef.current = null;
-      }
+	  useEffect(() => {
+	    const handleEsc = (event: KeyboardEvent) => {
+	      if (event.key !== 'Escape') return;
+	      if (!isFrenzyEditMode) return;
+	      if (frenzyClickTimerRef.current) {
+	        clearTimeout(frenzyClickTimerRef.current);
+	        frenzyClickTimerRef.current = null;
+	      }
       if (frenzyBackgroundClickTimerRef.current) {
         clearTimeout(frenzyBackgroundClickTimerRef.current);
         frenzyBackgroundClickTimerRef.current = null;
@@ -5367,9 +5355,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
     };
 
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, [isFrenzyEnabled, isFrenzyEditMode, selectedNodeIds, frenzyNote, frenzyQuestNote, closeFrenzyNote]);
+	    window.addEventListener('keydown', handleEsc);
+	    return () => window.removeEventListener('keydown', handleEsc);
+	  }, [isFrenzyEditMode, selectedNodeIds, frenzyNote, frenzyQuestNote, closeFrenzyNote]);
 
   const getNodeTypeByCode = useCallback((code: string) => {
     if (currentStructuralGraphData.definitions?.[code]) return 'definition';
@@ -6114,8 +6102,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     },
   ]), [isFrenzyEnabled, toggleFrenzyEnabled]);
 
-  const canUseEditTools = canEdit && isFrenzyEditMode && isFrenzyEnabled;
-  const toolbarMode = isFrenzyEditMode ? 'edit' : 'normal';
+	  const canUseEditTools = canEdit && isFrenzyEditMode;
+	  const toolbarMode = isFrenzyEditMode ? 'edit' : 'normal';
   const toolInstruction = useMemo(() => {
     if (!isFrenzyEditMode) return null;
     if (frenzyTool === 'link') {
@@ -6879,7 +6867,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.sources,
   ]);
 
-  const handleGraphNodeClick = useCallback((node: GraphNode, event?: MouseEvent) => {
+	  const handleGraphNodeClick = useCallback((node: GraphNode, event?: MouseEvent) => {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('canvas-click'));
     }
@@ -6906,15 +6894,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    if (node.isExternal && isFrenzyEnabled && isFrenzyEditMode) {
-      showToast('External nodes cannot be edited in this domain.', 'warning');
-      return;
-    }
-    if (isFrenzyEnabled && isFrenzyEditMode) {
-      if (frenzyBackgroundClickTimerRef.current) {
-        clearTimeout(frenzyBackgroundClickTimerRef.current);
-        frenzyBackgroundClickTimerRef.current = null;
-      }
+	    if (node.isExternal && isFrenzyEditMode) {
+	      showToast('External nodes cannot be edited in this domain.', 'warning');
+	      return;
+	    }
+	    if (isFrenzyEditMode) {
+	      if (frenzyBackgroundClickTimerRef.current) {
+	        clearTimeout(frenzyBackgroundClickTimerRef.current);
+	        frenzyBackgroundClickTimerRef.current = null;
+	      }
       frenzyLastBackgroundClickRef.current = null;
       const now = Date.now();
       const last = frenzyLastClickRef.current;
@@ -6947,15 +6935,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         handleFrenzyNodeAction(node);
       }, FRENZY_SINGLE_CLICK_DELAY_MS);
       return;
-    }
-    handleNodeClick(node, false, 'click', event);
-  }, [dagModeEnabled, domainGroups, isFrenzyEnabled, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick, toggleGroupCollapse]);
+	    }
+	    handleNodeClick(node, false, 'click', event);
+	  }, [dagModeEnabled, domainGroups, isFrenzyEditMode, frenzyTool, openFrenzyNote, handleFrenzyNodeAction, handleNodeClick, toggleGroupCollapse]);
 
-  const handleGraphLinkClick = useCallback((link: GraphLink) => {
-    if (!(isFrenzyEnabled && isFrenzyEditMode && frenzyTool === 'unlink')) return;
-    const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
-    const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
-    if (!sourceId || !targetId) return;
+	  const handleGraphLinkClick = useCallback((link: GraphLink) => {
+	    if (!(isFrenzyEditMode && frenzyTool === 'unlink')) return;
+	    const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
+	    const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
+	    if (!sourceId || !targetId) return;
     const sourceNode = stableGraph.nodes.find(n => n.id === sourceId);
     const targetNode = stableGraph.nodes.find(n => n.id === targetId);
     if (sourceNode?.type === 'quest' || targetNode?.type === 'quest') {
@@ -6974,23 +6962,22 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
       return;
     }
-    removeFrenzyPrerequisite(sourceId, targetId);
-  }, [
-    isFrenzyEnabled,
-    isFrenzyEditMode,
-    frenzyTool,
-    stableGraph.nodes,
-    removeFrenzyPrerequisite,
-    removeQuestRelevantRelation,
-    removeSourceRelevantRelation,
-  ]);
+	    removeFrenzyPrerequisite(sourceId, targetId);
+	  }, [
+	    isFrenzyEditMode,
+	    frenzyTool,
+	    stableGraph.nodes,
+	    removeFrenzyPrerequisite,
+	    removeQuestRelevantRelation,
+	    removeSourceRelevantRelation,
+	  ]);
 
-  const handleGraphNodeRightClick = useCallback((node: GraphNode, event?: MouseEvent) => {
-    if (!(isFrenzyEnabled && isFrenzyEditMode)) return;
-    event?.preventDefault();
-    event?.stopPropagation();
-    if (frenzyClickTimerRef.current) {
-      clearTimeout(frenzyClickTimerRef.current);
+	  const handleGraphNodeRightClick = useCallback((node: GraphNode, event?: MouseEvent) => {
+	    if (!isFrenzyEditMode) return;
+	    event?.preventDefault();
+	    event?.stopPropagation();
+	    if (frenzyClickTimerRef.current) {
+	      clearTimeout(frenzyClickTimerRef.current);
       frenzyClickTimerRef.current = null;
     }
     if (frenzyBackgroundClickTimerRef.current) {
@@ -7000,19 +6987,19 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     frenzyLastClickRef.current = null;
     frenzyLastBackgroundClickRef.current = null;
     if (node.type === 'group') return;
-    if (node.isExternal) {
-      showToast('External nodes cannot be edited in this domain.', 'warning');
-      return;
-    }
-    void deleteFrenzyNode(node);
-  }, [isFrenzyEnabled, isFrenzyEditMode, deleteFrenzyNode]);
+	    if (node.isExternal) {
+	      showToast('External nodes cannot be edited in this domain.', 'warning');
+	      return;
+	    }
+	    void deleteFrenzyNode(node);
+	  }, [isFrenzyEditMode, deleteFrenzyNode]);
 
-  const handleGraphLinkRightClick = useCallback((link: GraphLink, event?: MouseEvent) => {
-    if (!(isFrenzyEnabled && isFrenzyEditMode)) return;
-    event?.preventDefault();
-    event?.stopPropagation();
-    if (link.type === 'external') {
-      showToast('External links cannot be edited in this domain.', 'warning');
+	  const handleGraphLinkRightClick = useCallback((link: GraphLink, event?: MouseEvent) => {
+	    if (!isFrenzyEditMode) return;
+	    event?.preventDefault();
+	    event?.stopPropagation();
+	    if (link.type === 'external') {
+	      showToast('External links cannot be edited in this domain.', 'warning');
       return;
     }
     if (!canEdit) {
@@ -7040,27 +7027,26 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
       return;
     }
-    void removeFrenzyPrerequisite(sourceId, targetId);
-  }, [
-    isFrenzyEnabled,
-    isFrenzyEditMode,
-    canEdit,
-    stableGraph.nodes,
-    removeFrenzyPrerequisite,
-    removeQuestRelevantRelation,
-    removeSourceRelevantRelation,
-  ]);
+	    void removeFrenzyPrerequisite(sourceId, targetId);
+	  }, [
+	    isFrenzyEditMode,
+	    canEdit,
+	    stableGraph.nodes,
+	    removeFrenzyPrerequisite,
+	    removeQuestRelevantRelation,
+	    removeSourceRelevantRelation,
+	  ]);
 
-  const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
+	  const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('canvas-click'));
     }
     if (showHelpPanel) setShowHelpPanel(false);
-    if (isFrenzyEnabled && isFrenzyEditMode) {
-      setPendingLinkSourceId(null);
-      if (frenzyClickTimerRef.current) {
-        clearTimeout(frenzyClickTimerRef.current);
-        frenzyClickTimerRef.current = null;
+	    if (isFrenzyEditMode) {
+	      setPendingLinkSourceId(null);
+	      if (frenzyClickTimerRef.current) {
+	        clearTimeout(frenzyClickTimerRef.current);
+	        frenzyClickTimerRef.current = null;
       }
       frenzyLastClickRef.current = null;
       const now = Date.now();
@@ -7083,20 +7069,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         frenzyLastBackgroundClickRef.current = null;
         setSelectedNodeIds(new Set());
       }, FRENZY_SINGLE_CLICK_DELAY_MS);
-      return;
-    }
-    if (selectedNodeIds.size > 0) {
-      setSelectedNodeIds(new Set());
-    }
-  }, [showHelpPanel, isFrenzyEnabled, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode, selectedNodeIds]);
+	      return;
+	    }
+	    if (selectedNodeIds.size > 0) {
+	      setSelectedNodeIds(new Set());
+	    }
+	  }, [showHelpPanel, isFrenzyEditMode, getGraphCoordsFromEvent, getGraphCenter, createFrenzyNode, selectedNodeIds]);
 
-  const handleGraphNodeDrag = useCallback((node: GraphNode) => {
-    if (!isFrenzyEnabled || !isFrenzyEditMode) return;
-    const now = Date.now();
-    if (now - frenzyDragLinkThrottleRef.current < 120) return;
-    frenzyDragLinkThrottleRef.current = now;
-    void maybeCreateFrenzyDragLink(node);
-  }, [isFrenzyEnabled, isFrenzyEditMode, maybeCreateFrenzyDragLink]);
+	  const handleGraphNodeDrag = useCallback((node: GraphNode) => {
+	    if (!isFrenzyEditMode) return;
+	    const now = Date.now();
+	    if (now - frenzyDragLinkThrottleRef.current < 120) return;
+	    frenzyDragLinkThrottleRef.current = now;
+	    void maybeCreateFrenzyDragLink(node);
+	  }, [isFrenzyEditMode, maybeCreateFrenzyDragLink]);
 
   const handleFrenzyNoteMouseDown = useCallback((event: React.MouseEvent) => {
     if (!frenzyNote && !frenzyQuestNote) return;
