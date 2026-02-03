@@ -8175,9 +8175,25 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   onExternalChanged={() => refreshExternalPrerequisites(domainData?.id)}
                   groups={domainGroups}
                   groupMembersById={groupMembersById}
-                  onCreateGroup={createGroupFromNodes}
                   onUpdateGroup={updateGroupData}
                   onDeleteGroup={deleteGroupById}
+                  onQuestCreated={(quest, relation) => {
+                    setCurrentStructuralGraphData(prev => {
+                      const nextQuests = { ...(prev.quests || {}) };
+                      nextQuests[quest.code] = {
+                        ...(nextQuests[quest.code] || {}),
+                        ...quest,
+                        type: 'quest',
+                      };
+                      const nextRelations = [...(prev.relations || [])];
+                      nextRelations.push({
+                        fromCode: relation.fromCode,
+                        toCode: relation.toCode,
+                        relationType: relation.relationType,
+                      });
+                      return { ...prev, quests: nextQuests, relations: nextRelations };
+                    });
+                  }}
                 />
               )}
               {window.type === 'review' && (

@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
+import { Input } from "@/app/components/core/input";
 import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, SlidersHorizontal } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
@@ -39,9 +40,12 @@ import {
   ExerciseVersion,
   DefinitionVersion,
   ExternalPrerequisiteLink,
-  GroupData
+  GroupData,
+  createQuest,
+  createRelation,
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
+import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
 
 interface DetailWindowContentProps {
   nodeData: GraphNode;
@@ -57,9 +61,9 @@ interface DetailWindowContentProps {
   onExternalChanged?: () => void;
   groups?: GroupData[];
   groupMembersById?: Map<number, Set<string>>;
-  onCreateGroup?: (name: string, seedCodes: string[], isExact: boolean, memberCodes?: string[]) => Promise<GroupData | null>;
   onUpdateGroup?: (groupId: number, payload: { name?: string; isExact?: boolean; seedCodes?: string[]; memberCodes?: string[] }) => Promise<GroupData | null>;
   onDeleteGroup?: (groupId: number) => Promise<void>;
+  onQuestCreated?: (quest: { id?: number; code: string }, relation: { fromCode: string; toCode: string; relationType: string }) => void;
 }
 
 export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
@@ -78,9 +82,43 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   groupMembersById = new Map(),
   onUpdateGroup,
   onDeleteGroup: _onDeleteGroup,
+  onQuestCreated,
 }) => {
   const srs = useSRS();
   const ui = useUI();
+
+  const pad2 = (value: number) => String(value).padStart(2, '0');
+  const toLocalDateInputValue = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = pad2(date.getMonth() + 1);
+    const dd = pad2(date.getDate());
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const toLocalTimeInputValue = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  const getDefaultReminderDateTime = () => new Date(Date.now() + 60 * 60 * 1000);
+  const getDefaultReminderDraft = () => {
+    const date = getDefaultReminderDateTime();
+    return {
+      date: toLocalDateInputValue(date),
+      time: toLocalTimeInputValue(date),
+    };
+  };
+  const getReminderDraftFromOffsetMinutes = (offsetMinutes: number) => {
+    const date = new Date(Date.now() + offsetMinutes * 60 * 1000);
+    return {
+      date: toLocalDateInputValue(date),
+      time: toLocalTimeInputValue(date),
+    };
+  };
+  const buildReminderDateTime = (dateValue: string, timeValue: string) => {
+    const fallbackDate = getDefaultReminderDateTime();
+    const fallbackDateValue = toLocalDateInputValue(fallbackDate);
+    const fallbackTimeValue = toLocalTimeInputValue(fallbackDate);
+    const date = dateValue || fallbackDateValue;
+    const time = timeValue || fallbackTimeValue;
+    const combined = new Date(`${date}T${time}`);
+    return Number.isNaN(combined.getTime()) ? fallbackDate : combined;
+  };
   
   // Local state for this window
   const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
@@ -115,6 +153,9 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'advanced' | 'statistics'>('details');
   const [showStatusPicker, setShowStatusPicker] = useState(false);
+  const [showReminderForm, setShowReminderForm] = useState(false);
+  const [reminderTitle, setReminderTitle] = useState('');
+  const [reminderDraft, setReminderDraft] = useState(() => getDefaultReminderDraft());
 
   const handleToggleGroupExact = useCallback(async (group: GroupData, nextExact: boolean) => {
     if (!onUpdateGroup) return;
@@ -251,6 +292,9 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   useEffect(() => {
     setActiveTab('details');
     setShowStatusPicker(false);
+    setShowReminderForm(false);
+    setReminderDraft(getDefaultReminderDraft());
+    setReminderTitle(currentNode?.name ? `Review: ${currentNode.name}` : '');
   }, [currentNode.id]);
 
   // Navigation within window
@@ -385,6 +429,61 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     showToast(`Status updated to ${status}`, 'success');
     setShowStatusPicker(false);
   }, [numericId, srsNodeType, srs]);
+
+  const existingCodes = useMemo(() => {
+    const codes = new Set<string>();
+    Object.keys(graphData?.definitions || {}).forEach(code => codes.add(code));
+    Object.keys(graphData?.exercises || {}).forEach(code => codes.add(code));
+    Object.keys(graphData?.sources || {}).forEach(code => codes.add(code));
+    Object.keys(graphData?.quests || {}).forEach(code => codes.add(code));
+    return codes;
+  }, [graphData]);
+
+  const handleCreateReminder = useCallback(async () => {
+    if (!numericId || !domainData?.id) {
+      showToast('Node must be saved before creating a reminder.', 'warning');
+      return;
+    }
+    if (currentNode.type !== 'definition' && currentNode.type !== 'exercise') return;
+    const dueDate = buildReminderDateTime(reminderDraft.date, reminderDraft.time);
+    const schedule = {
+      type: 'rrule',
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      dtstart: dueDate.toISOString(),
+      rrule: 'FREQ=DAILY;COUNT=1',
+      exdate: [],
+      rdate: [],
+      defaultSnoozeMinutes: 120,
+    };
+    try {
+      const reminderCode = existingCodes.size > 0 ? getNextQuestCodeFromUtils(existingCodes) : 'Q1';
+      const title = reminderTitle.trim().length > 0 ? reminderTitle.trim() : `Review: ${currentNode.name}`;
+      const quest = await createQuest(domainData.id, {
+        code: reminderCode,
+        name: title,
+        kind: 'todo',
+        visibility: 'private',
+        schedule,
+        initialVersion: {
+          title,
+          descriptionMd: '',
+        },
+      });
+      if (!quest.id) throw new Error('Quest created without id.');
+      await createRelation(domainData.id, {
+        fromType: 'meta_quest',
+        fromId: quest.id,
+        toType: currentNode.type === 'definition' ? 'meta_definition' : 'meta_exercise',
+        toId: numericId,
+        relationType: 'reminds_open',
+      });
+      showToast('Reminder quest created.', 'success');
+      setShowReminderForm(false);
+      onQuestCreated?.(quest, { fromCode: quest.code, toCode: currentNode.id, relationType: 'reminds_open' });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to create reminder.', 'error');
+    }
+  }, [numericId, domainData?.id, currentNode.type, currentNode.name, reminderDraft.date, reminderDraft.time, reminderTitle, existingCodes, onQuestCreated]);
 
   // Review history fetching
   const fetchHistory = useCallback(async () => {
@@ -781,7 +880,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Header with navigation */}
-      <div className="border-b p-3 flex flex-col gap-1">
+      <div className="p-4 pb-2 flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {(isEditMode || activeTab !== 'details' || nodeHistory.length > 0) && (
@@ -812,6 +911,16 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             </h3>
           </div>
           <div className="flex items-center gap-1">
+            {!isEditMode && (currentNode.type === 'definition' || currentNode.type === 'exercise') && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => setShowReminderForm(prev => !prev)}
+              >
+                {showReminderForm ? 'Close Reminder' : 'Remind Me'}
+              </Button>
+            )}
             {currentNode.type !== 'source' && currentNode.type !== 'quest' && (
               <>
                 <Button
@@ -933,7 +1042,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto px-4 pb-4">
         {shouldHideContent && !isEditMode ? (
           <div className="text-center py-10">
             <Eye size={48} className="mx-auto text-gray-400 mb-4" />
@@ -1162,6 +1271,63 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           <>
             {activeTab === 'details' && (
               <div className="mt-3 space-y-4">
+                {showReminderForm && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                    <div className="text-xs font-semibold text-amber-700">Reminder Quest</div>
+                    <div>
+                      <label className="text-xs text-gray-600">Title</label>
+                      <Input
+                        value={reminderTitle}
+                        onChange={(e) => setReminderTitle(e.target.value)}
+                        className="h-8 mt-1"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-medium text-gray-600">Remind in:</span>
+                      {[
+                        { label: '15 min', minutes: 15 },
+                        { label: '1 hour', minutes: 60 },
+                        { label: '6 hours', minutes: 6 * 60 },
+                        { label: '1 day', minutes: 24 * 60 },
+                        { label: '1 week', minutes: 7 * 24 * 60 },
+                      ].map(option => (
+                        <Button
+                          key={option.label}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setReminderDraft(getReminderDraftFromOffsetMinutes(option.minutes))}
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div>
+                        <label className="text-xs text-gray-600">Due date</label>
+                        <Input
+                          type="date"
+                          value={reminderDraft.date}
+                          onChange={(e) => setReminderDraft(prev => ({ ...prev, date: e.target.value }))}
+                          className="h-8 mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-600">Due time</label>
+                        <Input
+                          type="time"
+                          value={reminderDraft.time}
+                          onChange={(e) => setReminderDraft(prev => ({ ...prev, time: e.target.value }))}
+                          className="h-8 mt-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={handleCreateReminder}>
+                        Remind Me
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {currentNode.type === 'definition' ? (
                   definitionDetailsForView ? (
                     <DefinitionView
