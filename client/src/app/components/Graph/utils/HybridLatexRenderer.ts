@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeStringify from 'rehype-stringify';
+import { getMathJaxReadyPromise } from '@/app/components/core/mathjaxReady';
 
 // Maximum characters for graph label truncation
 // NOTE: We do *not* hard-truncate all labels by character count anymore. We first
@@ -17,11 +18,10 @@ const HARD_MAX_LABEL_CHARS = 2000;
 const DEFAULT_MAX_LABEL_LINES = 3;
 const DEFAULT_LINE_HEIGHT = 1.2;
 const MAX_FIT_ATTEMPTS = 7;
-// Small slack to avoid shaving anti-aliased edges.
-const SVG_EDGE_SLACK_PX = 1;
-const DEFAULT_ALPHA_THRESHOLD = 8; // 0..255
-const DEFAULT_CROP_PADDING_PX = 4; // CSS px added around detected pixels
-const STAGING_PADDING_PX = 24; // CSS px margin inside staging foreignObject
+// MathJax SVG output can visually extend below the container box (subscripts,
+// negative vertical-align). Add a small gutter so the foreignObject capture
+// doesn't clip the baseline descenders.
+const EXTRA_RENDER_GUTTER_BOTTOM_PX = 2;
 // Supersample rasterization to reduce pixelation when converting SVG/HTML to PNG.
 // Effective raster scale is roughly `devicePixelRatio * factor`.
 const RASTER_SUPERSAMPLE_FACTOR = 2;
@@ -32,6 +32,30 @@ function getRasterScale(): number {
       ? window.devicePixelRatio
       : 1;
   return Math.max(1, Math.round(dpr * RASTER_SUPERSAMPLE_FACTOR));
+}
+
+function looksLikeTeX(text: string): boolean {
+  const s = text ?? '';
+  // $$...$$
+  const dbl = s.indexOf('$$');
+  if (dbl !== -1 && s.indexOf('$$', dbl + 2) !== -1) return true;
+  // \[...\]
+  const br = s.indexOf('\\[');
+  if (br !== -1 && s.indexOf('\\]', br + 2) !== -1) return true;
+  // \(...\)
+  const par = s.indexOf('\\(');
+  if (par !== -1 && s.indexOf('\\)', par + 2) !== -1) return true;
+
+  // $...$ (unescaped)
+  let unescapedDollars = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '$') continue;
+    if (i > 0 && s[i - 1] === '\\') continue;
+    unescapedDollars++;
+    if (unescapedDollars >= 2) return true;
+  }
+
+  return false;
 }
 
 export interface RenderedLabelBackground {
@@ -255,6 +279,8 @@ type TypesetResult = {
   htmlForSvg: string;
   // DOM-measured content box height (CSS px) used only for fit checks
   contentHeight: number;
+  width: number;
+  height: number;
 };
 
 export class LabelRenderer {
@@ -478,6 +504,15 @@ export class LabelRenderer {
       return smartTruncateTeXGfm(raw, HARD_MAX_LABEL_CHARS).text;
     })();
 
+    // Ensure MathJax is ready before snapshotting/caching labels that include TeX delimiters.
+    if (looksLikeTeX(baseText)) {
+      await getMathJaxReadyPromise();
+    }
+
+    // Inline TeX can appear awkward when forced to wrap due to a narrow max width.
+    // Give math labels a bit more horizontal room by default to keep expressions inline.
+    const effectiveMaxWidth = looksLikeTeX(baseText) ? Math.max(maxWidth, 320) : maxWidth;
+
     const maxAllowedHeightPx = Math.max(
       16,
       // Line budget should be based on the inner DOM box height (lines + padding),
@@ -521,7 +556,7 @@ export class LabelRenderer {
         top: -9999px;
         display: inline-block;
         box-sizing: border-box;
-        padding: 0px;
+        padding: ${padding}px;
         font-family: ${fontFamily};
         font-size: ${fontSize}px;
         color: ${color};
@@ -529,7 +564,8 @@ export class LabelRenderer {
         border-radius: 0px;
         border: none;
         line-height: ${lineHeight};
-        max-width: ${maxWidth}px;
+        text-align: center;
+        max-width: ${effectiveMaxWidth}px;
         overflow: visible;
         overflow-wrap: break-word;
         word-break: break-word;
@@ -541,6 +577,7 @@ export class LabelRenderer {
     };
 
     const typesetIfNeeded = async (container: HTMLDivElement, fallbackText: string) => {
+      if (!looksLikeTeX(fallbackText)) return;
       if (!(window as any).MathJax?.typesetPromise) return;
       try {
         await (window as any).MathJax.typesetPromise([container]);
@@ -549,27 +586,44 @@ export class LabelRenderer {
       }
     };
 
+    const stripMathJaxAssistiveMarkup = (container: HTMLDivElement) => {
+      // MathJax adds hidden accessibility markup (<mjx-assistive-mml>).
+      // Our snapshot pipeline embeds MathJax output into a standalone SVG foreignObject,
+      // where MathJax’s global CSS may not be present. Strip it defensively.
+      container.querySelectorAll('mjx-assistive-mml').forEach(el => el.remove());
+    };
+
     const normalizeMathSizing = (container: HTMLDivElement) => {
       // MathJax SVG output can look slightly larger than adjacent text in a
       // foreignObject capture. Nudge it down to visually match surrounding
       // markdown text.
       container.querySelectorAll('mjx-container').forEach(el => {
         const node = el as HTMLElement;
+        // In a standalone SVG foreignObject snapshot, MathJax's global CSS isn't
+        // guaranteed to apply. Inline the critical layout so inline math stays
+        // inline and display math stays block-level.
+        const isDisplay = node.getAttribute('display') === 'true';
+        if (isDisplay) {
+          node.style.display = 'block';
+          node.style.textAlign = 'center';
+          node.style.margin = '0';
+        } else {
+          node.style.display = 'inline-block';
+        }
+
         node.style.fontSize = '0.95em';
         node.style.lineHeight = '1';
       });
     };
 
     const dpr = getRasterScale();
-    const cropPaddingCssPx = Math.max(0, Math.round(padding ?? DEFAULT_CROP_PADDING_PX));
-    const alphaThreshold = DEFAULT_ALPHA_THRESHOLD;
-    const maxInnerHeightPx = Math.ceil(fontSize * lineHeight * Math.max(1, maxLines));
 
     const typesetMarkdown = async (markdownText: string): Promise<TypesetResult> => {
       const html = sanitizeAndHardenHtml(markdownText);
       const container = createContainer(html);
       try {
         await typesetIfNeeded(container, markdownText);
+        stripMathJaxAssistiveMarkup(container);
         normalizeMathSizing(container);
 
         // Ensure style/layout changes are reflected before we measure.
@@ -581,10 +635,18 @@ export class LabelRenderer {
           try { await fontsReady; } catch {}
         }
 
+        const hasMath = container.querySelector('mjx-container') != null;
+
         const rect = container.getBoundingClientRect();
+        const heightBox = Math.ceil(Math.max(rect.height, container.scrollHeight, container.offsetHeight));
+        const widthBox = Math.ceil(Math.max(rect.width, container.scrollWidth, container.offsetWidth));
+
+        const width = Math.max(20, widthBox);
+        const height = Math.max(16, heightBox + (hasMath ? EXTRA_RENDER_GUTTER_BOTTOM_PX : 0));
+
         const contentHeight = Math.max(1, rect.height);
-        const fits = contentHeight <= maxInnerHeightPx + 0.5;
-        return { fits, htmlForSvg: container.innerHTML, contentHeight };
+        const fits = heightBox <= maxAllowedHeightPx + 0.5;
+        return { fits, htmlForSvg: container.innerHTML, contentHeight, width, height };
       } finally {
         const mj = (window as any).MathJax;
         if (mj?.typesetClear) {
@@ -596,24 +658,23 @@ export class LabelRenderer {
       }
     };
 
-    const svgStringForTypesetHtml = (htmlForSvg: string): { svgString: string; stageWidthCss: number; stageHeightCss: number } => {
-      // Staging surface must be roomy to avoid foreignObject clipping; final
-      // dimensions come from pixel alpha-scan cropping.
-      const stageWidthCss = Math.ceil(maxWidth + STAGING_PADDING_PX * 2);
-      const stageHeightCss = Math.ceil(maxAllowedHeightPx + STAGING_PADDING_PX * 2 + fontSize * 2);
-
+    const svgStringForTypesetHtml = (htmlForSvg: string, width: number, height: number): string => {
       const svgString = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="${stageWidthCss * dpr}" height="${stageHeightCss * dpr}" viewBox="0 0 ${stageWidthCss} ${stageHeightCss}">
-          <foreignObject x="0" y="0" width="${stageWidthCss}" height="${stageHeightCss}">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="width:${stageWidthCss}px;height:${stageHeightCss}px;">
-              <div style="display:inline-block; margin:${STAGING_PADDING_PX}px; font-family:${fontFamily}; font-size:${fontSize}px; color:${color}; line-height:${lineHeight}; max-width:${maxWidth}px; background:transparent; border:none; overflow-wrap:break-word; word-break:break-word;">
-                ${htmlForSvg}
-              </div>
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width * dpr}" height="${height * dpr}" viewBox="0 0 ${width} ${height}">
+          <style>
+            mjx-assistive-mml{display:none!important}
+            mjx-container{display:inline-block;margin:0;padding:0}
+            mjx-container[display="true"]{display:block;text-align:center;margin:0}
+            mjx-container[jax="SVG"]>svg{overflow:visible;min-height:1px;min-width:1px}
+          </style>
+          <foreignObject x="0" y="0" width="${width}" height="${height}">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="display:inline-block; box-sizing:border-box; width:${width}px; height:${height}px; padding:${padding}px; font-family:${fontFamily}; font-size:${fontSize}px; color:${color}; line-height:${lineHeight}; text-align:center; max-width:${effectiveMaxWidth}px; background:transparent; border:none; overflow:visible; overflow-wrap:break-word; word-break:break-word;">
+              ${htmlForSvg}
             </div>
           </foreignObject>
         </svg>`;
 
-      return { svgString, stageWidthCss, stageHeightCss };
+      return svgString;
     };
 
     const svgToImageElement = (svgString: string): Promise<HTMLImageElement> =>
@@ -632,101 +693,15 @@ export class LabelRenderer {
         image.src = url;
       });
 
-    const alphaCrop = async (image: HTMLImageElement): Promise<RenderedLabel> => {
-      const naturalWidth = (image as any).naturalWidth ?? image.width;
-      const naturalHeight = (image as any).naturalHeight ?? image.height;
-      const w = Math.max(1, Number(naturalWidth) || 1);
-      const h = Math.max(1, Number(naturalHeight) || 1);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
-      if (!ctx) {
-        // Worst-case fallback: no crop, but still return correct CSS size.
-        return { image, width: w / dpr, height: h / dpr };
-      }
-      ctx.clearRect(0, 0, w, h);
-      ctx.drawImage(image, 0, 0);
-
-      const img = ctx.getImageData(0, 0, w, h);
-      const data = img.data;
-
-      let minX = w, minY = h, maxX = -1, maxY = -1;
-      for (let y = 0; y < h; y++) {
-        const row = y * w;
-        for (let x = 0; x < w; x++) {
-          const a = data[(row + x) * 4 + 3];
-          if (a >= alphaThreshold) {
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x > maxX) maxX = x;
-            if (y > maxY) maxY = y;
-          }
-        }
-      }
-
-      if (maxX < minX || maxY < minY) {
-        return this.createTransparentLabel();
-      }
-
-      const padPx = Math.max(0, Math.round(cropPaddingCssPx * dpr)) + Math.round(SVG_EDGE_SLACK_PX * dpr);
-      const x0 = Math.max(0, minX - padPx);
-      const y0 = Math.max(0, minY - padPx);
-      const x1 = Math.min(w - 1, maxX + padPx);
-      const y1 = Math.min(h - 1, maxY + padPx);
-      const cropW = Math.max(1, x1 - x0 + 1);
-      const cropH = Math.max(1, y1 - y0 + 1);
-
-      const out = document.createElement('canvas');
-      out.width = cropW;
-      out.height = cropH;
-      const outCtx = out.getContext('2d')!;
-      outCtx.drawImage(canvas, x0, y0, cropW, cropH, 0, 0, cropW, cropH);
-
-      const croppedImage = await new Promise<HTMLImageElement>((resolve) => {
-        const done = (src: string) => {
-          const imgEl = new Image();
-          imgEl.onload = () => resolve(imgEl);
-          imgEl.src = src;
-        };
-        if (out.toBlob) {
-          out.toBlob((blob) => {
-            if (!blob) {
-              done(out.toDataURL());
-              return;
-            }
-            const url = URL.createObjectURL(blob);
-            const imgEl = new Image();
-            imgEl.onload = () => {
-              try { URL.revokeObjectURL(url); } catch {}
-              resolve(imgEl);
-            };
-            imgEl.onerror = () => {
-              try { URL.revokeObjectURL(url); } catch {}
-              resolve(imgEl);
-            };
-            imgEl.src = url;
-          }, 'image/png');
-        } else {
-          done(out.toDataURL());
-        }
-      });
-
-      // If we used a blob URL, it may already have been revoked after load; cache eviction
-      // can still attempt to revoke without harm.
-      return { image: croppedImage, width: cropW / dpr, height: cropH / dpr };
-    };
-
     // First: attempt full render without truncation. This fixes cases where
     // formulas were previously chopped purely due to a character cap even
     // though wrapping would have fit them.
     try {
       const full = await typesetMarkdown(baseText);
       if (full.fits) {
-        const { svgString } = svgStringForTypesetHtml(full.htmlForSvg);
-        const staged = await svgToImageElement(svgString);
-        return await alphaCrop(staged);
+        const svgString = svgStringForTypesetHtml(full.htmlForSvg, full.width, full.height);
+        const image = await svgToImageElement(svgString);
+        return { image, width: full.width, height: full.height };
       }
     } catch {
       return await this.createFallbackImage(baseText);
@@ -759,18 +734,18 @@ export class LabelRenderer {
     }
 
     if (bestFit) {
-      const { svgString } = svgStringForTypesetHtml(bestFit.htmlForSvg);
-      const staged = await svgToImageElement(svgString);
-      return await alphaCrop(staged);
+      const svgString = svgStringForTypesetHtml(bestFit.htmlForSvg, bestFit.width, bestFit.height);
+      const image = await svgToImageElement(svgString);
+      return { image, width: bestFit.width, height: bestFit.height };
     }
 
     // Last resort: fall back to the legacy truncation cap so we always render something.
     const legacy = smartTruncateTeXGfm(baseText, LEGACY_MAX_LABEL_CHARS).text;
     try {
       const measured = await typesetMarkdown(legacy);
-      const { svgString } = svgStringForTypesetHtml(measured.htmlForSvg);
-      const staged = await svgToImageElement(svgString);
-      return await alphaCrop(staged);
+      const svgString = svgStringForTypesetHtml(measured.htmlForSvg, measured.width, measured.height);
+      const image = await svgToImageElement(svgString);
+      return { image, width: measured.width, height: measured.height };
     } catch {}
 
     return await this.createFallbackImage(legacy);
@@ -800,6 +775,19 @@ export class LabelRenderer {
     this.cache.clear();
     this.renderingInProgress.clear();
     this.backgroundCache.clear();
+  }
+
+  /**
+   * Clears only cached labels that look like TeX, so they can be re-rendered
+   * after MathJax becomes available/ready.
+   */
+  public invalidateMathLabels(): void {
+    if (this.cache.size === 0) return;
+    for (const [key, value] of this.cache.entries()) {
+      if (!looksLikeTeX(key)) continue;
+      this.revokeObjectURL(value);
+      this.cache.delete(key);
+    }
   }
 
   private revokeObjectURL(renderedLabel: RenderedLabel): void {

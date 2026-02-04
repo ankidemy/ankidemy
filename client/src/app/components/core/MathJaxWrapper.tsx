@@ -2,42 +2,44 @@
 "use client";
 
 import React, { ReactNode, memo, useEffect, useRef, useState } from 'react';
-import { MathJaxContext } from 'better-react-mathjax';
+import { MathJaxContext, type MathJax3Config } from 'better-react-mathjax';
 import { latexMacrosMathJax } from './latexMacros';
+import { announceMathJaxReadyOnce } from './mathjaxReady';
 
-// ---- Types ----
-interface MathJaxConfig {
-  loader?: { load?: string[] };
-  tex?: {
-    packages?: string[] | { "[+]": string[] };
-    inlineMath?: [string, string][];
-    displayMath?: [string, string][];
-    processEscapes?: boolean;
-    processEnvironments?: boolean;
-    macros?: Record<string, string | [string, number]>;
-  };
-  svg?: { fontCache?: 'local' | 'global' | 'none' };
-  startup?: { typeset?: boolean };
-  options?: { enableMenu?: boolean; renderActions?: any };
-}
+const MATHJAX_V3_SVG_SRC =
+  'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg-full.js';
 
 // ---- Default config ----
-const defaultConfig: MathJaxConfig = {
-  loader: { load: ['[tex]/html', '[tex]/ams', '[tex]/noerrors', '[tex]/noundefined'] },
+const defaultConfig: MathJax3Config = {
   tex: {
-    packages: { '[+]': ['html', 'ams', 'noerrors', 'noundefined'] },
+    // Ensure common TeX packages are enabled without relying on runtime loading.
+    packages: { '[+]': ['ams', 'noerrors', 'noundefined'] },
     inlineMath: [["$", "$"], ["\\(", "\\)"]],
     displayMath: [["$$", "$$"], ["\\[", "\\]"]],
     processEscapes: true,
     processEnvironments: true,
     macros: latexMacrosMathJax,
   },
-  svg: { fontCache: 'global' },
-  startup: { typeset: true },
-  options: { enableMenu: false },
+  // Labels are captured into standalone SVG/PNG images; don't rely on a global glyph cache.
+  svg: { fontCache: 'local' },
+  // Labels call `MathJax.typesetPromise([el])` manually as needed.
+  startup: {
+    typeset: false,
+    ready: () => {
+      const mj = (window as any)?.MathJax;
+      if (mj?.startup?.defaultReady) mj.startup.defaultReady();
+      announceMathJaxReadyOnce();
+    },
+  },
+  options: {
+    enableMenu: false,
+    // Assistive MathML can become visible when MathJax output is snapshotted into an SVG foreignObject.
+    // Disable it globally; graph labels are images anyway.
+    renderActions: { assistiveMml: [] },
+  },
 };
 
-interface MathJaxProviderProps { children: ReactNode; config?: MathJaxConfig }
+interface MathJaxProviderProps { children: ReactNode; config?: MathJax3Config }
 
 // ---- Provider ----
 export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ children, config = defaultConfig }) => {
@@ -56,7 +58,23 @@ export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ children,
     return () => window.removeEventListener('unhandledrejection', handler);
   }, []);
 
-  return <MathJaxContext config={config}>{children}</MathJaxContext>;
+  // If MathJax is already loaded (e.g. route transitions), announce readiness so renderers can proceed.
+  useEffect(() => {
+    const mj = (window as any)?.MathJax;
+    if (mj && typeof mj.typesetPromise === 'function') {
+      announceMathJaxReadyOnce();
+    }
+  }, []);
+
+  return (
+    <MathJaxContext
+      version={3}
+      src={MATHJAX_V3_SVG_SRC}
+      config={config}
+    >
+      {children}
+    </MathJaxContext>
+  );
 });
 MathJaxProvider.displayName = 'MathJaxProvider';
 

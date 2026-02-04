@@ -11,6 +11,7 @@ import { getStatusColor as getSRSStatusColor } from '@/lib/srs-api';
 import { CreditFlowAnimation } from '@/types/srs';
 import CreditFlowOverlay from '../components/CreditFlowOverlay';
 import { LabelRenderer } from './HybridLatexRenderer';
+import { MATHJAX_READY_EVENT } from '@/app/components/core/mathjaxReady';
 import * as d3 from 'd3';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -128,6 +129,17 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       try { graphRef.current?.refresh?.(); } catch {}
     });
   }, [graphRef]);
+
+  // If any TeX labels were rendered before MathJax finished initializing, clear just
+  // those cached images so they are re-rendered with proper typesetting.
+  useEffect(() => {
+    const onMathJaxReady = () => {
+      labelRendererRef.current.invalidateMathLabels();
+      scheduleRafRefresh();
+    };
+    window.addEventListener(MATHJAX_READY_EVENT, onMathJaxReady);
+    return () => window.removeEventListener(MATHJAX_READY_EVENT, onMathJaxReady);
+  }, [scheduleRafRefresh]);
 
   // Pre-warm label cache to avoid first-hover flicker
   // We derive a coarse key from label mode + node set identity (length + edge ids)
