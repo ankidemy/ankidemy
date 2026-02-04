@@ -2906,6 +2906,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     pendingFocusNodeIdRef.current = nodeCode;
   }, [computeSpawnPosition]);
 
+  const handleSurgicalInsertNode = useCallback((
+    nodeCode: string,
+    nodeType: 'definition' | 'exercise',
+    createdData?: any,
+    spawnOverride?: { x: number; y: number }
+  ) => {
+    insertCreatedNode(nodeCode, nodeType, createdData, spawnOverride);
+  }, [insertCreatedNode]);
+
   // SURGICAL INSERT ON CREATE (no full refresh)
   const handleNodeCreationSuccess = useCallback(async (nodeCode: string, created?: any) => {
     setShowNodeCreationModal(false);
@@ -8170,6 +8179,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   currentUser={currentUser}
                   domainData={domainData}
                   onUpdateNodeData={handleSurgicalNodeUpdate}
+                  onInsertNode={handleSurgicalInsertNode}
                   onRefresh={refreshGraphAndSRSData}
                   externalPrerequisites={externalPrerequisites}
                   onExternalChanged={() => refreshExternalPrerequisites(domainData?.id)}

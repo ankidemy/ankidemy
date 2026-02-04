@@ -15,7 +15,7 @@ import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
 import ProgressDisplay from '../components/ProgressDisplay';
-import { getReviewHistory, getDomainPrerequisites, getStatusColor, formatNextReview } from '@/lib/srs-api';
+import { getReviewHistory, getDomainPrerequisites, getStatusColor, formatNextReview, createPrerequisite } from '@/lib/srs-api';
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import {
   getDefinitionByCode,
@@ -31,6 +31,8 @@ import {
   updateMetaDefinitionVersion,
   deleteMetaExerciseVersion,
   deleteMetaDefinitionVersion,
+  createMetaDefinition,
+  createMetaExercise,
   updateMetaExercise,
   updateMetaDefinition,
   Definition as ApiDefinition,
@@ -45,7 +47,7 @@ import {
   createRelation,
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
+import { getNextQuestCode as getNextQuestCodeFromUtils, getNextDotCode, getNextExerciseCode } from '../utils/codeGeneration';
 
 interface DetailWindowContentProps {
   nodeData: GraphNode;
@@ -57,6 +59,7 @@ interface DetailWindowContentProps {
   domainData?: any;
   onUpdateNodeData?: (nodeCode: string, updatedData: ApiDefinition | ApiExercise) => void; // Surgical update
   onRefresh?: () => void; // Fallback full refresh
+  onInsertNode?: (nodeCode: string, nodeType: 'definition' | 'exercise', createdData?: any, spawnOverride?: { x: number; y: number }) => void;
   externalPrerequisites?: ExternalPrerequisiteLink[];
   onExternalChanged?: () => void;
   groups?: GroupData[];
@@ -76,6 +79,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   domainData,
   onUpdateNodeData, // NEW: Surgical update callback
   onRefresh, // Fallback refresh
+  onInsertNode,
   externalPrerequisites,
   onExternalChanged,
   groups = [],
@@ -128,6 +132,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [currentVersion, setCurrentVersion] = useState<ExerciseVersion | DefinitionVersion | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDetaching, setIsDetaching] = useState(false);
   
   // Definition-specific state
   const [showDefinition, setShowDefinition] = useState(true);
@@ -879,6 +884,138 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [currentNode.type, versionCount]);
 
+  const handleDetachVersion = useCallback(async () => {
+    if (isDetaching) return;
+    if (currentNode.type !== 'definition' && currentNode.type !== 'exercise') return;
+    if (versionCount < 2) {
+      showToast('At least two versions are required to detach.', 'warning');
+      return;
+    }
+    if (!canEdit) {
+      showToast('Only domain owners or editors can detach versions.', 'warning');
+      return;
+    }
+    if (!domainData?.id) {
+      showToast('Missing domain context.', 'error');
+      return;
+    }
+    const meta = metaDetails as MetaDefinition | MetaExercise | null;
+    const version = currentVersion as DefinitionVersion | ExerciseVersion | null;
+    if (!meta || !version || version.id == null) {
+      showToast('Missing version data.', 'error');
+      return;
+    }
+
+    setIsDetaching(true);
+    try {
+      const nextCode = currentNode.type === 'definition'
+        ? getNextDotCode(existingCodes)
+        : getNextExerciseCode(existingCodes);
+      const nextName = currentNode.type === 'definition'
+        ? `Concept ${nextCode}`
+        : `Exercise ${nextCode}`;
+      const spawnX = typeof meta.xPosition === 'number' ? meta.xPosition + 60 : undefined;
+      const spawnY = typeof meta.yPosition === 'number' ? meta.yPosition + 60 : undefined;
+
+      if (currentNode.type === 'definition') {
+        const defVersion = version as DefinitionVersion;
+        const prompt = (defVersion.prompt || '').trim() || `Define ${nextName}`;
+        const created = await createMetaDefinition(domainData.id, {
+          code: nextCode,
+          name: nextName,
+          xPosition: spawnX,
+          yPosition: spawnY,
+          initialVersion: {
+            prompt,
+            type: defVersion.type || 'open_ended',
+            description: defVersion.description || undefined,
+            notes: defVersion.notes || undefined,
+            references: defVersion.references || undefined,
+            promptImagePath: defVersion.promptImagePath || undefined,
+            descriptionImagePath: defVersion.descriptionImagePath || undefined,
+          },
+        });
+        await createPrerequisite({
+          nodeId: created.id,
+          nodeType: 'meta_definition',
+          prerequisiteId: meta.id,
+          prerequisiteType: 'meta_definition',
+          weight: 1.0,
+          isManual: true,
+        });
+        await deleteMetaDefinitionVersion(meta.id, defVersion.id);
+        onInsertNode?.(nextCode, 'definition', {
+          ...created,
+          prerequisites: [currentNode.id],
+          prerequisiteWeights: { [currentNode.id]: 1.0 },
+        }, spawnX != null && spawnY != null ? { x: spawnX, y: spawnY } : undefined);
+      } else {
+        const exVersion = version as ExerciseVersion;
+        const statement = (exVersion.statement || '').trim() || `Solve ${nextName}`;
+        const created = await createMetaExercise(domainData.id, {
+          code: nextCode,
+          name: nextName,
+          xPosition: spawnX,
+          yPosition: spawnY,
+          initialVersion: {
+            statement,
+            description: exVersion.description || undefined,
+            notes: exVersion.notes || undefined,
+            hints: exVersion.hints || undefined,
+            verifiable: exVersion.verifiable ?? undefined,
+            result: exVersion.result || undefined,
+            difficulty: exVersion.difficulty ?? undefined,
+            statementImagePath: exVersion.statementImagePath || undefined,
+            descriptionImagePath: exVersion.descriptionImagePath || undefined,
+          },
+        });
+        await createPrerequisite({
+          nodeId: created.id,
+          nodeType: 'meta_exercise',
+          prerequisiteId: meta.id,
+          prerequisiteType: 'meta_exercise',
+          weight: 1.0,
+          isManual: true,
+        });
+        await deleteMetaExerciseVersion(meta.id, exVersion.id);
+        onInsertNode?.(nextCode, 'exercise', {
+          ...created,
+          prerequisites: [currentNode.id],
+          prerequisiteWeights: { [currentNode.id]: 1.0 },
+        }, spawnX != null && spawnY != null ? { x: spawnX, y: spawnY } : undefined);
+      }
+
+      const nextVersions = (meta.versions || []).filter(v => v.id !== version.id);
+      setMetaDetails(prev => prev ? { ...prev, versions: nextVersions, versionCount: nextVersions.length } as any : prev);
+      if (currentNode.type === 'definition') {
+        setSelectedDefinitionIndex(i => Math.min(i, Math.max(0, nextVersions.length - 1)));
+      } else {
+        setSelectedVersionIndex(i => Math.min(i, Math.max(0, nextVersions.length - 1)));
+      }
+
+      showToast('Version detached into a new node.', 'success');
+      if (!onInsertNode) {
+        onRefresh?.();
+      }
+    } catch (error) {
+      console.error('Failed to detach version:', error);
+      showToast('Failed to detach version.', 'error');
+    } finally {
+      setIsDetaching(false);
+    }
+  }, [
+    isDetaching,
+    currentNode.type,
+    versionCount,
+    canEdit,
+    domainData?.id,
+    metaDetails,
+    currentVersion,
+    existingCodes,
+    onInsertNode,
+    onRefresh,
+  ]);
+
   if (isLoading) {
     return (
       <div className="p-4 text-center">
@@ -1022,6 +1159,20 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             )}
             {!isEditMode && versionCount > 1 && (
               <div className="ml-auto flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDetachVersion}
+                  disabled={isDetaching || versionCount < 2 || !canEdit}
+                  className="h-6 px-2 text-[11px]"
+                  title={
+                    !canEdit
+                      ? 'Only domain owners or editors can detach versions'
+                      : 'Detach this version into a new node'
+                  }
+                >
+                  {isDetaching ? 'Detaching…' : 'Detach'}
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
