@@ -7,7 +7,7 @@ import { Input } from "@/app/components/core/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { Clock, Edit, Loader2, Save, X, ChevronLeft, ChevronRight, Lock, Unlock, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Clock, Edit, Loader2, Save, X, ChevronLeft, ChevronRight, Lock, Unlock, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
 import {
   MetaQuestDTO,
   QuestVersionDTO,
@@ -600,6 +600,43 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     setIsEditMode(false);
   }, [quest, questData]);
 
+  const handleToggleEditMode = useCallback(() => {
+    if (isFrenzyEditMode) return;
+    if (isEditMode) {
+      handleCancelEdit();
+      setViewMode('details');
+      setActiveTab('details');
+      return;
+    }
+    if (!quest?.id) return;
+    setViewMode('details');
+    setActiveTab('details');
+    setIsEditMode(true);
+  }, [handleCancelEdit, isEditMode, isFrenzyEditMode, quest?.id]);
+
+  const handleToggleViewMode = useCallback(() => {
+    if (isFrenzyEditMode) return;
+    if (isEditMode) {
+      handleCancelEdit();
+      setActiveTab('details');
+    }
+    setViewMode(prev => (prev === 'advanced' ? 'details' : 'advanced'));
+  }, [handleCancelEdit, isEditMode, isFrenzyEditMode]);
+
+  const handleBack = useCallback(() => {
+    if (isFrenzyEditMode) return;
+    if (isEditMode) {
+      handleCancelEdit();
+      setViewMode('details');
+      setActiveTab('details');
+      return;
+    }
+    if (viewMode !== 'details') {
+      setViewMode('details');
+      setActiveTab('details');
+    }
+  }, [handleCancelEdit, isEditMode, isFrenzyEditMode, viewMode]);
+
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const lastAutoSavedRef = React.useRef<string>('');
 
@@ -926,6 +963,17 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 min-w-0">
+            {!isFrenzyEditMode && (isEditMode || viewMode !== 'details') && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={handleBack}
+                title="Back"
+              >
+                <ArrowLeft size={14} />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -964,22 +1012,26 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   {isCompleting ? 'Completing…' : 'Done'}
                 </Button>
               )}
-              {!effectiveEditMode && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setViewMode(v => (v === 'advanced' ? 'details' : 'advanced'))}
-                  title="Advanced"
-                >
-                  <SlidersHorizontal size={16} />
-                </Button>
-              )}
-              {!effectiveEditMode ? (
-                <Button size="icon" variant="ghost" onClick={() => setIsEditMode(true)} disabled={!quest?.id} className="h-8 w-8">
-                  <Edit size={16} />
-                </Button>
-              ) : (
+              <Button
+                variant={viewMode === 'advanced' ? 'outline' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleToggleViewMode}
+                title="Advanced"
+              >
+                <SlidersHorizontal size={16} />
+              </Button>
+              <Button
+                size="icon"
+                variant={isEditMode ? 'outline' : 'ghost'}
+                onClick={handleToggleEditMode}
+                disabled={!quest?.id}
+                className="h-8 w-8"
+                title={isEditMode ? 'View Mode' : 'Edit Mode'}
+              >
+                <Edit size={16} />
+              </Button>
+              {isEditMode && (
                 <>
                   <Button size="sm" variant="outline" onClick={handleCancelEdit}>
                     <X className="h-4 w-4 mr-1" />

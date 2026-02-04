@@ -10,7 +10,7 @@ import { createQuest, createRelation, deleteRelation, deleteSource, getDomainRel
 import { useUI } from '@/contexts/UIContext';
 import { GraphData } from '../utils/types';
 import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
-import { Edit, Save, X, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, Edit, Save, X, Lock, Unlock } from 'lucide-react';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 
 interface SourceWindowContentProps {
@@ -297,6 +297,15 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     setIsEditMode(false);
   }, [source]);
 
+  const handleToggleEditMode = useCallback(() => {
+    if (isEditMode) {
+      handleCancelEdit();
+      return;
+    }
+    if (!source?.id) return;
+    setIsEditMode(true);
+  }, [handleCancelEdit, isEditMode, source?.id]);
+
   const handleDelete = useCallback(async () => {
     if (!source?.id) return;
     if (!confirm('Delete this source? This cannot be undone.')) return;
@@ -451,6 +460,17 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 min-w-0">
+            {isEditMode && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={handleCancelEdit}
+                title="Back"
+              >
+                <ArrowLeft size={14} />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -479,11 +499,17 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               {showReminderForm ? 'Close Reminder' : 'Remind Me'}
             </Button>
           )}
-          {!isEditMode ? (
-            <Button size="icon" variant="ghost" onClick={() => setIsEditMode(true)} disabled={!source?.id} className="h-8 w-8">
-              <Edit size={16} />
-            </Button>
-          ) : (
+          <Button
+            size="icon"
+            variant={isEditMode ? 'outline' : 'ghost'}
+            onClick={handleToggleEditMode}
+            disabled={!source?.id}
+            className="h-8 w-8"
+            title={isEditMode ? 'View Mode' : 'Edit Mode'}
+          >
+            <Edit size={16} />
+          </Button>
+          {isEditMode && (
             <>
               <Button size="sm" variant="outline" onClick={handleCancelEdit}>
                 <X className="h-4 w-4 mr-1" />

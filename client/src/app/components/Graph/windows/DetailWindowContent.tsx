@@ -523,12 +523,23 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Edit mode toggle
   const toggleEditMode = useCallback(() => {
-    if (!canEdit && !isEditMode) {
+    if (isEditMode) {
+      setIsEditMode(false);
+      setActiveTab('details');
+      return;
+    }
+    if (!canEdit) {
       showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
     }
-    setIsEditMode(!isEditMode);
+    setActiveTab('details');
+    setIsEditMode(true);
   }, [canEdit, isEditMode]);
+
+  const toggleViewTab = useCallback((tab: 'advanced' | 'statistics') => {
+    setIsEditMode(false);
+    setActiveTab(prev => (prev === tab ? 'details' : tab));
+  }, []);
 
   // ENHANCED: Surgical edit submission with fallback
   const handleSubmitEdit = useCallback(async () => {
@@ -891,6 +902,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 onClick={() => {
                   if (isEditMode) {
                     setIsEditMode(false);
+                    setActiveTab('details');
                     return;
                   }
                   if (activeTab !== 'details') {
@@ -927,8 +939,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   variant={activeTab === 'advanced' ? 'outline' : 'ghost'}
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => setActiveTab('advanced')}
-                  disabled={isEditMode}
+                  onClick={() => toggleViewTab('advanced')}
                   title="Advanced"
                 >
                   <SlidersHorizontal size={16} />
@@ -937,8 +948,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   variant={activeTab === 'statistics' ? 'outline' : 'ghost'}
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => setActiveTab('statistics')}
-                  disabled={isEditMode}
+                  onClick={() => toggleViewTab('statistics')}
                   title="Statistics"
                 >
                   <BarChart3 size={16} />
@@ -1164,7 +1174,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
                   showToast('Concept pool updated', 'success');
                 }}
-                onBack={() => setIsEditMode(false)}
+                onBack={() => {
+                  setIsEditMode(false);
+                  setActiveTab('details');
+                }}
               />
             ) : (
               <MetaExerciseEditForm
@@ -1261,7 +1274,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     type: 'exercise',
                   } as any);
                 }}
-                onBack={() => setIsEditMode(false)}
+                onBack={() => {
+                  setIsEditMode(false);
+                  setActiveTab('details');
+                }}
               />
             )
           ) : (
