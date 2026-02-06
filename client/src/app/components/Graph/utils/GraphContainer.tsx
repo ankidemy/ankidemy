@@ -21,6 +21,8 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 const NEW_NODE_HIGHLIGHT_COLOR = '236, 72, 153';
 const SELECTED_HIGHLIGHT_COLOR = '139, 92, 246';
 const HOVER_HIGHLIGHT_COLOR = '14, 165, 233';
+const NODE_CONTENT_SIZE_RATIO = 1.3;
+const NODE_CONTENT_VERTICAL_OFFSET_RATIO = 0.06;
 
 export type LabelDisplayMode = 'off' | 'codes' | 'names';
 export type LabelBackgroundMode = 'off' | 'behind_links' | 'behind_text';
@@ -447,16 +449,17 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       }
     }
 
-    // Node type icon
-    if (globalScale > 1 && globalScale < 20) {
-      const iconFontSize = Math.max(4, Math.min(nodeSize * 0.8, 14 / Math.sqrt(globalScale)));
+    // Node type icon: keep a constant ratio with node radius across zoom levels.
+    const nodeScreenRadius = nodeSize * globalScale;
+    if (globalScale < 20 && nodeScreenRadius >= 5) {
+      const iconFontSize = nodeSize * NODE_CONTENT_SIZE_RATIO;
       
       ctx.fillStyle = isHighlighted ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.95)';
       ctx.font = `bold ${iconFontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-      ctx.shadowBlur = Math.max(1, iconFontSize * 0.1);
+      ctx.shadowBlur = iconFontSize * 0.1;
       
       const text = type === 'definition'
         ? 'D'
@@ -467,7 +470,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
             : type === 'quest'
               ? 'Q'
               : 'G';
-      ctx.fillText(text, x, y);
+      ctx.fillText(text, x, y + iconFontSize * NODE_CONTENT_VERTICAL_OFFSET_RATIO);
       
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
