@@ -94,7 +94,7 @@ import {
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
 import { useSRS } from '../../../contexts/SRSContext';
-import { getStatusColor, isNodeDue, calculateDaysUntilReview, createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
+import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
 import { NodeStatus, NodePrerequisite } from '../../../types/srs';
 
 import {
@@ -128,868 +128,51 @@ import {
   getNextQuestCode as getNextQuestCodeFromUtils,
   getNextSourceCode as getNextSourceCodeFromUtils,
 } from './utils/codeGeneration';
-
-// ============================================================================
-// TYPE DEFINITIONS FOR TRUE STRUCTURE/METADATA SEPARATION
-// ============================================================================
-
-// Structure only contains topology data - no names or visual properties
-interface GraphNodeCore {
-  id: string;
-  type: 'definition' | 'exercise' | 'source' | 'quest' | 'group';
-  prerequisites?: string[];
-  domainId?: number;
-  xPosition?: number;
-  yPosition?: number;
-  isExternal?: boolean;
-  externalStatus?: ExternalPrerequisiteLink['status'];
-  externalDomainId?: number;
-  externalDomainUid?: string;
-  externalNodeId?: number;
-  externalNodeType?: 'meta_definition' | 'meta_exercise';
-  groupId?: number;
-  groupMemberIds?: string[];
-  groupMemberCount?: number;
-  groupIsExact?: boolean;
-}
-
-interface GraphLinkCore {
-  id: string;
-  source: string;
-  target: string;
-  type: string;
-  weight: number;
-  relationType?: string;
-}
-
-interface GraphStructureState {
-  nodes: Map<string, GraphNodeCore>;
-  links: Map<string, GraphLinkCore>;
-  version: number;
-  lastStructuralChange: number;
-}
-
-// Metadata contains all visual and display properties
-interface NodeMetadata {
-  name: string;
-  displayId?: string;
-  isRootDefinition?: boolean;
-  difficulty?: number;
-  status?: NodeStatus;
-  isDue?: boolean;
-  daysUntilReview?: number | null;
-  progress?: any;
-  color?: string;
-  isExternal?: boolean;
-  externalStatus?: ExternalPrerequisiteLink['status'];
-  externalDomainId?: number;
-  externalDomainUid?: string;
-  externalNodeId?: number;
-  externalNodeType?: 'meta_definition' | 'meta_exercise';
-  externalDomainName?: string;
-  externalNodeName?: string;
-  groupId?: number;
-  groupMemberIds?: string[];
-  groupMemberCount?: number;
-  groupIsExact?: boolean;
-}
-
-interface LinkMetadata {
-  color?: string;
-  opacity?: number;
-  isHighlighted?: boolean;
-}
-
-interface GraphMetadataState {
-  nodeMetadata: Map<string, NodeMetadata>;
-  linkMetadata: Map<string, LinkMetadata>;
-  version: number;
-  lastMetadataChange: number;
-}
-
-type FrenzyEditTool = 'none' | 'link' | 'unlink' | 'delete';
-
-interface FrenzyNoteState {
-  nodeId: string;
-  nodeType: 'definition' | 'exercise' | 'source';
-  nodeName: string;
-  metaId: number;
-  version: DefinitionVersion | ExerciseVersion;
-  allVersions: (DefinitionVersion | ExerciseVersion)[];
-  versionIndex: number;
-  prompt: string;
-  defaultPrompt: string;
-  isAutoPrompt: boolean;
-  promptImagePath: string;
-  content: string;
-  defaultContent: string;
-  isAutoContent: boolean;
-  contentImagePath: string;
-  solution: string;
-  solutionImagePath: string;
-}
-
-interface FrenzyQuestNoteState {
-  nodeId: string;
-  questId: number;
-  nodeName: string;
-  kind: 'todo' | 'habit' | 'daily';
-  visibility: 'private' | 'domain';
-  active: boolean;
-  schedule: unknown;
-}
-
-const isQuestKindValue = (value: unknown): value is FrenzyQuestNoteState['kind'] =>
-  value === 'todo' || value === 'habit' || value === 'daily';
-
-const isQuestVisibilityValue = (value: unknown): value is FrenzyQuestNoteState['visibility'] =>
-  value === 'private' || value === 'domain';
-
-interface FrenzyDeletedNodeSnapshot {
-  nodeType: 'definition' | 'exercise';
-  code: string;
-  name: string;
-  xPosition?: number;
-  yPosition?: number;
-  prerequisites: string[];
-  prerequisiteWeights: Record<string, number>;
-  versions: DefinitionVersion[] | ExerciseVersion[];
-  incoming: Array<{ code: string; type: 'definition' | 'exercise'; weight: number }>;
-}
-
-// ============================================================================
-// UTILS
-// ============================================================================
-
-// Robust string hash for change detection (fixes version collision bug)
-function hashString(str: string): number {
-  let hash = 5381; // djb2
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-// Debounce with correct type
-function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
-
-const FRENZY_DOUBLE_CLICK_MS = 260;
-const FRENZY_SINGLE_CLICK_DELAY_MS = 270;
-const FRENZY_LINK_SNAP_DISTANCE = 20;
-
-const buildExternalNodeId = (link: ExternalPrerequisiteLink): string => {
-  const domainUid = link.externalDomainUid || 'unknown';
-  return `ext:${domainUid}:${link.externalNodeType}:${link.externalNodeId}`;
-};
-
-const parseExternalNodeId = (nodeId: string): {
-  externalDomainUid: string;
-  externalNodeType: 'meta_definition' | 'meta_exercise';
-  externalNodeId: number;
-} | null => {
-  if (!nodeId.startsWith('ext:')) return null;
-  const parts = nodeId.split(':');
-  if (parts.length !== 4) return null;
-  const [, domainUid, nodeType, nodeIdStr] = parts;
-  if (nodeType !== 'meta_definition' && nodeType !== 'meta_exercise') return null;
-  const parsed = parseInt(nodeIdStr, 10);
-  if (Number.isNaN(parsed)) return null;
-  return {
-    externalDomainUid: domainUid,
-    externalNodeType: nodeType,
-    externalNodeId: parsed,
-  };
-};
-
-const buildGroupNodeId = (groupId: number) => `group:${groupId}`;
-
-const parseGroupNodeId = (nodeId: string): number | null => {
-  if (!nodeId.startsWith('group:')) return null;
-  const parsed = parseInt(nodeId.slice('group:'.length), 10);
-  return Number.isNaN(parsed) ? null : parsed;
-};
-
-const collectReachable = (startNodes: string[], adjacency: Map<string, Set<string>>) => {
-  const visited = new Set<string>();
-  const stack = [...startNodes];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node || visited.has(node)) continue;
-    visited.add(node);
-    const neighbors = adjacency.get(node);
-    if (!neighbors) continue;
-    neighbors.forEach(next => {
-      if (!visited.has(next)) stack.push(next);
-    });
-  }
-  return visited;
-};
-
-const computeConvexClosure = (
-  seeds: string[],
-  outgoing: Map<string, Set<string>>,
-  incoming: Map<string, Set<string>>
-) => {
-  if (seeds.length === 0) return new Set<string>();
-  const desc = collectReachable(seeds, outgoing);
-  const anc = collectReachable(seeds, incoming);
-  const closure = new Set<string>();
-  desc.forEach(node => {
-    if (anc.has(node)) closure.add(node);
-  });
-  return closure;
-};
-
-const intersects = (a: Set<string>, b: Set<string>) => {
-  if (a.size === 0 || b.size === 0) return false;
-  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
-  for (const item of small) {
-    if (large.has(item)) return true;
-  }
-  return false;
-};
-
-type CycleGroup = {
-  id: string;
-  members: Set<string>;
-};
-
-const buildAdjacencyFromLinks = (
-  nodes: string[],
-  links: Map<string, GraphLinkCore>
-) => {
-  const outgoing = new Map<string, Set<string>>();
-  const selfLoops = new Set<string>();
-  nodes.forEach(nodeId => {
-    outgoing.set(nodeId, new Set());
-  });
-  links.forEach(link => {
-    if (!outgoing.has(link.source)) return;
-    outgoing.get(link.source)?.add(link.target);
-    if (link.source === link.target) {
-      selfLoops.add(link.source);
-    }
-  });
-  return { outgoing, selfLoops };
-};
-
-const computeStronglyConnectedComponents = (
-  nodes: string[],
-  outgoing: Map<string, Set<string>>
-) => {
-  let index = 0;
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const indices = new Map<string, number>();
-  const lowlinks = new Map<string, number>();
-  const components: string[][] = [];
-
-  const strongConnect = (nodeId: string) => {
-    indices.set(nodeId, index);
-    lowlinks.set(nodeId, index);
-    index++;
-    stack.push(nodeId);
-    onStack.add(nodeId);
-
-    const neighbors = outgoing.get(nodeId) || new Set<string>();
-    neighbors.forEach(neighbor => {
-      if (!indices.has(neighbor)) {
-        strongConnect(neighbor);
-        const nextLow = Math.min(lowlinks.get(nodeId) ?? 0, lowlinks.get(neighbor) ?? 0);
-        lowlinks.set(nodeId, nextLow);
-      } else if (onStack.has(neighbor)) {
-        const nextLow = Math.min(lowlinks.get(nodeId) ?? 0, indices.get(neighbor) ?? 0);
-        lowlinks.set(nodeId, nextLow);
-      }
-    });
-
-    if (lowlinks.get(nodeId) === indices.get(nodeId)) {
-      const component: string[] = [];
-      while (stack.length > 0) {
-        const w = stack.pop();
-        if (!w) break;
-        onStack.delete(w);
-        component.push(w);
-        if (w === nodeId) break;
-      }
-      components.push(component);
-    }
-  };
-
-  nodes.forEach(nodeId => {
-    if (!indices.has(nodeId)) {
-      strongConnect(nodeId);
-    }
-  });
-
-  return components;
-};
-
-const getExternalNodeLabel = (link: ExternalPrerequisiteLink): string => {
-  const nodeLabel = link.externalNodeName || `Node ${link.externalNodeId}`;
-  const domainLabel = link.externalDomainName || 'External';
-  return `${domainLabel}: ${nodeLabel}`;
-};
-
-// ============================================================================
-// HOOKS FOR TRUE STRUCTURE/METADATA SEPARATION
-// ============================================================================
-
-// Only tracks true structural changes (topology)
-const useGraphStructure = (
-  definitions: Record<string, Definition>,
-  exercises: Record<string, Exercise>,
-  sources: Record<string, SourceNode>,
-  quests: Record<string, MetaQuest>,
-  relations: Array<{ fromCode: string; toCode: string; relationType?: string }>,
-  externalLinks: ExternalPrerequisiteLink[]
-): GraphStructureState => {
-  return useMemo(() => {
-    const nodes = new Map<string, GraphNodeCore>();
-    const links = new Map<string, GraphLinkCore>();
-
-    // Hash only includes structural data (IDs and prerequisites)
-    const defStructureHash = Object.values(definitions)
-      .map(d => `${d.code}:${(d.prerequisites || []).sort().join(',')}`)
-      .sort()
-      .join('|');
-    
-    const exStructureHash = Object.values(exercises)
-      .map(e => `${e.code}:${(e.prerequisites || []).sort().join(',')}`)
-      .sort()
-      .join('|');
-
-    const defWeightHash = Object.values(definitions)
-      .map(d => {
-        const weights = Object.fromEntries(Object.entries(d.prerequisiteWeights || {}).sort());
-        return `${d.code}:${JSON.stringify(weights)}`;
-      })
-      .sort()
-      .join('|');
-
-    const exWeightHash = Object.values(exercises)
-      .map(e => {
-        const weights = Object.fromEntries(Object.entries(e.prerequisiteWeights || {}).sort());
-        return `${e.code}:${JSON.stringify(weights)}`;
-      })
-      .sort()
-      .join('|');
-
-    const sourceStructureHash = Object.values(sources)
-      .map(s => s.code)
-      .sort()
-      .join('|');
-
-    const questStructureHash = Object.values(quests)
-      .map(q => q.code)
-      .sort()
-      .join('|');
-
-    const relationHash = relations
-      .map(r => `${r.fromCode}->${r.toCode}:${r.relationType ?? ''}`)
-      .sort()
-      .join('|');
-
-    const externalLinkHash = externalLinks
-      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}:${link.xPosition ?? ''}:${link.yPosition ?? ''}`)
-      .sort()
-      .join('|');
-    
-    // FIX: robust version
-    const version = hashString([
-      defStructureHash,
-      exStructureHash,
-      defWeightHash,
-      exWeightHash,
-      sourceStructureHash,
-      questStructureHash,
-      relationHash,
-      externalLinkHash,
-    ].join('::'));
-
-    const numericIdToCode = new Map<number, string>();
-
-    // PASS 1: Build nodes for all definitions (structure only)
-    Object.values(definitions).forEach(def => {
-      if (!def?.code) return;
-      if (typeof def.id === 'number') {
-        numericIdToCode.set(def.id, def.code);
-      }
-      nodes.set(def.code, {
-        id: def.code,
-        type: 'definition',
-        prerequisites: def.prerequisites,
-        domainId: def.domainId,
-        xPosition: def.xPosition,
-        yPosition: def.yPosition,
-      });
-    });
-
-    // PASS 2: Build links between definitions
-    Object.values(definitions).forEach(def => {
-      if (!def?.code) return;
-      (def.prerequisites || []).forEach(prereqCode => {
-        // Guard: only create link if both endpoints exist (prevents d3 error)
-        if (!nodes.has(prereqCode) || !nodes.has(def.code)) return;
-        const linkId = `${prereqCode}-${def.code}`;
-        links.set(linkId, {
-          id: linkId,
-          source: prereqCode,
-          target: def.code,
-          type: 'prerequisite',
-          weight: def.prerequisiteWeights?.[prereqCode] ?? 1.0,
-        });
-      });
-    });
-
-    // PASS 1: create all exercise nodes first so cross-exercise links can attach regardless of iteration order
-    Object.values(exercises).forEach(ex => {
-      if (!ex?.code) return;
-      if (typeof ex.id === 'number') {
-        numericIdToCode.set(ex.id, ex.code);
-      }
-      nodes.set(ex.code, {
-        id: ex.code,
-        type: 'exercise',
-        prerequisites: ex.prerequisites,
-        domainId: ex.domainId,
-        xPosition: ex.xPosition,
-        yPosition: ex.yPosition,
-      });
-    });
-
-    // PASS 2: add links from prerequisites (definitions or other exercises) to each exercise
-    Object.values(exercises).forEach(ex => {
-      if (!ex?.code) return;
-      (ex.prerequisites || []).forEach(prereqCode => {
-        if (nodes.has(prereqCode) && nodes.has(ex.code)) {
-          const linkId = `${prereqCode}-${ex.code}`;
-          links.set(linkId, {
-            id: linkId,
-            source: prereqCode,
-            target: ex.code,
-            type: 'prerequisite',
-            weight: ex.prerequisiteWeights?.[prereqCode] ?? 1.0,
-          });
-        }
-      });
-    });
-
-    // Source nodes
-    Object.values(sources).forEach(src => {
-      if (!src?.code) return;
-      nodes.set(src.code, {
-        id: src.code,
-        type: 'source',
-        domainId: src.domainId,
-        xPosition: src.xPosition,
-        yPosition: src.yPosition,
-      });
-    });
-
-    // Quest nodes
-    Object.values(quests).forEach(q => {
-      if (!q?.code) return;
-      nodes.set(q.code, {
-        id: q.code,
-        type: 'quest',
-        domainId: q.domainId,
-        xPosition: q.xPosition,
-        yPosition: q.yPosition,
-      });
-    });
-
-    // Relations links
-    relations.forEach(rel => {
-      if (!nodes.has(rel.fromCode) || !nodes.has(rel.toCode)) return;
-      const linkId = `${rel.fromCode}-${rel.toCode}-${rel.relationType ?? 'relation'}`;
-      links.set(linkId, {
-        id: linkId,
-        source: rel.fromCode,
-        target: rel.toCode,
-        type: 'relation',
-        relationType: rel.relationType,
-        weight: 1.0,
-      });
-    });
-
-    // External prerequisite links
-    externalLinks.forEach(link => {
-      const targetCode = numericIdToCode.get(link.nodeId);
-      if (!targetCode || !nodes.has(targetCode)) return;
-
-      const externalNodeId = buildExternalNodeId(link);
-      const linkX = typeof link.xPosition === 'number' ? link.xPosition : undefined;
-      const linkY = typeof link.yPosition === 'number' ? link.yPosition : undefined;
-      if (!nodes.has(externalNodeId)) {
-        nodes.set(externalNodeId, {
-          id: externalNodeId,
-          type: link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition',
-          isExternal: true,
-          externalStatus: link.status,
-          externalDomainId: link.externalDomainId,
-          externalDomainUid: link.externalDomainUid,
-          externalNodeId: link.externalNodeId,
-          externalNodeType: link.externalNodeType,
-          xPosition: linkX,
-          yPosition: linkY,
-        });
-      } else {
-        const existing = nodes.get(externalNodeId);
-        if (existing && (existing.xPosition === undefined || existing.yPosition === undefined) && linkX !== undefined && linkY !== undefined) {
-          existing.xPosition = linkX;
-          existing.yPosition = linkY;
-        }
-      }
-
-      const linkId = `${externalNodeId}-${targetCode}`;
-      links.set(linkId, {
-        id: linkId,
-        source: externalNodeId,
-        target: targetCode,
-        type: 'external',
-        weight: 1.0,
-      });
-    });
-
-    console.log(`Graph structure: ${nodes.size} nodes, ${links.size} links, version ${version}`);
-    
-    return {
-      nodes,
-      links,
-      version,
-      lastStructuralChange: Date.now(),
-    };
-  }, [
-    // Dependencies only track structural changes
-    Object.keys(definitions).sort().join(','),
-    Object.keys(exercises).sort().join(','),
-    Object.keys(sources).sort().join(','),
-    Object.keys(quests).sort().join(','),
-    // Track prerequisite structure changes
-    JSON.stringify(Object.fromEntries(
-      Object.values(definitions).map(d => [d.code, (d.prerequisites || []).sort()])
-    )),
-    JSON.stringify(Object.fromEntries(
-      Object.values(exercises).map(e => [e.code, (e.prerequisites || []).sort()])
-    )),
-    // Track weight changes so link labels update without a physics reset
-    JSON.stringify(Object.fromEntries(
-      Object.values(definitions).map(d => [d.code, d.prerequisiteWeights || {}])
-    )),
-    JSON.stringify(Object.fromEntries(
-      Object.values(exercises).map(e => [e.code, e.prerequisiteWeights || {}])
-    )),
-    JSON.stringify((relations || []).map(r => `${r.fromCode}->${r.toCode}:${r.relationType ?? ''}`).sort()),
-    externalLinks
-      .map(link => `${link.nodeId}:${link.nodeType}:${link.externalDomainUid}:${link.externalNodeType}:${link.externalNodeId}:${link.status}:${link.xPosition ?? ''}:${link.yPosition ?? ''}`)
-      .sort()
-      .join('|'),
-  ]);
-};
-
-// Tracks all metadata including names
-const useGraphMetadata = (
-  structureNodes: Map<string, GraphNodeCore>,
-  definitions: Record<string, Definition>,
-  exercises: Record<string, Exercise>,
-  sources: Record<string, SourceNode>,
-  quests: Record<string, MetaQuest>,
-  srs: any,
-  codeToNumericIdMap: Map<string, number>,
-  activeNodeIds: Set<string>,
-  selectedNodeIds: Set<string>,
-  highlightNodes: Set<string>,
-  groupNodeMetadata: Map<string, NodeMetadata>,
-  externalNodeLookup: Map<string, {
-    id: string;
-    name: string;
-    displayId?: string;
-    type: 'definition' | 'exercise';
-    status: ExternalPrerequisiteLink['status'];
-    externalDomainId?: number;
-    externalDomainUid?: string;
-    externalNodeId?: number;
-    externalNodeType?: 'meta_definition' | 'meta_exercise';
-    externalDomainName?: string;
-    externalNodeName?: string;
-  }>
-): GraphMetadataState => {
-  return useMemo(() => {
-    const nodeMetadata = new Map<string, NodeMetadata>();
-    const linkMetadata = new Map<string, LinkMetadata>();
-    const dueNodeCodes = new Set(
-      (srs.state.dueReviews || [])
-        .map((review: any) => review?.nodeCode)
-        .filter(Boolean)
-    );
-
-    // Build metadata for each node
-    structureNodes.forEach((nodeCore, nodeId) => {
-      const groupMeta = groupNodeMetadata.get(nodeId);
-      if (groupMeta) {
-        nodeMetadata.set(nodeId, groupMeta);
-        return;
-      }
-
-      const externalInfo = externalNodeLookup.get(nodeId);
-      if (externalInfo) {
-        const isExercise = externalInfo.type === 'exercise';
-        const isMissing = externalInfo.status !== 'ok';
-        const color = isMissing
-          ? 'rgba(248, 113, 113, 0.45)'
-          : (isExercise ? 'rgba(251, 146, 60, 0.28)' : 'rgba(59, 130, 246, 0.28)');
-
-        nodeMetadata.set(nodeId, {
-          name: externalInfo.name,
-          displayId: externalInfo.displayId,
-          isExternal: true,
-          externalStatus: externalInfo.status,
-          externalDomainId: externalInfo.externalDomainId,
-          externalDomainUid: externalInfo.externalDomainUid,
-          externalNodeId: externalInfo.externalNodeId,
-          externalNodeType: externalInfo.externalNodeType,
-          externalDomainName: externalInfo.externalDomainName,
-          externalNodeName: externalInfo.externalNodeName,
-          color,
-          isDue: false,
-          daysUntilReview: null,
-          progress: null,
-        });
-        return;
-      }
-
-      if (nodeCore.type === 'source') {
-        const source = sources[nodeId];
-        nodeMetadata.set(nodeId, {
-          name: source?.title?.trim() ? source.title : 'Source',
-          color: 'rgba(16, 185, 129, 0.35)',
-          isDue: false,
-          daysUntilReview: null,
-          progress: null,
-        });
-        return;
-      }
-
-      if (nodeCore.type === 'quest') {
-        const quest = quests[nodeId];
-        const title = quest?.name?.trim() || 'Quest';
-        nodeMetadata.set(nodeId, {
-          name: title,
-          color: 'rgba(245, 158, 11, 0.35)',
-          isDue: false,
-          daysUntilReview: null,
-          progress: null,
-        });
-        return;
-      }
-
-      const numericId = codeToNumericIdMap.get(nodeId);
-      const progress = numericId ? srs.getNodeProgress(numericId, nodeCore.type) : null;
-      
-      // Get full node data to access metadata properties
-      const fullNodeData = definitions[nodeId] || exercises[nodeId];
-
-      // Fallbacks (critical fix): even if full data isn't present yet,
-      // produce minimal metadata so the node isn't dropped.
-      const isDefinition = nodeCore.type === 'definition';
-      const isRoot = (nodeCore.prerequisites || []).length === 0;
-      const status = (progress?.status as NodeStatus) || 'fresh';
-      const srsColor = getStatusColor(status);
-      const isDue = (progress ? (isNodeDue(progress.nextReview) && status !== 'learned') : false) || dueNodeCodes.has(nodeId);
-
-      nodeMetadata.set(nodeId, {
-        name: fullNodeData?.name ?? nodeId,
-        isRootDefinition: isDefinition ? isRoot : undefined,
-        difficulty: !isDefinition ? ((fullNodeData as ApiExercise | undefined)?.difficulty) : undefined,
-        status,
-        isDue,
-        daysUntilReview: progress ? calculateDaysUntilReview(progress.nextReview) : null,
-        progress: progress || null,
-        color: srsColor,
-      });
-    });
-
-    return {
-      nodeMetadata,
-      linkMetadata,
-      version: Date.now(),
-      lastMetadataChange: Date.now(),
-    };
-  }, [
-    // Dependencies track metadata changes
-    srs.state.domainProgress,
-    srs.state.lastUpdated,
-    srs.state.dueReviews,
-    // IMPORTANT: Recompute when the set of structure nodes changes
-    // This ensures newly materialized nodes receive proper SRS-driven colors instead of gray fallbacks.
-    (() => Array.from(structureNodes.keys()).sort().join('|'))(),
-    // active/selected/highlight removed to avoid hover-triggered reflow
-    codeToNumericIdMap,
-    // Track name and other metadata changes
-    Object.values(definitions).map(d => d.name).join('|'),
-    Object.values(exercises).map(e => e.name).join('|'),
-    Object.values(sources).map(s => s.title).join('|'),
-    Object.values(quests).map(q => `${q.code}:${q.name ?? ''}`).join('|'),
-    Object.values(exercises).map(e => String(e.difficulty ?? '')).join('|'),
-    // Track positions so we can apply them without a physics reset
-    Object.values(definitions).map(d => `${d.code}:${d.xPosition ?? ''}:${d.yPosition ?? ''}`).join('|'),
-    Object.values(exercises).map(e => `${e.code}:${e.xPosition ?? ''}:${e.yPosition ?? ''}`).join('|'),
-    Object.values(sources).map(s => `${s.code}:${s.xPosition ?? ''}:${s.yPosition ?? ''}`).join('|'),
-    Object.values(quests).map(q => `${q.code}:${q.xPosition ?? ''}:${q.yPosition ?? ''}`).join('|'),
-    Array.from(groupNodeMetadata.entries())
-      .map(([id, meta]) => `${id}:${meta.name}:${meta.groupMemberCount ?? ''}:${meta.groupIsExact ? '1' : '0'}`)
-      .sort()
-      .join('|'),
-    Array.from(externalNodeLookup.values())
-      .map(node => `${node.id}:${node.status}:${node.name}:${node.displayId ?? ''}`)
-      .sort()
-      .join('|'),
-  ]);
-};
-
-// This hook correctly handles structure vs metadata updates
-const useStableGraph = (
-  structure: GraphStructureState,
-  metadata: GraphMetadataState,
-  positionManager: PositionManager
-) => {
-  const stableNodesRef = useRef<GraphNode[]>([]);
-  const stableLinksRef = useRef<GraphLink[]>([]);
-  const lastStructureVersionRef = useRef<number>(-1);
-  const structureNonceRef = useRef<number>(0);
-
-  return useMemo(() => {
-    const structureChanged = structure.version !== lastStructureVersionRef.current;
-
-    // Always update metadata in place; never touch x/y here
-    stableNodesRef.current.forEach(node => {
-      const nodeMeta = metadata.nodeMetadata.get(node.id);
-      if (nodeMeta) Object.assign(node, nodeMeta);
-    });
-
-    if (!structureChanged) {
-      return {
-        nodes: stableNodesRef.current,
-        links: stableLinksRef.current,
-        requiresPhysicsReset: false,
-        structureVersion: structureNonceRef.current,
-      };
-    }
-
-    // DIFF structure -> mutate arrays in place
-    const prevNodes = stableNodesRef.current;
-    const prevIndexById = new Map<string, number>();
-    prevNodes.forEach((n, i) => prevIndexById.set(n.id, i));
-
-    const nextIds = new Set<string>();
-    let addedNodes = 0;
-    let removedNodes = 0;
-
-    structure.nodes.forEach((nodeCore, nodeId) => {
-      nextIds.add(nodeId);
-      const idx = prevIndexById.get(nodeId);
-      if (idx === undefined) {
-        const nodeMeta = metadata.nodeMetadata.get(nodeId);
-        const created: GraphNode = {
-          ...nodeCore,
-          ...(nodeMeta || { name: nodeId, status: 'fresh' as NodeStatus, color: '#999' }),
-          x: nodeCore.xPosition,
-          y: nodeCore.yPosition,
-        };
-        const saved = positionManager.getPosition(nodeId);
-        if (saved) { created.x = saved.x; created.y = saved.y; }
-        prevNodes.push(created);
-        addedNodes++;
-      }
-    });
-
-    for (let i = prevNodes.length - 1; i >= 0; i--) {
-      const n = prevNodes[i];
-      if (!nextIds.has(n.id)) {
-        prevNodes.splice(i, 1);
-        removedNodes++;
-      }
-    }
-
-    // Links diff
-    const prevLinks = stableLinksRef.current;
-    const prevLinkIndex = new Map<string, number>();
-    for (let i = 0; i < prevLinks.length; i++) {
-      const l = prevLinks[i];
-      const sid = typeof l.source === 'object' ? (l.source as any).id : String(l.source);
-      const tid = typeof l.target === 'object' ? (l.target as any).id : String(l.target);
-      const key = l.id ?? `${sid}-${tid}`;
-      prevLinkIndex.set(key, i);
-    }
-
-    const seen = new Set<string>();
-    let addedLinks = 0;
-    let removedLinks = 0;
-
-    structure.links.forEach(lc => {
-      const key = lc.id || `${lc.source}-${lc.target}`;
-      seen.add(key);
-      const idx = prevLinkIndex.get(key);
-      if (idx === undefined) {
-        prevLinks.push({
-          id: lc.id,
-          source: lc.source,
-          target: lc.target,
-          type: lc.type,
-          relationType: lc.relationType,
-          weight: lc.weight,
-        });
-        addedLinks++;
-      } else {
-        const existing = prevLinks[idx] as any;
-        existing.id = lc.id;
-        if (existing.weight !== lc.weight) existing.weight = lc.weight;
-        if (existing.type !== lc.type) existing.type = lc.type;
-        if (existing.relationType !== lc.relationType) existing.relationType = lc.relationType;
-      }
-    });
-
-    for (let i = prevLinks.length - 1; i >= 0; i--) {
-      const l = prevLinks[i];
-      const sid = typeof l.source === 'object' ? (l.source as any).id : String(l.source);
-      const tid = typeof l.target === 'object' ? (l.target as any).id : String(l.target);
-      const key = l.id ?? `${sid}-${tid}`;
-      if (!seen.has(key)) {
-        prevLinks.splice(i, 1);
-        removedLinks++;
-      }
-    }
-
-    structureNonceRef.current++;
-    lastStructureVersionRef.current = structure.version;
-
-    const requiresReset = removedNodes > 0 || removedLinks > 0 || (addedNodes + addedLinks) > 8;
-    if (requiresReset) positionManager.markUnstable();
-
-    return {
-      nodes: prevNodes,
-      links: prevLinks,
-      requiresPhysicsReset: requiresReset,
-      structureVersion: structureNonceRef.current,
-    };
-  }, [structure.version, metadata.version, positionManager]);
-};
+import {
+  FRENZY_DOUBLE_CLICK_MS,
+  FRENZY_LINK_SNAP_DISTANCE,
+  FRENZY_SINGLE_CLICK_DELAY_MS,
+  intersects,
+  isQuestKindValue,
+  isQuestVisibilityValue,
+  parseExternalNodeId,
+  parseGroupNodeId,
+} from './knowledge-graph/graphAlgorithms';
+import {
+  useGraphMetadata,
+  useGraphStructure,
+  useStableGraph,
+} from './knowledge-graph/graphStateHooks';
+import {
+  buildCollapsedCycleGroups,
+  buildCollapsedGroupIds,
+  buildCombinedGroupNodeMetadata,
+  buildCycleGroups,
+  buildCycleNodeMetadata,
+  buildDagGraphStructure,
+  buildExternalNodeLookup,
+  buildFullAdjacency,
+  buildGraphHighlightedNodes,
+  buildGroupMembersById,
+  buildGroupNodeMetadata,
+  buildGroupSummaries,
+  buildGroupedGraphStructure,
+  buildLocalAdjacency,
+  buildNodeGroupsByCode,
+  buildQuestNodeIds,
+  buildRenderGraphLinks,
+  buildRenderGraphNodes,
+} from './knowledge-graph/graphTransforms';
+import type {
+  FrenzyDeletedNodeSnapshot,
+  FrenzyEditTool,
+  FrenzyNoteState,
+  FrenzyQuestNoteState,
+} from './knowledge-graph/types';
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
-
 const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
   return (
     <UIProvider>
@@ -1353,89 +536,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const isInitializedRef = useRef<boolean>(false);
   const pendingFocusNodeIdRef = useRef<string | null>(null);
 
-  const externalNodeLookup = useMemo(() => {
-    const map = new Map<string, {
-      id: string;
-      name: string;
-      displayId?: string;
-      type: 'definition' | 'exercise';
-      status: ExternalPrerequisiteLink['status'];
-      externalDomainId?: number;
-      externalDomainUid?: string;
-      externalNodeId?: number;
-      externalNodeType?: 'meta_definition' | 'meta_exercise';
-      externalDomainName?: string;
-      externalNodeName?: string;
-    }>();
+  const externalNodeLookup = useMemo(
+    () => buildExternalNodeLookup(externalPrerequisites),
+    [externalPrerequisites],
+  );
 
-    const statusRank: Record<ExternalPrerequisiteLink['status'], number> = {
-      ok: 0,
-      no_access: 1,
-      missing_node: 2,
-      missing_domain: 3,
-    };
-
-    externalPrerequisites.forEach(link => {
-      const id = buildExternalNodeId(link);
-      const displayId = link.externalNodeName || `Node ${link.externalNodeId}`;
-      const entry = map.get(id);
-      const next = {
-        id,
-        name: getExternalNodeLabel(link),
-        displayId,
-        type: (link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition') as 'definition' | 'exercise',
-        status: link.status,
-        externalDomainId: link.externalDomainId,
-        externalDomainUid: link.externalDomainUid,
-        externalNodeId: link.externalNodeId,
-        externalNodeType: link.externalNodeType,
-        externalDomainName: link.externalDomainName,
-        externalNodeName: link.externalNodeName,
-      };
-
-      if (!entry) {
-        map.set(id, next);
-        return;
-      }
-
-      if (statusRank[next.status] >= statusRank[entry.status]) {
-        map.set(id, { ...entry, ...next });
-        return;
-      }
-
-      if (!entry.displayId && next.displayId) {
-        map.set(id, { ...entry, displayId: next.displayId, name: next.name });
-      }
-    });
-
-    return map;
-  }, [externalPrerequisites]);
-
-  const localAdjacency = useMemo(() => {
-    const outgoing = new Map<string, Set<string>>();
-    const incoming = new Map<string, Set<string>>();
-
-    const addEdge = (source: string, target: string) => {
-      if (!source || !target) return;
-      if (!outgoing.has(source)) outgoing.set(source, new Set());
-      if (!incoming.has(target)) incoming.set(target, new Set());
-      outgoing.get(source)?.add(target);
-      incoming.get(target)?.add(source);
-    };
-
-    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
-      (def.prerequisites || []).forEach(prereq => {
-        addEdge(prereq, def.code);
-      });
-    });
-    Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
-      (ex.prerequisites || []).forEach(prereq => {
-        addEdge(prereq, ex.code);
-      });
-    });
-
-    return { outgoing, incoming };
-  }, [currentStructuralGraphData]);
+  const localAdjacency = useMemo(
+    () => buildLocalAdjacency(currentStructuralGraphData),
+    [currentStructuralGraphData],
+  );
 
   const definitionCodes = useMemo(() => (
     new Set(Object.keys(currentStructuralGraphData.definitions || {}))
@@ -1445,73 +554,30 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     new Set(Object.keys(currentStructuralGraphData.exercises || {}))
   ), [currentStructuralGraphData.exercises]);
 
-  const groupMembersById = useMemo(() => {
-    const map = new Map<number, Set<string>>();
-    domainGroups.forEach(group => {
-      const seedCodes = (group.seeds || []).map(seed => seed.nodeCode).filter(Boolean);
-      let members: Set<string>;
-      if (group.isExact) {
-        const memberCodes = (group.members && group.members.length > 0 ? group.members : group.seeds)
-          .map(member => member.nodeCode)
-          .filter(Boolean);
-        members = new Set(memberCodes);
-      } else {
-        members = computeConvexClosure(seedCodes, localAdjacency.outgoing, localAdjacency.incoming);
-      }
-      map.set(group.id, members);
-    });
-    return map;
-  }, [domainGroups, localAdjacency]);
+  const groupMembersById = useMemo(
+    () => buildGroupMembersById(domainGroups, localAdjacency),
+    [domainGroups, localAdjacency],
+  );
 
-  const nodeGroupsByCode = useMemo(() => {
-    const map = new Map<string, string[]>();
-    domainGroups.forEach(group => {
-      const members = groupMembersById.get(group.id);
-      if (!members) return;
-      members.forEach(code => {
-        const existing = map.get(code) ?? [];
-        existing.push(group.name);
-        map.set(code, existing);
-      });
-    });
-    return map;
-  }, [domainGroups, groupMembersById]);
+  const nodeGroupsByCode = useMemo(
+    () => buildNodeGroupsByCode(domainGroups, groupMembersById),
+    [domainGroups, groupMembersById],
+  );
 
-  const collapsedGroupIds = useMemo(() => {
-    return new Set(domainGroups.filter(group => group.collapsed).map(group => group.id));
-  }, [domainGroups, updateGroupState]);
+  const collapsedGroupIds = useMemo(
+    () => buildCollapsedGroupIds(domainGroups),
+    [domainGroups, updateGroupState],
+  );
 
-  const groupNodeMetadata = useMemo(() => {
-    const map = new Map<string, NodeMetadata>();
-    domainGroups.forEach(group => {
-      const members = groupMembersById.get(group.id) ?? new Set<string>();
-      const memberCount = members.size;
-      const label = memberCount > 0 ? `${group.name} (${memberCount})` : group.name;
-      map.set(buildGroupNodeId(group.id), {
-        name: label,
-        displayId: group.name,
-        color: '#111827',
-        isDue: false,
-        daysUntilReview: null,
-        progress: null,
-        groupId: group.id,
-        groupMemberIds: Array.from(members),
-        groupMemberCount: memberCount,
-        groupIsExact: group.isExact,
-      });
-    });
-    return map;
-  }, [domainGroups, groupMembersById]);
+  const groupNodeMetadata = useMemo(
+    () => buildGroupNodeMetadata(domainGroups, groupMembersById),
+    [domainGroups, groupMembersById],
+  );
 
-  const groupSummaries = useMemo(() => {
-    return domainGroups.map(group => ({
-      id: group.id,
-      name: group.name,
-      collapsed: !!group.collapsed,
-      isExact: group.isExact,
-      memberCount: groupMembersById.get(group.id)?.size ?? 0,
-    }));
-  }, [domainGroups, groupMembersById]);
+  const groupSummaries = useMemo(
+    () => buildGroupSummaries(domainGroups, groupMembersById),
+    [domainGroups, groupMembersById],
+  );
 
   useEffect(() => {
     if (toolbarGroupId && !groupSummaries.some(group => group.id === toolbarGroupId)) {
@@ -1529,276 +595,45 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     externalPrerequisites
   );
 
-  const fullAdjacency = useMemo(() => {
-    const outgoing = new Map<string, Set<string>>();
-    const incoming = new Map<string, Set<string>>();
-    baseGraphStructure.nodes.forEach((_, id) => {
-      outgoing.set(id, new Set());
-      incoming.set(id, new Set());
-    });
-    baseGraphStructure.links.forEach(link => {
-      if (!outgoing.has(link.source)) outgoing.set(link.source, new Set());
-      if (!incoming.has(link.target)) incoming.set(link.target, new Set());
-      outgoing.get(link.source)?.add(link.target);
-      incoming.get(link.target)?.add(link.source);
-    });
-    return { outgoing, incoming };
-  }, [baseGraphStructure]);
+  const fullAdjacency = useMemo(
+    () => buildFullAdjacency(baseGraphStructure),
+    [baseGraphStructure],
+  );
 
-  const groupedGraphStructure = useMemo(() => {
-    if (collapsedGroupIds.size === 0) {
-      return baseGraphStructure;
-    }
+  const groupedGraphStructure = useMemo(
+    () => buildGroupedGraphStructure({
+      baseGraphStructure,
+      collapsedGroupIds,
+      domainGroups,
+      groupMembersById,
+    }),
+    [baseGraphStructure, collapsedGroupIds, domainGroups, groupMembersById],
+  );
 
-    const nodes = new Map<string, GraphNodeCore>();
-    const links = new Map<string, GraphLinkCore>();
-    const nodeToGroup = new Map<string, number>();
+  const cycleGroups = useMemo(
+    () => buildCycleGroups(dagModeEnabled, groupedGraphStructure),
+    [dagModeEnabled, groupedGraphStructure],
+  );
 
-    collapsedGroupIds.forEach(groupId => {
-      const members = groupMembersById.get(groupId);
-      if (!members) return;
-      members.forEach(memberId => {
-        if (baseGraphStructure.nodes.has(memberId)) {
-          nodeToGroup.set(memberId, groupId);
-        }
-      });
-    });
+  const collapsedCycleGroups = useMemo(
+    () => buildCollapsedCycleGroups(cycleGroups, expandedCycleIds),
+    [cycleGroups, expandedCycleIds],
+  );
 
-    baseGraphStructure.nodes.forEach((nodeCore, nodeId) => {
-      if (nodeToGroup.has(nodeId)) return;
-      nodes.set(nodeId, nodeCore);
-    });
+  const cycleNodeMetadata = useMemo(
+    () => buildCycleNodeMetadata(collapsedCycleGroups),
+    [collapsedCycleGroups],
+  );
 
-    collapsedGroupIds.forEach(groupId => {
-      const group = domainGroups.find(g => g.id === groupId);
-      if (!group) return;
-      const members = groupMembersById.get(groupId) ?? new Set<string>();
-      const memberIds = Array.from(members).filter(memberId => baseGraphStructure.nodes.has(memberId));
-      if (memberIds.length === 0) return;
+  const combinedGroupNodeMetadata = useMemo(
+    () => buildCombinedGroupNodeMetadata(groupNodeMetadata, cycleNodeMetadata),
+    [cycleNodeMetadata, groupNodeMetadata],
+  );
 
-      let sumX = 0;
-      let sumY = 0;
-      let count = 0;
-      memberIds.forEach(memberId => {
-        const nodeCore = baseGraphStructure.nodes.get(memberId);
-        if (nodeCore && typeof nodeCore.xPosition === 'number' && typeof nodeCore.yPosition === 'number') {
-          sumX += nodeCore.xPosition;
-          sumY += nodeCore.yPosition;
-          count++;
-        }
-      });
-
-      const fallbackX = count > 0 ? sumX / count : undefined;
-      const fallbackY = count > 0 ? sumY / count : undefined;
-      const xPosition = typeof group.xPosition === 'number' ? group.xPosition : fallbackX;
-      const yPosition = typeof group.yPosition === 'number' ? group.yPosition : fallbackY;
-
-      const groupNodeId = buildGroupNodeId(groupId);
-      nodes.set(groupNodeId, {
-        id: groupNodeId,
-        type: 'group',
-        xPosition,
-        yPosition,
-        groupId,
-        groupMemberIds: memberIds,
-        groupMemberCount: memberIds.length,
-        groupIsExact: group.isExact,
-      });
-    });
-
-    const aggregated = new Map<string, GraphLinkCore>();
-    baseGraphStructure.links.forEach(link => {
-      const sourceGroup = nodeToGroup.get(link.source);
-      const targetGroup = nodeToGroup.get(link.target);
-
-      let nextSource = link.source;
-      let nextTarget = link.target;
-      if (sourceGroup) nextSource = buildGroupNodeId(sourceGroup);
-      if (targetGroup) nextTarget = buildGroupNodeId(targetGroup);
-      if (sourceGroup && targetGroup && sourceGroup === targetGroup) return;
-      if (!nodes.has(nextSource) || !nodes.has(nextTarget)) return;
-
-      const id = `${nextSource}-${nextTarget}`;
-      const existing = aggregated.get(id);
-      const weight = link.weight ?? 1.0;
-      if (existing) {
-        if (weight > existing.weight) existing.weight = weight;
-      } else {
-        aggregated.set(id, {
-          id,
-          source: nextSource,
-          target: nextTarget,
-          type: link.type,
-          weight,
-        });
-      }
-    });
-
-    aggregated.forEach(link => links.set(link.id, link));
-
-    const groupVersion = Array.from(collapsedGroupIds).sort().join(',');
-    const membershipVersion = Array.from(groupMembersById.entries())
-      .map(([id, members]) => `${id}:${Array.from(members).sort().join(',')}`)
-      .sort()
-      .join('|');
-    const version = hashString([baseGraphStructure.version, groupVersion, membershipVersion].join('::'));
-
-    return {
-      nodes,
-      links,
-      version,
-      lastStructuralChange: Date.now(),
-    };
-  }, [baseGraphStructure, collapsedGroupIds, domainGroups, groupMembersById]);
-
-  const cycleGroups = useMemo(() => {
-    if (!dagModeEnabled) return [] as CycleGroup[];
-    const nodeIds = Array.from(groupedGraphStructure.nodes.keys());
-    if (nodeIds.length === 0) return [] as CycleGroup[];
-    const { outgoing, selfLoops } = buildAdjacencyFromLinks(nodeIds, groupedGraphStructure.links);
-    const components = computeStronglyConnectedComponents(nodeIds, outgoing);
-    const cycles = components.filter(component => {
-      if (component.length > 1) return true;
-      return component.length === 1 && selfLoops.has(component[0]);
-    });
-
-    const idCounts = new Map<string, number>();
-    return cycles
-      .map(component => {
-        const sorted = [...component].sort();
-        const hash = hashString(sorted.join('|'));
-        let id = `cycle:${hash}`;
-        const count = idCounts.get(id) ?? 0;
-        if (count > 0) id = `${id}-${count + 1}`;
-        idCounts.set(`cycle:${hash}`, count + 1);
-        return { id, members: new Set(sorted) };
-      })
-      .sort((a, b) => a.id.localeCompare(b.id));
-  }, [dagModeEnabled, groupedGraphStructure]);
-
-  const collapsedCycleGroups = useMemo(() => {
-    if (expandedCycleIds.size === 0) return cycleGroups;
-    return cycleGroups.filter(group => !expandedCycleIds.has(group.id));
-  }, [cycleGroups, expandedCycleIds]);
-
-  const cycleNodeMetadata = useMemo(() => {
-    const map = new Map<string, NodeMetadata>();
-    collapsedCycleGroups.forEach(group => {
-      const memberCount = group.members.size;
-      const label = memberCount > 0 ? `Cycle (${memberCount})` : 'Cycle';
-      map.set(group.id, {
-        name: label,
-        displayId: 'Cycle',
-        color: '#4b5563',
-        isDue: false,
-        daysUntilReview: null,
-        progress: null,
-        groupMemberIds: Array.from(group.members),
-        groupMemberCount: memberCount,
-        groupIsExact: false,
-      });
-    });
-    return map;
-  }, [collapsedCycleGroups]);
-
-  const combinedGroupNodeMetadata = useMemo(() => {
-    return new Map<string, NodeMetadata>([...groupNodeMetadata, ...cycleNodeMetadata]);
-  }, [cycleNodeMetadata, groupNodeMetadata]);
-
-  const dagGraphStructure = useMemo(() => {
-    if (!dagModeEnabled || collapsedCycleGroups.length === 0) {
-      return groupedGraphStructure;
-    }
-
-    const nodes = new Map<string, GraphNodeCore>();
-    const links = new Map<string, GraphLinkCore>();
-    const nodeToCycle = new Map<string, string>();
-
-    collapsedCycleGroups.forEach(group => {
-      group.members.forEach(memberId => {
-        if (groupedGraphStructure.nodes.has(memberId)) {
-          nodeToCycle.set(memberId, group.id);
-        }
-      });
-    });
-
-    groupedGraphStructure.nodes.forEach((nodeCore, nodeId) => {
-      if (nodeToCycle.has(nodeId)) return;
-      nodes.set(nodeId, nodeCore);
-    });
-
-    collapsedCycleGroups.forEach(group => {
-      const memberIds = Array.from(group.members).filter(memberId => groupedGraphStructure.nodes.has(memberId));
-      if (memberIds.length === 0) return;
-
-      let sumX = 0;
-      let sumY = 0;
-      let count = 0;
-      memberIds.forEach(memberId => {
-        const nodeCore = groupedGraphStructure.nodes.get(memberId);
-        if (nodeCore && typeof nodeCore.xPosition === 'number' && typeof nodeCore.yPosition === 'number') {
-          sumX += nodeCore.xPosition;
-          sumY += nodeCore.yPosition;
-          count++;
-        }
-      });
-      const fallbackX = count > 0 ? sumX / count : undefined;
-      const fallbackY = count > 0 ? sumY / count : undefined;
-
-      nodes.set(group.id, {
-        id: group.id,
-        type: 'group',
-        xPosition: fallbackX,
-        yPosition: fallbackY,
-        groupMemberIds: memberIds,
-        groupMemberCount: memberIds.length,
-        groupIsExact: false,
-      });
-    });
-
-    const aggregated = new Map<string, GraphLinkCore>();
-    groupedGraphStructure.links.forEach(link => {
-      const sourceCycle = nodeToCycle.get(link.source);
-      const targetCycle = nodeToCycle.get(link.target);
-
-      let nextSource = link.source;
-      let nextTarget = link.target;
-      if (sourceCycle) nextSource = sourceCycle;
-      if (targetCycle) nextTarget = targetCycle;
-      if (nextSource === nextTarget) return;
-      if (!nodes.has(nextSource) || !nodes.has(nextTarget)) return;
-
-      const id = `${nextSource}-${nextTarget}`;
-      const existing = aggregated.get(id);
-      const weight = link.weight ?? 1.0;
-      if (existing) {
-        if (weight > existing.weight) existing.weight = weight;
-      } else {
-        aggregated.set(id, {
-          id,
-          source: nextSource,
-          target: nextTarget,
-          type: link.type,
-          weight,
-        });
-      }
-    });
-
-    aggregated.forEach(link => links.set(link.id, link));
-
-    const cycleVersion = collapsedCycleGroups
-      .map(group => `${group.id}:${Array.from(group.members).sort().join(',')}`)
-      .sort()
-      .join('|');
-    const version = hashString([groupedGraphStructure.version, cycleVersion].join('::'));
-
-    return {
-      nodes,
-      links,
-      version,
-      lastStructuralChange: Date.now(),
-    };
-  }, [collapsedCycleGroups, dagModeEnabled, groupedGraphStructure]);
+  const dagGraphStructure = useMemo(
+    () => buildDagGraphStructure({ dagModeEnabled, collapsedCycleGroups, groupedGraphStructure }),
+    [collapsedCycleGroups, dagModeEnabled, groupedGraphStructure],
+  );
 
   // Active node IDs from open detail windows
   const activeNodeIds = useMemo(() =>
@@ -1845,41 +680,25 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setExpandedCycleIds(new Set());
   }, []);
 
-  const graphHighlightedNodes = useMemo(() => {
-    const combined = new Set<string>();
-    
-    activeNodeIds.forEach(id => combined.add(id));
-    highlightNodes.forEach(id => combined.add(id));
-    if (pendingLinkSourceId) combined.add(pendingLinkSourceId);
-    
-    return combined;
-  }, [activeNodeIds, highlightNodes, pendingLinkSourceId]);
+  const graphHighlightedNodes = useMemo(
+    () => buildGraphHighlightedNodes(activeNodeIds, highlightNodes, pendingLinkSourceId),
+    [activeNodeIds, highlightNodes, pendingLinkSourceId],
+  );
 
-  const questNodeIds = useMemo(() => {
-    if (questVisibilityMode === 'on') return new Set<string>();
-    const ids = new Set<string>();
-    stableGraph.nodes.forEach(node => {
-      if (node.type === 'quest') ids.add(node.id);
-    });
-    return ids;
-  }, [stableGraph.nodes, questVisibilityMode]);
+  const questNodeIds = useMemo(
+    () => buildQuestNodeIds(stableGraph.nodes, questVisibilityMode === 'on' ? 'on' : 'off'),
+    [stableGraph.nodes, questVisibilityMode],
+  );
 
-  const renderGraphNodes = useMemo(() => {
-    if (questVisibilityMode === 'off') {
-      return stableGraph.nodes.filter(node => node.type !== 'quest');
-    }
-    return stableGraph.nodes;
-  }, [stableGraph.nodes, questVisibilityMode]);
+  const renderGraphNodes = useMemo(
+    () => buildRenderGraphNodes(stableGraph.nodes, questVisibilityMode === 'off' ? 'off' : 'on'),
+    [stableGraph.nodes, questVisibilityMode],
+  );
 
-  const renderGraphLinks = useMemo(() => {
-    if (questVisibilityMode === 'on') return stableGraph.links;
-    if (questNodeIds.size === 0) return stableGraph.links;
-    return stableGraph.links.filter(link => {
-      const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
-      const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
-      return !questNodeIds.has(sourceId) && !questNodeIds.has(targetId);
-    });
-  }, [stableGraph.links, questNodeIds, questVisibilityMode]);
+  const renderGraphLinks = useMemo(
+    () => buildRenderGraphLinks(stableGraph.links, questNodeIds, questVisibilityMode === 'on' ? 'on' : 'off'),
+    [stableGraph.links, questNodeIds, questVisibilityMode],
+  );
 
   const isNodeVisibleInGraph = useCallback((node: GraphNode) => {
     if (mode === 'study' && node.type === 'exercise') return false;
