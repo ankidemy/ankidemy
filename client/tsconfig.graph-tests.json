@@ -1,0 +1,35 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".tmp-tests",
+    "rootDir": ".",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "allowJs": false,
+    "isolatedModules": false,
+    "incremental": false,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"],
+    "paths": {
+      "@/lib/api": ["./tests/knowledge-graph/stubs/api.ts"],
+      "@/lib/srs-api": ["./tests/knowledge-graph/stubs/srs-api.ts"],
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src/app/components/Graph/knowledge-graph/graphAlgorithms.ts",
+    "src/app/components/Graph/knowledge-graph/graphStateHooks.ts",
+    "src/app/components/Graph/knowledge-graph/frenzyGraphActions.ts",
+    "src/app/components/Graph/knowledge-graph/graphTransforms.ts",
+    "src/app/components/Graph/knowledge-graph/domainDataAdapter.ts",
+    "src/app/components/Graph/knowledge-graph/helpTopics.ts",
+    "src/app/components/Graph/knowledge-graph/toolbarUiConfig.ts",
+    "src/app/components/Graph/knowledge-graph/types.ts",
+    "src/app/components/Graph/utils/types.tsx",
+    "tests/knowledge-graph/**/*.ts"
+  ]
+}

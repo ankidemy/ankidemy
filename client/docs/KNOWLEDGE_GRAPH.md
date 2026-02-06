@@ -58,6 +58,25 @@ Responsibility:
   - cycle collapse projection for DAG mode
   - quest visibility and highlight projections
 
+- `client/src/app/components/Graph/knowledge-graph/domainDataAdapter.ts`
+
+Responsibility:
+- Domain API payload adaptation into graph-ready `GraphData`.
+- Relation edge mapping by typed node-id to code lookup.
+
+- `client/src/app/components/Graph/knowledge-graph/frenzyGraphActions.ts`
+
+Responsibility:
+- Frenzy node/link action routing logic (link/unlink/delete dispatch).
+- Relation-kind resolution (quest/source/prerequisite) for graph interactions.
+
+- `client/src/app/components/Graph/knowledge-graph/helpTopics.ts`
+- `client/src/app/components/Graph/knowledge-graph/toolbarUiConfig.ts`
+
+Responsibility:
+- Static help topic definitions and selected-topic projection.
+- Toolbar label/instruction derivation helpers.
+
 ## High-Level Data Flow
 
 1. **Domain payload state** lives in `KnowledgeGraph.tsx` (`currentStructuralGraphData`, groups, external prereqs, etc.).
@@ -70,6 +89,7 @@ Responsibility:
 5. `useStableGraph(...)` merges structure + metadata into stable arrays for force graph rendering.
 6. Render filters (quest visibility, highlights, selection-aware visibility) are applied before `GraphContainer`.
 7. UI actions mutate source state; pipeline recalculates via memoized hooks/functions.
+8. Domain payload adaptation and relation reconciliation are handled by `domainDataAdapter` before state hydration.
 
 ## Separation Boundaries
 
@@ -146,8 +166,14 @@ cd client
 npx tsc --noEmit
 ```
 
+- KnowledgeGraph regression harness succeeded with:
+
+```bash
+cd client
+npm run test:kg
+```
+
 ## Notes
 
 - `next lint` currently reports many pre-existing repository-wide issues unrelated to this extraction.
 - This iteration deliberately avoids broad lint cleanup or functional rewrites to reduce regression risk.
-

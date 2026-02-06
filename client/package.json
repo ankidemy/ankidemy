@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
-    "dev:no-lint": "NEXT_LINT=false next dev"
+    "dev:no-lint": "NEXT_LINT=false next dev",
+    "test:kg": "node -e \"require('fs').rmSync('.tmp-tests',{ recursive: true, force: true })\" && tsc -p tsconfig.graph-tests.json && node -e \"const fs=require('fs');fs.mkdirSync('.tmp-tests/node_modules/@/lib',{recursive:true});fs.copyFileSync('.tmp-tests/tests/knowledge-graph/stubs/srs-api.js','.tmp-tests/node_modules/@/lib/srs-api.js');\" && node --test .tmp-tests/tests/knowledge-graph/*.test.js"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

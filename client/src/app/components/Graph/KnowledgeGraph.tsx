@@ -9,6 +9,7 @@ import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { UIProvider, useUI } from '@/contexts/UIContext';
 import { DraggableWindow } from '@/app/components/core/DraggableWindow';
 import ContextToolbar, { ToolbarLayout } from './components/ContextToolbar';
+import GraphHelpOverlay from './components/GraphHelpOverlay';
 import { DetailWindowContent } from './windows/DetailWindowContent';
 import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
@@ -64,6 +65,8 @@ import {
 	  MetaDefinition,
 	  MetaExercise,
 	  MetaQuestDTO,
+    SourceDTO,
+    NodeRelationDTO,
 	  ExternalPrerequisiteLink,
 	  createMetaDefinition,
 	  createMetaExercise,
@@ -102,8 +105,6 @@ import {
   GraphLink,
   Definition,
   Exercise,
-  SourceNode,
-  MetaQuest,
   NodeRelation,
   AppMode,
   FilteredNodeType,
@@ -118,6 +119,7 @@ import LeftPanelToggle from './panels/LeftPanelToggle';
 import ZoomableImage from './components/ZoomableImage';
 import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
+import SelectionInfoPanel from './components/SelectionInfoPanel';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 import DomainAccessModal from '@/app/components/Domain/DomainAccessModal';
@@ -163,6 +165,25 @@ import {
   buildRenderGraphLinks,
   buildRenderGraphNodes,
 } from './knowledge-graph/graphTransforms';
+import {
+  executeFrenzyLinkClick,
+  executeFrenzyNodeAction,
+} from './knowledge-graph/frenzyGraphActions';
+import {
+  GRAPH_HELP_TOPICS,
+  getSelectedHelpContent,
+} from './knowledge-graph/helpTopics';
+import {
+  getLabelBackgroundLabel,
+  getLabelDisplayLabel,
+  getQuestDisplayLabel,
+  getToolInstruction,
+} from './knowledge-graph/toolbarUiConfig';
+import {
+  adaptDomainPayloadToGraphData,
+  buildIdToCodeByTypeFromGraphData,
+  buildRelationEdgesFromDomainRelations,
+} from './knowledge-graph/domainDataAdapter';
 import type {
   FrenzyDeletedNodeSnapshot,
   FrenzyEditTool,
@@ -245,7 +266,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Data state
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
   const [codeToNumericIdMap, setCodeToNumericIdMap] = useState<Map<string, number>>(new Map());
-  const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise>>(new Map());
+  const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise | MetaDefinition | MetaExercise>>(new Map());
   const [externalPrerequisites, setExternalPrerequisites] = useState<ExternalPrerequisiteLink[]>([]);
   const [domainGroups, setDomainGroups] = useState<GroupData[]>([]);
 
@@ -659,9 +680,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.quests || {},
     srs,
     codeToNumericIdMap,
-    activeNodeIds,
-    selectedNodeIds,
-    highlightNodes,
     combinedGroupNodeMetadata,
     externalNodeLookup
   );
@@ -1018,39 +1036,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return () => clearInterval(interval);
   }, [hasAccess, refreshSurveyStats]);
 
-  const buildRelationEdgesFromDomain = useCallback((relationsRaw: any[]) => {
-    const idToCodeByType = new Map<string, string>();
-    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
-      if (typeof def.id === 'number') idToCodeByType.set(`meta_definition:${def.id}`, def.code);
-    });
-    Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
-      if (typeof ex.id === 'number') idToCodeByType.set(`meta_exercise:${ex.id}`, ex.code);
-    });
-    Object.values(currentStructuralGraphData.sources || {}).forEach(src => {
-      if (typeof src.id === 'number') idToCodeByType.set(`source:${src.id}`, src.code);
-    });
-    Object.values(currentStructuralGraphData.quests || {}).forEach(q => {
-      if (typeof q.id === 'number') idToCodeByType.set(`meta_quest:${q.id}`, q.code);
-    });
-
-    const relationEdges: Array<{ fromCode: string; toCode: string; relationType?: string }> = [];
-    (relationsRaw || []).forEach((rel: any) => {
-      const fromCode = idToCodeByType.get(`${rel.fromType}:${rel.fromId}`);
-      const toCode = idToCodeByType.get(`${rel.toType}:${rel.toId}`);
-      if (!fromCode || !toCode) return;
-      relationEdges.push({
-        fromCode,
-        toCode,
-        relationType: rel.relationType,
-      });
-    });
-    return relationEdges;
-  }, [
-    currentStructuralGraphData.definitions,
-    currentStructuralGraphData.exercises,
-    currentStructuralGraphData.sources,
-    currentStructuralGraphData.quests,
-  ]);
+  const buildRelationEdgesFromDomain = useCallback((relationsRaw: NodeRelationDTO[]) => {
+    const idToCodeByType = buildIdToCodeByTypeFromGraphData(currentStructuralGraphData, codeToNumericIdMap);
+    return buildRelationEdgesFromDomainRelations(relationsRaw || [], idToCodeByType);
+  }, [currentStructuralGraphData, codeToNumericIdMap]);
 
   const refreshDomainRelations = useCallback(async () => {
     const domainId = parseInt(subjectMatterId, 10);
@@ -1071,152 +1060,36 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
       const [allMetaDefinitions, allMetaExercises, externalLinks, groups, sources, quests, relations] = await Promise.all([
         // Use meta-definitions (concept pools) as definition nodes in the graph
-        getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return []; }),
+        getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return [] as MetaDefinition[]; }),
         // Use meta-exercises (pools) as exercise nodes in the graph
-        getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return []; }),
-        getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return []; }),
-        getDomainGroups(domainId).catch(err => { console.warn("Failed to load groups:", err); return []; }),
-        getDomainSources(domainId).catch(err => { console.warn("Failed to load sources:", err); return []; }),
-        getDomainQuests(domainId).catch(err => { console.warn("Failed to load quests:", err); return []; }),
-        getDomainRelations(domainId).catch(err => { console.warn("Failed to load relations:", err); return []; }),
+        getDomainMetaExercises(domainId).catch(err => { console.warn("Failed to load meta-exercises:", err); return [] as MetaExercise[]; }),
+        getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return [] as ExternalPrerequisiteLink[]; }),
+        getDomainGroups(domainId).catch(err => { console.warn("Failed to load groups:", err); return [] as GroupData[]; }),
+        getDomainSources(domainId).catch(err => { console.warn("Failed to load sources:", err); return [] as SourceDTO[]; }),
+        getDomainQuests(domainId).catch(err => { console.warn("Failed to load quests:", err); return [] as MetaQuestDTO[]; }),
+        getDomainRelations(domainId).catch(err => { console.warn("Failed to load relations:", err); return [] as NodeRelationDTO[]; }),
       ]);
 
-      const newCodeToNumericIdMap = new Map<string, number>();
-      const newNodeDataCache = new Map<string, MetaDefinition | any>();
-      const idToCodeByType = new Map<string, string>();
-
-      allMetaDefinitions.forEach(metaDef => {
-        if (metaDef?.code && typeof metaDef.id === 'number') {
-          newCodeToNumericIdMap.set(metaDef.code, metaDef.id);
-          newNodeDataCache.set(metaDef.code, metaDef);
-          idToCodeByType.set(`meta_definition:${metaDef.id}`, metaDef.code);
-        }
+      const adapted = adaptDomainPayloadToGraphData({
+        metaDefinitions: allMetaDefinitions,
+        metaExercises: allMetaExercises,
+        sources,
+        quests,
+        relations,
       });
 
-      (allMetaExercises as any[]).forEach((ex: any) => {
-        if (ex?.code && typeof ex.id === 'number') {
-          newCodeToNumericIdMap.set(ex.code, ex.id);
-          newNodeDataCache.set(ex.code, ex);
-          idToCodeByType.set(`meta_exercise:${ex.id}`, ex.code);
-        }
-      });
-
-      const newDefinitions: Record<string, Definition> = {};
-      const newExercises: Record<string, Exercise> = {};
-
-      // Convert MetaDefinitions to Definition format for graph display
-      allMetaDefinitions.forEach(metaDef => {
-        newDefinitions[metaDef.code] = {
-          code: metaDef.code,
-          name: metaDef.name,
-          description: '', // MetaDefinitions don't have a single description, versions do
-          notes: '',
-          references: [],
-          prerequisites: metaDef.prerequisites || [],
-          prerequisiteWeights: metaDef.prerequisiteWeights ||
-            (metaDef.prerequisites ? Object.fromEntries(metaDef.prerequisites.map(p => [p, 1.0])) : {}),
-          xPosition: metaDef.xPosition,
-          yPosition: metaDef.yPosition,
-          domainId: metaDef.domainId,
-          type: 'definition',
-          id: metaDef.id,
-        };
-      });
-      
-      (allMetaExercises as any[]).forEach((ex: any) => {
-        newExercises[ex.code] = {
-          code: ex.code,
-          name: ex.name,
-          statement: '',
-          description: '',
-          notes: '',
-          hints: '',
-          difficulty: undefined,
-          domainId: ex.domainId,
-          verifiable: false,
-          result: '',
-          prerequisites: ex.prerequisites || [],
-          prerequisiteWeights: ex.prerequisiteWeights || (ex.prerequisites ? Object.fromEntries(ex.prerequisites.map((p: string) => [p, 1.0])) : {}),
-          xPosition: ex.xPosition,
-          yPosition: ex.yPosition,
-          type: 'exercise',
-          id: ex.id,
-        } as any;
-      });
-
-      const newSources: Record<string, SourceNode> = {};
-      (sources as any[]).forEach((src: any) => {
-        if (!src?.code) return;
-        newSources[src.code] = {
-          id: src.id,
-          code: src.code,
-          title: src.title,
-          contentMd: src.contentMd,
-          bibtexKey: src.bibtexKey ?? null,
-          filePath: src.filePath ?? null,
-          xPosition: src.xPosition,
-          yPosition: src.yPosition,
-          domainId: src.domainId,
-          ownerId: src.ownerId,
-          visibility: src.visibility,
-          type: 'source',
-        };
-        if (typeof src.id === 'number') {
-          idToCodeByType.set(`source:${src.id}`, src.code);
-        }
-      });
-
-      const newQuests: Record<string, MetaQuest> = {};
-      (quests as any[]).forEach((q: any) => {
-        if (!q?.code) return;
-        newQuests[q.code] = {
-          id: q.id,
-          code: q.code,
-          name: q.name,
-          kind: q.kind,
-          schedule: q.schedule,
-          xPosition: q.xPosition,
-          yPosition: q.yPosition,
-          domainId: q.domainId,
-          ownerId: q.ownerId,
-          visibility: q.visibility,
-          active: q.active,
-          nextDueAt: q.nextDueAt,
-          versions: q.versions || [],
-          type: 'quest',
-        };
-        if (typeof q.id === 'number') {
-          idToCodeByType.set(`meta_quest:${q.id}`, q.code);
-        }
-      });
-
-      const relationEdges: Array<{ fromCode: string; toCode: string; relationType?: string }> = [];
-      (relations as any[]).forEach((rel: any) => {
-        const fromCode = idToCodeByType.get(`${rel.fromType}:${rel.fromId}`);
-        const toCode = idToCodeByType.get(`${rel.toType}:${rel.toId}`);
-        if (!fromCode || !toCode) return;
-        relationEdges.push({
-          fromCode,
-          toCode,
-          relationType: rel.relationType,
-        });
-      });
-      
-      setCodeToNumericIdMap(newCodeToNumericIdMap);
-      setNodeDataCache(newNodeDataCache);
-      setCurrentStructuralGraphData({
-        definitions: newDefinitions,
-        exercises: newExercises,
-        sources: newSources,
-        quests: newQuests,
-        relations: relationEdges,
-      });
+      setCodeToNumericIdMap(adapted.codeToNumericIdMap);
+      setNodeDataCache(adapted.nodeDataCache);
+      setCurrentStructuralGraphData(adapted.graphData);
       setExternalPrerequisites(Array.isArray(externalLinks) ? externalLinks : []);
       setDomainGroups(Array.isArray(groups) ? groups : []);
 
       // If the domain loads successfully but has no nodes,
       // stop showing the processing spinner so we can render an empty state.
-      const isEmptyDomain = Object.keys(newDefinitions).length === 0 && Object.keys(newExercises).length === 0;
+      const isEmptyDomain = (
+        Object.keys(adapted.graphData.definitions || {}).length === 0 &&
+        Object.keys(adapted.graphData.exercises || {}).length === 0
+      );
       if (isEmptyDomain) {
         setIsProcessingData(false);
       }
@@ -4937,23 +4810,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
 	  const canUseEditTools = canEdit && isFrenzyEditMode;
 	  const toolbarMode = isFrenzyEditMode ? 'edit' : 'normal';
-  const toolInstruction = useMemo(() => {
-    if (!isFrenzyEditMode) return null;
-    if (frenzyTool === 'link') {
-      return pendingLinkSourceId
-        ? `Select a target to link from ${pendingLinkSourceId}.`
-        : 'Select the first node to link.';
-    }
-    if (frenzyTool === 'unlink') {
-      return pendingLinkSourceId
-        ? `Select a target to unlink from ${pendingLinkSourceId}.`
-        : 'Select the first node to unlink.';
-    }
-    if (frenzyTool === 'delete') {
-      return 'Select a node to delete.';
-    }
-    return null;
-  }, [isFrenzyEditMode, frenzyTool, pendingLinkSourceId]);
+  const toolInstruction = useMemo(
+    () => getToolInstruction({ isFrenzyEditMode, frenzyTool, pendingLinkSourceId }),
+    [isFrenzyEditMode, frenzyTool, pendingLinkSourceId],
+  );
   const groupActionContent = useMemo(() => {
     if (toolbarGroupAction === 'create') {
       return (
@@ -4993,208 +4853,61 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const toolbarInstruction = toolbarTransientMessage ?? toolInstruction ?? undefined;
   const toolbarInstructionContent = groupActionContent ?? (toolbarInstruction ? <span>{toolbarInstruction}</span> : undefined);
 
-  const labelDisplayConfig = useMemo(() => {
-    if (labelDisplayMode === 'names') {
-      return { label: 'Names', icon: <Eye size={10} /> };
-    }
-    if (labelDisplayMode === 'codes') {
-      return { label: 'Codes', icon: <Eye size={10} /> };
-    }
-    return { label: 'Off', icon: <EyeOff size={10} /> };
-  }, [labelDisplayMode]);
-
-  const labelBackgroundConfig = useMemo(() => {
-    if (labelBackgroundMode === 'off') {
-      return { label: 'Bg Off', icon: <Layers size={10} /> };
-    }
-    if (labelBackgroundMode === 'behind_links') {
-      return { label: 'Bg Back', icon: <Layers size={10} /> };
-    }
-    return { label: 'Bg Front', icon: <Layers size={10} /> };
-  }, [labelBackgroundMode]);
-
-  const questDisplayConfig = useMemo(() => {
-    if (questVisibilityMode === 'on') {
-      return { label: 'Quests', icon: <RadioTower size={10} /> };
-    }
-    if (questVisibilityMode === 'nodes') {
-      return { label: 'Links Off', icon: <RadioTower size={10} /> };
-    }
-    return { label: 'Off', icon: <RadioTower size={10} /> };
-  }, [questVisibilityMode]);
+  const labelDisplayLabel = useMemo(
+    () => getLabelDisplayLabel(labelDisplayMode),
+    [labelDisplayMode],
+  );
+  const labelBackgroundLabel = useMemo(
+    () => getLabelBackgroundLabel(labelBackgroundMode),
+    [labelBackgroundMode],
+  );
+  const questDisplayLabel = useMemo(
+    () => getQuestDisplayLabel(questVisibilityMode),
+    [questVisibilityMode],
+  );
 
   const infoFilterSet = useMemo(() => new Set(infoFilters), [infoFilters]);
   const showAllInfoFields = infoFilters.length === 0;
 
-  const helpTopics = useMemo(() => ([
-    {
-      id: 'node-types',
-      label: 'Node Types',
-      topics: [
-        { id: 'node.definition', label: 'Definition', content: 'Definitions are concept nodes that capture knowledge units.' },
-        { id: 'node.exercise', label: 'Exercise', content: 'Exercises are practice nodes for applying knowledge.' },
-        { id: 'node.source', label: 'Source', content: 'Sources attach references or materials to the graph.' },
-        { id: 'node.quest', label: 'Quest', content: 'Quests are goal-driven nodes that group related work.' },
-      ],
-    },
-    {
-      id: 'learning',
-      label: 'Learning',
-      topics: [
-        { id: 'learning.study', label: 'Study', content: 'Study mode focuses on reviewing due items.' },
-        { id: 'learning.practice', label: 'Practice', content: 'Practice mode emphasizes exercises and exploration.' },
-      ],
-    },
-    {
-      id: 'graph',
-      label: 'Graph',
-      topics: [
-        { id: 'graph.normal', label: 'Normal mode', content: 'Normal mode is for browsing and selecting nodes.' },
-        {
-          id: 'graph.edit',
-          label: 'Edit mode',
-          content: 'Shortcuts: Click toggles selection. Double-click opens. Double-click empty creates. Drag near to link. Right-click removes.',
-        },
-      ],
-    },
-  ]), []);
+  const selectedHelpContent = useMemo(
+    () => getSelectedHelpContent(GRAPH_HELP_TOPICS, selectedHelpTopic),
+    [selectedHelpTopic],
+  );
 
-  const selectedHelpContent = useMemo(() => {
-    for (const category of helpTopics) {
-      for (const topic of category.topics) {
-        if (topic.id === selectedHelpTopic) {
-          return { title: `${category.label} / ${topic.label}`, content: topic.content };
-        }
-      }
-    }
-    return { title: 'Help', content: 'Select a topic to see details.' };
-  }, [helpTopics, selectedHelpTopic]);
-
-  const infoSectionContent = useMemo(() => {
-    const shouldShow = (filter: 'general' | 'versions' | 'links' | 'groups' | 'status') => (
-      showAllInfoFields || infoFilterSet.has(filter)
-    );
-    const selectedIds = Array.from(selectedNodeIds);
-    const nodeMap = new Map(stableGraph.nodes.map(node => [node.id, node]));
-
-    const filterButton = (
-      label: string,
-      filter: 'general' | 'versions' | 'links' | 'groups' | 'status'
-    ) => (
-      toolboxButton(label, null, {
-        onClick: () => toggleInfoFilter(filter),
-        variant: infoFilterSet.has(filter) ? 'secondary' : 'outline',
-      })
-    );
-
-    const formatList = (items: string[]) => (items.length > 0 ? items.join(', ') : 'None');
-
-    return (
-      <div className="w-48">
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center justify-center gap-0.5">
-            {filterButton('G', 'general')}
-            {filterButton('V', 'versions')}
-            {filterButton('L', 'links')}
-            {filterButton('GR', 'groups')}
-            {filterButton('S', 'status')}
-          </div>
-
-          {selectedIds.length === 0 && (
-            <div className="rounded border border-gray-100 bg-gray-50 px-2 py-1 text-left text-[9px] text-gray-500">
-              No nodes selected.
-            </div>
-          )}
-
-          {selectedIds.length > 0 && (
-            <div className="max-h-36 space-y-1 overflow-auto pr-0.5">
-              {selectedIds.map(nodeId => {
-                const node = nodeMap.get(nodeId);
-                if (!node) return null;
-                const isExpanded = expandedInfoNodes.has(nodeId);
-                const groups = nodeGroupsByCode.get(nodeId) ?? [];
-                const incoming = Array.from(fullAdjacency.incoming.get(nodeId) ?? []);
-                const outgoing = Array.from(fullAdjacency.outgoing.get(nodeId) ?? []);
-                const cached = nodeDataCache.get(nodeId) as { versionCount?: number; versions?: unknown[] } | undefined;
-                const cachedCount = typeof cached?.versionCount === 'number'
-                  ? cached.versionCount
-                  : (Array.isArray(cached?.versions) ? cached.versions.length : undefined);
-                const rawVersionCount = infoVersionCounts.get(nodeId) ?? cachedCount;
-                const versionCount = (node.type === 'definition' || node.type === 'exercise')
-                  ? (typeof rawVersionCount === 'number' && rawVersionCount > 0 ? rawVersionCount : undefined)
-                  : rawVersionCount;
-                const statusValue = node.progress?.status ?? node.status;
-                const versionLabel = (node.type === 'definition' || node.type === 'exercise')
-                  ? (typeof versionCount === 'number' ? versionCount : '...')
-                  : (typeof versionCount === 'number' ? versionCount : 'n/a');
-
-                return (
-                  <div key={nodeId} className="rounded border border-gray-100 bg-white px-1 py-1 text-[9px] text-gray-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleInfoNodeExpanded(nodeId)}
-                      className="flex w-full items-center justify-between gap-1 text-left text-[9px] font-semibold text-gray-700"
-                    >
-                      <span className="truncate">{node.name}</span>
-                      <span className="text-[8px] font-semibold text-gray-400">{isExpanded ? 'v' : '>'}</span>
-                    </button>
-                    <div className="text-[8px] text-gray-400">{node.id}</div>
-                    {isExpanded && (
-                      <div className="mt-1 space-y-0.5">
-                        {shouldShow('general') && (
-                          <div>
-                            <div>Type: {node.type}</div>
-                            <div>Code: {node.id}</div>
-                            <div>Name: {node.name}</div>
-                          </div>
-                        )}
-                        {shouldShow('versions') && (
-                          <div>
-                            Versions: {versionLabel}
-                          </div>
-                        )}
-                        {shouldShow('links') && (
-                          <div>
-                            <div>Parents ({incoming.length}): {formatList(incoming)}</div>
-                            <div>Children ({outgoing.length}): {formatList(outgoing)}</div>
-                          </div>
-                        )}
-                        {shouldShow('groups') && (
-                          <div>
-                            Groups ({groups.length}): {formatList(groups)}
-                          </div>
-                        )}
-                        {shouldShow('status') && (
-                          <div>
-                            Status: {statusValue ?? 'n/a'}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }, [
-    expandedInfoNodes,
-    fullAdjacency.incoming,
-    fullAdjacency.outgoing,
-    infoFilterSet,
-    infoFilters.length,
-    infoVersionCounts,
-    nodeDataCache,
-    nodeGroupsByCode,
-    selectedNodeIds,
-    showAllInfoFields,
-    stableGraph.nodes,
-    toggleInfoFilter,
-    toggleInfoNodeExpanded,
-    toolboxButton,
-  ]);
+  const infoSectionContent = useMemo(
+    () => (
+      <SelectionInfoPanel
+        selectedNodeIds={selectedNodeIds}
+        stableNodes={stableGraph.nodes}
+        expandedInfoNodes={expandedInfoNodes}
+        onToggleNodeExpanded={toggleInfoNodeExpanded}
+        showAllInfoFields={showAllInfoFields}
+        infoFilterSet={infoFilterSet}
+        onToggleInfoFilter={toggleInfoFilter}
+        incomingAdjacency={fullAdjacency.incoming}
+        outgoingAdjacency={fullAdjacency.outgoing}
+        nodeGroupsByCode={nodeGroupsByCode}
+        nodeDataCache={nodeDataCache}
+        infoVersionCounts={infoVersionCounts}
+        toolboxButton={toolboxButton}
+      />
+    ),
+    [
+      selectedNodeIds,
+      stableGraph.nodes,
+      expandedInfoNodes,
+      toggleInfoNodeExpanded,
+      showAllInfoFields,
+      infoFilterSet,
+      toggleInfoFilter,
+      fullAdjacency.incoming,
+      fullAdjacency.outgoing,
+      nodeGroupsByCode,
+      nodeDataCache,
+      infoVersionCounts,
+      toolboxButton,
+    ],
+  );
 
   const hasGroups = groupSummaries.length > 0;
   const selectedGroupSummary = toolbarGroupId
@@ -5387,18 +5100,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
-              toolboxButton(labelDisplayConfig.label, labelDisplayConfig.icon, {
+              toolboxButton(labelDisplayLabel, <Eye size={10} />, {
                 onClick: cycleLabelDisplay,
               }),
             ],
             [
-	              toolboxButton(labelBackgroundConfig.label, labelBackgroundConfig.icon, {
+	              toolboxButton(labelBackgroundLabel, <Layers size={10} />, {
 	                onClick: toggleLabelBackground,
 	                variant: labelBackgroundMode === 'off' ? 'ghost' : labelBackgroundMode === 'behind_links' ? 'outline' : 'secondary',
 	              }),
 	            ],
             [
-              toolboxButton(questDisplayConfig.label, questDisplayConfig.icon, {
+              toolboxButton(questDisplayLabel, <RadioTower size={10} />, {
                 onClick: cycleQuestVisibility,
               }),
             ],
@@ -5577,9 +5290,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     handleCreateGroupPrompt,
     handleDeleteGroupPrompt,
     zoomToFitVisibleNodes,
-    labelDisplayConfig,
-    labelBackgroundConfig,
-    questDisplayConfig,
+    labelDisplayLabel,
+    labelBackgroundLabel,
+    questDisplayLabel,
     cycleLabelDisplay,
     toggleLabelBackground,
     labelBackgroundMode,
@@ -5613,77 +5326,28 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   const handleFrenzyNodeAction = useCallback(async (node: GraphNode) => {
-    if (frenzyTool === 'delete') {
-      await deleteFrenzyNode(node);
-      return;
-    }
-    if (frenzyTool === 'link' || frenzyTool === 'unlink') {
-      if (!pendingLinkSourceId) {
-        setPendingLinkSourceId(node.id);
-        showToast(`Select a target to ${frenzyTool === 'link' ? 'link' : 'unlink'} from ${node.id}.`, 'info', 1500);
-        return;
-      }
-      if (pendingLinkSourceId === node.id) {
-        setPendingLinkSourceId(null);
-        showToast('Pick a different target node.', 'warning');
-        return;
-      }
-      const sourceNode = stableGraph.nodes.find(n => n.id === pendingLinkSourceId);
-      setPendingLinkSourceId(null);
-      if (!sourceNode) {
-        showToast('Source node not found.', 'error');
-        return;
-      }
-      const sourceIsQuest = sourceNode.type === 'quest' || !!currentStructuralGraphData.quests?.[sourceNode.id];
-      const targetIsQuest = node.type === 'quest' || !!currentStructuralGraphData.quests?.[node.id];
-      if (sourceIsQuest || targetIsQuest) {
-        const questNode = sourceIsQuest ? { ...sourceNode, type: 'quest' } as GraphNode : { ...node, type: 'quest' } as GraphNode;
-        const otherNode = sourceIsQuest ? node : sourceNode;
-        if (frenzyTool === 'link') {
-          await createQuestRelevantRelation(questNode, otherNode);
-        } else {
-          await removeQuestRelevantRelation(questNode, otherNode);
-        }
-        return;
-      }
-      const sourceIsSource = sourceNode.type === 'source' || !!currentStructuralGraphData.sources?.[sourceNode.id];
-      const targetIsSource = node.type === 'source' || !!currentStructuralGraphData.sources?.[node.id];
-      if (sourceIsSource || targetIsSource) {
-        const sourceRelNode = sourceIsSource ? { ...sourceNode, type: 'source' } as GraphNode : { ...node, type: 'source' } as GraphNode;
-        const otherNode = sourceIsSource ? node : sourceNode;
-        if (otherNode.type !== 'definition' && otherNode.type !== 'exercise') {
-          showToast('Sources can only be linked to definitions or exercises.', 'warning');
-          return;
-        }
-        if (frenzyTool === 'link') {
-          await createSourceRelevantRelation(sourceRelNode, otherNode);
-        } else {
-          await removeSourceRelevantRelation(sourceRelNode, otherNode);
-        }
-        return;
-      }
-      if (sourceNode.type !== 'definition' && sourceNode.type !== 'exercise') {
-        showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
-        return;
-      }
-      if (node.type !== 'definition' && node.type !== 'exercise') {
-        showToast('Only definitions and exercises can be linked in Frenzy mode.', 'warning');
-        return;
-      }
-      if (frenzyTool === 'link') {
-        await addFrenzyPrerequisite(sourceNode, node);
-      } else {
-        const directKey = `${sourceNode.id}-${node.id}`;
-        const reverseKey = `${node.id}-${sourceNode.id}`;
-        if (frenzyPrerequisiteMap.has(directKey)) {
-          await removeFrenzyPrerequisite(sourceNode.id, node.id);
-        } else if (frenzyPrerequisiteMap.has(reverseKey)) {
-          await removeFrenzyPrerequisite(node.id, sourceNode.id);
-        } else {
-          showToast('Link not found.', 'warning');
-        }
-      }
-    }
+    await executeFrenzyNodeAction({
+      node,
+      frenzyTool,
+      pendingLinkSourceId,
+      stableNodes: stableGraph.nodes,
+      resolver: {
+        isQuest: (candidate) => candidate.type === 'quest' || !!currentStructuralGraphData.quests?.[candidate.id],
+        isSource: (candidate) => candidate.type === 'source' || !!currentStructuralGraphData.sources?.[candidate.id],
+      },
+      prerequisiteMap: frenzyPrerequisiteMap as Map<string, unknown>,
+      setPendingLinkSourceId,
+      showToast,
+      handlers: {
+        addPrerequisite: addFrenzyPrerequisite,
+        removePrerequisite: removeFrenzyPrerequisite,
+        createQuestRelation: createQuestRelevantRelation,
+        removeQuestRelation: removeQuestRelevantRelation,
+        createSourceRelation: createSourceRelevantRelation,
+        removeSourceRelation: removeSourceRelevantRelation,
+        deleteNode: deleteFrenzyNode,
+      },
+    });
   }, [
     frenzyTool,
     pendingLinkSourceId,
@@ -5777,25 +5441,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
 	    const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
 	    if (!sourceId || !targetId) return;
-    const sourceNode = stableGraph.nodes.find(n => n.id === sourceId);
-    const targetNode = stableGraph.nodes.find(n => n.id === targetId);
-    if (sourceNode?.type === 'quest' || targetNode?.type === 'quest') {
-      const questNode = sourceNode?.type === 'quest' ? sourceNode : targetNode;
-      const otherNode = sourceNode?.type === 'quest' ? targetNode : sourceNode;
-      if (questNode && otherNode) {
-        void removeQuestRelevantRelation(questNode, otherNode);
-      }
-      return;
-    }
-    if (sourceNode?.type === 'source' || targetNode?.type === 'source') {
-      const sourceRelNode = sourceNode?.type === 'source' ? sourceNode : targetNode;
-      const otherNode = sourceNode?.type === 'source' ? targetNode : sourceNode;
-      if (sourceRelNode && otherNode && (otherNode.type === 'definition' || otherNode.type === 'exercise')) {
-        void removeSourceRelevantRelation(sourceRelNode, otherNode);
-      }
-      return;
-    }
-	    removeFrenzyPrerequisite(sourceId, targetId);
+    void executeFrenzyLinkClick({
+      sourceId,
+      targetId,
+      stableNodes: stableGraph.nodes,
+      resolver: {
+        isQuest: (candidate) => candidate.type === 'quest' || !!currentStructuralGraphData.quests?.[candidate.id],
+        isSource: (candidate) => candidate.type === 'source' || !!currentStructuralGraphData.sources?.[candidate.id],
+      },
+      handlers: {
+        removePrerequisite: removeFrenzyPrerequisite,
+        removeQuestRelation: removeQuestRelevantRelation,
+        removeSourceRelation: removeSourceRelevantRelation,
+      },
+    });
 	  }, [
 	    isFrenzyEditMode,
 	    frenzyTool,
@@ -5803,6 +5462,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    removeFrenzyPrerequisite,
 	    removeQuestRelevantRelation,
 	    removeSourceRelevantRelation,
+    currentStructuralGraphData.quests,
+    currentStructuralGraphData.sources,
 	  ]);
 
 	  const handleGraphNodeRightClick = useCallback((node: GraphNode, event?: MouseEvent) => {
@@ -5842,25 +5503,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
     const targetId = typeof link.target === 'object' ? (link.target as GraphNode).id : String(link.target);
     if (!sourceId || !targetId) return;
-    const sourceNode = stableGraph.nodes.find(n => n.id === sourceId);
-    const targetNode = stableGraph.nodes.find(n => n.id === targetId);
-    if (sourceNode?.type === 'quest' || targetNode?.type === 'quest') {
-      const questNode = sourceNode?.type === 'quest' ? sourceNode : targetNode;
-      const otherNode = sourceNode?.type === 'quest' ? targetNode : sourceNode;
-      if (questNode && otherNode) {
-        void removeQuestRelevantRelation(questNode, otherNode);
-      }
-      return;
-    }
-    if (sourceNode?.type === 'source' || targetNode?.type === 'source') {
-      const sourceRelNode = sourceNode?.type === 'source' ? sourceNode : targetNode;
-      const otherNode = sourceNode?.type === 'source' ? targetNode : sourceNode;
-      if (sourceRelNode && otherNode && (otherNode.type === 'definition' || otherNode.type === 'exercise')) {
-        void removeSourceRelevantRelation(sourceRelNode, otherNode);
-      }
-      return;
-    }
-	    void removeFrenzyPrerequisite(sourceId, targetId);
+    void executeFrenzyLinkClick({
+      sourceId,
+      targetId,
+      stableNodes: stableGraph.nodes,
+      resolver: {
+        isQuest: (candidate) => candidate.type === 'quest' || !!currentStructuralGraphData.quests?.[candidate.id],
+        isSource: (candidate) => candidate.type === 'source' || !!currentStructuralGraphData.sources?.[candidate.id],
+      },
+      handlers: {
+        removePrerequisite: removeFrenzyPrerequisite,
+        removeQuestRelation: removeQuestRelevantRelation,
+        removeSourceRelation: removeSourceRelevantRelation,
+      },
+    });
 	  }, [
 	    isFrenzyEditMode,
 	    canEdit,
@@ -5868,6 +5524,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    removeFrenzyPrerequisite,
 	    removeQuestRelevantRelation,
 	    removeSourceRelevantRelation,
+    currentStructuralGraphData.quests,
+    currentStructuralGraphData.sources,
 	  ]);
 
 	  const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
@@ -6250,59 +5908,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 )}
 
                 {showHelpPanel && (
-                  <div className="absolute bottom-16 left-32 z-10 w-[520px] rounded-lg border border-gray-200 bg-white shadow-xl">
-                    <div className="flex">
-                      <div className="w-44 border-r border-gray-100 p-3">
-                        <div className="text-[10px] font-semibold uppercase text-gray-500">Categories</div>
-                        <div className="mt-2 space-y-2">
-                          {helpTopics.map(category => {
-                            const isExpanded = expandedHelpCategories.has(category.label);
-                            return (
-                              <div key={category.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setExpandedHelpCategories(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(category.label)) next.delete(category.label);
-                                      else next.add(category.label);
-                                      return next;
-                                    });
-                                  }}
-                                  className="flex w-full items-center justify-between text-[11px] font-semibold text-gray-600"
-                                >
-                                  <span>{category.label}</span>
-                                  <span className="text-[9px] text-gray-400">{isExpanded ? 'v' : '>'}</span>
-                                </button>
-                                {isExpanded && (
-                                  <div className="mt-1 space-y-1">
-                                    {category.topics.map(topic => (
-                                      <button
-                                        key={topic.id}
-                                        type="button"
-                                        onClick={() => setSelectedHelpTopic(topic.id)}
-                                        className={`w-full rounded px-2 py-1 text-left text-[11px] ${
-                                          selectedHelpTopic === topic.id
-                                            ? 'bg-gray-100 text-gray-800'
-                                            : 'text-gray-600 hover:bg-gray-50'
-                                        }`}
-                                      >
-                                        {topic.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="flex-1 p-3">
-                        <div className="text-[11px] font-semibold uppercase text-gray-500">{selectedHelpContent.title}</div>
-                        <div className="mt-2 text-[11px] text-gray-600">{selectedHelpContent.content}</div>
-                      </div>
-                    </div>
-                  </div>
+                  <GraphHelpOverlay
+                    helpTopics={GRAPH_HELP_TOPICS}
+                    expandedHelpCategories={expandedHelpCategories}
+                    selectedHelpTopic={selectedHelpTopic}
+                    selectedHelpContent={selectedHelpContent}
+                    onToggleCategory={(label) => {
+                      setExpandedHelpCategories(prev => {
+                        const next = new Set(prev);
+                        if (next.has(label)) next.delete(label);
+                        else next.add(label);
+                        return next;
+                      });
+                    }}
+                    onSelectTopic={setSelectedHelpTopic}
+                  />
                 )}
               </>
             )}
