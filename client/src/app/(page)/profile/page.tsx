@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/app/components/core/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/app/components/core/card";
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import * as api from '@/lib/api';

@@ -22,11 +22,13 @@ export default function SettingsPage() {
       } catch (err) {
         console.error("Error al obtener usuario:", err);
         router.push("/login");
+      } finally {
+        setLoading(false);
       }
     };
   
     checkAuth();
-  }, []);
+  }, [router]);
 
   if (loading) {
     return <p className="text-center text-gray-500 py-10">Loading profile...</p>;

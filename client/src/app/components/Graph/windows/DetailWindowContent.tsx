@@ -18,7 +18,6 @@ import ProgressDisplay from '../components/ProgressDisplay';
 import { getReviewHistory, getDomainPrerequisites, getStatusColor, formatNextReview, createPrerequisite } from '@/lib/srs-api';
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import {
-  getDefinitionByCode,
   updateDefinition,
   updateExercise,
   getMetaExercise,
@@ -69,11 +68,44 @@ interface DetailWindowContentProps {
   onQuestCreated?: (quest: { id?: number; code: string }, relation: { fromCode: string; toCode: string; relationType: string }) => void;
 }
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+const toLocalDateInputValue = (date: Date) => {
+  const yyyy = date.getFullYear();
+  const mm = pad2(date.getMonth() + 1);
+  const dd = pad2(date.getDate());
+  return `${yyyy}-${mm}-${dd}`;
+};
+const toLocalTimeInputValue = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+const getDefaultReminderDateTime = () => new Date(Date.now() + 60 * 60 * 1000);
+const getDefaultReminderDraft = () => {
+  const date = getDefaultReminderDateTime();
+  return {
+    date: toLocalDateInputValue(date),
+    time: toLocalTimeInputValue(date),
+  };
+};
+const getReminderDraftFromOffsetMinutes = (offsetMinutes: number) => {
+  const date = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  return {
+    date: toLocalDateInputValue(date),
+    time: toLocalTimeInputValue(date),
+  };
+};
+const buildReminderDateTime = (dateValue: string, timeValue: string) => {
+  const fallbackDate = getDefaultReminderDateTime();
+  const fallbackDateValue = toLocalDateInputValue(fallbackDate);
+  const fallbackTimeValue = toLocalTimeInputValue(fallbackDate);
+  const date = dateValue || fallbackDateValue;
+  const time = timeValue || fallbackTimeValue;
+  const combined = new Date(`${date}T${time}`);
+  return Number.isNaN(combined.getTime()) ? fallbackDate : combined;
+};
+
 export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   nodeData: initialNodeData,
   windowId,
   graphData,
-  onNavigateToNode,
+  onNavigateToNode: _onNavigateToNode,
   codeToNumericIdMap = new Map(),
   currentUser,
   domainData,
@@ -90,39 +122,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 }) => {
   const srs = useSRS();
   const ui = useUI();
-
-  const pad2 = (value: number) => String(value).padStart(2, '0');
-  const toLocalDateInputValue = (date: Date) => {
-    const yyyy = date.getFullYear();
-    const mm = pad2(date.getMonth() + 1);
-    const dd = pad2(date.getDate());
-    return `${yyyy}-${mm}-${dd}`;
-  };
-  const toLocalTimeInputValue = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-  const getDefaultReminderDateTime = () => new Date(Date.now() + 60 * 60 * 1000);
-  const getDefaultReminderDraft = () => {
-    const date = getDefaultReminderDateTime();
-    return {
-      date: toLocalDateInputValue(date),
-      time: toLocalTimeInputValue(date),
-    };
-  };
-  const getReminderDraftFromOffsetMinutes = (offsetMinutes: number) => {
-    const date = new Date(Date.now() + offsetMinutes * 60 * 1000);
-    return {
-      date: toLocalDateInputValue(date),
-      time: toLocalTimeInputValue(date),
-    };
-  };
-  const buildReminderDateTime = (dateValue: string, timeValue: string) => {
-    const fallbackDate = getDefaultReminderDateTime();
-    const fallbackDateValue = toLocalDateInputValue(fallbackDate);
-    const fallbackTimeValue = toLocalTimeInputValue(fallbackDate);
-    const date = dateValue || fallbackDateValue;
-    const time = timeValue || fallbackTimeValue;
-    const combined = new Date(`${date}T${time}`);
-    return Number.isNaN(combined.getTime()) ? fallbackDate : combined;
-  };
   
   // Local state for this window
   const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
@@ -288,7 +287,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [graphData, domainData?.id, codeToNumericIdMap]);
+  }, [graphData, codeToNumericIdMap]);
 
   // Initialize with first node
   useEffect(() => {
@@ -300,7 +299,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     setShowReminderForm(false);
     setReminderDraft(getDefaultReminderDraft());
     setReminderTitle(currentNode?.name ? `Review: ${currentNode.name}` : '');
-  }, [currentNode.id]);
+  }, [currentNode.id, currentNode.name]);
 
   // Navigation within window
   const navigateToNode = useCallback(async (nodeId: string) => {
@@ -488,7 +487,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to create reminder.', 'error');
     }
-  }, [numericId, domainData?.id, currentNode.type, currentNode.name, reminderDraft.date, reminderDraft.time, reminderTitle, existingCodes, onQuestCreated]);
+  }, [numericId, domainData?.id, currentNode.id, currentNode.type, currentNode.name, reminderDraft.date, reminderDraft.time, reminderTitle, existingCodes, onQuestCreated]);
 
   // Review history fetching
   const fetchHistory = useCallback(async () => {
@@ -547,7 +546,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   }, []);
 
   // ENHANCED: Surgical edit submission with fallback
-  const handleSubmitEdit = useCallback(async () => {
+  const _handleSubmitEdit = useCallback(async () => {
     if (!nodeDetails) return;
     
     // Check domain permissions (client-side hint; server enforces auth)
@@ -581,7 +580,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         let formDesc = (document.getElementById('description') as HTMLTextAreaElement)?.value || '';
         
         // Handle multiple descriptions
-        if (hasMultipleDescriptions()) {
+        const hasMultipleDefinitionDescriptions =
+          ((metaDetails as MetaDefinition | null)?.versions?.length || 0) > 1
+          || (Array.isArray(defDetails.description) && defDetails.description.length > 1)
+          || String(defDetails.description).includes('|||');
+        if (hasMultipleDefinitionDescriptions) {
           const descriptions = (Array.isArray(defDetails.description) ? 
             [...defDetails.description] : 
             String(defDetails.description).split('|||'));
@@ -644,18 +647,9 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       console.error("Error updating node:", error);
       showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
     }
-  }, [nodeDetails, currentUser, domainData, currentNode, selectedDefinitionIndex, windowId, ui, onUpdateNodeData, onRefresh]);
+  }, [nodeDetails, canEdit, currentNode, selectedDefinitionIndex, windowId, ui, onUpdateNodeData, onRefresh, metaDetails]);
 
   // Helper functions for descriptions
-  const hasMultipleDescriptions = () => {
-    if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
-      return ((metaDetails as MetaDefinition).versions?.length || 0) > 1;
-    }
-    const detail = nodeDetails as Definition;
-    if (!detail || !('description' in detail)) return false;
-    return (Array.isArray(detail.description) && detail.description.length > 1) ||
-      String(detail.description).includes('|||');
-  };
 
   const totalDescriptionsCount = () => {
     if (currentNode.type === 'definition' && (metaDetails as MetaDefinition | null)?.versions) {
@@ -734,7 +728,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         type: 'definition'
       } as Definition);
     }
-  }, [selectedDefinitionIndex, metaDetails, currentNode.type]);
+  }, [selectedDefinitionIndex, metaDetails, currentNode.type, currentVersion]);
 
   // Keep currentVersion and nodeDetails in sync with selected exercise version
   useEffect(() => {
@@ -753,7 +747,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       setShowHints(false);
       setExerciseAttemptCompleted(false);
     }
-  }, [selectedVersionIndex, metaDetails, currentNode.type]);
+  }, [selectedVersionIndex, metaDetails, currentNode.type, currentVersion]);
 
   const availableDefinitions = useMemo(() => {
     if (!graphData?.definitions) return [];
@@ -1006,6 +1000,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   }, [
     isDetaching,
     currentNode.type,
+    currentNode.id,
     versionCount,
     canEdit,
     domainData?.id,
@@ -1209,7 +1204,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             <Eye size={48} className="mx-auto text-gray-400 mb-4" />
             <p className="text-gray-600 mb-2">This node is currently being reviewed</p>
             <p className="text-sm text-gray-500">
-              Click "Show Answer" in the review window to reveal the content
+              Click &quot;Show Answer&quot; in the review window to reveal the content
             </p>
           </div>
         ) : isEditMode ? (

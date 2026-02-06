@@ -105,7 +105,6 @@ import {
   GraphLink,
   Definition,
   Exercise,
-  NodeRelation,
   AppMode,
   FilteredNodeType,
   KnowledgeGraphProps,
@@ -205,7 +204,7 @@ const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
 const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   graphData: initialGraphData,
   subjectMatterId,
-  onBack,
+  onBack: _onBack,
   onPositionUpdate
 }) => {
   const ui = useUI();
@@ -529,6 +528,24 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [isSavingFrenzyQuestNote, setIsSavingFrenzyQuestNote] = useState(false);
   const [frenzyQuestAutoSaveStatus, setFrenzyQuestAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const frenzyQuestLastAutoSavedRef = useRef<string>('');
+  const frenzyQuestDraftStateRef = useRef({
+    code: '',
+    name: '',
+    kind: 'todo' as 'todo' | 'habit' | 'daily',
+    visibility: 'private' as 'private' | 'domain',
+    active: true,
+    timezone: '',
+    date: '',
+    time: '',
+    repeatEnabled: false,
+    preset: 'daily' as RepeatPreset,
+    customEvery: 1,
+    customPeriod: 'days' as CustomRepeatPeriod,
+    customWeekdays: ['MO'],
+    durationMode: 'forever' as DurationMode,
+    durationCount: 10,
+    untilDate: '',
+  });
   const saveFrenzyQuestNoteRef = useRef<(force?: boolean) => void | Promise<void>>(async () => {});
   const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
   const [lastDeletedNode, setLastDeletedNode] = useState<FrenzyDeletedNodeSnapshot | null>(null);
@@ -567,14 +584,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     [currentStructuralGraphData],
   );
 
-  const definitionCodes = useMemo(() => (
-    new Set(Object.keys(currentStructuralGraphData.definitions || {}))
-  ), [currentStructuralGraphData.definitions]);
-
-  const exerciseCodes = useMemo(() => (
-    new Set(Object.keys(currentStructuralGraphData.exercises || {}))
-  ), [currentStructuralGraphData.exercises]);
-
   const groupMembersById = useMemo(
     () => buildGroupMembersById(domainGroups, localAdjacency),
     [domainGroups, localAdjacency],
@@ -587,7 +596,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const collapsedGroupIds = useMemo(
     () => buildCollapsedGroupIds(domainGroups),
-    [domainGroups, updateGroupState],
+    [domainGroups],
   );
 
   const groupNodeMetadata = useMemo(
@@ -694,9 +703,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, []);
 
   const dagMode = dagModeEnabled && expandedCycleIds.size === 0 ? dagOrientation : null;
-  const collapseAllCycles = useCallback(() => {
-    setExpandedCycleIds(new Set());
-  }, []);
 
   const graphHighlightedNodes = useMemo(
     () => buildGraphHighlightedNodes(activeNodeIds, highlightNodes, pendingLinkSourceId),
@@ -1102,7 +1108,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setCurrentStructuralGraphData({ definitions: {}, exercises: {}, sources: {}, quests: {}, relations: [] });
       setExternalPrerequisites([]);
     }
-  }, []);
+  }, [refreshSurveyStats]);
 
   // NEW SURGICAL UPDATE FUNCTIONS
   const surgicallyUpdateDefinition = useCallback((nodeCode: string, updatedData: ApiDefinition) => {
@@ -1257,13 +1263,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     // Get node's screen coordinates
     let anchorX = rect.width / 2;
-    let anchorY = rect.height / 2;
 
     if (node && typeof node.x === 'number' && typeof node.y === 'number' && typeof graphRef.current?.graph2ScreenCoords === 'function') {
       const screen = graphRef.current.graph2ScreenCoords(node.x, node.y);
       if (screen && Number.isFinite(screen.x) && Number.isFinite(screen.y)) {
         anchorX = screen.x;
-        anchorY = screen.y;
       }
     }
 
@@ -1294,7 +1298,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Handle node click
   const handleNodeClick = useCallback(async (
     nodeOnClick: GraphNode,
-	    isRefresh: boolean = false,
+	    _isRefresh: boolean = false,
 	    context: 'click' | 'study' | 'navigation' = 'click',
 	    event?: MouseEvent
 	  ) => {
@@ -1696,11 +1700,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [
     mode,
     stableGraph.nodes,
-    stableGraph.structureVersion,
-    graphMetadata.version,
     filteredNodeType,
     searchQuery,
-    srs.state.lastUpdated,
     questVisibilityMode,
   ]);
 
@@ -2805,18 +2806,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       console.error('Failed to load frenzy note:', error);
       showToast('Failed to load node content.', 'error');
     }
-  }, [
+	  }, [
     canEdit,
     codeToNumericIdMap,
     getDefaultFrenzyContent,
     getDefaultFrenzyPrompt,
     getFrenzyNotePlacement,
-	    getDetailWindowPlacement,
 	    currentStructuralGraphData.sources,
 	    currentStructuralGraphData.quests,
 	    currentUser,
 	    frenzyQuestNote,
-	    ui,
 	  ]);
 
   useEffect(() => {
@@ -3037,7 +3036,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const newVersionIndex = 0;
       const newVersion = versions[newVersionIndex];
 
-      const resolvedName = frenzyNote.nodeName;
       const content = isDefinition
         ? ((newVersion as DefinitionVersion).description || '')
         : ((newVersion as ExerciseVersion).statement || '');
@@ -3274,7 +3272,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       console.error('Failed to create frenzy node:', error);
       showToast('Failed to create node.', 'error');
     }
-  }, [
+	  }, [
     canEdit,
     subjectMatterId,
     getNextDotCode,
@@ -3290,8 +3288,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     addFrenzyPrerequisite,
     isFrenzyEditMode,
     openFrenzyNote,
-    ui,
-    getDetailWindowPlacement,
     domainSettings,
   ]);
 
@@ -3420,7 +3416,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         const newVersion = versions[newVersionIndex];
 
         // Update frenzyNote with the new versions array and switch to it
-        const resolvedName = frenzyNote.nodeName;
         const content = isDefinition
           ? ((newVersion as DefinitionVersion).description || '')
           : ((newVersion as ExerciseVersion).statement || '');
@@ -3681,12 +3676,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     isFrenzyEditMode,
     loadFrenzyPrerequisites,
     refreshGraphAndSRSData,
-    updateMetaDefinition,
-    updateMetaDefinitionVersion,
-    updateMetaExercise,
-    updateMetaExerciseVersion,
-    updateSource,
-	    switchFrenzyNoteVersion,
 	    existingCodes,
 	  ]);
 
@@ -3815,10 +3804,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [saveFrenzyQuestNote]);
 
   useEffect(() => {
-    if (!frenzyQuestNote) return;
-    // Establish a baseline so we don't auto-save immediately on open.
-    const baseline = JSON.stringify({
-      id: frenzyQuestNote.questId,
+    const baselineDraftState = {
       code: frenzyQuestCodeDraft.trim(),
       name: frenzyQuestNameDraft.trim(),
       kind: frenzyQuestKindDraft,
@@ -3835,13 +3821,56 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       durationMode: frenzyQuestDurationModeDraft,
       durationCount: frenzyQuestDurationCountDraft,
       untilDate: frenzyQuestUntilDateDraft,
+    };
+    frenzyQuestDraftStateRef.current = baselineDraftState;
+  }, [
+    frenzyQuestCodeDraft,
+    frenzyQuestNameDraft,
+    frenzyQuestKindDraft,
+    frenzyQuestVisibilityDraft,
+    frenzyQuestActiveDraft,
+    frenzyQuestTimezoneDraft,
+    frenzyQuestDueDateDraft,
+    frenzyQuestDueTimeDraft,
+    frenzyQuestRepeatEnabledDraft,
+    frenzyQuestRepeatPresetDraft,
+    frenzyQuestCustomRepeatEveryDraft,
+    frenzyQuestCustomRepeatPeriodDraft,
+    frenzyQuestCustomRepeatWeekdaysDraft,
+    frenzyQuestDurationModeDraft,
+    frenzyQuestDurationCountDraft,
+    frenzyQuestUntilDateDraft,
+  ]);
+
+  useEffect(() => {
+    if (!frenzyQuestNote) return;
+    const draftState = frenzyQuestDraftStateRef.current;
+    // Establish a baseline so we don't auto-save immediately on open.
+    const baseline = JSON.stringify({
+      id: frenzyQuestNote.questId,
+      code: draftState.code,
+      name: draftState.name,
+      kind: draftState.kind,
+      visibility: draftState.visibility,
+      active: draftState.active,
+      timezone: draftState.timezone,
+      date: draftState.date,
+      time: draftState.time,
+      repeatEnabled: draftState.repeatEnabled,
+      preset: draftState.preset,
+      customEvery: draftState.customEvery,
+      customPeriod: draftState.customPeriod,
+      customWeekdays: draftState.customWeekdays,
+      durationMode: draftState.durationMode,
+      durationCount: draftState.durationCount,
+      untilDate: draftState.untilDate,
     });
     frenzyQuestLastAutoSavedRef.current = baseline;
     setFrenzyQuestAutoSaveStatus('idle');
     return () => {
       void saveFrenzyQuestNoteRef.current();
     };
-  }, [frenzyQuestNote?.questId]);
+  }, [frenzyQuestNote]);
 
   useEffect(() => {
     if (!frenzyQuestNote) return;
@@ -3984,8 +4013,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     frenzyNoteContentImagePath,
     frenzyNoteSolutionImagePath,
     subjectMatterId,
-    updateMetaDefinitionVersion,
-    updateMetaExerciseVersion,
   ]);
 
   const handleFrenzyPaste = useCallback((event: React.ClipboardEvent, target: 'prompt' | 'content' | 'solution') => {
@@ -4537,7 +4564,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setIsSavingPositions(false);
     }
-  }, [onPositionUpdate, positionsChanged, codeToNumericIdMap, currentStructuralGraphData]);
+  }, [onPositionUpdate, positionsChanged, codeToNumericIdMap, currentStructuralGraphData, subjectMatterId]);
 
   const currentDomainId = domainData?.id;
   const currentDomainName = domainName;
@@ -4917,7 +4944,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const canEditGroupSelection = canModifyGroup && selectableGroupCodes.length > 0;
   const canSelectGroupMembers = canModifyGroup && (groupMembersById.get(toolbarGroupId ?? -1)?.size ?? 0) > 0;
   const groupSelectValue = toolbarGroupId ? String(toolbarGroupId) : '';
-  const groupSelectControl = (
+  const groupSelectControl = useMemo(() => (
     <select
       value={groupSelectValue}
       onChange={(event) => handleToolbarGroupSelect(event.target.value)}
@@ -4933,7 +4960,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         </option>
       ))}
     </select>
-  );
+  ), [groupSelectValue, handleToolbarGroupSelect, hasGroups, groupSummaries]);
 
   const toolboxLayouts: ToolbarLayout[] = useMemo(() => ([
     {
@@ -5323,6 +5350,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     selectedNodeIds.size,
     selectionTool,
     toggleSelectionTool,
+    canEditGroupSelection,
+    toggleGroupCollapse,
   ]);
 
   const handleFrenzyNodeAction = useCallback(async (node: GraphNode) => {

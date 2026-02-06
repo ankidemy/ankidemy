@@ -9,7 +9,6 @@ import {
   StudySession,
   DomainStats,
   DueReview,
-  OptimalReviewItem, // This import seems unused, but kept from original
   CreditFlowAnimation,
   ReviewRequest,
   NodeStatus,

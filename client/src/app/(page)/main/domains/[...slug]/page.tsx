@@ -7,13 +7,12 @@ import Link from 'next/link';
 import DomainForm from '@/app/components/Domain/DomainForm';
 import { Button } from "@/app/components/core/button";
 import { ArrowLeft } from 'lucide-react';
-import { getCurrentUser, User, Domain } from '@/lib/api';
+import { getCurrentUser, Domain } from '@/lib/api';
 
 export default function DomainPage() {
   const router = useRouter();
   const params = useParams();
   
-  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -26,8 +25,7 @@ export default function DomainPage() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const userData = await getCurrentUser();
-        setUser(userData);
+        await getCurrentUser();
       } catch (err: any) {
         console.error("Authentication error:", err);
         setError("You must be logged in to manage domains");

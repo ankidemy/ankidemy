@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Minus, Maximize2 } from 'lucide-react';
+import { X, Minus } from 'lucide-react';
 import { Button } from './button';
 import { InlineMarkdownKatex } from './MarkdownKatex';
 import { cn } from '@/lib/utils';
@@ -110,7 +110,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
     e.preventDefault();
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
+  const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging) {
       const next = clampPosition(
         e.clientX - dragStartPos.current.x,
@@ -154,13 +154,13 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       setSize({ width: newWidth, height: newHeight });
       setPosition(next);
     }
-  };
+  }, [clampPosition, isDragging, isResizing, maxHeight, maxWidth, minHeight, minWidth, resizeDirection, size.height, size.width]);
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setIsResizing(false);
     setResizeDirection('');
-  };
+  }, []);
 
   const startResize = (direction: string) => (e: React.MouseEvent) => {
     setIsResizing(true);
@@ -189,7 +189,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging, isResizing, position, size, resizeDirection, minWidth, minHeight, maxWidth, maxHeight]);
+  }, [isDragging, isResizing, position, size, resizeDirection, minWidth, minHeight, maxWidth, maxHeight, handleMouseMove, handleMouseUp]);
 
   // ESC key handler
   useEffect(() => {

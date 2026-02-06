@@ -13,8 +13,7 @@ import {
   getMyArchivedDomains,
   restoreDomain,
   purgeDomain,
-  getCurrentUser,
-  User
+  getCurrentUser
 } from '@/lib/api';
 
 export default function ArchivedDomainsPage() {
@@ -22,13 +21,11 @@ export default function ArchivedDomainsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string|null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const u = await getCurrentUser();
-        setCurrentUser(u);
+        await getCurrentUser();
       } catch {
         // If not logged in, redirect to login
         router.push('/login');

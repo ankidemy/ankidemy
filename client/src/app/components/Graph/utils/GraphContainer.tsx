@@ -174,7 +174,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const memoizedGraphData = useMemo(() => {
     console.log(`GraphContainer: Creating graph data with ${graphNodes.length} nodes, ${graphLinks.length} links`);
     return { nodes: graphNodes, links: graphLinks };
-  }, [graphNodes, graphLinks, structureVersion]);
+  }, [graphNodes, graphLinks]);
 
   // Derive node positions map without effects (consumed by overlay on animation creation)
   const computedNodePositions = useMemo(() => {
@@ -193,7 +193,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const map = new Map<string, GraphNode>();
     graphNodes.forEach(node => map.set(node.id, node));
     return map;
-  }, [graphNodes, structureVersion]);
+  }, [graphNodes]);
 
   const getNodeBaseSize = useCallback((type?: string) => {
     switch (type) {
@@ -248,14 +248,15 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       console.log('GraphContainer: Suppressing physics reset — all nodes have positions.');
     }
     return shouldReset;
-  }, [requiresPhysicsReset, graphNodes.length, graphNodes]);
+  }, [requiresPhysicsReset, graphNodes]);
 
   useEffect(() => {
+    const labelRenderer = labelRendererRef.current;
     return () => {
       if (rafRefreshRef.current != null) {
         cancelAnimationFrame(rafRefreshRef.current);
       }
-      labelRendererRef.current.clearCache();
+      labelRenderer.clearCache();
     };
   }, []);
 

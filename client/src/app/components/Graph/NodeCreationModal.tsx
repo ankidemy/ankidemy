@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import {
-  createDefinition,
   createMetaDefinition,
   createMetaExercise,
   addMetaDefinitionVersion,
@@ -11,10 +10,8 @@ import {
   getMetaDefinition,
   getMetaExercise,
   uploadNodeImage,
-  DefinitionRequest, // These types from lib/api expect prerequisiteIds: number[]
   Definition as ApiDefinition,
-  Exercise as ApiExercise,
-  MetaDefinition
+  Exercise as ApiExercise
 } from '@/lib/api';
 import { X } from 'lucide-react';
 import ImageUploadField from './components/ImageUploadField';
@@ -260,7 +257,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         let enriched = response as any;
         try {
           enriched = await getMetaDefinition((response as any).id);
-        } catch (e) {
+        } catch {
           console.warn('Could not fetch fresh meta-definition; using original response.');
         }
         onSuccess(enriched.code, enriched as any);
@@ -324,7 +321,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
         let enriched = response as any;
         try {
           enriched = await getMetaExercise((response as any).id);
-        } catch (e) {
+        } catch {
           // fallback to original response if fetch fails
           console.warn('Could not fetch fresh meta after creating prerequisites; using original response.');
         }

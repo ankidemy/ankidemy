@@ -91,6 +91,11 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
   }, [buildSubjectMattersKey, subjectMattersProp]);
 
   // Load links for current subjects
+  const subjectMatterIdsKey = useMemo(
+    () => subjectMatters.map(s => s.id).join(','),
+    [subjectMatters]
+  );
+
   useEffect(() => {
     const fetchLinks = async () => {
       try {
@@ -103,7 +108,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
       }
     };
     fetchLinks();
-  }, [subjectMatters.map(s => s.id).join(',')]);
+  }, [subjectMatters, subjectMatterIdsKey]);
 
   // Derived graph data
   const graphData = useMemo(() => {
@@ -212,10 +217,11 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
 
   // Cleanup on unmount to avoid d3 processing stale links/nodes
   useEffect(() => {
+    const fg = graphRef.current;
     return () => {
       try {
-        if (graphRef.current && typeof graphRef.current.graphData === 'function') {
-          graphRef.current.graphData({ nodes: [], links: [] });
+        if (fg && typeof fg.graphData === 'function') {
+          fg.graphData({ nodes: [], links: [] });
         }
       } catch {}
     };
@@ -313,7 +319,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
           <div className="text-center">
             <div className="text-4xl text-gray-300 mb-4">📚</div>
             <h3 className="text-lg font-medium text-gray-600 mb-2">No Domains Yet</h3>
-            <p className="text-gray-500 mb-4">You haven't enrolled in any domains yet. Create your first domain or explore public ones to get started!</p>
+            <p className="text-gray-500 mb-4">You haven&apos;t enrolled in any domains yet. Create your first domain or explore public ones to get started!</p>
             {onCreateSubjectMatter && (
               <Button onClick={onCreateSubjectMatter}>
                 <Plus className="w-4 h-4 mr-2" />

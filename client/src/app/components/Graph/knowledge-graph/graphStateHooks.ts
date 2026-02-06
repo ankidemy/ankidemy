@@ -411,10 +411,7 @@ export const useGraphMetadata = (
       exercises,
       sources,
       quests,
-      srs.state.domainProgress,
-      srs.state.lastUpdated,
-      srs.state.dueReviews,
-      srs.getNodeProgress,
+      srs,
       codeToNumericIdMap,
       groupNodeMetadata,
       externalNodeLookup,
@@ -546,5 +543,5 @@ export const useStableGraph = (
       requiresPhysicsReset: requiresReset,
       structureVersion: structureNonceRef.current,
     };
-  }, [structure.version, metadata.version, positionManager]);
+  }, [metadata.nodeMetadata, positionManager, structure.links, structure.nodes, structure.version]);
 };

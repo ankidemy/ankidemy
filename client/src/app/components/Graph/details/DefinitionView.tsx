@@ -38,14 +38,14 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   showDefinition,
   onToggleDefinition,
   selectedDefinitionIndex,
-  totalDescriptions,
+  totalDescriptions: _totalDescriptions,
   currentDescription,
   currentPrompt,
   currentNotes,
   promptImagePath,
   descriptionImagePath,
-  onNavigatePrev,
-  onNavigateNext,
+  onNavigatePrev: _onNavigatePrev,
+  onNavigateNext: _onNavigateNext,
   relatedExercises,
   onNavigateToNode,
   onReview,
@@ -53,7 +53,6 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
   availableExercises = [],
   srsStatus,
 }) => {
-  const hasMultipleDescriptions = totalDescriptions > 1;
   const [showNotes, setShowNotes] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
   const [showRating, setShowRating] = useState(false);

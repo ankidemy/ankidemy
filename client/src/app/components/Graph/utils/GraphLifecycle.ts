@@ -85,7 +85,7 @@ export class GraphLifecycle {
       const existing = this.timers.get('creditClear');
       if (existing) clearTimeout(existing);
       const t = setTimeout(() => {
-        try { this.deps.srs.clearError && this.deps.srs.clearError(); } catch {}
+        try { this.deps.srs.clearError?.(); } catch {}
         this.timers.delete('creditClear');
       }, 5000);
       this.timers.set('creditClear', t);

@@ -50,7 +50,6 @@ export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ children,
       if (typeof msg === 'string' && msg.includes('Typesetting failed')) {
         e.preventDefault?.();
         // Still log for diagnostics without crashing overlay
-        // eslint-disable-next-line no-console
         console.warn('[MathJax] Suppressed async typeset error:', e.reason);
       }
     };
@@ -108,7 +107,6 @@ export const MathText: React.FC<MathTextProps> = ({ text, inline = false, classN
         const mj2 = (window as any)?.MathJax;
         if (mj2 && typeof mj2.typesetPromise === 'function' && ref.current) {
           mj2.typesetPromise([ref.current]).catch((err: any) => {
-            // eslint-disable-next-line no-console
             console.warn('[MathJax] Typeset error (raf retry):', err);
             setErrored(true);
           });
@@ -120,7 +118,6 @@ export const MathText: React.FC<MathTextProps> = ({ text, inline = false, classN
     let cancelled = false;
     mj.typesetPromise([el]).catch((err: any) => {
       if (!cancelled) {
-        // eslint-disable-next-line no-console
         console.warn('[MathJax] Typeset error:', err);
         setErrored(true);
       }

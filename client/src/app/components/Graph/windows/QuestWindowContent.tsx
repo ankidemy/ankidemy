@@ -271,11 +271,14 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   }, [ui.state.windows, windowId]);
 
   const nextWindowTitle = useMemo(() => {
+    const questPrimaryTitle = quest?.versions?.[0]?.title?.trim();
+    const questDataPrimaryTitle = questData?.versions?.[0]?.title?.trim();
+
     return (
       quest?.name?.trim()
-      || quest?.versions?.[0]?.title?.trim()
+      || questPrimaryTitle
       || questData?.name?.trim()
-      || questData?.versions?.[0]?.title?.trim()
+      || questDataPrimaryTitle
       || quest?.code
       || questData?.code
       || 'Quest'
@@ -283,10 +286,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   }, [
     quest?.name,
     quest?.code,
-    quest?.versions?.[0]?.title,
+    quest?.versions,
     questData?.name,
     questData?.code,
-    questData?.versions?.[0]?.title,
+    questData?.versions,
   ]);
 
   useEffect(() => {

@@ -8,16 +8,27 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 });
 
-// Create a flat config that includes both configurations
 const eslintConfig = [
-  // Include configurations from the original eslint.config.mjs
   ...compat.extends("next/core-web-vitals", "next/typescript"),
-  
-  // Add rules from .eslintrc.json
   {
+    linterOptions: {
+      reportUnusedDisableDirectives: true,
+    },
     rules: {
-      "@typescript-eslint/no-unused-vars": "warn",
-      "@next/next/no-img-element": "warn"
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+      "@typescript-eslint/no-empty-object-type": "error",
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-expressions": "error",
+      "react-hooks/exhaustive-deps": "error",
+      "react/no-unescaped-entities": "error",
+      "@next/next/no-img-element": "error",
     }
   }
 ];

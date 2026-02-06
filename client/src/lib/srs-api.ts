@@ -10,7 +10,6 @@ import {
   DomainStats,
   DueReview,
   ReviewHistoryItem,
-  OptimalReviewItem,
   CreditUpdate,
   SessionType,
   NodeStatus,
@@ -58,7 +57,7 @@ const handleSRSResponse = async (response: Response) => {
         throw new Error('Credit limit reached. The review was processed but some credit adjustments were capped at maximum values.');
       }
       
-    } catch (parseError) {
+    } catch {
       // If we can't parse the error, check if it's a credit constraint error by status and URL
       if (response.status === 500 && response.url?.includes('/reviews')) {
         console.warn('Possible credit constraint error (unparseable response)');

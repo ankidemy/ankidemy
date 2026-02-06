@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
 import { Tabs, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import { InlineMarkdownKatex, MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import ZoomableImage from '../components/ZoomableImage';
@@ -164,7 +163,11 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   // FIX 1: Listen for data changes and refresh current item if needed
   useEffect(() => {
     if (isFrenzyMode) return;
-    if (!currentReviewItem || currentItemIdRef.current !== getQueueItemKey(currentReviewItem)) return;
+    if (!currentReviewItem) return;
+    const currentReviewItemKey = currentReviewItem.exerciseMetaId
+      ? `${currentReviewItem.nodeType}_${currentReviewItem.nodeId}_ex_${currentReviewItem.exerciseMetaId}`
+      : `${currentReviewItem.nodeType}_${currentReviewItem.nodeId}`;
+    if (currentItemIdRef.current !== currentReviewItemKey) return;
     if (!itemDetails?.id) return;
 
     const refreshCurrentItem = async () => {
@@ -208,16 +211,16 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         srs.endStudySession().catch(console.error);
       }
     };
-  }, []);
+  }, [srs, ui]);
 
-  const getNodeKey = (nodeType: string, nodeId: number) => `${nodeType}_${nodeId}`;
+  const getNodeKey = useCallback((nodeType: string, nodeId: number) => `${nodeType}_${nodeId}`, []);
 
-  const getQueueItemKey = (item: ReviewQueueItem) => {
+  const getQueueItemKey = useCallback((item: ReviewQueueItem) => {
     if (item.exerciseMetaId) {
       return `${getNodeKey(item.nodeType, item.nodeId)}_ex_${item.exerciseMetaId}`;
     }
     return getNodeKey(item.nodeType, item.nodeId);
-  };
+  }, [getNodeKey]);
 
   const parseNodeKey = (key: string): { id: number; type: string } | null => {
     const splitIndex = key.lastIndexOf('_');
@@ -248,7 +251,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       if (graph.has(baseKey)) return baseKey;
     }
     return direct;
-  }, []);
+  }, [getNodeKey]);
 
   const buildFrenzyGraph = useCallback(() => {
     const graph = new Map<string, FrenzyGraphNode>();
@@ -288,7 +291,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     frenzyGraphRef.current = graph;
     return graph;
-  }, [srs.state.prerequisites]);
+  }, [srs.state.prerequisites, getNodeKey]);
 
   const shuffleQueue = (items: ReviewQueueItem[]) => {
     const next = [...items];
@@ -311,7 +314,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       byNode.get(key)!.push(item);
     });
     return { byNode, order };
-  }, []);
+  }, [getNodeKey]);
 
   const getDependentCount = useCallback((item: ReviewQueueItem, poolKeys: Set<string>, graph: Map<string, FrenzyGraphNode>) => {
     const startKey = resolveGraphKey(item.nodeType, item.nodeId, graph);
@@ -347,7 +350,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     }
 
     return count;
-  }, [resolveGraphKey]);
+  }, [resolveGraphKey, getNodeKey]);
 
   const orderQueueByDependents = useCallback((items: ReviewQueueItem[]) => {
     if (items.length === 0) return items;
@@ -563,7 +566,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     });
 
     return credits;
-  }, [resolveGraphKey]);
+  }, [resolveGraphKey, getNodeKey]);
 
   const applyFrenzyCreditsToQueue = useCallback((queue: ReviewQueueItem[], credits: Array<{ key: string; credit: number }>) => {
     const poolKeys = frenzyPoolRef.current;
@@ -596,7 +599,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     });
 
     return nextQueue.filter(item => queueItemKeys.has(getQueueItemKey(item)));
-  }, []);
+  }, [getQueueItemKey]);
 
   // Load a review item
   const loadReviewItem = useCallback(async (review: ReviewQueueItem | undefined) => {
@@ -689,14 +692,12 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   }, [
     autoNavigateToNodes,
     onNavigateToNode,
-    reviewQueue,
     srs,
     ui,
     isFrenzyMode,
+    getQueueItemKey,
     getFrenzyDefinitionVersion,
     getFrenzyExerciseVersion,
-    getNextMetaDefinitionVersion,
-    getNextMetaExerciseVersion,
   ]);
 
   const fetchReviewQueue = useCallback(async (mode: 'normal' | 'frenzy') => {
@@ -758,7 +759,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     } else {
       showToast("No items available for this session type.", "info");
     }
-  }, [buildFrenzyQueue, fetchReviewQueue, loadReviewItem, resetFrenzyState, srs, ui]);
+  }, [buildFrenzyQueue, fetchReviewQueue, getNodeKey, getQueueItemKey, loadReviewItem, resetFrenzyState, srs, ui]);
 
   // Handle session start
   const handleStartSession = useCallback(async () => {
@@ -808,7 +809,6 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   }, [
     domainId,
     sessionType,
-    exercisesPerDefinition,
     srs,
     ui,
     windowId,

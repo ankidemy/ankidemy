@@ -15,7 +15,7 @@ export default function Dashboard() {
       try {
         const userData = await getCurrentUser();
         setCurrentUser(userData);
-      } catch (error) {
+      } catch {
         // It's okay if this fails on a public-facing page
         console.log("Not logged in, showing public dashboard.");
       }

@@ -80,7 +80,7 @@ export default function ImprovedRegisterPage() {
           router.push("/dashboard");
           return;
         }
-      } catch (error) {
+      } catch {
         console.log("No existing authentication found");
         // User is not authenticated, continue with register page
       } finally {

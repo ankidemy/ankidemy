@@ -4,12 +4,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/app/components/core/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import ZoomableImage from './components/ZoomableImage';
 import { useSRS } from '@/contexts/SRSContext';
-import { DueReview, ReviewQuality, ReviewRequest, SessionType, StudySession } from '@/types/srs';
-import { ArrowLeft, ArrowRight, CheckCircle, Eye, Loader2, XCircle, Target, MapPin } from 'lucide-react';
+import { DueReview, ReviewQuality, ReviewRequest, SessionType } from '@/types/srs';
+import { CheckCircle, Eye, Loader2, XCircle, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
 import { getDefinition, getExercise } from '@/lib/api';
 
@@ -38,6 +38,16 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
   
   const [autoNavigateToNodes, setAutoNavigateToNodes] = useState(true);
 
+  const resetSession = useCallback(() => {
+    setCurrentReviewItem(null);
+    setReviewQueue([]);
+    setShowAnswer(false);
+    setItemDetails(null);
+    setSessionStats({ total: 0, completed: 0, correct: 0 });
+    setStartTime(null);
+    if (srs.state.currentSession) srs.endStudySession();
+  }, [srs]);
+
   useEffect(() => {
     if (isOpen && domainId) {
       srs.setCurrentDomain(domainId);
@@ -48,17 +58,7 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
       }
       resetSession();
     }
-  }, [isOpen, domainId]);
-
-  const resetSession = () => {
-    setCurrentReviewItem(null);
-    setReviewQueue([]);
-    setShowAnswer(false);
-    setItemDetails(null);
-    setSessionStats({ total: 0, completed: 0, correct: 0 });
-    setStartTime(null);
-    if (srs.state.currentSession) srs.endStudySession();
-  };
+  }, [isOpen, domainId, resetSession, srs]);
 
   const handleStartSession = async () => {
     if (!domainId) {
@@ -68,25 +68,6 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
     await srs.startStudySession(sessionType);
     setStartTime(Date.now());
   };
-
-  useEffect(() => {
-    if (srs.state.currentSession && srs.state.dueReviews.length > 0 && !currentReviewItem) {
-      const filteredReviews = srs.state.dueReviews.filter(review => {
-        if (sessionType === 'mixed') return true;
-        return review.nodeType === sessionType;
-      });
-      setReviewQueue(filteredReviews);
-      setSessionStats(prev => ({ ...prev, total: filteredReviews.length, completed: 0, correct: 0 }));
-      if (filteredReviews.length > 0) {
-        loadReviewItem(filteredReviews[0]);
-      } else {
-        setTimeout(() => {
-          showToast("No items due for this session type.", "info");
-          srs.endStudySession();
-        }, 0);
-      }
-    }
-  }, [srs.state.currentSession, srs.state.dueReviews, sessionType, currentReviewItem]);
 
   // FIX 1: React setState During Render Error
   const loadReviewItem = useCallback(async (review: DueReview | undefined) => {
@@ -127,7 +108,26 @@ const StudyModeModal: React.FC<StudyModeModalProps> = ({
     } finally {
       setIsLoadingItem(false);
     }
-  }, [autoNavigateToNodes, onNavigateToNode]);
+  }, [autoNavigateToNodes, onNavigateToNode, srs]);
+
+  useEffect(() => {
+    if (srs.state.currentSession && srs.state.dueReviews.length > 0 && !currentReviewItem) {
+      const filteredReviews = srs.state.dueReviews.filter(review => {
+        if (sessionType === 'mixed') return true;
+        return review.nodeType === sessionType;
+      });
+      setReviewQueue(filteredReviews);
+      setSessionStats(prev => ({ ...prev, total: filteredReviews.length, completed: 0, correct: 0 }));
+      if (filteredReviews.length > 0) {
+        loadReviewItem(filteredReviews[0]);
+      } else {
+        setTimeout(() => {
+          showToast("No items due for this session type.", "info");
+          srs.endStudySession();
+        }, 0);
+      }
+    }
+  }, [srs.state.currentSession, srs.state.dueReviews, sessionType, currentReviewItem, loadReviewItem, srs]);
 
   const handleNextItem = () => {
     setReviewQueue(prev => {

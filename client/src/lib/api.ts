@@ -863,7 +863,7 @@ const handleResponse = async (response: Response) => {
     try {
       const errorData = await response.json();
       errorMessage = errorData.error || errorMessage;
-    } catch (e) {
+    } catch {
       // Could not parse JSON, use status text
       errorMessage = response.statusText || `HTTP error ${response.status}`;
     }
@@ -1025,7 +1025,7 @@ export const checkAuthStatus = async (): Promise<{ isAuthenticated: boolean; use
     
     const user = await getCurrentUser();
     return { isAuthenticated: true, user };
-  } catch (error) {
+  } catch {
     // Token might be expired or invalid
     localStorage.removeItem('token');
     return { isAuthenticated: false };
@@ -2348,7 +2348,7 @@ export const fetchDomainBackup = async (domainId: number): Promise<Blob> => {
     try {
       const errorData = await response.json();
       errorMessage = errorData.error || errorMessage;
-    } catch (e) {
+    } catch {
       errorMessage = response.statusText || `HTTP error ${response.status}`;
     }
     throw new Error(errorMessage);

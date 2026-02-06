@@ -173,7 +173,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     setIsEditMode(false);
     setShowReminderForm(false);
     setReminderDraft(getDefaultReminderDraft());
-  }, [sourceData?.id]);
+  }, [sourceData]);
 
   useEffect(() => {
     if (!sourceData?.id) return;
@@ -320,7 +320,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     } finally {
       setIsDeleting(false);
     }
-  }, [source?.id, ui, windowId]);
+  }, [source?.id, source?.code, onDeleteSource, ui, windowId]);
 
   const handleCreateReminder = useCallback(async () => {
     if (!source?.id || !source.title) {

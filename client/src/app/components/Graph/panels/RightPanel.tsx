@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/core/tabs";
-import { ArrowLeft, Edit, X, Eye, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Edit, X, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppMode, GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';

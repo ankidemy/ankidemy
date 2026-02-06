@@ -46,7 +46,6 @@ export default function MainPage() {
   
   // UI state
   const [enrolling, setEnrolling] = useState<Set<number>>(new Set());
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
   const [copyDomainSource, setCopyDomainSource] = useState<Domain | null>(null);
   const [copyName, setCopyName] = useState('');
@@ -325,10 +324,6 @@ export default function MainPage() {
 
     router.push(`/main/domains/${domain.id}/study`);
   };
-
-  // No sidebar on Main page anymore; use Navbar dropdown menu
-  const openSidebar = () => setSidebarOpen(false);
-  const closeSidebar = () => setSidebarOpen(false);
 
   const openCopyDialog = (domain: Domain) => {
     setCopyDomainSource(domain);

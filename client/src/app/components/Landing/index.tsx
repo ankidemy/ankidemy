@@ -3,7 +3,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/app/components/core/button";
 import Image from "next/image";
 import Link from "next/link";
 import { checkAuthStatus } from "@/lib/api";
@@ -22,7 +21,7 @@ export default function Landing() {
           router.push("/dashboard");
           return;
         }
-      } catch (error) {
+      } catch {
         console.log("No existing authentication found");
         // User is not authenticated, continue with landing page
       } finally {

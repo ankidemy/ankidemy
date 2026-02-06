@@ -1,7 +1,7 @@
 // client/src/app/components/Graph/utils/HybridLatexRenderer.ts
 // A robust, state-decoupled, high-quality label renderer using an SVG-to-Image pipeline.
 
-import { unified, type Processor } from 'unified';
+import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';

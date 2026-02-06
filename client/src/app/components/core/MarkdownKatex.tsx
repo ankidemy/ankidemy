@@ -144,21 +144,21 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
         // Keep styling lean; typography can be adjusted later globally
         components={{
           // Keep paragraphs and lists compact for our cards
-          p: ({ node, ...props }) => <p {...props} />,
+          p: ({ node: _node, ...props }) => <p {...props} />,
           // Never emit <pre> from code; block styling handled by <pre> below.
           code: ({ className, children, ...props }: React.ComponentProps<"code"> & ExtraProps) => (
             <code className={className} {...props}>{String(children).replace(/\n$/, "")}</code>
           ),
           // Style block code containers created by react-markdown for fenced code blocks.
-          pre: ({ node, children, ...props }) => (
+          pre: ({ node: _node, children, ...props }) => (
             <pre className="rounded bg-gray-100 border border-gray-200 p-2 overflow-auto text-sm" {...props}>
               {children}
             </pre>
           ),
-          table: ({ node, ...props }) => (
+          table: ({ node: _node, ...props }) => (
             <div className="overflow-x-auto"><table className="table-auto w-full" {...props} /></div>
           ),
-          a: ({ node, href, ...props }) => {
+          a: ({ node: _node, href, ...props }) => {
             const isExternal = typeof href === 'string' && /^(?:[a-z]+:)?\/\//i.test(href);
             return (
               <a
@@ -196,8 +196,8 @@ export const InlineMarkdownKatex: React.FC<CommonProps & { enforceInlineMath?: b
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[[rehypeKatex as any, { macros: latexMacrosKatex }]]}
         components={{
-          p: ({ node, ...props }) => <span {...props} />,
-          a: ({ node, href, ...props }) => {
+          p: ({ node: _node, ...props }) => <span {...props} />,
+          a: ({ node: _node, href, ...props }) => {
             const isExternal = typeof href === 'string' && /^(?:[a-z]+:)?\/\//i.test(href);
             return (
               <a
@@ -210,10 +210,10 @@ export const InlineMarkdownKatex: React.FC<CommonProps & { enforceInlineMath?: b
             );
           },
           // Avoid block elements in inline context
-          ul: ({ node, ...props }) => <span {...props} />,
-          ol: ({ node, ...props }) => <span {...props} />,
-          table: ({ node, ...props }) => <span {...props} />,
-          code: ({ inline, className, children, ...props }: React.ComponentProps<"code"> & ExtraProps & { inline?: boolean }) => (
+          ul: ({ node: _node, ...props }) => <span {...props} />,
+          ol: ({ node: _node, ...props }) => <span {...props} />,
+          table: ({ node: _node, ...props }) => <span {...props} />,
+          code: ({ inline: _inline, className, children, ...props }: React.ComponentProps<"code"> & ExtraProps & { inline?: boolean }) => (
             <code className={className} {...props}>{String(children).replace(/\n$/, "")}</code>
           ),
         }}

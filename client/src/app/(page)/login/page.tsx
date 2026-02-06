@@ -61,7 +61,7 @@ export default function ImprovedLoginPage() {
           router.push("/dashboard");
           return;
         }
-      } catch (error) {
+      } catch {
         console.log("No existing authentication found");
         // User is not authenticated, continue with login page
       } finally {
@@ -339,7 +339,7 @@ export default function ImprovedLoginPage() {
               {/* Register Link */}
               <div className="text-center">
                 <span className="text-sm text-gray-600">
-                  Don't have an account?{" "}
+                  Don&apos;t have an account?{" "}
                   <Link href="/register" className="font-medium text-orange-600 hover:text-orange-500">
                     Sign up
                   </Link>

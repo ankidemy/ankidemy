@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { Button } from "@/app/components/core/button";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765";
@@ -97,11 +98,14 @@ const ZoomableImage: React.FC<ZoomableImageProps> = ({ src, alt, className, maxH
   return (
     <>
       {blobUrl ? (
-        <img
+        <Image
           src={blobUrl}
           alt={alt || "attachment"}
+          width={1200}
+          height={900}
+          unoptimized
           onClick={() => setIsOpen(true)}
-          className={`rounded border border-gray-200 cursor-zoom-in ${maxHeightClass || "max-h-48"} ${className || ""}`}
+          className={`h-auto w-auto rounded border border-gray-200 cursor-zoom-in ${maxHeightClass || "max-h-48"} ${className || ""}`}
         />
       ) : (
         <div className="text-xs text-gray-400">{isLoading ? "Loading image..." : "Image unavailable"}</div>
@@ -113,7 +117,14 @@ const ZoomableImage: React.FC<ZoomableImageProps> = ({ src, alt, className, maxH
           onClick={() => setIsOpen(false)}
         >
           <div className="relative max-h-full max-w-full" onClick={(e) => e.stopPropagation()}>
-            <img src={blobUrl} alt={alt || "zoomed"} className="max-h-[85vh] max-w-[90vw] rounded shadow-lg" />
+            <Image
+              src={blobUrl}
+              alt={alt || "zoomed"}
+              width={1920}
+              height={1080}
+              unoptimized
+              className="h-auto w-auto max-h-[85vh] max-w-[90vw] rounded shadow-lg"
+            />
             <Button
               size="sm"
               variant="secondary"

@@ -4,11 +4,10 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Search, Filter, X, CheckSquare, Square, Eye, MousePointer, Users } from 'lucide-react';
+import { Search, Filter, X, CheckSquare, Eye, MousePointer, Users } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
-import { useSRS } from '@/contexts/SRSContext';
 import { AppMode, GraphNode, FilteredNodeType } from '../utils/types';
 import { getStatusColor, getStatusIcon } from '@/lib/srs-api';
 
@@ -41,9 +40,8 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
   onNodeClick,
   onNodeSelect,
   onClearSelection,
-  mode
+  mode: _mode
 }) => {
-  const srs = useSRS();
   const [selectionMode, setSelectionMode] = useState(false);
 
   // Enhanced node click handler with selection mode support
@@ -123,7 +121,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
     }).length;
     
     return { total: selectedNodes.length, definitions, exercises, due };
-  }, [filteredNodes, selectedNodeIds, srs]);
+  }, [filteredNodes, selectedNodeIds]);
 
   // Enhanced node rendering with better visual feedback
   const renderNodeItem = useCallback((node: GraphNode) => {
@@ -263,7 +261,6 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
   }, [
     activeNodeIds, 
     selectedNodeIds, 
-    srs, 
     selectionMode, 
     handleNodeItemClick, 
     handleCheckboxClick,

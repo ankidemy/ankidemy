@@ -25,7 +25,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({
   onUpdateVersion,
   onDeleteVersion,
   onUpdateMeta,
-  onBack,
+  onBack: _onBack,
   initialActiveIndex,
 }) => {
   // active can be a version index or the special string 'new' for an unsaved draft
@@ -55,7 +55,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       setDraft({});
     }
     setPrevLen(versions.length);
-  }, [versions.length]);
+  }, [active, prevLen, versions.length]);
 
   const isDraft = active === 'new';
 
@@ -171,7 +171,7 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       setActive(safeIndex);
       setDraft({});
     }
-  }, [initialActiveIndex]);
+  }, [initialActiveIndex, versions.length]);
 
   return (
     <div className="space-y-3">

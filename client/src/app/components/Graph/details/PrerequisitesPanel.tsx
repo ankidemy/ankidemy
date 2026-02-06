@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { 
@@ -137,7 +137,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
     });
   }, [externalNodeOptions, externalNodeQuery, externalRows, selectedExternalDomainUid, externalNodeType]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const all = await getDomainPrerequisites(domainId);
@@ -159,9 +159,9 @@ const PrerequisitesPanel: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [domainId, nodeId, nodeType]);
 
-  useEffect(() => { load(); }, [domainId, nodeId]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { (async () => {
     try {
       const metas = await getDomainMetaExercises(domainId);
