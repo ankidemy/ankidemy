@@ -533,6 +533,34 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     }
   }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundMode, scheduleRafRefresh, getNodeBaseSize]);
 
+  const nodePointerAreaPaint = useCallback((node: any, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
+    const y = typeof node.y === 'number' && Number.isFinite(node.y) ? node.y : 0;
+    const safeScale = Math.max(globalScale, 1e-3);
+    const baseRadius = getNodeBaseSize(node.type) / Math.sqrt(safeScale);
+    const isSelected = selectedNodeIds.has(node.id);
+    const isNewlyCreated = newlyCreatedNodeId === node.id;
+    const isHighlighted = highlightNodes.has(node.id);
+    const isDue = Boolean(node.isDue) && node.type !== 'group';
+
+    // Keep pointer hit area aligned with visible node rings and ensure a minimum
+    // clickable target when zoomed out.
+    let radius = baseRadius;
+    if (isDue) radius = Math.max(radius, baseRadius + 6 / safeScale);
+    if (isHighlighted) radius = Math.max(radius, baseRadius + 6 / safeScale);
+    if (isSelected) radius = Math.max(radius, baseRadius + 8 / safeScale);
+    if (isNewlyCreated) radius = Math.max(radius, baseRadius + 10 / safeScale);
+
+    const minScreenRadiusPx = 5;
+    const minGraphRadius = minScreenRadiusPx / safeScale;
+    const hitRadius = Math.max(radius, minGraphRadius);
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, hitRadius, 0, 2 * Math.PI, false);
+    ctx.fill();
+  }, [getNodeBaseSize, selectedNodeIds, newlyCreatedNodeId, highlightNodes]);
+
   // Memoized link color calculation
   const getLinkColor = useCallback((link: any) => {
     const sourceId = typeof link.source === 'object' ? (link.source as GraphNode).id : String(link.source);
@@ -890,6 +918,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
           return base * (node.isDue ? 1.3 : 1);
         }}
         nodeCanvasObject={nodeCanvasObject}
+        nodePointerAreaPaint={nodePointerAreaPaint}
         
         linkCanvasObject={linkCanvasObject}
         linkPointerAreaPaint={linkPointerAreaPaint}
