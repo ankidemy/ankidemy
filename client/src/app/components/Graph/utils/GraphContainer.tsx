@@ -169,12 +169,14 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     }
   }
 
-  // Memoized graph data to prevent unnecessary re-renders
-  // Only change graphData reference on structural change to avoid reheating on hover
+  // Memoized graph data to prevent unnecessary re-renders.
+  // `useStableGraph` preserves node/link array identity for metadata-only updates,
+  // so we key this on `structureVersion` to force ForceGraph to rebuild pointer
+  // hit maps when topology changes (new node/link insertions).
   const memoizedGraphData = useMemo(() => {
     console.log(`GraphContainer: Creating graph data with ${graphNodes.length} nodes, ${graphLinks.length} links`);
     return { nodes: graphNodes, links: graphLinks };
-  }, [graphNodes, graphLinks]);
+  }, [graphNodes, graphLinks, structureVersion]);
 
   // Derive node positions map without effects (consumed by overlay on animation creation)
   const computedNodePositions = useMemo(() => {
@@ -187,13 +189,13 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     // Keep ref in sync for any internal access while avoiding effects
     nodePositions.current = map;
     return map;
-  }, [graphNodes]);
+  }, [graphNodes, structureVersion]);
 
   const nodeById = useMemo(() => {
     const map = new Map<string, GraphNode>();
     graphNodes.forEach(node => map.set(node.id, node));
     return map;
-  }, [graphNodes]);
+  }, [graphNodes, structureVersion]);
 
   const getNodeBaseSize = useCallback((type?: string) => {
     switch (type) {
