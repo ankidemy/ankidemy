@@ -531,20 +531,71 @@ func (d *SRSDao) GetReviewHistory(userID uint, nodeID *uint, nodeType *string, l
 // === Statistics ===
 
 // GetDomainStats gets domain statistics for a user
-func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgressSummary, error) {
+func (d *SRSDao) GetDomainStats(userID uint, domainID uint, requestID string) (*models.DomainProgressSummary, error) {
+	const route = "/api/srs/domains/:domainId/stats"
+	const daoMethod = "SRSDao.GetDomainStats"
+
 	var stats models.DomainProgressSummary
 	stats.DomainID = domainID
 
 	// Count total nodes
 	var totalDefs int64
 	var totalExs int64
+	countNodesStartedAt := time.Now()
+	totalDefinitionsQuery := `
+		/* route:/api/srs/domains/:domainId/stats stage:count_nodes */
+		SELECT COUNT(*) FROM meta_definitions WHERE domain_id = ?
+	`
+	if err := d.db.Raw(totalDefinitionsQuery, domainID).Scan(&totalDefs).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			"count_nodes",
+			countNodesStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
+		return nil, err
+	}
 
-	d.db.Model(&models.MetaDefinition{}).Where("domain_id = ?", domainID).Count(&totalDefs)
-	d.db.Model(&models.MetaExercise{}).Where("domain_id = ?", domainID).Count(&totalExs)
+	totalExercisesQuery := `
+		/* route:/api/srs/domains/:domainId/stats stage:count_nodes */
+		SELECT COUNT(*) FROM meta_exercises WHERE domain_id = ?
+	`
+	if err := d.db.Raw(totalExercisesQuery, domainID).Scan(&totalExs).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			"count_nodes",
+			countNodesStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
+		return nil, err
+	}
 	stats.TotalNodes = int(totalDefs + totalExs)
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		"count_nodes",
+		countNodesStartedAt,
+		nil,
+		map[string]interface{}{
+			"userId":           userID,
+			"domainId":         domainID,
+			"totalDefinitions": totalDefs,
+			"totalExercises":   totalExs,
+			"totalNodes":       stats.TotalNodes,
+		},
+	)
 
 	// Count by status
+	statusCountsStartedAt := time.Now()
 	statusQuery := `
+		/* route:/api/srs/domains/:domainId/stats stage:status_counts */
 		SELECT
 			COALESCE(unp.status, 'fresh') as status,
 			COUNT(*) as count
@@ -565,6 +616,15 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 
 	var statusCounts []statusCount
 	if err := d.db.Raw(statusQuery, domainID, domainID, userID).Scan(&statusCounts).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			"status_counts",
+			statusCountsStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
 		return nil, err
 	}
 
@@ -580,9 +640,27 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 			stats.LearnedNodes = sc.Count
 		}
 	}
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		"status_counts",
+		statusCountsStartedAt,
+		nil,
+		map[string]interface{}{
+			"userId":        userID,
+			"domainId":      domainID,
+			"freshNodes":    stats.FreshNodes,
+			"tacklingNodes": stats.TacklingNodes,
+			"graspedNodes":  stats.GraspedNodes,
+			"learnedNodes":  stats.LearnedNodes,
+		},
+	)
 
 	// Count due reviews
+	dueCountStartedAt := time.Now()
 	dueQuery := `
+		/* route:/api/srs/domains/:domainId/stats stage:due_count */
 		SELECT COUNT(*) FROM (
 			SELECT md.id FROM meta_definitions md
 			JOIN user_node_progress unp ON md.id = unp.node_id
@@ -599,13 +677,37 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	`
 
 	var dueCount int64
-	if err := d.db.Raw(dueQuery, userID, domainID, userID, domainID).Count(&dueCount).Error; err != nil {
+	if err := d.db.Raw(dueQuery, userID, domainID, userID, domainID).Scan(&dueCount).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			"due_count",
+			dueCountStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
 		return nil, err
 	}
 	stats.DueReviews = int(dueCount)
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		"due_count",
+		dueCountStartedAt,
+		nil,
+		map[string]interface{}{
+			"userId":     userID,
+			"domainId":   domainID,
+			"dueReviews": stats.DueReviews,
+		},
+	)
 
 	// Count completed today
+	completedTodayStartedAt := time.Now()
 	todayQuery := `
+		/* route:/api/srs/domains/:domainId/stats stage:completed_today */
 		SELECT COUNT(*) FROM review_history
 		WHERE user_id = ? AND DATE(review_time) = CURRENT_DATE
 			AND review_type = 'explicit'
@@ -617,13 +719,37 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	`
 
 	var todayCount int64
-	if err := d.db.Raw(todayQuery, userID, domainID, domainID).Count(&todayCount).Error; err != nil {
+	if err := d.db.Raw(todayQuery, userID, domainID, domainID).Scan(&todayCount).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			"completed_today",
+			completedTodayStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
 		return nil, err
 	}
 	stats.CompletedToday = int(todayCount)
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		"completed_today",
+		completedTodayStartedAt,
+		nil,
+		map[string]interface{}{
+			"userId":         userID,
+			"domainId":       domainID,
+			"completedToday": stats.CompletedToday,
+		},
+	)
 
 	// Calculate success rate
+	successRateStartedAt := time.Now()
 	successQuery := `
+		/* route:/api/srs/domains/:domainId/stats stage:success_rate */
 		SELECT
 			COUNT(*) as total,
 			COUNT(CASE WHEN success THEN 1 END) as successful
@@ -642,12 +768,36 @@ func (d *SRSDao) GetDomainStats(userID uint, domainID uint) (*models.DomainProgr
 	}
 
 	if err := d.db.Raw(successQuery, userID, domainID, domainID).Scan(&successStats).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			"success_rate",
+			successRateStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
 		return nil, err
 	}
 
 	if successStats.Total > 0 {
 		stats.SuccessRate = float64(successStats.Successful) / float64(successStats.Total)
 	}
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		"success_rate",
+		successRateStartedAt,
+		nil,
+		map[string]interface{}{
+			"userId":          userID,
+			"domainId":        domainID,
+			"reviewTotal":     successStats.Total,
+			"successfulTotal": successStats.Successful,
+			"successRate":     stats.SuccessRate,
+		},
+	)
 
 	return &stats, nil
 }

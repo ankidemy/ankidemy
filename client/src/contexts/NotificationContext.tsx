@@ -142,7 +142,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const previousDomainAlertDueCountsRef = useRef<Record<number, number>>({});
   const hasAlertSnapshotRef = useRef(false);
   const lastBatchSizeRef = useRef<number | null>(null);
-  const invitePollIntervalMs = 15000;
+  const invitePollIntervalMs = 20000;
 
   const refreshNotifications = useCallback(async () => {
     if (refreshInFlight.current || typeof window === "undefined") return;
@@ -167,7 +167,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const [myResult, enrolledResult, inviteResult] = await Promise.allSettled([
         getMyDomains(),
         getEnrolledDomains(),
-        getPendingDomainInvites(),
+        getPendingDomainInvites({
+          component: "NotificationContext.refreshNotifications",
+          action: "invite-list-refresh",
+        }),
       ]);
 
       const domainMap = new Map<number, Domain>();
@@ -193,7 +196,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
 
       const statsResults = await Promise.allSettled(
-        domains.map(domain => getDomainStats(domain.id))
+        domains.map(domain =>
+          getDomainStats(domain.id, {
+            component: "NotificationContext.refreshNotifications",
+            action: "due-count-poll",
+          }),
+        ),
       );
 
       const dueCounts = statsResults.map(result => {
@@ -302,7 +310,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const token = localStorage.getItem("token");
       if (!token) return;
       try {
-        const invites = await getPendingDomainInvites();
+        const invites = await getPendingDomainInvites({
+          component: "NotificationContext.pollInvites",
+          action: "invite-count-poll",
+        });
         const inviteCount = Array.isArray(invites) ? invites.length : 0;
         if (inviteCount !== pendingInviteCount) {
           refreshNotifications();

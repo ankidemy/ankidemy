@@ -1,6 +1,8 @@
 // FILE: src/lib/api.ts
 // Complete API client for Ankidemy with standardized import/export handling
 
+import { observedFetch, type RequestObservabilityMeta } from './http-observability';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
 
 // Centralized auth redirect helper
@@ -931,7 +933,7 @@ export const uploadNodeImage = async (payload: {
   formData.append('nodeType', payload.nodeType);
   formData.append('field', payload.field);
 
-  const response = await fetch(`${API_URL}/api/media/upload`, {
+  const response = await observedFetch(`${API_URL}/api/media/upload`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -943,7 +945,7 @@ export const uploadNodeImage = async (payload: {
 
 // UPDATED: Login now supports email OR username via identifier field
 export const loginUser = async (credentials: { identifier: string; password: string }): Promise<AuthResponse> => {
-  const response = await fetch(`${API_URL}/api/auth/login`, {
+  const response = await observedFetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
@@ -969,7 +971,7 @@ export const registerUser = async (userDetails: {
   firstName?: string;
   lastName?: string;
 }): Promise<AuthResponse> => {
-  const response = await fetch(`${API_URL}/api/auth/register`, {
+  const response = await observedFetch(`${API_URL}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(userDetails),
@@ -988,7 +990,7 @@ export const registerUser = async (userDetails: {
 };
 
 export const refreshToken = async (token: string): Promise<AuthResponse> => {
-  const response = await fetch(`${API_URL}/api/auth/refresh`, {
+  const response = await observedFetch(`${API_URL}/api/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),
@@ -1034,7 +1036,7 @@ export const checkAuthStatus = async (): Promise<{ isAuthenticated: boolean; use
 
 // User API
 export const getCurrentUser = async (): Promise<User> => {
-  const response = await fetch(`${API_URL}/api/users/me`, {
+  const response = await observedFetch(`${API_URL}/api/users/me`, {
     headers: { 
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
@@ -1053,7 +1055,7 @@ export const updateCurrentUser = async (userData: {
   firstName?: string;
   lastName?: string;
 }): Promise<User> => {
-  const response = await fetch(`${API_URL}/api/users/me`, {
+  const response = await observedFetch(`${API_URL}/api/users/me`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -1068,7 +1070,7 @@ export const updateCurrentUser = async (userData: {
 // Domain API
 export const getPublicDomains = async (): Promise<Domain[]> => {
   try {
-    const response = await fetch(`${API_URL}/api/domains/public`);
+    const response = await observedFetch(`${API_URL}/api/domains/public`);
     
     if (!response.ok) {
       console.warn(`Failed to fetch public domains: ${response.status}`);
@@ -1084,7 +1086,7 @@ export const getPublicDomains = async (): Promise<Domain[]> => {
 };
 
 export const getAllDomains = async (): Promise<Domain[]> => {
-  const response = await fetch(`${API_URL}/api/domains`, {
+  const response = await observedFetch(`${API_URL}/api/domains`, {
     headers: getAuthHeaders(),
   });
   
@@ -1093,7 +1095,7 @@ export const getAllDomains = async (): Promise<Domain[]> => {
 
 export const getMyDomains = async (): Promise<Domain[]> => {
   try {
-    const response = await fetch(`${API_URL}/api/domains/my`, {
+    const response = await observedFetch(`${API_URL}/api/domains/my`, {
       headers: getAuthHeaders(),
     });
     
@@ -1112,7 +1114,7 @@ export const getMyDomains = async (): Promise<Domain[]> => {
 
 export const getEnrolledDomains = async (): Promise<Domain[]> => {
   try {
-    const response = await fetch(`${API_URL}/api/domains/enrolled`, {
+    const response = await observedFetch(`${API_URL}/api/domains/enrolled`, {
       headers: getAuthHeaders(),
     });
     
@@ -1132,7 +1134,7 @@ export const getEnrolledDomains = async (): Promise<Domain[]> => {
 
 export const getSharedDomains = async (): Promise<Domain[]> => {
   try {
-    const response = await fetch(`${API_URL}/api/domains/shared`, {
+    const response = await observedFetch(`${API_URL}/api/domains/shared`, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {
@@ -1149,7 +1151,7 @@ export const getSharedDomains = async (): Promise<Domain[]> => {
 
 export const getAccessibleDomains = async (): Promise<AccessibleDomain[]> => {
   try {
-    const response = await fetch(`${API_URL}/api/domains/accessible`, {
+    const response = await observedFetch(`${API_URL}/api/domains/accessible`, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {
@@ -1165,7 +1167,7 @@ export const getAccessibleDomains = async (): Promise<AccessibleDomain[]> => {
 };
 
 export const getDomain = async (id: number): Promise<Domain> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}`, {
     headers: getAuthHeaders(),
   });
   
@@ -1173,7 +1175,7 @@ export const getDomain = async (id: number): Promise<Domain> => {
 };
 
 export const getUserDomainSettings = async (domainId: number): Promise<UserDomainSettings> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/user-settings`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/user-settings`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
@@ -1183,7 +1185,7 @@ export const updateUserDomainSettings = async (
   domainId: number,
   updates: UserDomainSettingsUpdate
 ): Promise<UserDomainSettings> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/user-settings`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/user-settings`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -1195,7 +1197,7 @@ export const updateUserDomainSettings = async (
 };
 
 export const getExternalPrerequisites = async (domainId: number): Promise<ExternalPrerequisiteLink[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
     headers: getAuthHeaders(),
   });
   const result = await handleResponse(response);
@@ -1212,7 +1214,7 @@ export const createExternalPrerequisite = async (
     externalNodeType: 'meta_definition' | 'meta_exercise';
   }
 ): Promise<ExternalPrerequisiteLink> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -1224,7 +1226,7 @@ export const createExternalPrerequisite = async (
 };
 
 export const deleteExternalPrerequisite = async (domainId: number, linkId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/${linkId}`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/${linkId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1241,7 +1243,7 @@ export const updateExternalPrerequisitePositions = async (
     yPosition: number;
   }>
 ): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/positions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/external-prerequisites/positions`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -1257,7 +1259,7 @@ export const copyDomain = async (id: number, payload: {
   privacy?: 'public' | 'private';
   description?: string;
 }): Promise<Domain> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/copy`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/copy`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -1277,7 +1279,7 @@ export const createDomain = async (domain: {
   console.log("Creating domain:", domain);
   
   try {
-    const response = await fetch(`${API_URL}/api/domains`, {
+    const response = await observedFetch(`${API_URL}/api/domains`, {
       method: 'POST',
       headers: { 
         ...getAuthHeaders(),
@@ -1307,7 +1309,7 @@ export const updateDomain = async (id: number, domain: {
   privacy?: 'public' | 'private';
   description?: string;
 }): Promise<Domain> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -1320,7 +1322,7 @@ export const updateDomain = async (id: number, domain: {
 };
 
 export const getDomainPermissions = async (id: number): Promise<DomainPermissionList> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/permissions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/permissions`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
@@ -1329,52 +1331,60 @@ export const getDomainPermissions = async (id: number): Promise<DomainPermission
 export const createDomainInvite = async (id: number, payload: {
   username: string;
   role: 'editor' | 'viewer';
-}): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/invites`, {
+}, requestMeta?: RequestObservabilityMeta): Promise<void> => {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/invites`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
-  });
+  }, requestMeta);
   await handleResponse(response);
 };
 
 export const removeDomainPermission = async (id: number, userId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/permissions/${userId}`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/permissions/${userId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
   await handleResponse(response);
 };
 
-export const getPendingDomainInvites = async (): Promise<DomainInvite[]> => {
-  const response = await fetch(`${API_URL}/api/domain-invites`, {
+export const getPendingDomainInvites = async (
+  requestMeta?: RequestObservabilityMeta,
+): Promise<DomainInvite[]> => {
+  const response = await observedFetch(`${API_URL}/api/domain-invites`, {
     headers: getAuthHeaders(),
-  });
+  }, requestMeta);
   const result = await handleResponse(response);
   return Array.isArray(result) ? result : [];
 };
 
-export const acceptDomainInvite = async (inviteId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domain-invites/${inviteId}/accept`, {
+export const acceptDomainInvite = async (
+  inviteId: number,
+  requestMeta?: RequestObservabilityMeta,
+): Promise<void> => {
+  const response = await observedFetch(`${API_URL}/api/domain-invites/${inviteId}/accept`, {
     method: 'POST',
     headers: getAuthHeaders(),
-  });
+  }, requestMeta);
   await handleResponse(response);
 };
 
-export const declineDomainInvite = async (inviteId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domain-invites/${inviteId}/decline`, {
+export const declineDomainInvite = async (
+  inviteId: number,
+  requestMeta?: RequestObservabilityMeta,
+): Promise<void> => {
+  const response = await observedFetch(`${API_URL}/api/domain-invites/${inviteId}/decline`, {
     method: 'POST',
     headers: getAuthHeaders(),
-  });
+  }, requestMeta);
   await handleResponse(response);
 };
 
 export const deleteDomain = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1389,7 +1399,7 @@ export const archiveDomain = async (id: number): Promise<void> => {
 
 // List archived domains owned by current user
 export const getMyArchivedDomains = async (): Promise<Domain[]> => {
-  const response = await fetch(`${API_URL}/api/domains/archived/my`, {
+  const response = await observedFetch(`${API_URL}/api/domains/archived/my`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
@@ -1397,7 +1407,7 @@ export const getMyArchivedDomains = async (): Promise<Domain[]> => {
 
 // Restore a soft-deleted domain
 export const restoreDomain = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/restore`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/restore`, {
     method: 'POST',
     headers: getAuthHeaders(),
   });
@@ -1406,7 +1416,7 @@ export const restoreDomain = async (id: number): Promise<void> => {
 
 // Permanently delete a domain and all related data
 export const purgeDomain = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/purge`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/purge`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1414,7 +1424,7 @@ export const purgeDomain = async (id: number): Promise<void> => {
 };
 
 export const enrollInDomain = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${id}/enroll`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${id}/enroll`, {
     method: 'POST',
     headers: getAuthHeaders(),
   });
@@ -1424,7 +1434,7 @@ export const enrollInDomain = async (id: number): Promise<void> => {
 
 // Definition API
 export const getDomainDefinitions = async (domainId: number): Promise<Definition[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/definitions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/definitions`, {
     headers: getAuthHeaders(),
   });
   
@@ -1432,7 +1442,7 @@ export const getDomainDefinitions = async (domainId: number): Promise<Definition
 };
 
 export const createDefinition = async (domainId: number, definition: DefinitionRequest): Promise<Definition> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/definitions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/definitions`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -1445,7 +1455,7 @@ export const createDefinition = async (domainId: number, definition: DefinitionR
 };
 
 export const getDefinition = async (id: number): Promise<Definition> => {
-  const response = await fetch(`${API_URL}/api/definitions/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/definitions/${id}`, {
     headers: getAuthHeaders(),
   });
   
@@ -1465,7 +1475,7 @@ export const updateDefinition = async (id: number, definitionData: {
   xPosition?: number;
   yPosition?: number;
 }): Promise<Definition> => {
-  const response = await fetch(`${API_URL}/api/definitions/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/definitions/${id}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -1485,7 +1495,7 @@ export const updateDefinition = async (id: number, definitionData: {
 };
 
 export const deleteDefinition = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/definitions/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/definitions/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1496,7 +1506,7 @@ export const deleteDefinition = async (id: number): Promise<void> => {
 export const getDefinitionByCode = async (code: string, opts?: { domainId?: number }): Promise<Definition> => {
   const domainQuery = opts?.domainId ? `?domainId=${opts.domainId}` : '';
   const url = `${API_URL}/api/definitions/code/${encodeURIComponent(code)}${domainQuery}`;
-  const response = await fetch(url, {
+  const response = await observedFetch(url, {
     headers: getAuthHeaders(),
   });
   
@@ -1551,7 +1561,7 @@ export const getExerciseIdByCode = async (code: string): Promise<number> => {
  * Get all meta-definitions for a domain
  */
 export const getDomainMetaDefinitions = async (domainId: number): Promise<MetaDefinition[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
@@ -1577,7 +1587,7 @@ export const createMetaDefinition = async (domainId: number, data: {
     descriptionImagePath?: string;
   };
 }): Promise<MetaDefinition> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/meta-definitions`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -1592,7 +1602,7 @@ export const createMetaDefinition = async (domainId: number, data: {
  * Get a single meta-definition with all its versions
  */
 export const getMetaDefinition = async (id: number): Promise<MetaDefinition> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
@@ -1609,7 +1619,7 @@ export const updateMetaDefinition = async (id: number, data: {
   cascadeCode?: boolean;
   cascadeName?: boolean;
 }): Promise<MetaDefinition> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -1624,7 +1634,7 @@ export const updateMetaDefinition = async (id: number, data: {
  * Delete a meta-definition (concept pool) and its versions
  */
 export const deleteMetaDefinition = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1643,7 +1653,7 @@ export const addMetaDefinitionVersion = async (id: number, version: {
   promptImagePath?: string;
   descriptionImagePath?: string;
 }): Promise<DefinitionVersion> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}/versions`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -1662,7 +1672,7 @@ export const updateMetaDefinitionVersion = async (
   versionId: number,
   version: Partial<DefinitionVersion>
 ): Promise<DefinitionVersion> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions/${versionId}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}/versions/${versionId}`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -1677,7 +1687,7 @@ export const updateMetaDefinitionVersion = async (
  * Delete a definition version (returns 400 if it's the last version)
  */
 export const deleteMetaDefinitionVersion = async (id: number, versionId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/versions/${versionId}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}/versions/${versionId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1688,7 +1698,7 @@ export const deleteMetaDefinitionVersion = async (id: number, versionId: number)
  * Get next version for review (used by review UI)
  */
 export const getNextMetaDefinitionVersion = async (id: number): Promise<DefinitionVersion | null> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/next-version`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}/next-version`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 204 || response.status === 404) {
@@ -1705,7 +1715,7 @@ export interface DefinitionExerciseSelection {
 }
 
 export const getNextMetaDefinitionExercise = async (id: number): Promise<DefinitionExerciseSelection | null> => {
-  const response = await fetch(`${API_URL}/api/meta-definitions/${id}/next-exercise`, {
+  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}/next-exercise`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 204) {
@@ -1716,7 +1726,7 @@ export const getNextMetaDefinitionExercise = async (id: number): Promise<Definit
 
 // Exercise API
 export const getDomainExercises = async (domainId: number): Promise<Exercise[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/exercises`, {
     headers: getAuthHeaders(),
   });
   
@@ -1725,7 +1735,7 @@ export const getDomainExercises = async (domainId: number): Promise<Exercise[]> 
 
 // New: Meta-exercises API
 export const getDomainMetaExercises = async (domainId: number): Promise<MetaExercise[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, { headers: getAuthHeaders() });
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, { headers: getAuthHeaders() });
   return handleResponse(response);
 };
 
@@ -1734,7 +1744,7 @@ export const createMetaExercise = async (domainId: number, data: {
   prerequisiteIds?: number[]; prerequisiteWeights?: Record<number, number>;
   initialVersion?: { statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number; statementImagePath?: string; descriptionImagePath?: string };
 }): Promise<MetaExercise> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, {
     method: 'POST',
     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -1743,7 +1753,7 @@ export const createMetaExercise = async (domainId: number, data: {
 };
 
 export const getMetaExercise = async (id: number): Promise<MetaExercise> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${id}`, { headers: getAuthHeaders() });
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${id}`, { headers: getAuthHeaders() });
   return handleResponse(response);
 };
 
@@ -1753,7 +1763,7 @@ export const updateMetaExercise = async (metaId: number, payload: {
   xPosition?: number;
   yPosition?: number;
 }): Promise<MetaExercise> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}`, {
     method: 'PUT',
     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -1765,7 +1775,7 @@ export const updateMetaExercise = async (metaId: number, payload: {
  * Delete a meta-exercise (exercise pool) and its versions
  */
 export const deleteMetaExercise = async (metaId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1775,26 +1785,26 @@ export const deleteMetaExercise = async (metaId: number): Promise<void> => {
 export const addMetaExerciseVersion = async (metaId: number, version: {
   statement: string; description?: string; notes?: string; hints?: string; verifiable?: boolean; result?: string; difficulty?: number; statementImagePath?: string; descriptionImagePath?: string;
 }): Promise<ExerciseVersion> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions`, {
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}/versions`, {
     method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(version)
   });
   return handleResponse(response);
 };
 
 export const updateMetaExerciseVersion = async (metaId: number, versionId: number, version: Partial<ExerciseVersion>): Promise<ExerciseVersion> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions/${versionId}`, {
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}/versions/${versionId}`, {
     method: 'PUT', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(version)
   });
   return handleResponse(response);
 };
 
 export const deleteMetaExerciseVersion = async (metaId: number, versionId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/versions/${versionId}`, { method: 'DELETE', headers: getAuthHeaders() });
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}/versions/${versionId}`, { method: 'DELETE', headers: getAuthHeaders() });
   return handleResponse(response);
 };
 
 export const getNextMetaExerciseVersion = async (metaId: number): Promise<(ExerciseVersion & { code?: string; name?: string }) | null> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/next-version`, { headers: getAuthHeaders() });
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}/next-version`, { headers: getAuthHeaders() });
   if (response.status === 204 || response.status === 404) {
     return null;
   }
@@ -1802,7 +1812,7 @@ export const getNextMetaExerciseVersion = async (metaId: number): Promise<(Exerc
 };
 
 export const recordMetaExerciseOutcome = async (metaId: number, payload: { versionId: number; success: boolean }): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/meta-exercises/${metaId}/record-outcome`, {
+  const response = await observedFetch(`${API_URL}/api/meta-exercises/${metaId}/record-outcome`, {
     method: 'POST',
     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -1812,7 +1822,7 @@ export const recordMetaExerciseOutcome = async (metaId: number, payload: { versi
 
 export const createExercise = async (domainId: number, exercise: ExerciseRequest): Promise<Exercise> => {
   const exerciseData = { ...exercise };
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/exercises`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/exercises`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -1825,7 +1835,7 @@ export const createExercise = async (domainId: number, exercise: ExerciseRequest
 };
 
 export const getExercise = async (id: number): Promise<Exercise> => {
-  const response = await fetch(`${API_URL}/api/exercises/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/exercises/${id}`, {
     headers: getAuthHeaders(),
   });
   
@@ -1850,7 +1860,7 @@ export const updateExercise = async (id: number, exerciseData: {
   yPosition?: number;
 }): Promise<Exercise> => {
   const dataToSend = { ...exerciseData };
-  const response = await fetch(`${API_URL}/api/exercises/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/exercises/${id}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -1870,7 +1880,7 @@ export const updateExercise = async (id: number, exerciseData: {
 };
 
 export const deleteExercise = async (id: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/exercises/${id}`, {
+  const response = await observedFetch(`${API_URL}/api/exercises/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -1881,7 +1891,7 @@ export const deleteExercise = async (id: number): Promise<void> => {
 export const getExerciseByCode = async (code: string, opts?: { domainId?: number }): Promise<Exercise> => {
   const domainQuery = opts?.domainId ? `?domainId=${opts.domainId}` : '';
   const url = `${API_URL}/api/exercises/code/${encodeURIComponent(code)}${domainQuery}`;
-  const response = await fetch(url, {
+  const response = await observedFetch(url, {
     headers: getAuthHeaders(),
   });
   
@@ -1889,7 +1899,7 @@ export const getExerciseByCode = async (code: string, opts?: { domainId?: number
 };
 
 export const verifyExerciseAnswer = async (id: number, answer: string): Promise<{ correct: boolean; message: string }> => {
-  const response = await fetch(`${API_URL}/api/exercises/${id}/verify`, {
+  const response = await observedFetch(`${API_URL}/api/exercises/${id}/verify`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -1903,7 +1913,7 @@ export const verifyExerciseAnswer = async (id: number, answer: string): Promise<
 
 // Progress API
 export const getDomainProgress = async (): Promise<any[]> => {
-  const response = await fetch(`${API_URL}/api/progress/domains`, {
+  const response = await observedFetch(`${API_URL}/api/progress/domains`, {
     headers: getAuthHeaders(),
   });
   
@@ -1911,7 +1921,7 @@ export const getDomainProgress = async (): Promise<any[]> => {
 };
 
 export const getDefinitionProgress = async (domainId: number): Promise<any[]> => {
-  const response = await fetch(`${API_URL}/api/progress/domains/${domainId}/definitions`, {
+  const response = await observedFetch(`${API_URL}/api/progress/domains/${domainId}/definitions`, {
     headers: getAuthHeaders(),
   });
   
@@ -1919,7 +1929,7 @@ export const getDefinitionProgress = async (domainId: number): Promise<any[]> =>
 };
 
 export const getExerciseProgress = async (domainId: number): Promise<any[]> => {
-  const response = await fetch(`${API_URL}/api/progress/domains/${domainId}/exercises`, {
+  const response = await observedFetch(`${API_URL}/api/progress/domains/${domainId}/exercises`, {
     headers: getAuthHeaders(),
   });
   
@@ -1927,7 +1937,7 @@ export const getExerciseProgress = async (domainId: number): Promise<any[]> => {
 };
 
 export const reviewDefinition = async (definitionId: number, reviewRequest: ReviewRequest): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/progress/definitions/${definitionId}/review`, {
+  const response = await observedFetch(`${API_URL}/api/progress/definitions/${definitionId}/review`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -1940,7 +1950,7 @@ export const reviewDefinition = async (definitionId: number, reviewRequest: Revi
 };
 
 export const attemptExercise = async (exerciseId: number, attemptRequest: ExerciseAttemptRequest): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/progress/exercises/${exerciseId}/attempt`, {
+  const response = await observedFetch(`${API_URL}/api/progress/exercises/${exerciseId}/attempt`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -1957,7 +1967,7 @@ export const getDefinitionsForReview = async (domainId: number, limit?: number):
     ? `${API_URL}/api/progress/domains/${domainId}/review?limit=${limit}` 
     : `${API_URL}/api/progress/domains/${domainId}/review`;
     
-  const response = await fetch(url, {
+  const response = await observedFetch(url, {
     headers: getAuthHeaders(),
   });
   
@@ -1966,7 +1976,7 @@ export const getDefinitionsForReview = async (domainId: number, limit?: number):
 
 // Study Session API
 export const startSession = async (domainId: number): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/sessions/start`, {
+  const response = await observedFetch(`${API_URL}/api/sessions/start`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -1979,7 +1989,7 @@ export const startSession = async (domainId: number): Promise<any> => {
 };
 
 export const endSession = async (sessionId: number): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/end`, {
+  const response = await observedFetch(`${API_URL}/api/sessions/${sessionId}/end`, {
     method: 'PUT',
     headers: getAuthHeaders(),
   });
@@ -1988,7 +1998,7 @@ export const endSession = async (sessionId: number): Promise<any> => {
 };
 
 export const getSessions = async (): Promise<any[]> => {
-  const response = await fetch(`${API_URL}/api/sessions`, {
+  const response = await observedFetch(`${API_URL}/api/sessions`, {
     headers: getAuthHeaders(),
   });
   
@@ -1996,7 +2006,7 @@ export const getSessions = async (): Promise<any[]> => {
 };
 
 export const getSessionDetails = async (sessionId: number): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+  const response = await observedFetch(`${API_URL}/api/sessions/${sessionId}`, {
     headers: getAuthHeaders(),
   });
   
@@ -2005,7 +2015,7 @@ export const getSessionDetails = async (sessionId: number): Promise<any> => {
 
 // Graph API
 export const getVisualGraph = async (domainId: number): Promise<VisualGraph> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/graph`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/graph`, {
     headers: getAuthHeaders(),
   });
   
@@ -2013,7 +2023,7 @@ export const getVisualGraph = async (domainId: number): Promise<VisualGraph> => 
 };
 
 export const updateGraphPositions = async (domainId: number, positions: Record<string, { x: number; y: number }>): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/graph/positions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/graph/positions`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -2027,7 +2037,7 @@ export const updateGraphPositions = async (domainId: number, positions: Record<s
 
 // Sources API
 export const getDomainSources = async (domainId: number): Promise<SourceDTO[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/sources?scope=visible`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/sources?scope=visible`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 404) return [];
@@ -2035,7 +2045,7 @@ export const getDomainSources = async (domainId: number): Promise<SourceDTO[]> =
 };
 
 export const createSource = async (domainId: number, payload: Partial<SourceDTO>): Promise<SourceDTO> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/sources`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/sources`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2050,14 +2060,14 @@ export const createSource = async (domainId: number, payload: Partial<SourceDTO>
 };
 
 export const getSource = async (sourceId: number): Promise<SourceDTO> => {
-  const response = await fetch(`${API_URL}/api/sources/${sourceId}`, {
+  const response = await observedFetch(`${API_URL}/api/sources/${sourceId}`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
 };
 
 export const updateSource = async (sourceId: number, payload: Partial<SourceDTO>): Promise<SourceDTO> => {
-  const response = await fetch(`${API_URL}/api/sources/${sourceId}`, {
+  const response = await observedFetch(`${API_URL}/api/sources/${sourceId}`, {
     method: 'PATCH',
     headers: {
       ...getAuthHeaders(),
@@ -2069,7 +2079,7 @@ export const updateSource = async (sourceId: number, payload: Partial<SourceDTO>
 };
 
 export const deleteSource = async (sourceId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/sources/${sourceId}`, {
+  const response = await observedFetch(`${API_URL}/api/sources/${sourceId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -2078,7 +2088,7 @@ export const deleteSource = async (sourceId: number): Promise<void> => {
 
 // Quests API
 export const getDomainQuests = async (domainId: number): Promise<MetaQuestDTO[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/quests?scope=visible`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/quests?scope=visible`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 404) return [];
@@ -2086,7 +2096,7 @@ export const getDomainQuests = async (domainId: number): Promise<MetaQuestDTO[]>
 };
 
 export const createQuest = async (domainId: number, payload: Partial<MetaQuestDTO> & { initialVersion: QuestVersionDTO }): Promise<MetaQuestDTO> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/quests`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/quests`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2101,14 +2111,14 @@ export const createQuest = async (domainId: number, payload: Partial<MetaQuestDT
 };
 
 export const getQuest = async (questId: number): Promise<MetaQuestDTO> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
 };
 
 export const updateQuest = async (questId: number, payload: Partial<MetaQuestDTO> & { active?: boolean }): Promise<MetaQuestDTO> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}`, {
     method: 'PATCH',
     headers: {
       ...getAuthHeaders(),
@@ -2120,7 +2130,7 @@ export const updateQuest = async (questId: number, payload: Partial<MetaQuestDTO
 };
 
 export const deleteQuest = async (questId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -2128,7 +2138,7 @@ export const deleteQuest = async (questId: number): Promise<void> => {
 };
 
 export const addQuestVersion = async (questId: number, payload: QuestVersionDTO): Promise<QuestVersionDTO> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}/versions`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}/versions`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2140,7 +2150,7 @@ export const addQuestVersion = async (questId: number, payload: QuestVersionDTO)
 };
 
 export const updateQuestVersion = async (questId: number, versionId: number, payload: QuestVersionDTO): Promise<QuestVersionDTO> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}/versions/${versionId}`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}/versions/${versionId}`, {
     method: 'PATCH',
     headers: {
       ...getAuthHeaders(),
@@ -2152,7 +2162,7 @@ export const updateQuestVersion = async (questId: number, versionId: number, pay
 };
 
 export const deleteQuestVersion = async (questId: number, versionId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}/versions/${versionId}`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}/versions/${versionId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -2160,7 +2170,7 @@ export const deleteQuestVersion = async (questId: number, versionId: number): Pr
 };
 
 export const updateQuestRelevantLinks = async (questId: number, versionId: number, payload: Array<{ relationType: string; toType: string; toCode: string }>): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/quests/${questId}/versions/${versionId}/relevant`, {
+  const response = await observedFetch(`${API_URL}/api/quests/${questId}/versions/${versionId}/relevant`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -2173,7 +2183,7 @@ export const updateQuestRelevantLinks = async (questId: number, versionId: numbe
 
 // Relations API
 export const getDomainRelations = async (domainId: number): Promise<NodeRelationDTO[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/relations?scope=visible`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/relations?scope=visible`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 404) return [];
@@ -2181,7 +2191,7 @@ export const getDomainRelations = async (domainId: number): Promise<NodeRelation
 };
 
 export const createRelation = async (domainId: number, payload: Partial<NodeRelationDTO>): Promise<NodeRelationDTO> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/relations`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/relations`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2193,7 +2203,7 @@ export const createRelation = async (domainId: number, payload: Partial<NodeRela
 };
 
 export const deleteRelation = async (relationId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/relations/${relationId}`, {
+  const response = await observedFetch(`${API_URL}/api/relations/${relationId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -2202,7 +2212,7 @@ export const deleteRelation = async (relationId: number): Promise<void> => {
 
 // Survey API
 export const getSurveyQueue = async (domainId: number): Promise<SurveyQueueItem[]> => {
-  const response = await fetch(`${API_URL}/api/survey/domains/${domainId}/queue`, {
+  const response = await observedFetch(`${API_URL}/api/survey/domains/${domainId}/queue`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 404) return [];
@@ -2210,7 +2220,7 @@ export const getSurveyQueue = async (domainId: number): Promise<SurveyQueueItem[
 };
 
 export const getSurveyStats = async (domainId: number): Promise<{ dueQuests: number }> => {
-  const response = await fetch(`${API_URL}/api/survey/domains/${domainId}/stats`, {
+  const response = await observedFetch(`${API_URL}/api/survey/domains/${domainId}/stats`, {
     headers: getAuthHeaders(),
   });
   if (response.status === 404) return { dueQuests: 0 };
@@ -2218,7 +2228,7 @@ export const getSurveyStats = async (domainId: number): Promise<{ dueQuests: num
 };
 
 export const postSurveyEvent = async (payload: SurveyEventRequest): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/survey/events`, {
+  const response = await observedFetch(`${API_URL}/api/survey/events`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2231,7 +2241,7 @@ export const postSurveyEvent = async (payload: SurveyEventRequest): Promise<void
 
 // Group API
 export const getDomainGroups = async (domainId: number): Promise<GroupData[]> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/groups`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/groups`, {
     headers: getAuthHeaders(),
   });
 
@@ -2239,7 +2249,7 @@ export const getDomainGroups = async (domainId: number): Promise<GroupData[]> =>
 };
 
 export const createDomainGroup = async (domainId: number, payload: GroupCreateRequest): Promise<GroupData> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/groups`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/groups`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2252,7 +2262,7 @@ export const createDomainGroup = async (domainId: number, payload: GroupCreateRe
 };
 
 export const updateGroup = async (groupId: number, payload: GroupUpdateRequest): Promise<GroupData> => {
-  const response = await fetch(`${API_URL}/api/groups/${groupId}`, {
+  const response = await observedFetch(`${API_URL}/api/groups/${groupId}`, {
     method: 'PATCH',
     headers: {
       ...getAuthHeaders(),
@@ -2265,7 +2275,7 @@ export const updateGroup = async (groupId: number, payload: GroupUpdateRequest):
 };
 
 export const deleteGroup = async (groupId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/groups/${groupId}`, {
+  const response = await observedFetch(`${API_URL}/api/groups/${groupId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -2274,7 +2284,7 @@ export const deleteGroup = async (groupId: number): Promise<void> => {
 };
 
 export const updateGroupState = async (groupId: number, collapsed: boolean): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/groups/${groupId}/state`, {
+  const response = await observedFetch(`${API_URL}/api/groups/${groupId}/state`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -2287,7 +2297,7 @@ export const updateGroupState = async (groupId: number, collapsed: boolean): Pro
 };
 
 export const updateGroupPositions = async (domainId: number, positions: Record<string, { x: number; y: number }>): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/groups/positions`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/groups/positions`, {
     method: 'PUT',
     headers: {
       ...getAuthHeaders(),
@@ -2300,7 +2310,7 @@ export const updateGroupPositions = async (domainId: number, positions: Record<s
 };
 
 export const exportDomain = async (domainId: number): Promise<GraphData> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/export`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/export`, {
     headers: getAuthHeaders(),
   });
   
@@ -2308,7 +2318,7 @@ export const exportDomain = async (domainId: number): Promise<GraphData> => {
 };
 
 export const importDomain = async (domainId: number, graphData: GraphData): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/import`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/import`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -2328,7 +2338,7 @@ export const importDomain = async (domainId: number, graphData: GraphData): Prom
  * @returns Promise resolving to the export data
  */
 export const exportDomainAsJson = async (domainId: number): Promise<DomainExportData> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/export-data`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/export-data`, {
     headers: getAuthHeaders(),
   });
   
@@ -2339,7 +2349,7 @@ export const exportDomainAsJson = async (domainId: number): Promise<DomainExport
  * Downloads a full domain backup (zip)
  */
 export const fetchDomainBackup = async (domainId: number): Promise<Blob> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/backup`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/backup`, {
     headers: getAuthHeaders(),
   });
 
@@ -2364,7 +2374,7 @@ export const importDomainBackup = async (domainId: number, file: File): Promise<
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/import-backup`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/import-backup`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2391,7 +2401,7 @@ export const importToDomain = async (
     ? `${API_URL}/api/domains/${domainId}/import?onDuplicate=${opts.onDuplicate}`
     : `${API_URL}/api/domains/${domainId}/import`;
 
-  const response = await fetch(url, {
+  const response = await observedFetch(url, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -2424,7 +2434,7 @@ export const createDomainWithImport = async (
     importData,
   };
 
-  const response = await fetch(`${API_URL}/api/domains`, {
+  const response = await observedFetch(`${API_URL}/api/domains`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -2673,7 +2683,7 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
 
 // Health check API
 export const checkHealth = async (): Promise<{ status: string }> => {
-  const response = await fetch(`${API_URL}/health`);
+  const response = await observedFetch(`${API_URL}/health`);
   return handleResponse(response);
 };
 
@@ -2700,7 +2710,7 @@ export const parseDescriptions = (description: string): string[] => {
  * @returns Promise resolving to the updated VisualGraph data
  */
 export const refreshGraphData = async (domainId: number): Promise<VisualGraph> => {
-  const response = await fetch(`${API_URL}/api/domains/${domainId}/graph`, {
+  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/graph`, {
     headers: getAuthHeaders(),
   });
   
@@ -2714,7 +2724,7 @@ export const refreshGraphData = async (domainId: number): Promise<VisualGraph> =
  */
 export const getDomainLinks = async (domainIds?: number[]): Promise<DomainLink[]> => {
   const params = domainIds && domainIds.length > 0 ? `?domainIds=${domainIds.join(',')}` : '';
-  const response = await fetch(`${API_URL}/api/network/links${params}`, {
+  const response = await observedFetch(`${API_URL}/api/network/links${params}`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
@@ -2724,7 +2734,7 @@ export const getDomainLinks = async (domainIds?: number[]): Promise<DomainLink[]
  * Creates a user-defined link between two domains
  */
 export const createDomainLink = async (domainId1: number, domainId2: number): Promise<DomainLink> => {
-  const response = await fetch(`${API_URL}/api/network/links`, {
+  const response = await observedFetch(`${API_URL}/api/network/links`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -2739,7 +2749,7 @@ export const createDomainLink = async (domainId1: number, domainId2: number): Pr
  * Deletes a user-defined link by ID
  */
 export const deleteDomainLink = async (linkId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/network/links/${linkId}`, {
+  const response = await observedFetch(`${API_URL}/api/network/links/${linkId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });

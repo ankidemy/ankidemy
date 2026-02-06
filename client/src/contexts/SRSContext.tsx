@@ -342,7 +342,10 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Load SRS data with timeout protection
       const dataPromise = Promise.allSettled([
         srsApi.getDomainProgress(domainId),
-        srsApi.getDomainStats(domainId),
+        srsApi.getDomainStats(domainId, {
+          component: "SRSContext.loadDomainData",
+          action: "domain-load",
+        }),
         srsApi.getDomainPrerequisites(domainId),
         srsApi.getDueReviews(domainId, 'mixed')
       ]);
@@ -567,7 +570,10 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Doing this separately is faster than a full domain data reload
       try {
         const [stats, dueReviewsResult] = await Promise.allSettled([
-            srsApi.getDomainStats(domainId),
+            srsApi.getDomainStats(domainId, {
+              component: "SRSContext.submitReview",
+              action: "post-review-refresh",
+            }),
             // Fetch reviews based on the session type if in a session, otherwise mixed
             srsApi.getDueReviews(domainId, review.sessionId ? currentSession?.sessionType : 'mixed')
         ]);
@@ -688,7 +694,10 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (domainId !== null) {
              // Still attempt to refresh stats if domain is set
              try {
-                const stats = await srsApi.getDomainStats(domainId);
+                const stats = await srsApi.getDomainStats(domainId, {
+                  component: "SRSContext.endStudySession",
+                  action: "refresh-without-active-session",
+                });
                 dispatch({ type: 'SET_DOMAIN_STATS', payload: stats });
                 // Also refresh due reviews to the full mixed queue
                 await loadDueReviews('mixed');
@@ -706,7 +715,10 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Refresh domain stats after session ends
       if(domainId !== null) {
         try {
-          const stats = await srsApi.getDomainStats(domainId);
+          const stats = await srsApi.getDomainStats(domainId, {
+            component: "SRSContext.endStudySession",
+            action: "refresh-after-end-session",
+          });
           dispatch({ type: 'SET_DOMAIN_STATS', payload: stats });
           // Also refresh due reviews to the full mixed queue
           await loadDueReviews('mixed');

@@ -79,6 +79,7 @@ func main() {
 	codeRegistryDAO := dao.NewCodeRegistryDAO(db)
 	surveyService := services.NewSurveyService(db)
 	userDomainSettingsDAO := dao.NewUserDomainSettingsDAO(db)
+	pgStatStatementsDAO := dao.NewPGStatStatementsDAO(db)
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -116,9 +117,11 @@ func main() {
 	relationHandler := handlers.NewRelationHandler(relationDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO, sourceDAO, metaQuestDAO)
 	surveyHandler := handlers.NewSurveyHandler(domainDAO, permissionDAO, metaQuestDAO, surveyService)
 	userDomainSettingsHandler := handlers.NewUserDomainSettingsHandler(domainDAO, permissionDAO, userDomainSettingsDAO)
+	adminObservabilityHandler := handlers.NewAdminObservabilityHandler(pgStatStatementsDAO)
 
 	// Initialize router
 	router := gin.Default()
+	router.Use(middleware.RequestObservability())
 
 	// Configure CORS for direct client-server communication
 	config := cors.DefaultConfig()
@@ -136,7 +139,16 @@ func main() {
 
 	config.AllowOrigins = allowedOrigins
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	config.AllowHeaders = []string{
+		"Origin",
+		"Content-Length",
+		"Content-Type",
+		"Authorization",
+		"X-Client-Component",
+		"X-Client-Action",
+		"X-Request-ID",
+	}
+	config.ExposeHeaders = []string{"X-Request-ID"}
 	router.Use(cors.New(config))
 
 	// Health check endpoint
@@ -406,6 +418,7 @@ func main() {
 			admin.Use(middleware.AdminRequired())
 			{
 				admin.GET("/users", userHandler.GetAllUsers)
+				admin.GET("/db/query-stats", adminObservabilityHandler.GetDBQueryStats)
 				// Add other admin routes here
 			}
 		}

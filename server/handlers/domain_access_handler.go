@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
+	"myapp/server/middleware"
 	"myapp/server/models"
 )
 
@@ -382,7 +383,7 @@ func (h *DomainAccessHandler) ListMyInvites(c *gin.Context) {
 		return
 	}
 
-	invites, err := h.inviteDAO.ListPendingForUser(userID)
+	invites, err := h.inviteDAO.ListPendingForUser(userID, middleware.GetRequestID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve invites"})
 		return

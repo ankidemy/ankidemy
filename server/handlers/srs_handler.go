@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"myapp/server/dao"
+	"myapp/server/middleware"
 	"myapp/server/models"
 	"myapp/server/services"
 )
@@ -263,7 +264,7 @@ func (h *SRSHandler) GetDomainStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.srsDao.GetDomainStats(userID.(uint), uint(domainID))
+	stats, err := h.srsDao.GetDomainStats(userID.(uint), uint(domainID), middleware.GetRequestID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve domain statistics"})
 		return

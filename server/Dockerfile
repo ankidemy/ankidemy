@@ -38,7 +38,7 @@ RUN mkdir -p /app/media
 EXPOSE 8765
 
 # Health check - port must match SERVER_PORT environment variable
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=60s --timeout=10s --start-period=15s --retries=3 \
   CMD wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1
 
 # Run with lower privileges

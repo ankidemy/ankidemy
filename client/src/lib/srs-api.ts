@@ -18,6 +18,7 @@ import {
 
 // FIX: Import required functions from api.ts
 import { getVisualGraph } from './api';
+import { observedFetch, type RequestObservabilityMeta } from './http-observability';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
 
@@ -97,7 +98,7 @@ const handleSRSResponse = async (response: Response) => {
 
 
 export const getDomainProgress = async (domainId: number): Promise<NodeProgress[]> => {
-  const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/progress`, {
+  const response = await observedFetch(`${API_URL}/api/srs/domains/${domainId}/progress`, {
     headers: getAuthHeaders(),
   });
   const data = await handleSRSResponse(response);
@@ -116,10 +117,17 @@ export const getDomainProgress = async (domainId: number): Promise<NodeProgress[
 };
   
 // Get domain statistics
-export const getDomainStats = async (domainId: number): Promise<DomainStats> => {
-  const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/stats`, {
-    headers: getAuthHeaders(),
-  });
+export const getDomainStats = async (
+  domainId: number,
+  requestMeta?: RequestObservabilityMeta,
+): Promise<DomainStats> => {
+  const response = await observedFetch(
+    `${API_URL}/api/srs/domains/${domainId}/stats`,
+    {
+      headers: getAuthHeaders(),
+    },
+    requestMeta,
+  );
   return handleSRSResponse(response);
 };
 
@@ -129,7 +137,7 @@ export const updateNodeStatus = async (
   nodeType: 'definition' | 'exercise', 
   status: NodeStatus
 ): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/srs/nodes/status`, {
+  const response = await observedFetch(`${API_URL}/api/srs/nodes/status`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -147,7 +155,7 @@ export const updateNodeStatus = async (
 // Enhanced submitReview function with retry logic for credit constraint errors
 export const submitReview = async (review: ReviewRequest): Promise<ReviewResponse> => {
   try {
-    const response = await fetch(`${API_URL}/api/srs/reviews`, {
+    const response = await observedFetch(`${API_URL}/api/srs/reviews`, {
       method: 'POST',
       headers: { 
         ...getAuthHeaders(),
@@ -178,7 +186,7 @@ export const getDueReviews = async (
   domainId: number, 
   type: SessionType = 'mixed'
 ): Promise<{ dueNodes: DueReview[] }> => {
-  const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/due?type=${type}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/domains/${domainId}/due?type=${type}`, {
     headers: getAuthHeaders(),
   });
   return handleSRSResponse(response);
@@ -199,7 +207,7 @@ export const getReviewQueue = async (
     search.set('exercisesPerDefinition', String(params.exercisesPerDefinition));
   }
   const query = search.toString();
-  const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/review-queue${query ? `?${query}` : ''}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/domains/${domainId}/review-queue${query ? `?${query}` : ''}`, {
     headers: getAuthHeaders(),
   });
   return handleSRSResponse(response);
@@ -219,7 +227,7 @@ export const getReviewHistory = async (
   if (nodeType) params.append('nodeType', nodeType);
   params.append('limit', limit.toString());
 
-  const response = await fetch(`${API_URL}/api/srs/reviews/history?${params.toString()}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/reviews/history?${params.toString()}`, {
     headers: getAuthHeaders(),
   });
   const data = await handleSRSResponse(response);
@@ -235,7 +243,7 @@ export const startStudySession = async (
   domainId: number, 
   sessionType: SessionType
 ): Promise<StudySession> => {
-  const response = await fetch(`${API_URL}/api/srs/sessions`, {
+  const response = await observedFetch(`${API_URL}/api/srs/sessions`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -248,7 +256,7 @@ export const startStudySession = async (
 
 // End a study session
 export const endStudySession = async (sessionId: number): Promise<StudySession> => {
-  const response = await fetch(`${API_URL}/api/srs/sessions/${sessionId}/end`, {
+  const response = await observedFetch(`${API_URL}/api/srs/sessions/${sessionId}/end`, {
     method: 'PUT',
     headers: getAuthHeaders(),
   });
@@ -257,7 +265,7 @@ export const endStudySession = async (sessionId: number): Promise<StudySession> 
 
 // Get user's study sessions
 export const getUserSessions = async (limit: number = 20): Promise<StudySession[]> => {
-  const response = await fetch(`${API_URL}/api/srs/sessions?limit=${limit}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/sessions?limit=${limit}`, {
     headers: getAuthHeaders(),
   });
   const data = await handleSRSResponse(response);
@@ -270,7 +278,7 @@ export const getUserSessions = async (limit: number = 20): Promise<StudySession[
 
 // Get domain prerequisites
 export const getDomainPrerequisites = async (domainId: number): Promise<NodePrerequisite[]> => {
-  const response = await fetch(`${API_URL}/api/srs/domains/${domainId}/prerequisites`, {
+  const response = await observedFetch(`${API_URL}/api/srs/domains/${domainId}/prerequisites`, {
     headers: getAuthHeaders(),
   });
   const data = await handleSRSResponse(response);
@@ -286,7 +294,7 @@ export const createPrerequisite = async (prerequisite: {
   weight: number;
   isManual: boolean;
 }): Promise<NodePrerequisite> => {
-  const response = await fetch(`${API_URL}/api/srs/prerequisites`, {
+  const response = await observedFetch(`${API_URL}/api/srs/prerequisites`, {
     method: 'POST',
     headers: {
       ...getAuthHeaders(),
@@ -302,7 +310,7 @@ export const updatePrerequisite = async (
   prerequisiteId: number,
   updates: { weight?: number; isManual?: boolean }
 ): Promise<NodePrerequisite> => {
-  const response = await fetch(`${API_URL}/api/srs/prerequisites/${prerequisiteId}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/prerequisites/${prerequisiteId}`, {
     method: 'PUT',
     headers: { 
       ...getAuthHeaders(),
@@ -315,7 +323,7 @@ export const updatePrerequisite = async (
 
 // Delete a prerequisite relationship
 export const deletePrerequisite = async (prerequisiteId: number): Promise<void> => {
-  const response = await fetch(`${API_URL}/api/srs/prerequisites/${prerequisiteId}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/prerequisites/${prerequisiteId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
@@ -332,7 +340,7 @@ export const testCreditPropagation = async (
   nodeId: number,
   success: boolean
 ): Promise<CreditUpdate[]> => {
-  const response = await fetch(`${API_URL}/api/srs/debug/test-propagation`, {
+  const response = await observedFetch(`${API_URL}/api/srs/debug/test-propagation`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
@@ -349,7 +357,7 @@ export const calculateReviewImpact = async (
   domainId: number,
   nodeId: number
 ): Promise<{ impact: number; affectedNodes: number[] }> => {
-  const response = await fetch(`${API_URL}/api/srs/nodes/${nodeId}/impact?domainId=${domainId}`, {
+  const response = await observedFetch(`${API_URL}/api/srs/nodes/${nodeId}/impact?domainId=${domainId}`, {
     headers: getAuthHeaders(),
   });
   return handleSRSResponse(response);

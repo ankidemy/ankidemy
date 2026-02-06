@@ -35,7 +35,10 @@ export default function DomainInvitationsPage() {
       }
 
       try {
-        const data = await getPendingDomainInvites();
+        const data = await getPendingDomainInvites({
+          component: "DomainInvitationsPage.useEffect",
+          action: "initial-invite-load",
+        });
         setInvites(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Failed to load invites:', error);
@@ -60,7 +63,10 @@ export default function DomainInvitationsPage() {
     if (processingIds.has(invite.id)) return;
     markProcessing(invite.id, true);
     try {
-      await acceptDomainInvite(invite.id);
+      await acceptDomainInvite(invite.id, {
+        component: "DomainInvitationsPage.handleAccept",
+        action: "accept-invite",
+      });
       setInvites(prev => prev.filter(item => item.id !== invite.id));
       showToast(`Accepted invite to "${invite.domainName}"`, 'success');
     } catch (error: any) {
@@ -76,7 +82,10 @@ export default function DomainInvitationsPage() {
     if (processingIds.has(invite.id)) return;
     markProcessing(invite.id, true);
     try {
-      await declineDomainInvite(invite.id);
+      await declineDomainInvite(invite.id, {
+        component: "DomainInvitationsPage.handleDecline",
+        action: "decline-invite",
+      });
       setInvites(prev => prev.filter(item => item.id !== invite.id));
       showToast(`Declined invite to "${invite.domainName}"`, 'success');
     } catch (error: any) {

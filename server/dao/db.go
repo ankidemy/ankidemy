@@ -92,6 +92,7 @@ func InitDB() (*gorm.DB, error) {
 
 	// Ensure DB check constraints support the new 'meta_exercise' node type
 	ensureSRSConstraints(db)
+	ensurePGStatStatements(db)
 
 	// Ensure domain_node_codes are populated for existing nodes
 	if err := ensureDomainNodeCodes(db); err != nil {
