@@ -6,9 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "lint:fix": "next lint --fix",
-    "dev:no-lint": "NEXT_LINT=false next dev",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "dev:no-lint": "next dev",
     "test:kg": "node -e \"require('fs').rmSync('.tmp-tests',{ recursive: true, force: true })\" && tsc -p tsconfig.graph-tests.json && node -e \"const fs=require('fs');fs.mkdirSync('.tmp-tests/node_modules/@/lib',{recursive:true});fs.copyFileSync('.tmp-tests/tests/knowledge-graph/stubs/srs-api.js','.tmp-tests/node_modules/@/lib/srs-api.js');\" && node --test .tmp-tests/tests/knowledge-graph/*.test.js"
   },
   "dependencies": {
@@ -22,9 +22,9 @@
     "d3": "latest",
     "katex": "^0.16.11",
     "lucide-react": "^0.476.0",
-    "next": "^15.5.7",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "^16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "react-force-graph-2d": "latest",
     "react-markdown": "^9.0.1",
     "rehype-katex": "^7.0.0",
@@ -39,12 +39,11 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
     "@types/node": "20.17.21",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
     "eslint": "^9",
-    "eslint-config-next": "15.5.7",
+    "eslint-config-next": "^16.1.6",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "5.7.3"

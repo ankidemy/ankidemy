@@ -1,7 +1,7 @@
 // File: src/app/components/Graph/details/ExerciseView.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Card, CardContent } from "@/app/components/core/card";
 import { MarkdownKatex, InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
@@ -32,7 +32,7 @@ interface ExerciseViewProps {
   descriptionImagePath?: string;
 }
 
-const ExerciseView: React.FC<ExerciseViewProps> = ({
+const ExerciseViewContent: React.FC<ExerciseViewProps> = ({
   exercise,
   showSolution,
   onToggleSolution,
@@ -58,12 +58,6 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
   const [showAnswerSection, setShowAnswerSection] = useState(false);
   const [showRating, setShowRating] = useState(false);
   const canReview = srsStatus === 'grasped' || srsStatus === 'learned';
-
-  useEffect(() => {
-    setShowAnswerSection(false);
-    setAnswerPreview(false);
-    setShowRating(false);
-  }, [exercise.id]);
 
   const qualityRatingButtons = [
     { label: 'Again', value: 'again', color: 'bg-red-50 hover:bg-red-100 border-red-200' },
@@ -326,6 +320,10 @@ const ExerciseView: React.FC<ExerciseViewProps> = ({
       </div>
     </>
   );
+};
+
+const ExerciseView: React.FC<ExerciseViewProps> = (props) => {
+  return <ExerciseViewContent key={props.exercise.id} {...props} />;
 };
 
 export default ExerciseView;
