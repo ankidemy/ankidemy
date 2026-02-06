@@ -1,5 +1,7 @@
 export type AppNotificationPreferences = {
   surveyQueueSoundEnabled?: boolean;
+  dueReviewBatchSoundEnabled?: boolean;
+  dueReviewBatchSize?: number;
 };
 
 export type AppPreferences = {
@@ -12,11 +14,14 @@ export type AppPreferencesPatch = {
 };
 
 const STORAGE_KEY = 'ankidemy:app-preferences:v1';
+const DEFAULT_DUE_REVIEW_BATCH_SIZE = 10;
 
 const DEFAULT_APP_PREFERENCES: AppPreferences = {
   version: 1,
   notifications: {
     surveyQueueSoundEnabled: true,
+    dueReviewBatchSoundEnabled: true,
+    dueReviewBatchSize: DEFAULT_DUE_REVIEW_BATCH_SIZE,
   },
 };
 
@@ -65,3 +70,17 @@ export const updateAppPreferences = (patch: AppPreferencesPatch): AppPreferences
 
 export const isSurveyQueueSoundEnabled = (): boolean =>
   loadAppPreferences().notifications?.surveyQueueSoundEnabled !== false;
+
+export const isDueReviewBatchSoundEnabled = (): boolean =>
+  loadAppPreferences().notifications?.dueReviewBatchSoundEnabled !== false;
+
+const normalizeDueReviewBatchSize = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_DUE_REVIEW_BATCH_SIZE;
+  const normalized = Math.floor(parsed);
+  if (normalized < 1) return DEFAULT_DUE_REVIEW_BATCH_SIZE;
+  return normalized;
+};
+
+export const getDueReviewBatchSize = (): number =>
+  normalizeDueReviewBatchSize(loadAppPreferences().notifications?.dueReviewBatchSize);

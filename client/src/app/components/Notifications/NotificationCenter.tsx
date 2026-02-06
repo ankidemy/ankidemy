@@ -12,7 +12,7 @@ interface NotificationCenterProps {
 const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainId }) => {
   const {
     notifications,
-    domainDueCounts,
+    domainAlertDueCounts,
     unreadCount,
     readCounts,
     loading,
@@ -25,17 +25,31 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
 
   const suppressedUnreadCount = useMemo(() => {
     if (!suppressDomainId) return 0;
-    const dueCount = domainDueCounts[suppressDomainId] ?? 0;
+    const dueCount = domainAlertDueCounts[suppressDomainId] ?? 0;
     const lastRead = readCounts[suppressDomainId] ?? 0;
     return dueCount > lastRead ? dueCount : 0;
-  }, [suppressDomainId, domainDueCounts, readCounts]);
+  }, [suppressDomainId, domainAlertDueCounts, readCounts]);
 
   const badgeCount = Math.max(unreadCount - suppressedUnreadCount, 0);
+  const hasApproximateUnreadDue = useMemo(() => {
+    return notifications.some((notification) => {
+      if (notification.kind !== "domain-review-due") return false;
+      const domainId = notification.meta?.domainId;
+      if (typeof domainId !== "number") return false;
+      if (suppressDomainId && domainId === suppressDomainId) return false;
+      const dueCount = domainAlertDueCounts[domainId] ?? 0;
+      const lastRead = readCounts[domainId] ?? 0;
+      if (dueCount <= lastRead) return false;
+      const dueLabel = notification.meta?.dueLabel;
+      return typeof dueLabel === "string" && dueLabel.endsWith("+");
+    });
+  }, [notifications, suppressDomainId, domainAlertDueCounts, readCounts]);
 
   const badgeText = useMemo(() => {
     if (badgeCount > 99) return "99+";
+    if (badgeCount > 0 && hasApproximateUnreadDue) return `${badgeCount}+`;
     return badgeCount.toString();
-  }, [badgeCount]);
+  }, [badgeCount, hasApproximateUnreadDue]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -68,7 +82,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
   }, []);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative pr-3" ref={containerRef}>
       <button
         type="button"
         onClick={() => setOpen(prev => !prev)}
@@ -77,7 +91,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
       >
         <Bell size={18} />
         {badgeCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full bg-orange-500 text-white text-[10px] font-semibold flex items-center justify-center">
+          <span className="absolute -top-1 -right-3 min-w-[1.25rem] h-5 px-1 rounded-full bg-orange-500 text-white text-[10px] font-semibold flex items-center justify-center">
             {badgeText}
           </span>
         )}
@@ -133,7 +147,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
                             {notification.meta?.dueCount !== undefined &&
                               (!suppressDomainId || notification.meta?.domainId !== suppressDomainId) && (
                               <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
-                                {notification.meta.dueCount}
+                                {notification.meta.dueLabel || notification.meta.dueCount}
                               </span>
                             )}
                           </div>

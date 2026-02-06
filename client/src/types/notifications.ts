@@ -10,6 +10,7 @@ export interface NotificationItem {
   meta?: {
     domainId?: number;
     dueCount?: number;
+    dueLabel?: string;
     inviteId?: number;
   };
 }

@@ -7,12 +7,15 @@ import { Button } from '@/app/components/core/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/app/components/core/card';
 import { getCurrentUser } from '@/lib/api';
 import { AppPreferences, loadAppPreferences, updateAppPreferences } from '@/lib/app-preferences';
+import { playDueReviewNotificationSound } from '@/lib/due-review-notification-sound';
 import { playSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 
 const DEFAULT_PREFERENCES: AppPreferences = {
   version: 1,
   notifications: {
     surveyQueueSoundEnabled: true,
+    dueReviewBatchSoundEnabled: true,
+    dueReviewBatchSize: 10,
   },
 };
 
@@ -41,11 +44,36 @@ export default function SettingsPage() {
   }, [router]);
 
   const surveySoundEnabled = preferences.notifications?.surveyQueueSoundEnabled !== false;
+  const dueReviewSoundEnabled = preferences.notifications?.dueReviewBatchSoundEnabled !== false;
+  const dueReviewBatchSize = (() => {
+    const parsed = Number(preferences.notifications?.dueReviewBatchSize ?? 10);
+    if (!Number.isFinite(parsed)) return 10;
+    return Math.max(1, Math.floor(parsed));
+  })();
 
   const handleSurveySoundToggle = (enabled: boolean) => {
     const next = updateAppPreferences({
       notifications: {
         surveyQueueSoundEnabled: enabled,
+      },
+    });
+    setPreferences(next);
+  };
+
+  const handleDueReviewSoundToggle = (enabled: boolean) => {
+    const next = updateAppPreferences({
+      notifications: {
+        dueReviewBatchSoundEnabled: enabled,
+      },
+    });
+    setPreferences(next);
+  };
+
+  const handleDueReviewBatchSizeChange = (value: number) => {
+    const safeValue = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 10;
+    const next = updateAppPreferences({
+      notifications: {
+        dueReviewBatchSize: safeValue,
       },
     });
     setPreferences(next);
@@ -102,6 +130,57 @@ export default function SettingsPage() {
               onClick={playSurveyQueueNotificationSound}
             >
               Play Test Sound
+            </Button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-md border border-gray-200 p-4">
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-gray-900">
+                Top Notifications Sound Alerts
+              </div>
+              <p className="text-xs text-gray-600">
+                Play a subtle sound when due reviews reach each configured batch threshold.
+              </p>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={dueReviewSoundEnabled}
+                onChange={(event) => handleDueReviewSoundToggle(event.target.checked)}
+              />
+              <span className="text-xs text-gray-700">{dueReviewSoundEnabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-md border border-gray-200 p-4">
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-gray-900">
+                Due Alert Batch Size
+              </div>
+              <p className="text-xs text-gray-600">
+                Alerts trigger at multiples of this value (for example: 10, 20, 30).
+              </p>
+            </div>
+            <input
+              type="number"
+              min={1}
+              value={dueReviewBatchSize}
+              onChange={(event) => handleDueReviewBatchSizeChange(Number(event.target.value))}
+              className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border border-gray-200 p-4">
+            <div className="text-xs text-gray-600">
+              Test the top notifications alert sound.
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={playDueReviewNotificationSound}
+            >
+              Play Due Alert Sound
             </Button>
           </div>
         </CardContent>
