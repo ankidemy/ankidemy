@@ -416,36 +416,62 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
     // Due indicator animation
     if (isDue && !isGroup) {
-      const isGraspedDue = status === 'grasped';
       const time = Date.now();
-      const pulseRadius = nodeSize + 2.5 / globalScale;
-      const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time / 400));
-      const primaryColor = '245, 158, 11';
-      const secondaryColor = '251, 191, 36';
-      
-      ctx.beginPath();
-      ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI, false);
-      ctx.strokeStyle = `rgba(${primaryColor}, ${pulseAlpha})`;
-      ctx.lineWidth = (isGraspedDue ? 3.5 : 3) / globalScale;
-      ctx.stroke();
-      
-      // Secondary pulse ring
-      const secondaryPulse = nodeSize + 4 / globalScale;
-      const secondaryAlpha = 0.2 + 0.4 * Math.abs(Math.sin(time / 600));
-      ctx.beginPath();
-      ctx.arc(x, y, secondaryPulse, 0, 2 * Math.PI, false);
-      ctx.strokeStyle = `rgba(${secondaryColor}, ${secondaryAlpha})`;
-      ctx.lineWidth = (isGraspedDue ? 2 : 1.5) / globalScale;
-      ctx.stroke();
-
-      if (isGraspedDue) {
-        const highlightPulse = nodeSize + 6 / globalScale;
-        const highlightAlpha = 0.2 + 0.3 * Math.abs(Math.sin(time / 500));
+      const isQuestDue = type === 'quest';
+      if (isQuestDue) {
+        const glowRadius = nodeSize + 8 / globalScale;
+        const glowAlpha = 0.14 + 0.14 * Math.abs(Math.sin(time / 420));
         ctx.beginPath();
-        ctx.arc(x, y, highlightPulse, 0, 2 * Math.PI, false);
-        ctx.strokeStyle = `rgba(34, 197, 94, ${highlightAlpha})`;
-        ctx.lineWidth = 1.5 / globalScale;
+        ctx.arc(x, y, glowRadius, 0, 2 * Math.PI, false);
+        ctx.fillStyle = `rgba(239, 68, 68, ${glowAlpha})`;
+        ctx.fill();
+
+        const pulseRadius = nodeSize + 4 / globalScale;
+        const pulseAlpha = 0.45 + 0.45 * Math.abs(Math.sin(time / 320));
+        ctx.beginPath();
+        ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(239, 68, 68, ${pulseAlpha})`;
+        ctx.lineWidth = 2.4 / globalScale;
         ctx.stroke();
+
+        const outerRadius = nodeSize + 9 / globalScale;
+        const outerAlpha = 0.2 + 0.3 * Math.abs(Math.sin(time / 540));
+        ctx.beginPath();
+        ctx.arc(x, y, outerRadius, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(248, 113, 113, ${outerAlpha})`;
+        ctx.lineWidth = 1.8 / globalScale;
+        ctx.stroke();
+      } else {
+        const isGraspedDue = status === 'grasped';
+        const pulseRadius = nodeSize + 2.5 / globalScale;
+        const pulseAlpha = 0.4 + 0.6 * Math.abs(Math.sin(time / 400));
+        const primaryColor = '245, 158, 11';
+        const secondaryColor = '251, 191, 36';
+
+        ctx.beginPath();
+        ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(${primaryColor}, ${pulseAlpha})`;
+        ctx.lineWidth = (isGraspedDue ? 3.5 : 3) / globalScale;
+        ctx.stroke();
+
+        // Secondary pulse ring
+        const secondaryPulse = nodeSize + 4 / globalScale;
+        const secondaryAlpha = 0.2 + 0.4 * Math.abs(Math.sin(time / 600));
+        ctx.beginPath();
+        ctx.arc(x, y, secondaryPulse, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(${secondaryColor}, ${secondaryAlpha})`;
+        ctx.lineWidth = (isGraspedDue ? 2 : 1.5) / globalScale;
+        ctx.stroke();
+
+        if (isGraspedDue) {
+          const highlightPulse = nodeSize + 6 / globalScale;
+          const highlightAlpha = 0.2 + 0.3 * Math.abs(Math.sin(time / 500));
+          ctx.beginPath();
+          ctx.arc(x, y, highlightPulse, 0, 2 * Math.PI, false);
+          ctx.strokeStyle = `rgba(34, 197, 94, ${highlightAlpha})`;
+          ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
       }
     }
 
@@ -545,11 +571,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const isNewlyCreated = newlyCreatedNodeId === node.id;
     const isHighlighted = highlightNodes.has(node.id);
     const isDue = Boolean(node.isDue) && node.type !== 'group';
+    const isQuestDue = isDue && node.type === 'quest';
 
     // Keep pointer hit area aligned with visible node rings and ensure a minimum
     // clickable target when zoomed out.
     let radius = baseRadius;
-    if (isDue) radius = Math.max(radius, baseRadius + 6 / safeScale);
+    if (isDue) radius = Math.max(radius, baseRadius + (isQuestDue ? 9 : 6) / safeScale);
     if (isHighlighted) radius = Math.max(radius, baseRadius + 6 / safeScale);
     if (isSelected) radius = Math.max(radius, baseRadius + 8 / safeScale);
     if (isNewlyCreated) radius = Math.max(radius, baseRadius + 10 / safeScale);

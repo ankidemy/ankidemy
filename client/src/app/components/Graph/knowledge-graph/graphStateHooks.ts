@@ -267,6 +267,8 @@ export const buildGraphMetadataState = (
   codeToNumericIdMap: Map<string, number>,
   groupNodeMetadata: Map<string, NodeMetadata>,
   externalNodeLookup: Map<string, ExternalNodeLookupEntry>,
+  surveyDueQuestCodes: Set<string> = new Set<string>(),
+  hasSurveyQueueSnapshot = false,
 ): GraphMetadataState => {
   const nodeMetadata = new Map<string, NodeMetadata>();
   const linkMetadata = new Map<string, {
@@ -329,10 +331,15 @@ export const buildGraphMetadataState = (
     if (nodeCore.type === 'quest') {
       const quest = quests[nodeId];
       const title = quest?.name?.trim() || 'Quest';
+      const dueAtMs = quest?.nextDueAt ? Date.parse(quest.nextDueAt) : NaN;
+      const isQuestDueFromSchedule = (quest?.active !== false) && Number.isFinite(dueAtMs) && dueAtMs <= Date.now();
+      const isQuestDue = hasSurveyQueueSnapshot
+        ? surveyDueQuestCodes.has(nodeId)
+        : isQuestDueFromSchedule;
       nodeMetadata.set(nodeId, {
         name: title,
         color: 'rgba(245, 158, 11, 0.35)',
-        isDue: false,
+        isDue: isQuestDue,
         daysUntilReview: null,
         progress: null,
       });
@@ -392,6 +399,8 @@ export const useGraphMetadata = (
   codeToNumericIdMap: Map<string, number>,
   groupNodeMetadata: Map<string, NodeMetadata>,
   externalNodeLookup: Map<string, ExternalNodeLookupEntry>,
+  surveyDueQuestCodes: Set<string> = new Set<string>(),
+  hasSurveyQueueSnapshot = false,
 ): GraphMetadataState => {
   return useMemo(
     () => buildGraphMetadataState(
@@ -404,6 +413,8 @@ export const useGraphMetadata = (
       codeToNumericIdMap,
       groupNodeMetadata,
       externalNodeLookup,
+      surveyDueQuestCodes,
+      hasSurveyQueueSnapshot,
     ),
     [
       structureNodes,
@@ -415,6 +426,8 @@ export const useGraphMetadata = (
       codeToNumericIdMap,
       groupNodeMetadata,
       externalNodeLookup,
+      surveyDueQuestCodes,
+      hasSurveyQueueSnapshot,
     ],
   );
 };

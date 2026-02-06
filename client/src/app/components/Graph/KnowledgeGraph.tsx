@@ -39,7 +39,7 @@ import {
   getDomainQuests,
   getDomainRelations,
   getQuest,
-  getSurveyStats,
+  getSurveyQueue,
   createSource,
   updateSource,
   deleteSource,
@@ -96,6 +96,8 @@ import {
   UserDomainSettingsUpdate,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
+import { isSurveyQueueSoundEnabled } from '@/lib/app-preferences';
+import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 import { useSRS } from '../../../contexts/SRSContext';
 import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
 import { NodeStatus, NodePrerequisite } from '../../../types/srs';
@@ -193,6 +195,8 @@ import type {
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
+const NEW_NODE_CUE_DURATION_MS = 3000;
+
 const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
   return (
     <UIProvider>
@@ -261,6 +265,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNodeType, setFilteredNodeType] = useState<FilteredNodeType>('all');
   const [surveyDueCount, setSurveyDueCount] = useState(0);
+  const [surveyDueQuestCodes, setSurveyDueQuestCodes] = useState<Set<string>>(new Set());
+  const [hasSurveyQueueSnapshot, setHasSurveyQueueSnapshot] = useState(false);
+  const seenSurveyQuestIdsRef = useRef<Set<number>>(new Set());
+  const hasInitializedSurveyQueueRef = useRef(false);
 
   // Data state
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
@@ -315,6 +323,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   useEffect(() => {
     setShowAccessModal(false);
   }, [domainData?.id]);
+
+  useEffect(() => {
+    if (!newlyCreatedNodeId) return;
+    const timeoutId = window.setTimeout(() => {
+      setNewlyCreatedNodeId(current => (current === newlyCreatedNodeId ? null : current));
+    }, NEW_NODE_CUE_DURATION_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [newlyCreatedNodeId]);
 
   useEffect(() => {
     applyExplorerPrefs({
@@ -690,7 +706,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     srs,
     codeToNumericIdMap,
     combinedGroupNodeMetadata,
-    externalNodeLookup
+    externalNodeLookup,
+    surveyDueQuestCodes,
+    hasSurveyQueueSnapshot,
   );
 
   // Stable graph correctly handles structure vs metadata updates
@@ -1027,13 +1045,50 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const domainId = parseInt(subjectMatterId, 10);
     if (Number.isNaN(domainId)) return;
     try {
-      const stats = await getSurveyStats(domainId);
-      setSurveyDueCount(stats?.dueQuests ?? 0);
+      const queueItems = await getSurveyQueue(domainId);
+      const nextQuestIds = new Set<number>(queueItems.map(item => item.questId));
+      const nextQuestCodes = new Set<string>(queueItems.map(item => item.questCode).filter(Boolean));
+      const hadPreviousSnapshot = hasInitializedSurveyQueueRef.current;
+
+      setSurveyDueCount(queueItems.length);
+      setSurveyDueQuestCodes(nextQuestCodes);
+      setHasSurveyQueueSnapshot(true);
+
+      if (hadPreviousSnapshot) {
+        const hasIncomingQuest = Array.from(nextQuestIds).some(
+          questId => !seenSurveyQuestIdsRef.current.has(questId)
+        );
+        if (hasIncomingQuest && isSurveyQueueSoundEnabled()) {
+          playSurveyQueueNotificationSound();
+        }
+      }
+
+      seenSurveyQuestIdsRef.current = nextQuestIds;
+      hasInitializedSurveyQueueRef.current = true;
     } catch (error) {
-      console.warn('Failed to load survey stats:', error);
+      console.warn('Failed to load survey queue:', error);
       setSurveyDueCount(0);
     }
   }, [subjectMatterId]);
+
+  useEffect(() => {
+    seenSurveyQuestIdsRef.current = new Set();
+    hasInitializedSurveyQueueRef.current = false;
+    setSurveyDueQuestCodes(new Set());
+    setHasSurveyQueueSnapshot(false);
+  }, [subjectMatterId]);
+
+  useEffect(() => {
+    const primeAudio = () => {
+      primeSurveyQueueNotificationSound();
+    };
+    window.addEventListener('pointerdown', primeAudio, { once: true });
+    window.addEventListener('keydown', primeAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', primeAudio);
+      window.removeEventListener('keydown', primeAudio);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasAccess) return;
@@ -1492,6 +1547,85 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     return { x, y };
   }, []);
 
+  const computeSpawnPositionWithAdaptiveNoise = useCallback((
+    basePosition: { x: number; y: number },
+    options?: { initialJitter?: number }
+  ) => {
+    const positionedNodes = stableGraph.nodes.filter(
+      node => typeof node.x === 'number' && Number.isFinite(node.x) && typeof node.y === 'number' && Number.isFinite(node.y)
+    );
+
+    if (positionedNodes.length === 0) return basePosition;
+
+    const minJitter = 12;
+    const maxJitter = 220;
+    const minNodeClearance = 42;
+    const localDensityRadius = 140;
+    let jitterRadius = Math.max(minJitter, options?.initialJitter ?? 26);
+
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = minJitter + Math.random() * jitterRadius;
+      const candidate = {
+        x: basePosition.x + Math.cos(angle) * distance,
+        y: basePosition.y + Math.sin(angle) * distance,
+      };
+
+      let nearbyCount = 0;
+      for (const node of positionedNodes) {
+        const dx = (node.x as number) - candidate.x;
+        const dy = (node.y as number) - candidate.y;
+        if (Math.hypot(dx, dy) < minNodeClearance) {
+          nearbyCount++;
+        }
+      }
+
+      if (nearbyCount === 0) return candidate;
+      jitterRadius = Math.min(maxJitter, jitterRadius * 1.4 + nearbyCount * 10);
+    }
+
+    const localNodes = positionedNodes.filter(node => {
+      const dx = (node.x as number) - basePosition.x;
+      const dy = (node.y as number) - basePosition.y;
+      return Math.hypot(dx, dy) < localDensityRadius;
+    });
+
+    if (localNodes.length > 0) {
+      let cx = 0;
+      let cy = 0;
+      localNodes.forEach(node => {
+        cx += node.x as number;
+        cy += node.y as number;
+      });
+      cx /= localNodes.length;
+      cy /= localNodes.length;
+
+      let dirX = basePosition.x - cx;
+      let dirY = basePosition.y - cy;
+      const dirLength = Math.hypot(dirX, dirY);
+
+      if (dirLength < 1e-3) {
+        const fallbackAngle = Math.random() * Math.PI * 2;
+        dirX = Math.cos(fallbackAngle);
+        dirY = Math.sin(fallbackAngle);
+      } else {
+        dirX /= dirLength;
+        dirY /= dirLength;
+      }
+
+      const pushDistance = Math.min(maxJitter, 70 + localNodes.length * 12);
+      return {
+        x: basePosition.x + dirX * pushDistance,
+        y: basePosition.y + dirY * pushDistance,
+      };
+    }
+
+    return {
+      x: basePosition.x + (Math.random() - 0.5) * maxJitter,
+      y: basePosition.y + (Math.random() - 0.5) * maxJitter,
+    };
+  }, [stableGraph.nodes]);
+
   // Compute spawn near neighbors or viewport center
   const computeSpawnPosition = useCallback((created: Partial<ApiDefinition & ApiExercise>) => {
     const neighbors = new Set<string>([...(created.prerequisites || [])]);
@@ -1526,8 +1660,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     // Final fallback: origin (should rarely happen)
     if (!spawn) spawn = { x: 0, y: 0 };
 
-    return { x: spawn.x + (Math.random() - 0.5) * 40, y: spawn.y + (Math.random() - 0.5) * 40 };
-  }, [nodeCreationPosition, stableGraph.nodes, getGraphCenter]);
+    const initialJitter = neighbors.size > 0 ? 32 : 24;
+    return computeSpawnPositionWithAdaptiveNoise(spawn, { initialJitter });
+  }, [nodeCreationPosition, getGraphCenter, computeSpawnPositionWithAdaptiveNoise]);
 
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
@@ -3115,10 +3250,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const basePosition = (spawnOverride && Number.isFinite(spawnOverride.x) && Number.isFinite(spawnOverride.y))
       ? spawnOverride
       : getGraphCenter();
-    const spawn = spawnOverride ? basePosition : {
-      x: basePosition.x + (Math.random() - 0.5) * 40,
-      y: basePosition.y + (Math.random() - 0.5) * 40,
-    };
+    const spawn = computeSpawnPositionWithAdaptiveNoise(basePosition, {
+      initialJitter: spawnOverride ? 18 : 24,
+    });
 
     const selectedNode = primarySelectedNodeId
       ? stableGraph.nodes.find(n => n.id === primarySelectedNodeId)
@@ -3278,10 +3412,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     getNextDotCode,
     getNextExerciseCode,
     getNextSourceCode,
-    getNextQuestCode,
-    getGraphCenter,
-    getDefaultFrenzyContent,
-    getDefaultFrenzyPrompt,
+	    getNextQuestCode,
+	    getGraphCenter,
+	    computeSpawnPositionWithAdaptiveNoise,
+	    getDefaultFrenzyContent,
+	    getDefaultFrenzyPrompt,
     insertCreatedNode,
     primarySelectedNodeId,
     stableGraph.nodes,
@@ -5759,6 +5894,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onOpenSurvey={() => ui.openSurveyWindow()}
           surveyDueCount={surveyDueCount}
           onSurveyDueCountUpdated={setSurveyDueCount}
+          onSurveyQueueUpdated={(items) => {
+            setSurveyDueCount(items.length);
+            setSurveyDueQuestCodes(new Set(items.map(item => item.questCode).filter(Boolean)));
+            setHasSurveyQueueSnapshot(true);
+          }}
+          onSurveyQuestUpdated={applyQuestUpdateToGraph}
           currentDomainId={parseInt(subjectMatterId, 10)}
           canEdit={canEdit}
           isEnrolled={hasAccess ?? undefined}

@@ -9,8 +9,9 @@ import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
 import DomainSelector from './DomainSelector';
 import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
-import { getSurveyQueue, postSurveyEvent, SurveyQueueItem } from '@/lib/api';
+import { getQuest, getSurveyQueue, postSurveyEvent, SurveyQueueItem } from '@/lib/api';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
+import type { MetaQuestDTO } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 
 const getBrowserTimeZone = () => {
@@ -76,6 +77,8 @@ interface TopControlsProps {
   onOpenSurvey?: () => void;
   surveyDueCount?: number;
   onSurveyDueCountUpdated?: (count: number) => void;
+  onSurveyQueueUpdated?: (items: SurveyQueueItem[]) => void;
+  onSurveyQuestUpdated?: (updated: MetaQuestDTO) => void;
   
   // Graph state info (dev)
   graphDimensions?: { width: number; height: number; availableWidth: number; availableHeight: number };
@@ -98,6 +101,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   onOpenSurvey,
   surveyDueCount = 0,
   onSurveyDueCountUpdated,
+  onSurveyQueueUpdated,
+  onSurveyQuestUpdated,
   graphDimensions,
   currentDomainId,
   onNavigateToNode,
@@ -299,13 +304,14 @@ const TopControls: React.FC<TopControlsProps> = ({
       const items = await getSurveyQueue(currentDomainId);
       setSurveyQueue(items);
       onSurveyDueCountUpdated?.(items.length);
+      onSurveyQueueUpdated?.(items);
     } catch (error) {
       console.warn('Failed to refresh survey queue:', error);
       setSurveyError('Failed to load survey queue.');
     } finally {
       setSurveyLoading(false);
     }
-  }, [currentDomainId, onSurveyDueCountUpdated]);
+  }, [currentDomainId, onSurveyDueCountUpdated, onSurveyQueueUpdated]);
 
   const handleCompleteSurveyQuest = useCallback(async (item: SurveyQueueItem) => {
     if (!item?.questId) return;
@@ -316,6 +322,12 @@ const TopControls: React.FC<TopControlsProps> = ({
         eventType: 'completed',
         questVersionId: item.selectedVersionId,
       });
+      try {
+        const updatedQuest = await getQuest(item.questId);
+        onSurveyQuestUpdated?.(updatedQuest);
+      } catch (error) {
+        console.warn('Failed to fetch updated quest after completion:', error);
+      }
       await refreshSurveyQueue();
       showToast('Quest completed.', 'success');
     } catch (error) {
@@ -324,7 +336,7 @@ const TopControls: React.FC<TopControlsProps> = ({
     } finally {
       setSurveyCompletingQuestId(null);
     }
-  }, [refreshSurveyQueue]);
+  }, [refreshSurveyQueue, onSurveyQuestUpdated]);
 
   useEffect(() => {
     if (!showSurveyQueue) {
