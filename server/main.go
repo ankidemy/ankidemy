@@ -108,7 +108,7 @@ func main() {
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO, sourceDAO, metaQuestDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
-	srsHandler := handlers.NewSRSHandler(db, permissionDAO, notificationReadModelService)
+	srsHandler := handlers.NewSRSHandler(db, permissionDAO, notificationReadModelService, queryCache)
 	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc, permissionDAO)
 	metaDefinitionHandler := handlers.NewMetaDefinitionHandler(metaDefinitionDAO, domainDAO, metaDefSvc, permissionDAO)
 	mediaHandler := handlers.NewMediaHandler(domainDAO, progressDAO, permissionDAO)
@@ -119,7 +119,7 @@ func main() {
 	questHandler := handlers.NewQuestHandler(metaQuestDAO, domainDAO, permissionDAO, codeRegistryDAO, relationDAO, surveyService)
 	relationHandler := handlers.NewRelationHandler(relationDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO, sourceDAO, metaQuestDAO)
 	surveyHandler := handlers.NewSurveyHandler(domainDAO, permissionDAO, metaQuestDAO, surveyService)
-	userDomainSettingsHandler := handlers.NewUserDomainSettingsHandler(domainDAO, permissionDAO, userDomainSettingsDAO)
+	userDomainSettingsHandler := handlers.NewUserDomainSettingsHandler(domainDAO, permissionDAO, userDomainSettingsDAO, queryCache)
 	adminObservabilityHandler := handlers.NewAdminObservabilityHandler(pgStatStatementsDAO)
 
 	// Initialize router

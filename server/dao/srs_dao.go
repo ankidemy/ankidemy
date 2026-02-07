@@ -198,6 +198,34 @@ func (d *SRSDao) GetUserProgress(userID uint, nodeID uint, nodeType string) (*mo
 	return &progress, nil
 }
 
+// GetUserProgressByNodeIDs gets progress rows for a user/nodeType across many node IDs.
+func (d *SRSDao) GetUserProgressByNodeIDs(userID uint, nodeType string, nodeIDs []uint) (map[uint]models.UserNodeProgress, error) {
+	results := make(map[uint]models.UserNodeProgress)
+	if len(nodeIDs) == 0 {
+		return results, nil
+	}
+
+	seen := make(map[uint]struct{}, len(nodeIDs))
+	uniqueIDs := make([]uint, 0, len(nodeIDs))
+	for _, nodeID := range nodeIDs {
+		if _, ok := seen[nodeID]; ok {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, nodeID)
+	}
+
+	var rows []models.UserNodeProgress
+	if err := d.db.Where("user_id = ? AND node_type = ? AND node_id IN ?", userID, nodeType, uniqueIDs).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		results[row.NodeID] = row
+	}
+	return results, nil
+}
+
 // CreateOrUpdateProgress creates or updates user progress
 func (d *SRSDao) CreateOrUpdateProgress(progress *models.UserNodeProgress) error {
 	return d.db.Save(progress).Error
@@ -288,6 +316,96 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
 	return results, nil
 }
 
+func dueDefinitionSelectFull() string {
+	return `
+		SELECT
+			md.id as node_id,
+			'definition' as node_type,
+			md.code as node_code,
+			md.name as node_name,
+			unp.status,
+			unp.easiness_factor,
+			unp.interval_days,
+			unp.repetitions,
+			unp.last_review,
+			unp.next_review,
+			unp.accumulated_credit,
+			unp.credit_postponed,
+			unp.total_reviews,
+			unp.successful_reviews,
+			0 as days_until_review,
+			true as is_due
+		FROM meta_definitions md
+		JOIN user_node_progress unp ON md.id = unp.node_id
+			AND unp.node_type = 'definition' AND unp.user_id = ?
+		WHERE md.domain_id = ? AND unp.status = 'grasped'
+			AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+	`
+}
+
+func dueExerciseSelectFull() string {
+	return `
+		SELECT
+			e.id as node_id,
+			'exercise' as node_type,
+			e.code as node_code,
+			e.name as node_name,
+			unp.status,
+			unp.easiness_factor,
+			unp.interval_days,
+			unp.repetitions,
+			unp.last_review,
+			unp.next_review,
+			unp.accumulated_credit,
+			unp.credit_postponed,
+			unp.total_reviews,
+			unp.successful_reviews,
+			0 as days_until_review,
+			true as is_due
+		FROM meta_exercises e
+		JOIN user_node_progress unp ON e.id = unp.node_id
+			AND unp.node_type = 'exercise' AND unp.user_id = ?
+		WHERE e.domain_id = ? AND unp.status = 'grasped'
+			AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+	`
+}
+
+func dueDefinitionSelectCompact() string {
+	return `
+		SELECT
+			md.id as node_id,
+			'definition' as node_type,
+			md.code as node_code,
+			md.name as node_name,
+			unp.status,
+			unp.next_review,
+			true as is_due
+		FROM meta_definitions md
+		JOIN user_node_progress unp ON md.id = unp.node_id
+			AND unp.node_type = 'definition' AND unp.user_id = ?
+		WHERE md.domain_id = ? AND unp.status = 'grasped'
+			AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+	`
+}
+
+func dueExerciseSelectCompact() string {
+	return `
+		SELECT
+			e.id as node_id,
+			'exercise' as node_type,
+			e.code as node_code,
+			e.name as node_name,
+			unp.status,
+			unp.next_review,
+			true as is_due
+		FROM meta_exercises e
+		JOIN user_node_progress unp ON e.id = unp.node_id
+			AND unp.node_type = 'exercise' AND unp.user_id = ?
+		WHERE e.domain_id = ? AND unp.status = 'grasped'
+			AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+	`
+}
+
 // GetDueReviews gets nodes due for review.
 func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requestID string, route string, stage string) ([]models.NodeProgress, error) {
 	const daoMethod = "SRSDao.GetDueReviews"
@@ -298,169 +416,49 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requ
 		stage = "fetch_due_rows"
 	}
 
+	if nodeType == "meta_definition" {
+		nodeType = "definition"
+	}
+	if nodeType == "meta_exercise" {
+		nodeType = "exercise"
+	}
+
 	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
 	startedAt := time.Now()
 	var results []models.NodeProgress
 
 	var query string
-	if nodeType == "definition" {
+	var args []interface{}
+
+	switch nodeType {
+	case "definition":
 		query = fmt.Sprintf(`
 			%s
-			SELECT
-				md.id as node_id,
-				'definition' as node_type,
-				md.code as node_code,
-				md.name as node_name,
-				unp.status,
-				unp.easiness_factor,
-				unp.interval_days,
-				unp.repetitions,
-				unp.last_review,
-				unp.next_review,
-				unp.accumulated_credit,
-				unp.credit_postponed,
-				unp.total_reviews,
-				unp.successful_reviews,
-				0 as days_until_review,
-				true as is_due
-			FROM meta_definitions md
-			JOIN user_node_progress unp ON md.id = unp.node_id
-				AND unp.node_type = 'definition' AND unp.user_id = ?
-			WHERE md.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-			ORDER BY unp.next_review ASC NULLS FIRST
-		`, comment)
-	} else if nodeType == "exercise" || nodeType == "meta_exercise" {
+			%s
+			ORDER BY next_review ASC NULLS FIRST, node_id ASC
+		`, comment, dueDefinitionSelectFull())
+		args = []interface{}{userID, domainID}
+	case "exercise":
 		query = fmt.Sprintf(`
 			%s
-			SELECT
-				e.id as node_id,
-				'exercise' as node_type,
-				e.code as node_code,
-				e.name as node_name,
-				unp.status,
-				unp.easiness_factor,
-				unp.interval_days,
-				unp.repetitions,
-				unp.last_review,
-				unp.next_review,
-				unp.accumulated_credit,
-				unp.credit_postponed,
-				unp.total_reviews,
-				unp.successful_reviews,
-				0 as days_until_review,
-				true as is_due
-			FROM meta_exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-			ORDER BY unp.next_review ASC NULLS FIRST
-		`, comment)
-	} else {
-		defQuery := fmt.Sprintf(`
 			%s
-			SELECT
-				md.id as node_id,
-				'definition' as node_type,
-				md.code as node_code,
-				md.name as node_name,
-				unp.status,
-				unp.easiness_factor,
-				unp.interval_days,
-				unp.repetitions,
-				unp.last_review,
-				unp.next_review,
-				unp.accumulated_credit,
-				unp.credit_postponed,
-				unp.total_reviews,
-				unp.successful_reviews,
-				0 as days_until_review,
-				true as is_due
-			FROM meta_definitions md
-			JOIN user_node_progress unp ON md.id = unp.node_id
-				AND unp.node_type = 'definition' AND unp.user_id = ?
-			WHERE md.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		`, comment)
-
-		exQuery := fmt.Sprintf(`
+			ORDER BY next_review ASC NULLS FIRST, node_id ASC
+		`, comment, dueExerciseSelectFull())
+		args = []interface{}{userID, domainID}
+	default:
+		query = fmt.Sprintf(`
 			%s
-			SELECT
-				e.id as node_id,
-				'exercise' as node_type,
-				e.code as node_code,
-				e.name as node_name,
-				unp.status,
-				unp.easiness_factor,
-				unp.interval_days,
-				unp.repetitions,
-				unp.last_review,
-				unp.next_review,
-				unp.accumulated_credit,
-				unp.credit_postponed,
-				unp.total_reviews,
-				unp.successful_reviews,
-				0 as days_until_review,
-				true as is_due
-			FROM meta_exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		`, comment)
-
-		var defResults []models.NodeProgress
-		var exResults []models.NodeProgress
-
-		if err := d.db.Raw(defQuery, userID, domainID).Scan(&defResults).Error; err != nil {
-			logDAOStage(
-				requestID,
-				route,
-				daoMethod,
-				stage,
-				startedAt,
-				err,
-				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
-			)
-			return nil, err
-		}
-
-		if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
-			logDAOStage(
-				requestID,
-				route,
-				daoMethod,
-				stage,
-				startedAt,
-				err,
-				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
-			)
-			return nil, err
-		}
-
-		results = append(results, defResults...)
-		results = append(results, exResults...)
-		logDAOStage(
-			requestID,
-			route,
-			daoMethod,
-			stage,
-			startedAt,
-			nil,
-			map[string]interface{}{
-				"userId":          userID,
-				"domainId":        domainID,
-				"nodeType":        nodeType,
-				"definitionCount": len(defResults),
-				"exerciseCount":   len(exResults),
-				"resultCount":     len(results),
-			},
-		)
-		return results, nil
+			SELECT * FROM (
+				%s
+				UNION ALL
+				%s
+			) due_rows
+			ORDER BY next_review ASC NULLS FIRST, node_type ASC, node_id ASC
+		`, comment, dueDefinitionSelectFull(), dueExerciseSelectFull())
+		args = []interface{}{userID, domainID, userID, domainID}
 	}
 
-	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+	if err := d.db.Raw(query, args...).Scan(&results).Error; err != nil {
 		logDAOStage(
 			requestID,
 			route,
@@ -473,6 +471,28 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requ
 		return nil, err
 	}
 
+	metadata := map[string]interface{}{
+		"userId":      userID,
+		"domainId":    domainID,
+		"nodeType":    nodeType,
+		"resultCount": len(results),
+	}
+	if nodeType != "definition" && nodeType != "exercise" {
+		definitionCount := 0
+		exerciseCount := 0
+		for _, row := range results {
+			if row.NodeType == "definition" {
+				definitionCount++
+				continue
+			}
+			if row.NodeType == "exercise" {
+				exerciseCount++
+			}
+		}
+		metadata["definitionCount"] = definitionCount
+		metadata["exerciseCount"] = exerciseCount
+	}
+
 	logDAOStage(
 		requestID,
 		route,
@@ -480,12 +500,7 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requ
 		stage,
 		startedAt,
 		nil,
-		map[string]interface{}{
-			"userId":      userID,
-			"domainId":    domainID,
-			"nodeType":    nodeType,
-			"resultCount": len(results),
-		},
+		metadata,
 	)
 	return results, nil
 }
@@ -500,133 +515,49 @@ func (d *SRSDao) GetDueReviewsCompact(userID uint, domainID uint, nodeType strin
 		stage = "fetch_due_rows"
 	}
 
+	if nodeType == "meta_definition" {
+		nodeType = "definition"
+	}
+	if nodeType == "meta_exercise" {
+		nodeType = "exercise"
+	}
+
 	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
 	startedAt := time.Now()
 	var results []models.DueReviewCompact
 
 	var query string
-	if nodeType == "definition" {
+	var args []interface{}
+
+	switch nodeType {
+	case "definition":
 		query = fmt.Sprintf(`
 			%s
-			SELECT
-				md.id as node_id,
-				'definition' as node_type,
-				md.code as node_code,
-				md.name as node_name,
-				unp.status,
-				unp.next_review,
-				true as is_due
-			FROM meta_definitions md
-			JOIN user_node_progress unp ON md.id = unp.node_id
-				AND unp.node_type = 'definition' AND unp.user_id = ?
-			WHERE md.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-			ORDER BY unp.next_review ASC NULLS FIRST
-		`, comment)
-	} else if nodeType == "exercise" || nodeType == "meta_exercise" {
+			%s
+			ORDER BY next_review ASC NULLS FIRST, node_id ASC
+		`, comment, dueDefinitionSelectCompact())
+		args = []interface{}{userID, domainID}
+	case "exercise":
 		query = fmt.Sprintf(`
 			%s
-			SELECT
-				e.id as node_id,
-				'exercise' as node_type,
-				e.code as node_code,
-				e.name as node_name,
-				unp.status,
-				unp.next_review,
-				true as is_due
-			FROM meta_exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-			ORDER BY unp.next_review ASC NULLS FIRST
-		`, comment)
-	} else {
-		defQuery := fmt.Sprintf(`
 			%s
-			SELECT
-				md.id as node_id,
-				'definition' as node_type,
-				md.code as node_code,
-				md.name as node_name,
-				unp.status,
-				unp.next_review,
-				true as is_due
-			FROM meta_definitions md
-			JOIN user_node_progress unp ON md.id = unp.node_id
-				AND unp.node_type = 'definition' AND unp.user_id = ?
-			WHERE md.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		`, comment)
-
-		exQuery := fmt.Sprintf(`
+			ORDER BY next_review ASC NULLS FIRST, node_id ASC
+		`, comment, dueExerciseSelectCompact())
+		args = []interface{}{userID, domainID}
+	default:
+		query = fmt.Sprintf(`
 			%s
-			SELECT
-				e.id as node_id,
-				'exercise' as node_type,
-				e.code as node_code,
-				e.name as node_name,
-				unp.status,
-				unp.next_review,
-				true as is_due
-			FROM meta_exercises e
-			JOIN user_node_progress unp ON e.id = unp.node_id
-				AND unp.node_type = 'exercise' AND unp.user_id = ?
-			WHERE e.domain_id = ? AND unp.status = 'grasped'
-				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		`, comment)
-
-		var defResults []models.DueReviewCompact
-		var exResults []models.DueReviewCompact
-
-		if err := d.db.Raw(defQuery, userID, domainID).Scan(&defResults).Error; err != nil {
-			logDAOStage(
-				requestID,
-				route,
-				daoMethod,
-				stage,
-				startedAt,
-				err,
-				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
-			)
-			return nil, err
-		}
-
-		if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
-			logDAOStage(
-				requestID,
-				route,
-				daoMethod,
-				stage,
-				startedAt,
-				err,
-				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
-			)
-			return nil, err
-		}
-
-		results = append(results, defResults...)
-		results = append(results, exResults...)
-		logDAOStage(
-			requestID,
-			route,
-			daoMethod,
-			stage,
-			startedAt,
-			nil,
-			map[string]interface{}{
-				"userId":          userID,
-				"domainId":        domainID,
-				"nodeType":        nodeType,
-				"definitionCount": len(defResults),
-				"exerciseCount":   len(exResults),
-				"resultCount":     len(results),
-			},
-		)
-		return results, nil
+			SELECT * FROM (
+				%s
+				UNION ALL
+				%s
+			) due_rows
+			ORDER BY next_review ASC NULLS FIRST, node_type ASC, node_id ASC
+		`, comment, dueDefinitionSelectCompact(), dueExerciseSelectCompact())
+		args = []interface{}{userID, domainID, userID, domainID}
 	}
 
-	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+	if err := d.db.Raw(query, args...).Scan(&results).Error; err != nil {
 		logDAOStage(
 			requestID,
 			route,
@@ -639,6 +570,28 @@ func (d *SRSDao) GetDueReviewsCompact(userID uint, domainID uint, nodeType strin
 		return nil, err
 	}
 
+	metadata := map[string]interface{}{
+		"userId":      userID,
+		"domainId":    domainID,
+		"nodeType":    nodeType,
+		"resultCount": len(results),
+	}
+	if nodeType != "definition" && nodeType != "exercise" {
+		definitionCount := 0
+		exerciseCount := 0
+		for _, row := range results {
+			if row.NodeType == "definition" {
+				definitionCount++
+				continue
+			}
+			if row.NodeType == "exercise" {
+				exerciseCount++
+			}
+		}
+		metadata["definitionCount"] = definitionCount
+		metadata["exerciseCount"] = exerciseCount
+	}
+
 	logDAOStage(
 		requestID,
 		route,
@@ -646,12 +599,7 @@ func (d *SRSDao) GetDueReviewsCompact(userID uint, domainID uint, nodeType strin
 		stage,
 		startedAt,
 		nil,
-		map[string]interface{}{
-			"userId":      userID,
-			"domainId":    domainID,
-			"nodeType":    nodeType,
-			"resultCount": len(results),
-		},
+		metadata,
 	)
 	return results, nil
 }

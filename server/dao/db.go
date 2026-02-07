@@ -94,6 +94,7 @@ func InitDB() (*gorm.DB, error) {
 
 	// Ensure DB check constraints support the new 'meta_exercise' node type
 	ensureSRSConstraints(db)
+	ensureSRSDueIndexes(db)
 	ensurePGStatStatements(db)
 
 	// Ensure domain_node_codes are populated for existing nodes
@@ -128,6 +129,21 @@ func ensureSRSConstraints(db *gorm.DB) {
 	for _, s := range stmts {
 		if err := db.Exec(s).Error; err != nil {
 			log.Printf("Constraint update note: %v (stmt: %s)", err, s)
+		}
+	}
+}
+
+// ensureSRSDueIndexes creates targeted indexes used by /srs due and queue routes.
+func ensureSRSDueIndexes(db *gorm.DB) {
+	stmts := []string{
+		"CREATE INDEX IF NOT EXISTS idx_unp_due_definition ON user_node_progress (user_id, next_review, node_id) WHERE node_type = 'definition' AND status = 'grasped';",
+		"CREATE INDEX IF NOT EXISTS idx_unp_due_exercise ON user_node_progress (user_id, next_review, node_id) WHERE node_type = 'exercise' AND status = 'grasped';",
+		"CREATE INDEX IF NOT EXISTS idx_meta_definitions_domain_id ON meta_definitions (domain_id, id);",
+		"CREATE INDEX IF NOT EXISTS idx_meta_exercises_domain_id ON meta_exercises (domain_id, id);",
+	}
+	for _, stmt := range stmts {
+		if err := db.Exec(stmt).Error; err != nil {
+			log.Printf("SRS index ensure note: %v (stmt: %s)", err, stmt)
 		}
 	}
 }

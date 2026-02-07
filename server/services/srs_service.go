@@ -1,11 +1,14 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"math"
 	"math/rand"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,10 +25,14 @@ type SRSService struct {
 	creditService         *CreditPropagationService
 	optimizationService   *ReviewOptimizationService
 	notificationReadModel *NotificationReadModelService
+	queryCache            *QueryCacheService
+	dueCacheTTL           time.Duration
+	queueCacheTTL         time.Duration
+	queueCacheNormalOnly  bool
 }
 
 // NewSRSService creates a new SRS service instance
-func NewSRSService(db *gorm.DB, notificationReadModel *NotificationReadModelService) *SRSService {
+func NewSRSService(db *gorm.DB, notificationReadModel *NotificationReadModelService, queryCache *QueryCacheService) *SRSService {
 	return &SRSService{
 		db:                    db,
 		srsDao:                dao.NewSRSDao(db),
@@ -33,6 +40,10 @@ func NewSRSService(db *gorm.DB, notificationReadModel *NotificationReadModelServ
 		creditService:         NewCreditPropagationService(),
 		optimizationService:   NewReviewOptimizationService(),
 		notificationReadModel: notificationReadModel,
+		queryCache:            queryCache,
+		dueCacheTTL:           envDuration("SRS_DUE_CACHE_TTL", 20*time.Second),
+		queueCacheTTL:         envDuration("SRS_QUEUE_CACHE_TTL", 15*time.Second),
+		queueCacheNormalOnly:  envBool("SRS_QUEUE_CACHE_NORMAL_ONLY", true),
 	}
 }
 
@@ -172,6 +183,9 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 	if err := tx.Commit().Error; err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	s.invalidateDueCache(userID, domainID)
+	s.invalidateQueueCache(userID, domainID)
 
 	return &models.ReviewResponse{
 		Success:      true,
@@ -430,7 +444,14 @@ func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string,
 		}
 	}
 
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	s.invalidateDueCache(userID, domainID)
+	s.invalidateQueueCache(userID, domainID)
+
+	return nil
 }
 
 // propagateStatus handles status propagation logic
@@ -634,6 +655,90 @@ const (
 	srsDueRoutePath         = "/api/srs/domains/:domainId/due"
 	srsReviewQueueRoutePath = "/api/srs/domains/:domainId/review-queue"
 )
+
+type reviewQueueGraphCache struct {
+	loaded bool
+	graph  map[string]*GraphNode
+}
+
+func (s *SRSService) dueCacheKey(userID uint, domainID uint, nodeType string, view string) string {
+	return fmt.Sprintf("srs:due:user:%d:domain:%d:type:%s:view:%s:v1", userID, domainID, nodeType, view)
+}
+
+func (s *SRSService) queueCacheKey(userID uint, domainID uint, sessionType string, mode string, exercisesPerDefinition int) string {
+	return fmt.Sprintf("srs:queue:user:%d:domain:%d:session:%s:mode:%s:ex:%d:v1", userID, domainID, sessionType, mode, exercisesPerDefinition)
+}
+
+func (s *SRSService) dueUserDomainTag(userID uint, domainID uint) string {
+	return fmt.Sprintf("srs:due:user:%d:domain:%d", userID, domainID)
+}
+
+func (s *SRSService) dueUserTag(userID uint) string {
+	return fmt.Sprintf("srs:due:user:%d", userID)
+}
+
+func (s *SRSService) dueDomainTag(domainID uint) string {
+	return fmt.Sprintf("srs:due:domain:%d", domainID)
+}
+
+func (s *SRSService) queueUserDomainTag(userID uint, domainID uint) string {
+	return fmt.Sprintf("srs:queue:user:%d:domain:%d", userID, domainID)
+}
+
+func (s *SRSService) queueDomainTag(domainID uint) string {
+	return fmt.Sprintf("srs:queue:domain:%d", domainID)
+}
+
+func (s *SRSService) invalidateCacheTags(tags ...string) {
+	if s == nil || s.queryCache == nil {
+		return
+	}
+	for _, tag := range tags {
+		if strings.TrimSpace(tag) == "" {
+			continue
+		}
+		if err := s.queryCache.InvalidateTag(context.Background(), tag); err != nil {
+			log.Printf("warning: cache tag invalidation failed for tag=%s: %v", tag, err)
+		}
+	}
+}
+
+func (s *SRSService) invalidateDueCache(userID uint, domainID uint) {
+	s.invalidateCacheTags(
+		s.dueUserDomainTag(userID, domainID),
+		s.dueUserTag(userID),
+	)
+}
+
+func (s *SRSService) invalidateQueueCache(userID uint, domainID uint) {
+	s.invalidateCacheTags(s.queueUserDomainTag(userID, domainID))
+}
+
+func (s *SRSService) invalidateDomainDueCache(domainID uint) {
+	s.invalidateCacheTags(s.dueDomainTag(domainID))
+}
+
+func (s *SRSService) invalidateDomainQueueCache(domainID uint) {
+	s.invalidateCacheTags(s.queueDomainTag(domainID))
+}
+
+// InvalidateDomainReviewCaches clears due/queue cache entries for all users in a domain.
+func (s *SRSService) InvalidateDomainReviewCaches(domainID uint) {
+	s.invalidateDomainDueCache(domainID)
+	s.invalidateDomainQueueCache(domainID)
+}
+
+func envBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
 
 func (s *SRSService) getDueReviewsOptimized(
 	userID uint,
@@ -866,33 +971,55 @@ func nodeProgressToCompactDueReviews(dueNodes []models.NodeProgress) []models.Du
 // GetDueReviews gets optimally ordered due reviews.
 func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string, requestID string) ([]models.NodeProgress, error) {
 	const serviceMethod = "SRSService.GetDueReviews"
-	return s.getDueReviewsOptimized(
-		userID,
-		domainID,
-		nodeType,
-		requestID,
-		srsDueRoutePath,
-		serviceMethod,
-		"fetch_due_rows",
-		true,
-		true,
-	)
+	cacheKey := s.dueCacheKey(userID, domainID, nodeType, "full")
+	policy := CachePolicy{
+		TTL: s.dueCacheTTL,
+		Tags: []string{
+			s.dueUserDomainTag(userID, domainID),
+			s.dueUserTag(userID),
+			s.dueDomainTag(domainID),
+		},
+	}
+	return CacheGetOrLoadJSON(context.Background(), s.queryCache, cacheKey, policy, requestID, srsDueRoutePath, func(_ context.Context) ([]models.NodeProgress, error) {
+		return s.getDueReviewsOptimized(
+			userID,
+			domainID,
+			nodeType,
+			requestID,
+			srsDueRoutePath,
+			serviceMethod,
+			"fetch_due_rows",
+			true,
+			true,
+		)
+	})
 }
 
 // GetDueReviewsCompact gets optimally ordered due reviews in compact response shape.
 func (s *SRSService) GetDueReviewsCompact(userID uint, domainID uint, nodeType string, requestID string) ([]models.DueReviewCompact, error) {
 	const serviceMethod = "SRSService.GetDueReviewsCompact"
-	return s.getDueReviewsCompactOptimized(
-		userID,
-		domainID,
-		nodeType,
-		requestID,
-		srsDueRoutePath,
-		serviceMethod,
-		"fetch_due_rows",
-		true,
-		true,
-	)
+	cacheKey := s.dueCacheKey(userID, domainID, nodeType, "compact")
+	policy := CachePolicy{
+		TTL: s.dueCacheTTL,
+		Tags: []string{
+			s.dueUserDomainTag(userID, domainID),
+			s.dueUserTag(userID),
+			s.dueDomainTag(domainID),
+		},
+	}
+	return CacheGetOrLoadJSON(context.Background(), s.queryCache, cacheKey, policy, requestID, srsDueRoutePath, func(_ context.Context) ([]models.DueReviewCompact, error) {
+		return s.getDueReviewsCompactOptimized(
+			userID,
+			domainID,
+			nodeType,
+			requestID,
+			srsDueRoutePath,
+			serviceMethod,
+			"fetch_due_rows",
+			true,
+			true,
+		)
+	})
 }
 
 // GetReviewQueue builds a review queue for practice/mixed sessions.
@@ -904,7 +1031,6 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		exercisesPerDefinition = 1
 	}
 
-	isFrenzy := mode == "frenzy"
 	queue = make([]models.ReviewQueueItem, 0)
 
 	assembleQueueStartedAt := time.Now()
@@ -927,29 +1053,40 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		)
 	}()
 
+	if s.shouldCacheReviewQueue(mode) {
+		cacheKey := s.queueCacheKey(userID, domainID, sessionType, mode, exercisesPerDefinition)
+		policy := CachePolicy{
+			TTL: s.queueCacheTTL,
+			Tags: []string{
+				s.queueUserDomainTag(userID, domainID),
+				s.queueDomainTag(domainID),
+			},
+		}
+		queue, err = CacheGetOrLoadJSON(context.Background(), s.queryCache, cacheKey, policy, requestID, route, func(_ context.Context) ([]models.ReviewQueueItem, error) {
+			return s.buildReviewQueue(userID, domainID, sessionType, mode, exercisesPerDefinition, requestID)
+		})
+		return queue, err
+	}
+
+	queue, err = s.buildReviewQueue(userID, domainID, sessionType, mode, exercisesPerDefinition, requestID)
+	return queue, err
+}
+
+func (s *SRSService) buildReviewQueue(userID uint, domainID uint, sessionType string, mode string, exercisesPerDefinition int, requestID string) ([]models.ReviewQueueItem, error) {
+	const route = srsReviewQueueRoutePath
+	const serviceMethod = "SRSService.GetReviewQueue"
+
+	isFrenzy := mode == "frenzy"
+	now := time.Now()
+	queue := make([]models.ReviewQueueItem, 0)
+	graphCache := &reviewQueueGraphCache{}
+	metaSvc := NewMetaExerciseService(s.db)
+
 	// ========================================================================
 	// DEFINITION SESSION
 	// ========================================================================
 	if sessionType == "definition" {
-		var defs []models.NodeProgress
-
-		loadDueDefinitionsStartedAt := time.Now()
-		defs, err = s.getDueReviewsOptimized(userID, domainID, "definition", requestID, route, serviceMethod, "load_due_definitions", false, false)
-		logServiceStage(
-			requestID,
-			route,
-			serviceMethod,
-			"load_due_definitions",
-			loadDueDefinitionsStartedAt,
-			err,
-			map[string]interface{}{
-				"userId":    userID,
-				"domainId":  domainID,
-				"dueCount":  len(defs),
-				"nodeType":  "definition",
-				"routeUsed": route,
-			},
-		)
+		defs, err := s.loadDueReviewsForQueue(userID, domainID, "definition", requestID, route, serviceMethod, "load_due_definitions", graphCache)
 		if err != nil {
 			return nil, err
 		}
@@ -992,25 +1129,7 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	// EXERCISE SESSION
 	// ========================================================================
 	if sessionType == "exercise" {
-		var exercises []models.NodeProgress
-
-		loadDueExercisesStartedAt := time.Now()
-		exercises, err = s.getDueReviewsOptimized(userID, domainID, "exercise", requestID, route, serviceMethod, "load_due_exercises", false, false)
-		logServiceStage(
-			requestID,
-			route,
-			serviceMethod,
-			"load_due_exercises",
-			loadDueExercisesStartedAt,
-			err,
-			map[string]interface{}{
-				"userId":    userID,
-				"domainId":  domainID,
-				"dueCount":  len(exercises),
-				"nodeType":  "exercise",
-				"routeUsed": route,
-			},
-		)
+		exercises, err := s.loadDueReviewsForQueue(userID, domainID, "exercise", requestID, route, serviceMethod, "load_due_exercises", graphCache)
 		if err != nil {
 			return nil, err
 		}
@@ -1038,8 +1157,7 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 				}
 			} else {
 				loadFallbackStartedAt := time.Now()
-				var defs []models.NodeProgress
-				defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID, requestID, route, "load_grasped_fallback")
+				defs, err := s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID, requestID, route, "load_grasped_fallback")
 				logServiceStage(
 					requestID,
 					route,
@@ -1058,41 +1176,48 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 					return nil, err
 				}
 
-				selectExercisesStartedAt := time.Now()
-				selectedExercises := 0
-				metaSvc := NewMetaExerciseService(s.db)
+				definitionIDs := make([]uint, 0, len(defs))
 				for _, def := range defs {
-					var metas []models.MetaExercise
-					metas, err = metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
-					if err != nil {
-						logServiceStage(
-							requestID,
-							route,
-							serviceMethod,
-							"select_exercises_batch",
-							selectExercisesStartedAt,
-							err,
-							map[string]interface{}{
-								"userId":             userID,
-								"domainId":           domainID,
-								"definitionCount":    len(defs),
-								"selectedMetaCount":  selectedExercises,
-								"perDefinitionCount": exercisesPerDefinition,
-							},
-						)
-						return nil, err
+					definitionIDs = append(definitionIDs, def.NodeID)
+				}
+
+				selectExercisesStartedAt := time.Now()
+				selectedByDef, err := metaSvc.SelectExercisesForDefinitions(userID, definitionIDs, exercisesPerDefinition)
+				selectedExercises := 0
+				if err == nil {
+					for _, metas := range selectedByDef {
+						selectedExercises += len(metas)
 					}
-					selectedExercises += len(metas)
+				}
+				logServiceStage(
+					requestID,
+					route,
+					serviceMethod,
+					"select_exercises_batch",
+					selectExercisesStartedAt,
+					err,
+					map[string]interface{}{
+						"userId":             userID,
+						"domainId":           domainID,
+						"definitionCount":    len(defs),
+						"selectedMetaCount":  selectedExercises,
+						"perDefinitionCount": exercisesPerDefinition,
+					},
+				)
+				if err != nil {
+					return nil, err
+				}
 
+				progressByMetaID, err := s.loadSelectedExerciseProgress(userID, selectedByDef)
+				if err != nil {
+					return nil, err
+				}
+
+				for _, def := range defs {
+					metas := selectedByDef[def.NodeID]
 					for _, meta := range metas {
-						progress, _ := s.srsDao.GetUserProgress(userID, meta.ID, "exercise")
-						isDue := false
-						if progress != nil && progress.Status == "grasped" {
-							if progress.NextReview == nil || progress.NextReview.Before(time.Now()) {
-								isDue = true
-							}
-						}
-
+						progress, exists := progressByMetaID[meta.ID]
+						isDue := isExerciseProgressDue(progress, exists, now)
 						queue = append(queue, models.ReviewQueueItem{
 							NodeID:           def.NodeID,
 							NodeType:         def.NodeType,
@@ -1105,21 +1230,6 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 						})
 					}
 				}
-				logServiceStage(
-					requestID,
-					route,
-					serviceMethod,
-					"select_exercises_batch",
-					selectExercisesStartedAt,
-					nil,
-					map[string]interface{}{
-						"userId":             userID,
-						"domainId":           domainID,
-						"definitionCount":    len(defs),
-						"selectedMetaCount":  selectedExercises,
-						"perDefinitionCount": exercisesPerDefinition,
-					},
-				)
 				return queue, nil
 			}
 		}
@@ -1142,57 +1252,21 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	// ========================================================================
 	// MIXED SESSION
 	// ========================================================================
+	dueDefs, err := s.loadDueReviewsForQueue(userID, domainID, "definition", requestID, route, serviceMethod, "load_due_definitions", graphCache)
+	if err != nil {
+		return nil, err
+	}
+	dueExs, err := s.loadDueReviewsForQueue(userID, domainID, "exercise", requestID, route, serviceMethod, "load_due_exercises", graphCache)
+	if err != nil {
+		return nil, err
+	}
+
 	var defs []models.NodeProgress
 	usingGrasped := false
-
-	loadDueDefinitionsStartedAt := time.Now()
-	dueDefs, dueDefsErr := s.getDueReviewsOptimized(userID, domainID, "definition", requestID, route, serviceMethod, "load_due_definitions", false, false)
-	logServiceStage(
-		requestID,
-		route,
-		serviceMethod,
-		"load_due_definitions",
-		loadDueDefinitionsStartedAt,
-		dueDefsErr,
-		map[string]interface{}{
-			"userId":    userID,
-			"domainId":  domainID,
-			"dueCount":  len(dueDefs),
-			"nodeType":  "definition",
-			"routeUsed": route,
-		},
-	)
-	if dueDefsErr != nil {
-		err = dueDefsErr
-		return nil, err
-	}
-
-	loadDueExercisesStartedAt := time.Now()
-	dueExs, dueExErr := s.getDueReviewsOptimized(userID, domainID, "exercise", requestID, route, serviceMethod, "load_due_exercises", false, false)
-	logServiceStage(
-		requestID,
-		route,
-		serviceMethod,
-		"load_due_exercises",
-		loadDueExercisesStartedAt,
-		dueExErr,
-		map[string]interface{}{
-			"userId":    userID,
-			"domainId":  domainID,
-			"dueCount":  len(dueExs),
-			"nodeType":  "exercise",
-			"routeUsed": route,
-		},
-	)
-	if dueExErr != nil {
-		err = dueExErr
-		return nil, err
-	}
 
 	hasDueItems := len(dueDefs) > 0 || len(dueExs) > 0
 	if hasDueItems {
 		defs = dueDefs
-		usingGrasped = false
 	} else {
 		loadFallbackStartedAt := time.Now()
 		if isFrenzy {
@@ -1229,33 +1303,45 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		rand.Shuffle(len(defs), func(i, j int) { defs[i], defs[j] = defs[j], defs[i] })
 	}
 
+	definitionIDs := make([]uint, 0, len(defs))
+	for _, def := range defs {
+		definitionIDs = append(definitionIDs, def.NodeID)
+	}
+
 	selectExercisesStartedAt := time.Now()
+	selectedByDef, err := metaSvc.SelectExercisesForDefinitions(userID, definitionIDs, exercisesPerDefinition)
 	selectedExercises := 0
-	metaSvc := NewMetaExerciseService(s.db)
+	if err == nil {
+		for _, metas := range selectedByDef {
+			selectedExercises += len(metas)
+		}
+	}
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"select_exercises_batch",
+		selectExercisesStartedAt,
+		err,
+		map[string]interface{}{
+			"userId":             userID,
+			"domainId":           domainID,
+			"definitionCount":    len(defs),
+			"selectedMetaCount":  selectedExercises,
+			"perDefinitionCount": exercisesPerDefinition,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	progressByMetaID, err := s.loadSelectedExerciseProgress(userID, selectedByDef)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, def := range defs {
-		var metas []models.MetaExercise
-		metas, err = metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
-		if err != nil {
-			logServiceStage(
-				requestID,
-				route,
-				serviceMethod,
-				"select_exercises_batch",
-				selectExercisesStartedAt,
-				err,
-				map[string]interface{}{
-					"userId":             userID,
-					"domainId":           domainID,
-					"definitionCount":    len(defs),
-					"selectedMetaCount":  selectedExercises,
-					"perDefinitionCount": exercisesPerDefinition,
-				},
-			)
-			return nil, err
-		}
-		selectedExercises += len(metas)
-
+		metas := selectedByDef[def.NodeID]
 		if len(metas) == 0 {
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:   def.NodeID,
@@ -1278,41 +1364,20 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		}
 
 		for _, meta := range metas {
-			progress, _ := s.srsDao.GetUserProgress(userID, meta.ID, "exercise")
-			exerciseIsDue := false
-			if progress != nil && progress.Status == "grasped" {
-				if progress.NextReview == nil || progress.NextReview.Before(time.Now()) {
-					exerciseIsDue = true
-				}
-			}
-
+			progress, exists := progressByMetaID[meta.ID]
+			exerciseIsDue := isExerciseProgressDue(progress, exists, now)
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:           def.NodeID,
 				NodeType:         def.NodeType,
 				NodeCode:         def.NodeCode,
 				NodeName:         def.NodeName,
-				IsDue:            exerciseIsDue, // CRITICAL: Use exercise's own due status
+				IsDue:            exerciseIsDue,
 				ExerciseMetaID:   &meta.ID,
 				ExerciseMetaCode: &meta.Code,
 				ExerciseMetaName: &meta.Name,
 			})
 		}
 	}
-	logServiceStage(
-		requestID,
-		route,
-		serviceMethod,
-		"select_exercises_batch",
-		selectExercisesStartedAt,
-		nil,
-		map[string]interface{}{
-			"userId":             userID,
-			"domainId":           domainID,
-			"definitionCount":    len(defs),
-			"selectedMetaCount":  selectedExercises,
-			"perDefinitionCount": exercisesPerDefinition,
-		},
-	)
 
 	if !usingGrasped && len(dueExs) > 0 {
 		addedExercises := make(map[uint]bool)
@@ -1339,6 +1404,98 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	}
 
 	return queue, nil
+}
+
+func (s *SRSService) shouldCacheReviewQueue(mode string) bool {
+	if s.queueCacheTTL <= 0 {
+		return false
+	}
+	if mode == "normal" {
+		return true
+	}
+	if mode == "frenzy" && !s.queueCacheNormalOnly {
+		return true
+	}
+	return false
+}
+
+func (s *SRSService) loadDueReviewsForQueue(
+	userID uint,
+	domainID uint,
+	nodeType string,
+	requestID string,
+	route string,
+	serviceMethod string,
+	stage string,
+	graphCache *reviewQueueGraphCache,
+) ([]models.NodeProgress, error) {
+	loadStartedAt := time.Now()
+	dueNodes, err := s.srsDao.GetDueReviews(userID, domainID, nodeType, requestID, route, stage)
+	if err == nil {
+		dueNodes, err = s.optimizeDueReviewsWithQueueGraph(domainID, dueNodes, graphCache)
+	}
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		stage,
+		loadStartedAt,
+		err,
+		map[string]interface{}{
+			"userId":    userID,
+			"domainId":  domainID,
+			"dueCount":  len(dueNodes),
+			"nodeType":  nodeType,
+			"routeUsed": route,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return dueNodes, nil
+}
+
+func (s *SRSService) optimizeDueReviewsWithQueueGraph(
+	domainID uint,
+	dueNodes []models.NodeProgress,
+	graphCache *reviewQueueGraphCache,
+) ([]models.NodeProgress, error) {
+	if len(dueNodes) == 0 {
+		return dueNodes, nil
+	}
+	if graphCache == nil {
+		return dueNodes, nil
+	}
+	if !graphCache.loaded {
+		prerequisites, err := s.srsDao.GetPrerequisitesByDomain(domainID)
+		if err != nil {
+			return nil, err
+		}
+		graphCache.graph = s.creditService.BuildGraph(prerequisites)
+		graphCache.loaded = true
+	}
+	return s.optimizationService.OptimizeReviewOrder(dueNodes, graphCache.graph), nil
+}
+
+func (s *SRSService) loadSelectedExerciseProgress(userID uint, selectedByDef map[uint][]models.MetaExercise) (map[uint]models.UserNodeProgress, error) {
+	metaIDSet := make(map[uint]struct{})
+	for _, metas := range selectedByDef {
+		for _, meta := range metas {
+			metaIDSet[meta.ID] = struct{}{}
+		}
+	}
+	metaIDs := make([]uint, 0, len(metaIDSet))
+	for metaID := range metaIDSet {
+		metaIDs = append(metaIDs, metaID)
+	}
+	return s.srsDao.GetUserProgressByNodeIDs(userID, "exercise", metaIDs)
+}
+
+func isExerciseProgressDue(progress models.UserNodeProgress, exists bool, now time.Time) bool {
+	if !exists || progress.Status != "grasped" {
+		return false
+	}
+	return progress.NextReview == nil || progress.NextReview.Before(now)
 }
 
 // Helper methods

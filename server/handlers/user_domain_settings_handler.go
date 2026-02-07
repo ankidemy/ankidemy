@@ -1,32 +1,43 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"myapp/server/dao"
+	"myapp/server/services"
 )
 
 type UserDomainSettingsHandler struct {
 	domainDAO     *dao.DomainDAO
 	permissionDAO *dao.DomainPermissionDAO
 	settingsDAO   *dao.UserDomainSettingsDAO
+	queryCache    *services.QueryCacheService
 }
 
 type userDomainSettingsUpdateRequest struct {
-	Timezone              *string                `json:"timezone"`
-	DailyQuestLimit       *int                   `json:"dailyQuestLimit"`
-	DailyQuestCooldownDays *int                  `json:"dailyQuestCooldownDays"`
-	Preferences           map[string]interface{} `json:"preferences"`
+	Timezone               *string                `json:"timezone"`
+	DailyQuestLimit        *int                   `json:"dailyQuestLimit"`
+	DailyQuestCooldownDays *int                   `json:"dailyQuestCooldownDays"`
+	Preferences            map[string]interface{} `json:"preferences"`
 }
 
-func NewUserDomainSettingsHandler(domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, settingsDAO *dao.UserDomainSettingsDAO) *UserDomainSettingsHandler {
+func NewUserDomainSettingsHandler(
+	domainDAO *dao.DomainDAO,
+	permissionDAO *dao.DomainPermissionDAO,
+	settingsDAO *dao.UserDomainSettingsDAO,
+	queryCache *services.QueryCacheService,
+) *UserDomainSettingsHandler {
 	return &UserDomainSettingsHandler{
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
 		settingsDAO:   settingsDAO,
+		queryCache:    queryCache,
 	}
 }
 
@@ -131,6 +142,18 @@ func (h *UserDomainSettingsHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		return
 	}
+
+	if h.queryCache != nil {
+		queueTag := fmt.Sprintf("srs:queue:user:%d:domain:%d", userID, uint(domainID64))
+		if err := h.queryCache.InvalidateTag(context.Background(), queueTag); err != nil {
+			log.Printf("warning: failed to invalidate queue cache tag %s: %v", queueTag, err)
+		}
+		dueTag := fmt.Sprintf("srs:due:user:%d:domain:%d", userID, uint(domainID64))
+		if err := h.queryCache.InvalidateTag(context.Background(), dueTag); err != nil {
+			log.Printf("warning: failed to invalidate due cache tag %s: %v", dueTag, err)
+		}
+	}
+
 	if len(settings.Preferences) == 0 {
 		settings.Preferences = json.RawMessage([]byte("{}"))
 	}

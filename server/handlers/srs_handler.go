@@ -24,10 +24,15 @@ type SRSHandler struct {
 }
 
 // NewSRSHandler creates a new SRSHandler
-func NewSRSHandler(db *gorm.DB, permissionDAO *dao.DomainPermissionDAO, notificationReadModel *services.NotificationReadModelService) *SRSHandler {
+func NewSRSHandler(
+	db *gorm.DB,
+	permissionDAO *dao.DomainPermissionDAO,
+	notificationReadModel *services.NotificationReadModelService,
+	queryCache *services.QueryCacheService,
+) *SRSHandler {
 	return &SRSHandler{
 		db:                    db,
-		srsService:            services.NewSRSService(db, notificationReadModel),
+		srsService:            services.NewSRSService(db, notificationReadModel, queryCache),
 		srsDao:                dao.NewSRSDao(db),
 		permissionDAO:         permissionDAO,
 		notificationReadModel: notificationReadModel,
@@ -589,6 +594,7 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		}
 		existing.Weight = request.Weight
 		existing.IsManual = request.IsManual
+		h.srsService.InvalidateDomainReviewCaches(domainID)
 		c.JSON(http.StatusOK, existing)
 		return
 	}
@@ -607,6 +613,7 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
+	h.srsService.InvalidateDomainReviewCaches(domainID)
 	c.JSON(http.StatusCreated, prerequisite)
 }
 
@@ -705,6 +712,7 @@ func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update prerequisite"})
 		return
 	}
+	h.srsService.InvalidateDomainReviewCaches(domainID)
 	c.JSON(http.StatusOK, gin.H{"message": "Prerequisite updated"})
 }
 
@@ -746,6 +754,7 @@ func (h *SRSHandler) DeletePrerequisite(c *gin.Context) {
 		return
 	}
 
+	h.srsService.InvalidateDomainReviewCaches(domainID)
 	c.JSON(http.StatusOK, gin.H{"message": "Prerequisite deleted successfully"})
 }
 
