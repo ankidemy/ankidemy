@@ -17,6 +17,7 @@ import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
 import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers, Clock } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
+import { getAppTimeZone } from '@/lib/app-preferences';
 import {
   buildQuestSchedulePayload,
   coalesceTimezone,
@@ -3344,7 +3345,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           openFrenzyNote({ id: created.code, name: created.title, type: 'source' } as GraphNode, created.id, spawn);
         }
       } else {
-        const defaultTimezone = domainSettings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const defaultTimezone = getAppTimeZone();
         const schedule = {
           type: 'rrule',
           timezone: defaultTimezone,
@@ -3423,7 +3424,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     addFrenzyPrerequisite,
     isFrenzyEditMode,
     openFrenzyNote,
-    domainSettings,
   ]);
 
   const saveFrenzyNote = useCallback(async (draftOverride?: string) => {
@@ -6439,7 +6439,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	            {frenzyQuestNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-2"
+	                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-2 flex flex-col overflow-hidden"
 	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
 	              >
 	                <div
@@ -6463,38 +6463,40 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	                    Close
 	                  </Button>
 	                </div>
-	                <QuestWindowContent
-	                  windowId={`frenzy-quest-${frenzyQuestNote.questId}`}
-	                  questData={{
-	                    id: frenzyQuestNote.questId,
-	                    code: frenzyQuestNote.nodeId,
-	                    name: frenzyQuestNote.nodeName,
-	                    kind: frenzyQuestNote.kind,
-	                    schedule: frenzyQuestNote.schedule as any,
-	                    visibility: frenzyQuestNote.visibility,
-	                    active: frenzyQuestNote.active,
-	                  }}
-	                  domainId={parseInt(subjectMatterId, 10)}
-	                  graphData={currentStructuralGraphData}
-	                  onNavigateToNode={navigateToNodeById}
-	                  onUpdateQuest={(updated) => {
-	                    applyQuestUpdateToGraph(updated);
-	                    setFrenzyQuestNote(prev => prev ? {
-	                      ...prev,
-	                      nodeId: updated.code || prev.nodeId,
-	                      nodeName: updated.name || prev.nodeName,
-	                      kind: isQuestKindValue((updated as { kind?: unknown }).kind) ? (updated as { kind: 'todo' | 'habit' | 'daily' }).kind : prev.kind,
-	                      visibility: isQuestVisibilityValue((updated as { visibility?: unknown }).visibility) ? (updated as { visibility: 'private' | 'domain' }).visibility : prev.visibility,
-	                      active: updated.active ?? prev.active,
-	                      schedule: updated.schedule ?? prev.schedule,
-	                    } : prev);
-	                  }}
-	                  onDeleteQuest={(code) => {
-	                    removeAuxNodeFromGraph('quest', code);
-	                  }}
-	                  onRelevantLinksUpdated={refreshDomainRelations}
-	                  isFrenzyEditMode
-	                />
+	                <div className="min-h-0 flex-1 overflow-hidden">
+	                  <QuestWindowContent
+	                    windowId={`frenzy-quest-${frenzyQuestNote.questId}`}
+	                    questData={{
+	                      id: frenzyQuestNote.questId,
+	                      code: frenzyQuestNote.nodeId,
+	                      name: frenzyQuestNote.nodeName,
+	                      kind: frenzyQuestNote.kind,
+	                      schedule: frenzyQuestNote.schedule as any,
+	                      visibility: frenzyQuestNote.visibility,
+	                      active: frenzyQuestNote.active,
+	                    }}
+	                    domainId={parseInt(subjectMatterId, 10)}
+	                    graphData={currentStructuralGraphData}
+	                    onNavigateToNode={navigateToNodeById}
+	                    onUpdateQuest={(updated) => {
+	                      applyQuestUpdateToGraph(updated);
+	                      setFrenzyQuestNote(prev => prev ? {
+	                        ...prev,
+	                        nodeId: updated.code || prev.nodeId,
+	                        nodeName: updated.name || prev.nodeName,
+	                        kind: isQuestKindValue((updated as { kind?: unknown }).kind) ? (updated as { kind: 'todo' | 'habit' | 'daily' }).kind : prev.kind,
+	                        visibility: isQuestVisibilityValue((updated as { visibility?: unknown }).visibility) ? (updated as { visibility: 'private' | 'domain' }).visibility : prev.visibility,
+	                        active: updated.active ?? prev.active,
+	                        schedule: updated.schedule ?? prev.schedule,
+	                      } : prev);
+	                    }}
+	                    onDeleteQuest={(code) => {
+	                      removeAuxNodeFromGraph('quest', code);
+	                    }}
+	                    onRelevantLinksUpdated={refreshDomainRelations}
+	                    isFrenzyEditMode
+	                  />
+	                </div>
 	              </div>
 	            )}
 	          </div>

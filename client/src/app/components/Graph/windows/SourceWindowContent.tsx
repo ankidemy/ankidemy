@@ -7,6 +7,7 @@ import { Input } from "@/app/components/core/input";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
 import { showToast } from '@/app/components/core/ToastNotification';
 import { createQuest, createRelation, deleteRelation, deleteSource, getDomainRelations, getSource, updateSource, SourceDTO, MetaQuestDTO } from '@/lib/api';
+import { getAppTimeZone } from '@/lib/app-preferences';
 import { useUI } from '@/contexts/UIContext';
 import { GraphData } from '../utils/types';
 import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
@@ -330,7 +331,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     const dueDate = buildReminderDateTime(reminderDraft.date, reminderDraft.time);
     const schedule = {
       type: 'rrule',
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      timezone: getAppTimeZone(),
       dtstart: dueDate.toISOString(),
       rrule: 'FREQ=DAILY;COUNT=1',
       exdate: [],

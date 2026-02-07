@@ -1,4 +1,6 @@
 // client/src/app/components/Graph/windows/questScheduleDrafts.ts
+import { getAppTimeZone } from '@/lib/app-preferences';
+
 export type RepeatPreset = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 export type CustomRepeatPeriod = 'days' | 'weeks' | 'months' | 'years';
 export type DurationMode = 'forever' | 'count' | 'until';
@@ -59,7 +61,7 @@ const toLocalDateInput = (date: Date) => {
 
 const toLocalTimeInput = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 
-export const coalesceTimezone = (value?: string) => value?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+export const coalesceTimezone = (value?: string) => value?.trim() || getAppTimeZone() || 'UTC';
 
 const parseRRule = (rrule: string) => {
   const out: Record<string, string> = {};
@@ -298,4 +300,3 @@ export const buildQuestSchedulePayload = (args: {
     defaultSnoozeMinutes: getNumberProp(existing, 'defaultSnoozeMinutes') ?? 120,
   };
 };
-

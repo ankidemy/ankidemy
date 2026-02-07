@@ -124,6 +124,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isVersionSaving, setIsVersionSaving] = useState(false);
   const [isVersionMutating, setIsVersionMutating] = useState(false);
   const [viewMode, setViewMode] = useState<'details' | 'advanced'>('details');
 
@@ -160,6 +161,15 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       imagePath: activeVersion.imagePath || '',
     };
   }, [activeVersion, versionDrafts]);
+
+  const hasActiveVersionChanges = useMemo(() => {
+    if (!activeVersion || !activeVersion.id) return false;
+    return (
+      (activeVersionDraft.title || '') !== (activeVersion.title || '')
+      || (activeVersionDraft.descriptionMd || '') !== (activeVersion.descriptionMd || '')
+      || (activeVersionDraft.imagePath || '') !== (activeVersion.imagePath || '')
+    );
+  }, [activeVersion, activeVersionDraft]);
 
   const kindLabel = useMemo(() => {
     const value = quest?.kind || questData?.kind || 'todo';
@@ -203,7 +213,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setActiveDraft(fresh.active ?? true);
       setActiveTab('details');
       const drafts = parseScheduleToDrafts(fresh.schedule);
-      setTimezoneDraft(drafts.timezone);
+      setTimezoneDraft(coalesceTimezone());
       setDueDateDraft(drafts.date);
       setDueTimeDraft(drafts.time);
       setRepeatEnabledDraft(drafts.repeatEnabled);
@@ -236,7 +246,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setActiveDraft(fallback.active ?? true);
       setActiveTab('details');
       const drafts = parseScheduleToDrafts(fallback.schedule);
-      setTimezoneDraft(drafts.timezone);
+      setTimezoneDraft(coalesceTimezone());
       setDueDateDraft(drafts.date);
       setDueTimeDraft(drafts.time);
       setRepeatEnabledDraft(drafts.repeatEnabled);
@@ -560,11 +570,13 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const handleSaveVersion = useCallback(async (versionId: number) => {
     if (!quest?.id) return;
+    if (isVersionSaving) return;
     const draft = versionDrafts[versionId];
     if (!draft || draft.title.trim().length === 0) {
       showToast('Version title is required.', 'warning');
       return;
     }
+    setIsVersionSaving(true);
     try {
       const updated = await updateQuestVersion(quest.id, versionId, {
         title: draft.title.trim(),
@@ -575,8 +587,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       showToast('Version updated.', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to update version.', 'error');
+    } finally {
+      setIsVersionSaving(false);
     }
-  }, [quest?.id, versionDrafts]);
+  }, [isVersionSaving, quest?.id, versionDrafts]);
 
   const handleAddVersion = useCallback(async () => {
     if (!quest?.id) return;
@@ -682,7 +696,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     setVisibilityDraft(base.visibility && isQuestVisibility(base.visibility) ? base.visibility : 'private');
     setActiveDraft(base.active ?? true);
     const drafts = parseScheduleToDrafts(base.schedule);
-    setTimezoneDraft(drafts.timezone);
+    setTimezoneDraft(coalesceTimezone());
     setDueDateDraft(drafts.date);
     setDueTimeDraft(drafts.time);
     setRepeatEnabledDraft(drafts.repeatEnabled);
@@ -802,27 +816,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const renderScheduleEditor = (variant: 'standard' | 'frenzy') => {
     const timeInputId = `${windowId}-quest-time`;
     if (kindDraft === 'daily') {
-      return (
-        <div className={variant === 'frenzy' ? "space-y-2" : "space-y-3"}>
-          <div className="text-xs text-gray-700">
-            Daily quests are drawn from the daily pool. Scheduling is handled by the pool.
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-gray-700">
-              Timezone: <span className="font-mono">{timezoneDraft}</span>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs"
-              onClick={() => setTimezoneDraft(coalesceTimezone())}
-            >
-              Use local
-            </Button>
-          </div>
-        </div>
-      );
+      return null;
     }
     return (
       <div className={variant === 'frenzy' ? "space-y-2" : "space-y-3"}>
@@ -1036,20 +1030,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
             )}
           </div>
 
-        <div className="flex items-center justify-between">
-          <div className="text-xs text-gray-700">
-            Timezone: <span className="font-mono">{timezoneDraft}</span>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            onClick={() => setTimezoneDraft(coalesceTimezone())}
-          >
-            Use local
-          </Button>
-        </div>
       </div>
     );
   };
@@ -1115,16 +1095,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               }}
               disabled={!activeVersion.id}
             />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleSaveVersion(activeVersion.id || 0)}
-                disabled={!activeVersion.id}
-              >
-                Save Version
-              </Button>
-            </div>
           </>
         ) : (
           <div className="text-xs text-gray-500">No versions yet.</div>
@@ -1134,8 +1104,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   };
 
   return (
-    <div className={isFrenzyEditMode ? "p-3 text-sm bg-amber-50/70" : "flex flex-col gap-4 text-sm p-4"}>
-      <div className="flex items-center justify-between gap-3">
+    <div className={isFrenzyEditMode ? "h-full flex flex-col text-sm bg-amber-50/70" : "h-full flex flex-col text-sm"}>
+      <div className={isFrenzyEditMode ? "p-3 pb-2 flex flex-col gap-2 border-b border-amber-200/70" : "p-4 pb-2 flex flex-col gap-2"}>
+        <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             {!isFrenzyEditMode && (isEditMode || viewMode !== 'details') && (
@@ -1167,6 +1138,17 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
         <div className="flex items-center gap-2">
           {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
+          {effectiveEditMode && activeVersion?.id && hasActiveVersionChanges && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleSaveVersion(activeVersion.id || 0)}
+              disabled={isVersionSaving}
+            >
+              <Save className="h-4 w-4 mr-1" />
+              {isVersionSaving ? 'Saving…' : 'Save Version'}
+            </Button>
+          )}
 
           {isFrenzyEditMode ? (
             <span className="text-xs text-amber-700 flex items-center gap-1">
@@ -1249,7 +1231,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
           )}
         </div>
       )}
+      </div>
 
+      <div className={isFrenzyEditMode ? "flex-1 min-h-0 overflow-y-auto p-3 pt-2" : "flex-1 min-h-0 overflow-y-auto p-4 pt-3"}>
       {isFrenzyEditMode ? (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3">
@@ -1542,6 +1526,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 };

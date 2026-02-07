@@ -17,9 +17,14 @@ interface Props {
   onUpdateMeta?: (payload: { name?: string }) => Promise<void>;
   onBack?: () => void;
   initialActiveIndex?: number;
+  onVersionDirtyChange?: (dirty: boolean) => void;
 }
 
-const MetaDefinitionEditForm: React.FC<Props> = ({
+export interface MetaDefinitionEditFormRef {
+  saveVersion: () => Promise<void>;
+}
+
+const MetaDefinitionEditForm = React.forwardRef<MetaDefinitionEditFormRef, Props>(({
   meta,
   onAddVersion: _onAddVersion,
   onUpdateVersion,
@@ -27,7 +32,8 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
   onUpdateMeta,
   onBack: _onBack,
   initialActiveIndex,
-}) => {
+  onVersionDirtyChange,
+}, ref) => {
   const versions = meta.versions || [];
   const [active, setActive] = useState<number>(() => {
     if (versions.length === 0) return 0;
@@ -37,15 +43,29 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
   const cur = versions[active];
   const [draft, setDraft] = useState<Partial<DefinitionVersion>>({});
 
-  const val = <K extends keyof DefinitionVersion>(key: K, fallback: any = ''): any => {
+  const val = React.useCallback(<K extends keyof DefinitionVersion>(key: K, fallback: any = ''): any => {
     const d: any = draft;
     if (d[key] !== undefined && d[key] !== null) return d[key];
     const c: any = cur;
     return (c && c[key] !== undefined && c[key] !== null) ? c[key] : fallback;
-  };
+  }, [cur, draft]);
 
-  const handleSave = async () => {
-    if (!cur || !onUpdateVersion) return;
+  const hasVersionChanges = React.useMemo(() => {
+    if (!cur) return false;
+    const changedKeys = Object.keys(draft) as Array<keyof DefinitionVersion>;
+    if (changedKeys.length === 0) return false;
+    return changedKeys.some((key) => {
+      const nextValue = draft[key];
+      const currentValue = cur[key];
+      if (Array.isArray(nextValue) || Array.isArray(currentValue)) {
+        return JSON.stringify(nextValue ?? []) !== JSON.stringify(currentValue ?? []);
+      }
+      return (nextValue ?? '') !== (currentValue ?? '');
+    });
+  }, [cur, draft]);
+
+  const handleSave = React.useCallback(async () => {
+    if (!cur || !onUpdateVersion || !hasVersionChanges) return;
     const prompt = String(val('prompt', '')).trim();
     if (!prompt) {
       showToast('Prompt is required', 'error');
@@ -62,7 +82,7 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
     };
     await onUpdateVersion(cur.id, payload);
     setDraft({});
-  };
+  }, [cur, hasVersionChanges, onUpdateVersion, val]);
 
   const [metaDraft, setMetaDraft] = useState({ name: meta.name });
 
@@ -117,6 +137,16 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
       setDraft({});
     }
   }, [active, initialActiveIndex, versions.length]);
+
+  React.useEffect(() => {
+    onVersionDirtyChange?.(hasVersionChanges);
+  }, [hasVersionChanges, onVersionDirtyChange]);
+
+  React.useImperativeHandle(ref, () => ({
+    saveVersion: async () => {
+      await handleSave();
+    },
+  }), [handleSave]);
 
   return (
     <div className="space-y-3">
@@ -237,15 +267,12 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="border-t p-4 flex gap-2">
-            <Button onClick={handleSave} disabled={!cur || Object.keys(draft).length === 0}>
-              Save Version
-            </Button>
-          </div>
         </>
       )}
     </div>
   );
-};
+});
+
+MetaDefinitionEditForm.displayName = 'MetaDefinitionEditForm';
 
 export default MetaDefinitionEditForm;

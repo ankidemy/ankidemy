@@ -4,13 +4,19 @@ export type AppNotificationPreferences = {
   dueReviewBatchSize?: number;
 };
 
+export type AppGeneralPreferences = {
+  timezone?: string;
+};
+
 export type AppPreferences = {
   version: 1;
   notifications?: AppNotificationPreferences;
+  general?: AppGeneralPreferences;
 };
 
 export type AppPreferencesPatch = {
   notifications?: AppNotificationPreferences;
+  general?: AppGeneralPreferences;
 };
 
 const STORAGE_KEY = 'ankidemy:app-preferences:v1';
@@ -23,6 +29,7 @@ const DEFAULT_APP_PREFERENCES: AppPreferences = {
     dueReviewBatchSoundEnabled: true,
     dueReviewBatchSize: DEFAULT_DUE_REVIEW_BATCH_SIZE,
   },
+  general: {},
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -84,3 +91,61 @@ const normalizeDueReviewBatchSize = (value: unknown): number => {
 
 export const getDueReviewBatchSize = (): number =>
   normalizeDueReviewBatchSize(loadAppPreferences().notifications?.dueReviewBatchSize);
+
+export const getBrowserTimeZone = (): string => {
+  if (typeof window === 'undefined') return 'UTC';
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+export const isValidTimeZone = (value: string): boolean => {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const getSupportedTimeZones = (): string[] => {
+  try {
+    const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+    const supported = intlWithSupportedValues.supportedValuesOf?.('timeZone');
+    if (Array.isArray(supported) && supported.length > 0) return supported;
+  } catch {}
+  return [
+    'UTC',
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'America/Phoenix',
+    'America/Mexico_City',
+    'America/Sao_Paulo',
+    'Europe/London',
+    'Europe/Paris',
+    'Europe/Berlin',
+    'Europe/Madrid',
+    'Europe/Rome',
+    'Europe/Amsterdam',
+    'Africa/Johannesburg',
+    'Asia/Dubai',
+    'Asia/Kolkata',
+    'Asia/Singapore',
+    'Asia/Shanghai',
+    'Asia/Tokyo',
+    'Asia/Seoul',
+    'Australia/Sydney',
+    'Pacific/Auckland',
+  ];
+};
+
+export const getAppTimeZone = (): string => {
+  const preferred = (loadAppPreferences().general?.timezone || '').trim();
+  if (isValidTimeZone(preferred)) return preferred;
+  return getBrowserTimeZone();
+};

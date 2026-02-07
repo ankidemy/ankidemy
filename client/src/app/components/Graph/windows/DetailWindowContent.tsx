@@ -4,13 +4,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
-import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, BarChart3, Save, SlidersHorizontal } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
 import PrerequisitesPanel from '../details/PrerequisitesPanel';
-import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
-import MetaDefinitionEditForm from '../details/MetaDefinitionEditForm';
+import MetaExerciseEditForm, { MetaExerciseEditFormRef } from '../details/MetaExerciseEditForm';
+import MetaDefinitionEditForm, { MetaDefinitionEditFormRef } from '../details/MetaDefinitionEditForm';
 import VersionHeaderControls from '../components/VersionHeaderControls';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
@@ -47,6 +47,7 @@ import {
   createRelation,
 } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
+import { getAppTimeZone } from '@/lib/app-preferences';
 import { getNextQuestCode as getNextQuestCodeFromUtils, getNextDotCode, getNextExerciseCode } from '../utils/codeGeneration';
 
 interface DetailWindowContentProps {
@@ -134,6 +135,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isDetaching, setIsDetaching] = useState(false);
   const [isVersionUpdating, setIsVersionUpdating] = useState(false);
+  const [isSavingActiveVersion, setIsSavingActiveVersion] = useState(false);
+  const [isActiveVersionDirty, setIsActiveVersionDirty] = useState(false);
+  const definitionEditFormRef = React.useRef<MetaDefinitionEditFormRef | null>(null);
+  const exerciseEditFormRef = React.useRef<MetaExerciseEditFormRef | null>(null);
   
   // Definition-specific state
   const [showDefinition, setShowDefinition] = useState(true);
@@ -454,7 +459,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     const dueDate = buildReminderDateTime(reminderDraft.date, reminderDraft.time);
     const schedule = {
       type: 'rrule',
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      timezone: getAppTimeZone(),
       dtstart: dueDate.toISOString(),
       rrule: 'FREQ=DAILY;COUNT=1',
       exdate: [],
@@ -858,6 +863,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     return Math.max(0, Math.min(raw, versionCount - 1));
   }, [currentNode.type, selectedDefinitionIndex, selectedVersionIndex, versionCount]);
 
+  useEffect(() => {
+    setIsActiveVersionDirty(false);
+  }, [currentNode.id, currentNode.type, isEditMode, versionIndex]);
+
   const handlePrevVersion = useCallback(() => {
     if (versionCount <= 1) return;
     if (currentNode.type === 'definition') {
@@ -966,6 +975,26 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       setIsVersionUpdating(false);
     }
   }, [canEdit, currentNode.type, isVersionUpdating, metaDetails, versionCount, versionIndex]);
+
+  const canShowSaveVersionInHeader = isEditMode
+    && (currentNode.type === 'definition' || currentNode.type === 'exercise')
+    && isActiveVersionDirty;
+
+  const handleSaveActiveVersion = useCallback(async () => {
+    if (!canShowSaveVersionInHeader || isSavingActiveVersion) return;
+    setIsSavingActiveVersion(true);
+    try {
+      if (currentNode.type === 'definition') {
+        await definitionEditFormRef.current?.saveVersion();
+        return;
+      }
+      if (currentNode.type === 'exercise') {
+        await exerciseEditFormRef.current?.saveVersion();
+      }
+    } finally {
+      setIsSavingActiveVersion(false);
+    }
+  }, [canShowSaveVersionInHeader, currentNode.type, isSavingActiveVersion]);
 
   const handleDetachVersion = useCallback(async () => {
     if (isDetaching) return;
@@ -1154,6 +1183,18 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 {showReminderForm ? 'Close Reminder' : 'Remind Me'}
               </Button>
             )}
+            {canShowSaveVersionInHeader && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={handleSaveActiveVersion}
+                disabled={isSavingActiveVersion || isVersionUpdating}
+              >
+                <Save size={14} className="mr-1" />
+                {isSavingActiveVersion ? 'Saving…' : 'Save Version'}
+              </Button>
+            )}
             {currentNode.type !== 'source' && currentNode.type !== 'quest' && (
               <>
                 <Button
@@ -1289,8 +1330,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
           nodeDetails ? (
             currentNode.type === 'definition' ? (
               <MetaDefinitionEditForm
+                ref={definitionEditFormRef}
                 meta={metaDetails as MetaDefinition}
                 initialActiveIndex={selectedDefinitionIndex}
+                onVersionDirtyChange={setIsActiveVersionDirty}
                 onUpdateVersion={async (id, v) => {
                   if (!metaDetails) return;
                   await updateMetaDefinitionVersion(metaDetails.id, id, v as any);
@@ -1356,8 +1399,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               />
             ) : (
               <MetaExerciseEditForm
+                ref={exerciseEditFormRef}
                 meta={metaDetails as any}
                 initialActiveIndex={selectedVersionIndex}
+                onVersionDirtyChange={setIsActiveVersionDirty}
                 onUpdateVersion={async (id, v)=>{
                   if (!metaDetails) return;
                   await updateMetaExerciseVersion(metaDetails.id, id, v as any);

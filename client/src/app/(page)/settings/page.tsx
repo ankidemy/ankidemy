@@ -1,12 +1,20 @@
 "use client";
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/app/components/core/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/app/components/core/card';
 import { getCurrentUser } from '@/lib/api';
-import { AppPreferences, loadAppPreferences, updateAppPreferences } from '@/lib/app-preferences';
+import {
+  AppPreferences,
+  getAppTimeZone,
+  getBrowserTimeZone,
+  getSupportedTimeZones,
+  isValidTimeZone,
+  loadAppPreferences,
+  updateAppPreferences,
+} from '@/lib/app-preferences';
 import { playDueReviewNotificationSound } from '@/lib/due-review-notification-sound';
 import { playSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 
@@ -17,6 +25,7 @@ const DEFAULT_PREFERENCES: AppPreferences = {
     dueReviewBatchSoundEnabled: true,
     dueReviewBatchSize: 10,
   },
+  general: {},
 };
 
 export default function SettingsPage() {
@@ -45,6 +54,22 @@ export default function SettingsPage() {
 
   const surveySoundEnabled = preferences.notifications?.surveyQueueSoundEnabled !== false;
   const dueReviewSoundEnabled = preferences.notifications?.dueReviewBatchSoundEnabled !== false;
+  const browserTimezone = getBrowserTimeZone();
+  const configuredTimezone = (preferences.general?.timezone || '').trim();
+  const appTimezone = isValidTimeZone(configuredTimezone) ? configuredTimezone : getAppTimeZone();
+  const timezoneOptions = useMemo(() => {
+    const options: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      if (!value || seen.has(value)) return;
+      options.push(value);
+      seen.add(value);
+    };
+    push(appTimezone);
+    push(browserTimezone);
+    getSupportedTimeZones().forEach(push);
+    return options;
+  }, [appTimezone, browserTimezone]);
   const dueReviewBatchSize = (() => {
     const parsed = Number(preferences.notifications?.dueReviewBatchSize ?? 10);
     if (!Number.isFinite(parsed)) return 10;
@@ -79,6 +104,16 @@ export default function SettingsPage() {
     setPreferences(next);
   };
 
+  const handleTimezoneChange = (timezone: string) => {
+    if (!isValidTimeZone(timezone)) return;
+    const next = updateAppPreferences({
+      general: {
+        timezone,
+      },
+    });
+    setPreferences(next);
+  };
+
   if (loading) {
     return <p className="text-center text-gray-500 py-10">Loading settings...</p>;
   }
@@ -100,6 +135,38 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex items-start justify-between gap-4 rounded-md border border-gray-200 p-4">
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-gray-900">App Time Zone</div>
+              <p className="text-xs text-gray-600">
+                Used as the default quest scheduling timezone across the app.
+              </p>
+              <p className="text-[11px] text-gray-500">
+                Browser local timezone: {browserTimezone}
+              </p>
+            </div>
+            <div className="flex min-w-[220px] flex-col gap-2">
+              <select
+                value={appTimezone}
+                onChange={(event) => handleTimezoneChange(event.target.value)}
+                className="rounded border border-gray-300 px-2 py-1 text-sm"
+              >
+                {timezoneOptions.map((timezone) => (
+                  <option key={timezone} value={timezone}>
+                    {timezone}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleTimezoneChange(browserTimezone)}
+              >
+                Use Browser Local
+              </Button>
+            </div>
+          </div>
+
           <div className="flex items-start justify-between gap-4 rounded-md border border-gray-200 p-4">
             <div className="space-y-1">
               <div className="text-sm font-semibold text-gray-900">
