@@ -18,6 +18,7 @@ import (
 const (
 	ReadModelEventNotificationDomainDueRefresh  = "notifications.domain_due.refresh"
 	ReadModelEventNotificationSummaryInvalidate = "notifications.summary.invalidate"
+	notificationSummaryRoute                    = "/api/srs/notifications/summary"
 )
 
 type NotificationReadModelService struct {
@@ -114,16 +115,31 @@ func (s *NotificationReadModelService) GetSummary(userID uint, requestID string)
 	if s == nil {
 		return nil, fmt.Errorf("notification read model service is nil")
 	}
+	const serviceMethod = "NotificationReadModelService.GetSummary"
 
 	key := s.summaryCacheKey(userID)
 	tag := s.summaryCacheTag(userID)
 
+	cacheLoadStartedAt := time.Now()
 	summary, err := CacheGetOrLoadJSON(context.Background(), s.queryCache, key, CachePolicy{
 		TTL:  s.cacheTTL,
 		Tags: []string{tag},
-	}, func(ctx context.Context) (*models.NotificationSummary, error) {
+	}, requestID, notificationSummaryRoute, func(ctx context.Context) (*models.NotificationSummary, error) {
 		return s.buildSummary(ctx, userID, requestID)
 	})
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"summary_cache_get_or_load",
+		cacheLoadStartedAt,
+		err,
+		map[string]interface{}{
+			"userId":         userID,
+			"cacheKey":       key,
+			"cacheTTLSecond": int(s.cacheTTL.Seconds()),
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +147,19 @@ func (s *NotificationReadModelService) GetSummary(userID uint, requestID string)
 }
 
 func (s *NotificationReadModelService) buildSummary(_ context.Context, userID uint, requestID string) (*models.NotificationSummary, error) {
+	const serviceMethod = "NotificationReadModelService.buildSummary"
+
+	domainsStartedAt := time.Now()
 	domains, err := s.dueDAO.ListNotificationDomains(userID)
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"list_notification_domains",
+		domainsStartedAt,
+		err,
+		map[string]interface{}{"userId": userID, "domainCount": len(domains)},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -141,11 +169,22 @@ func (s *NotificationReadModelService) buildSummary(_ context.Context, userID ui
 		domainIDs = append(domainIDs, domain.DomainID)
 	}
 
+	projectionStartedAt := time.Now()
 	projectedByDomain, err := s.dueDAO.GetByUserAndDomainIDs(userID, domainIDs)
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"get_due_projections",
+		projectionStartedAt,
+		err,
+		map[string]interface{}{"userId": userID, "domainCount": len(domainIDs), "projectionCount": len(projectedByDomain)},
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	staleScanStartedAt := time.Now()
 	staleOrMissing := make([]uint, 0, len(domainIDs))
 	staleThreshold := time.Now().UTC().Add(-s.staleAfter)
 	for _, domainID := range domainIDs {
@@ -154,15 +193,53 @@ func (s *NotificationReadModelService) buildSummary(_ context.Context, userID ui
 			staleOrMissing = append(staleOrMissing, domainID)
 		}
 	}
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"detect_stale_or_missing_projections",
+		staleScanStartedAt,
+		nil,
+		map[string]interface{}{"userId": userID, "domainCount": len(domainIDs), "staleOrMissingCount": len(staleOrMissing)},
+	)
 
 	if len(staleOrMissing) > 0 {
+		computeDueStartedAt := time.Now()
 		freshDueCounts, err := s.dueDAO.ComputeDueCounts(userID, staleOrMissing)
+		logServiceStage(
+			requestID,
+			notificationSummaryRoute,
+			serviceMethod,
+			"compute_due_counts",
+			computeDueStartedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainCount": len(staleOrMissing), "resultCount": len(freshDueCounts)},
+		)
 		if err != nil {
 			return nil, err
 		}
+		upsertStartedAt := time.Now()
 		if err := s.dueDAO.UpsertDueCounts(userID, freshDueCounts, time.Now().UTC()); err != nil {
+			logServiceStage(
+				requestID,
+				notificationSummaryRoute,
+				serviceMethod,
+				"upsert_due_projections",
+				upsertStartedAt,
+				err,
+				map[string]interface{}{"userId": userID, "projectionCount": len(freshDueCounts)},
+			)
 			return nil, err
 		}
+		logServiceStage(
+			requestID,
+			notificationSummaryRoute,
+			serviceMethod,
+			"upsert_due_projections",
+			upsertStartedAt,
+			nil,
+			map[string]interface{}{"userId": userID, "projectionCount": len(freshDueCounts)},
+		)
 		for domainID, dueCount := range freshDueCounts {
 			projectedByDomain[domainID] = models.UserDomainDueProjection{
 				UserID:     userID,
@@ -173,6 +250,7 @@ func (s *NotificationReadModelService) buildSummary(_ context.Context, userID ui
 		}
 	}
 
+	buildDomainSummaryStartedAt := time.Now()
 	domainSummaries := make([]models.NotificationSummaryDomain, 0, len(domains))
 	totalDue := 0
 	for _, domain := range domains {
@@ -187,18 +265,48 @@ func (s *NotificationReadModelService) buildSummary(_ context.Context, userID ui
 			DueCount:   dueCount,
 		})
 	}
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"build_domain_summaries",
+		buildDomainSummaryStartedAt,
+		nil,
+		map[string]interface{}{"userId": userID, "domainCount": len(domainSummaries), "totalDue": totalDue},
+	)
 
+	sortStartedAt := time.Now()
 	sort.Slice(domainSummaries, func(i, j int) bool {
 		if domainSummaries[i].DueCount == domainSummaries[j].DueCount {
 			return domainSummaries[i].DomainID < domainSummaries[j].DomainID
 		}
 		return domainSummaries[i].DueCount > domainSummaries[j].DueCount
 	})
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"sort_domain_summaries",
+		sortStartedAt,
+		nil,
+		map[string]interface{}{"userId": userID, "domainCount": len(domainSummaries)},
+	)
 
-	invites, err := s.inviteDAO.ListPendingForUser(userID, requestID)
+	invitesStartedAt := time.Now()
+	invites, err := s.inviteDAO.ListPendingForUser(userID, requestID, notificationSummaryRoute)
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"list_pending_invites_total",
+		invitesStartedAt,
+		err,
+		map[string]interface{}{"userId": userID, "inviteCount": len(invites)},
+	)
 	if err != nil {
 		return nil, err
 	}
+	buildInviteSummaryStartedAt := time.Now()
 	inviteSummaries := make([]models.NotificationSummaryInvite, 0, len(invites))
 	for _, invite := range invites {
 		domainName := ""
@@ -219,14 +327,35 @@ func (s *NotificationReadModelService) buildSummary(_ context.Context, userID ui
 			CreatedAt:         invite.CreatedAt,
 		})
 	}
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"build_invite_summaries",
+		buildInviteSummaryStartedAt,
+		nil,
+		map[string]interface{}{"userId": userID, "inviteCount": len(inviteSummaries)},
+	)
 
-	return &models.NotificationSummary{
+	assembleSummaryStartedAt := time.Now()
+	summary := &models.NotificationSummary{
 		Domains:     domainSummaries,
 		Invites:     inviteSummaries,
 		TotalDue:    totalDue,
 		InviteCount: len(inviteSummaries),
 		GeneratedAt: time.Now().UTC(),
-	}, nil
+	}
+	logServiceStage(
+		requestID,
+		notificationSummaryRoute,
+		serviceMethod,
+		"assemble_summary_response",
+		assembleSummaryStartedAt,
+		nil,
+		map[string]interface{}{"userId": userID, "domainCount": len(domainSummaries), "inviteCount": len(inviteSummaries)},
+	)
+
+	return summary, nil
 }
 
 func (s *NotificationReadModelService) EnqueueDomainDueRefresh(userID uint, domainID uint) error {

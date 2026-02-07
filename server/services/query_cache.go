@@ -78,43 +78,170 @@ func CacheGetOrLoadJSON[T any](
 	s *QueryCacheService,
 	key string,
 	policy CachePolicy,
+	requestID string,
+	route string,
 	loader func(context.Context) (T, error),
 ) (T, error) {
 	var zero T
+	const serviceMethod = "QueryCacheService.CacheGetOrLoadJSON"
 	if s == nil || s.backend == nil || policy.TTL <= 0 {
-		return loader(ctx)
+		loaderStartedAt := time.Now()
+		loaded, err := loader(ctx)
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"load_without_cache",
+			loaderStartedAt,
+			err,
+			map[string]interface{}{"cacheKey": key},
+		)
+		if err != nil {
+			return zero, err
+		}
+		return loaded, nil
 	}
 
-	if payload, hit, err := s.backend.Get(ctx, key); err == nil && hit {
+	initialGetStartedAt := time.Now()
+	payload, hit, err := s.backend.Get(ctx, key)
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"cache_get_initial",
+		initialGetStartedAt,
+		err,
+		map[string]interface{}{"cacheKey": key, "hit": hit},
+	)
+	if err == nil && hit {
+		unmarshalStartedAt := time.Now()
 		var cached T
 		if err := json.Unmarshal(payload, &cached); err == nil {
+			logServiceStage(
+				requestID,
+				route,
+				serviceMethod,
+				"cache_unmarshal_initial",
+				unmarshalStartedAt,
+				nil,
+				map[string]interface{}{"cacheKey": key, "hit": true},
+			)
 			return cached, nil
 		}
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"cache_unmarshal_initial",
+			unmarshalStartedAt,
+			err,
+			map[string]interface{}{"cacheKey": key, "hit": true},
+		)
 	}
 
 	lock := s.getLock(key)
+	lockWaitStartedAt := time.Now()
 	lock.Lock()
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"cache_lock_wait",
+		lockWaitStartedAt,
+		nil,
+		map[string]interface{}{"cacheKey": key},
+	)
 	defer lock.Unlock()
 
-	if payload, hit, err := s.backend.Get(ctx, key); err == nil && hit {
+	recheckGetStartedAt := time.Now()
+	payload, hit, err = s.backend.Get(ctx, key)
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"cache_get_after_lock",
+		recheckGetStartedAt,
+		err,
+		map[string]interface{}{"cacheKey": key, "hit": hit},
+	)
+	if err == nil && hit {
+		unmarshalStartedAt := time.Now()
 		var cached T
 		if err := json.Unmarshal(payload, &cached); err == nil {
+			logServiceStage(
+				requestID,
+				route,
+				serviceMethod,
+				"cache_unmarshal_after_lock",
+				unmarshalStartedAt,
+				nil,
+				map[string]interface{}{"cacheKey": key, "hit": true},
+			)
 			return cached, nil
 		}
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"cache_unmarshal_after_lock",
+			unmarshalStartedAt,
+			err,
+			map[string]interface{}{"cacheKey": key, "hit": true},
+		)
 	}
 
+	loaderStartedAt := time.Now()
 	loaded, err := loader(ctx)
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"cache_loader",
+		loaderStartedAt,
+		err,
+		map[string]interface{}{"cacheKey": key},
+	)
 	if err != nil {
 		return zero, err
 	}
 
+	marshalStartedAt := time.Now()
 	payload, err := json.Marshal(loaded)
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"cache_marshal_loaded",
+		marshalStartedAt,
+		err,
+		map[string]interface{}{"cacheKey": key},
+	)
 	if err != nil {
 		return zero, err
 	}
 
+	setStartedAt := time.Now()
 	if err := s.backend.Set(ctx, key, payload, policy.TTL, policy.Tags); err != nil {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"cache_set",
+			setStartedAt,
+			err,
+			map[string]interface{}{"cacheKey": key, "tagCount": len(policy.Tags)},
+		)
 		log.Printf("warning: cache set failed for key=%s: %v", key, err)
+	} else {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"cache_set",
+			setStartedAt,
+			nil,
+			map[string]interface{}{"cacheKey": key, "tagCount": len(policy.Tags)},
+		)
 	}
 	return loaded, nil
 }

@@ -2,6 +2,7 @@ package dao
 
 import (
 	"myapp/server/models"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -47,8 +48,14 @@ func (d *DomainInviteDAO) FindByID(inviteID uint) (*models.DomainInvite, error) 
 	return &invite, nil
 }
 
-func (d *DomainInviteDAO) ListPendingForUser(userID uint, requestID string) ([]models.DomainInvite, error) {
-	const route = "/api/domain-invites"
+func (d *DomainInviteDAO) ListPendingForUser(userID uint, requestID string, routeOverride ...string) ([]models.DomainInvite, error) {
+	route := "/api/domain-invites"
+	if len(routeOverride) > 0 {
+		candidate := strings.TrimSpace(routeOverride[0])
+		if candidate != "" {
+			route = candidate
+		}
+	}
 	const daoMethod = "DomainInviteDAO.ListPendingForUser"
 
 	var invites []models.DomainInvite
