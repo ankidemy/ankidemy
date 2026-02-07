@@ -933,7 +933,7 @@ const handleResponse = async (response: Response) => {
 export const uploadNodeImage = async (payload: {
   file: File;
   domainId: number;
-  nodeType: 'definition' | 'exercise';
+  nodeType: 'definition' | 'exercise' | 'quest';
   field: 'prompt' | 'description' | 'statement';
 }): Promise<{ imagePath: string }> => {
   const formData = new FormData();

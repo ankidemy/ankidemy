@@ -6,6 +6,9 @@ import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
+import ImageUploadField from '../components/ImageUploadField';
+import ZoomableImage from '../components/ZoomableImage';
+import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { showToast } from '@/app/components/core/ToastNotification';
 import { ArrowLeft, Clock, Edit, Loader2, Save, X, Lock, Unlock, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
 import VersionHeaderControls from '../components/VersionHeaderControls';
@@ -18,6 +21,7 @@ import {
   getDomainRelations,
   getQuest,
   postSurveyEvent,
+  uploadNodeImage,
   updateQuest,
   updateQuestRelevantLinks,
   updateQuestVersion,
@@ -53,6 +57,7 @@ type RelationDraft = { relationType: string; toType: 'meta_definition' | 'meta_e
 
 type QuestKind = 'todo' | 'habit' | 'daily';
 type QuestVisibility = 'private' | 'domain';
+type QuestVersionDraft = { title: string; descriptionMd: string; imagePath: string };
 
 const isQuestKind = (value: string): value is QuestKind => value === 'todo' || value === 'habit' || value === 'daily';
 const isQuestVisibility = (value: string): value is QuestVisibility => value === 'private' || value === 'domain';
@@ -108,7 +113,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [durationModeDraft, setDurationModeDraft] = useState<DurationMode>('forever');
   const [durationCountDraft, setDurationCountDraft] = useState(10);
   const [untilDateDraft, setUntilDateDraft] = useState('');
-  const [versionDrafts, setVersionDrafts] = useState<Record<number, { title: string; descriptionMd: string }>>({});
+  const [versionDrafts, setVersionDrafts] = useState<Record<number, QuestVersionDraft>>({});
   const [relevantLinks, setRelevantLinks] = useState<RelationDraft[]>([]);
   const [newRelation, setNewRelation] = useState<RelationDraft>({
     relationType: 'relevant',
@@ -141,16 +146,18 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   }, [activeVersion, activeVersionIndex]);
 
   const activeVersionDraft = useMemo(() => {
-    if (!activeVersion) return { title: '', descriptionMd: '' };
+    if (!activeVersion) return { title: '', descriptionMd: '', imagePath: '' };
     if (!activeVersion.id) {
       return {
         title: activeVersion.title || '',
         descriptionMd: activeVersion.descriptionMd || '',
+        imagePath: activeVersion.imagePath || '',
       };
     }
     return versionDrafts[activeVersion.id] || {
       title: activeVersion.title || '',
       descriptionMd: activeVersion.descriptionMd || '',
+      imagePath: activeVersion.imagePath || '',
     };
   }, [activeVersion, versionDrafts]);
 
@@ -244,12 +251,13 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   }, [questData, questData?.id, questData?.code, loadQuest]);
 
   useEffect(() => {
-    const drafts: Record<number, { title: string; descriptionMd: string }> = {};
+    const drafts: Record<number, QuestVersionDraft> = {};
     versions.forEach(v => {
       if (!v.id) return;
       drafts[v.id] = {
         title: v.title || '',
         descriptionMd: v.descriptionMd || '',
+        imagePath: v.imagePath || '',
       };
     });
     setVersionDrafts(drafts);
@@ -298,9 +306,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   ]);
 
   useEffect(() => {
+    if (isFrenzyEditMode) return;
     if (!nextWindowTitle || nextWindowTitle === currentWindowTitle) return;
     ui.updateWindow(windowId, { title: nextWindowTitle });
-  }, [nextWindowTitle, currentWindowTitle, ui, windowId]);
+  }, [nextWindowTitle, currentWindowTitle, isFrenzyEditMode, ui, windowId]);
 
   const loadRelevantLinks = useCallback(async (versionId: number | null) => {
     if (!quest?.id || !versionId) {
@@ -485,6 +494,70 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     isFrenzyEditMode,
   ]);
 
+  const getVersionDraftBase = useCallback((versionId: number): QuestVersionDraft => {
+    const base = versions.find(v => v.id === versionId);
+    return {
+      title: base?.title || '',
+      descriptionMd: base?.descriptionMd || '',
+      imagePath: base?.imagePath || '',
+    };
+  }, [versions]);
+
+  const patchVersionDraft = useCallback((versionId: number, patch: Partial<QuestVersionDraft>) => {
+    setVersionDrafts(prev => {
+      const current = prev[versionId] || getVersionDraftBase(versionId);
+      return {
+        ...prev,
+        [versionId]: {
+          ...current,
+          ...patch,
+        },
+      };
+    });
+  }, [getVersionDraftBase]);
+
+  const uploadQuestVersionImage = useCallback(async (file: File): Promise<string> => {
+    const { imagePath } = await uploadNodeImage({
+      file,
+      domainId,
+      nodeType: 'quest',
+      field: 'description',
+    });
+    return imagePath;
+  }, [domainId]);
+
+  const handleVersionDescriptionPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>, versionId: number) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    const imageItem = Array.from(items).find(item => item.type.startsWith('image/'));
+    if (!imageItem) return;
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    void uploadQuestVersionImage(file)
+      .then((imagePath) => {
+        patchVersionDraft(versionId, { imagePath });
+        showToast('Image attached.', 'success', 1200);
+      })
+      .catch((err) => {
+        showToast(err instanceof Error ? err.message : 'Failed to upload image.', 'error');
+      });
+  }, [patchVersionDraft, uploadQuestVersionImage]);
+
+  const handleVersionDescriptionDrop = useCallback((event: React.DragEvent<HTMLTextAreaElement>, versionId: number) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    event.preventDefault();
+    void uploadQuestVersionImage(file)
+      .then((imagePath) => {
+        patchVersionDraft(versionId, { imagePath });
+        showToast('Image attached.', 'success', 1200);
+      })
+      .catch((err) => {
+        showToast(err instanceof Error ? err.message : 'Failed to upload image.', 'error');
+      });
+  }, [patchVersionDraft, uploadQuestVersionImage]);
+
   const handleSaveVersion = useCallback(async (versionId: number) => {
     if (!quest?.id) return;
     const draft = versionDrafts[versionId];
@@ -496,6 +569,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       const updated = await updateQuestVersion(quest.id, versionId, {
         title: draft.title.trim(),
         descriptionMd: draft.descriptionMd || '',
+        imagePath: draft.imagePath || '',
       });
       setVersions(prev => prev.map(v => (v.id === versionId ? { ...v, ...updated } : v)));
       showToast('Version updated.', 'success');
@@ -514,6 +588,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       const created = await addQuestVersion(quest.id, {
         title: baseTitle ? `${baseTitle} (Copy)` : nextLabel,
         descriptionMd: activeVersion?.descriptionMd || '',
+        imagePath: activeVersion?.imagePath || '',
       });
       setVersions(prev => [...prev, created]);
       setSelectedVersionId(created.id || null);
@@ -523,7 +598,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     } finally {
       setIsVersionMutating(false);
     }
-  }, [activeVersion?.descriptionMd, activeVersion?.title, isVersionMutating, quest?.id, versions.length]);
+  }, [activeVersion?.descriptionMd, activeVersion?.imagePath, activeVersion?.title, isVersionMutating, quest?.id, versions.length]);
 
   const handleDeleteVersion = useCallback(async (versionId: number) => {
     if (!quest?.id) return;
@@ -979,6 +1054,85 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     );
   };
 
+  const renderVersionEditor = (variant: 'standard' | 'frenzy') => {
+    const cardClassName = variant === 'frenzy'
+      ? 'rounded-md border border-amber-200 bg-white/60 p-3 space-y-2'
+      : 'rounded-md border border-gray-200 p-3 space-y-2';
+    const headingClassName = variant === 'frenzy'
+      ? 'text-xs font-semibold text-amber-800'
+      : 'text-xs font-semibold text-gray-700';
+
+    return (
+      <div className={cardClassName}>
+        <div className="flex items-center justify-between">
+          <div className={headingClassName}>Current Version</div>
+          <div className={variant === 'frenzy' ? 'text-xs text-amber-700' : 'text-xs text-gray-500'}>
+            {activeVersionLabel}
+          </div>
+        </div>
+        {activeVersion ? (
+          <>
+            <Input
+              value={activeVersionDraft.title}
+              onChange={(e) => {
+                if (!activeVersion.id) return;
+                patchVersionDraft(activeVersion.id, { title: e.target.value });
+              }}
+              className="h-8"
+              placeholder="Version title"
+              disabled={!activeVersion.id}
+            />
+            <MarkdownPreviewField
+              label="Description (Markdown)"
+              value={activeVersionDraft.descriptionMd}
+              onChange={(value) => {
+                if (!activeVersion.id) return;
+                patchVersionDraft(activeVersion.id, { descriptionMd: value });
+              }}
+              onPaste={(event) => {
+                if (!activeVersion.id) return;
+                handleVersionDescriptionPaste(event, activeVersion.id);
+              }}
+              onDrop={(event) => {
+                if (!activeVersion.id) return;
+                handleVersionDescriptionDrop(event, activeVersion.id);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              rows={variant === 'frenzy' ? 3 : 4}
+            />
+            <ImageUploadField
+              label="Description Image"
+              helperText="Paste, drop, or upload an image. This updates imagePath only."
+              imagePath={activeVersionDraft.imagePath}
+              onUpload={uploadQuestVersionImage}
+              onChange={(path) => {
+                if (!activeVersion.id) return;
+                patchVersionDraft(activeVersion.id, { imagePath: path });
+              }}
+              onClear={() => {
+                if (!activeVersion.id) return;
+                patchVersionDraft(activeVersion.id, { imagePath: '' });
+              }}
+              disabled={!activeVersion.id}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleSaveVersion(activeVersion.id || 0)}
+                disabled={!activeVersion.id}
+              >
+                Save Version
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-gray-500">No versions yet.</div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={isFrenzyEditMode ? "p-3 text-sm bg-amber-50/70" : "flex flex-col gap-4 text-sm p-4"}>
       <div className="flex items-center justify-between gap-3">
@@ -1160,6 +1314,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
             <div className="text-xs font-semibold text-amber-800">Schedule</div>
             <div className="mt-2">{renderScheduleEditor('frenzy')}</div>
           </div>
+
+          {renderVersionEditor('frenzy')}
         </div>
       ) : effectiveEditMode ? (
         <Tabs
@@ -1231,48 +1387,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                 <div className="mt-2">{renderScheduleEditor('standard')}</div>
               </div>
 
-              <div className="rounded-md border border-gray-200 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-semibold text-gray-700">Current Version</div>
-                  <div className="text-xs text-gray-500">{activeVersionLabel}</div>
-                </div>
-                {activeVersion ? (
-                  <>
-                    <Input
-                      value={activeVersionDraft.title}
-                      onChange={(e) => {
-                        if (!activeVersion.id) return;
-                        const value = e.target.value;
-                        setVersionDrafts(prev => ({ ...prev, [activeVersion.id || 0]: { ...activeVersionDraft, title: value } }));
-                      }}
-                      className="h-8"
-                      placeholder="Version title"
-                      disabled={!activeVersion.id}
-                    />
-                    <MarkdownPreviewField
-                      label="Description (Markdown)"
-                      value={activeVersionDraft.descriptionMd}
-                      onChange={(value) => {
-                        if (!activeVersion.id) return;
-                        setVersionDrafts(prev => ({ ...prev, [activeVersion.id || 0]: { ...activeVersionDraft, descriptionMd: value } }));
-                      }}
-                      rows={4}
-                    />
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSaveVersion(activeVersion.id || 0)}
-                        disabled={!activeVersion.id}
-                      >
-                        Save Version
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs text-gray-500">No versions yet.</div>
-                )}
-              </div>
+              {renderVersionEditor('standard')}
 
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="destructive" onClick={handleDeleteQuest} disabled={!quest?.id || isDeleting}>
@@ -1351,9 +1466,14 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               {versions.length > 0 ? (
                 <div className="rounded-md border border-gray-200 p-3 space-y-2">
                   <div className="text-sm text-gray-900">{activeVersion?.title || '—'}</div>
-                  {activeVersion?.descriptionMd?.trim() ? (
-                    <div className="rounded-md border border-gray-100 bg-gray-50 p-2 text-xs text-gray-800 whitespace-pre-wrap">
-                      {activeVersion.descriptionMd}
+                  {(activeVersion?.descriptionMd?.trim() || activeVersion?.imagePath) ? (
+                    <div className="rounded-md border border-gray-100 bg-gray-50 p-2 text-xs text-gray-800 space-y-2">
+                      {activeVersion?.descriptionMd?.trim() ? (
+                        <MarkdownKatex className="whitespace-pre-wrap">{activeVersion.descriptionMd}</MarkdownKatex>
+                      ) : null}
+                      {activeVersion?.imagePath ? (
+                        <ZoomableImage src={activeVersion.imagePath} alt="Quest image" className="max-w-full" />
+                      ) : null}
                     </div>
                   ) : (
                     <div className="text-xs text-gray-500">No description.</div>

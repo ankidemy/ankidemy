@@ -186,6 +186,9 @@ func validFieldForNode(nodeType, field string) bool {
 	if nodeType == "exercise" {
 		return field == "statement" || field == "description"
 	}
+	if nodeType == "quest" {
+		return field == "description"
+	}
 	return false
 }
 

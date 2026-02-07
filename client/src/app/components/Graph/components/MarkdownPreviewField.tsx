@@ -9,6 +9,9 @@ interface MarkdownPreviewFieldProps {
   label: string;
   value?: string;
   onChange: (value: string) => void;
+  onPaste?: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  onDrop?: (event: React.DragEvent<HTMLTextAreaElement>) => void;
+  onDragOver?: (event: React.DragEvent<HTMLTextAreaElement>) => void;
   rows?: number;
   placeholder?: string;
   disabled?: boolean;
@@ -26,6 +29,9 @@ const MarkdownPreviewField: React.FC<MarkdownPreviewFieldProps> = ({
   label,
   value,
   onChange,
+  onPaste,
+  onDrop,
+  onDragOver,
   rows = 3,
   placeholder,
   disabled,
@@ -68,6 +74,9 @@ const MarkdownPreviewField: React.FC<MarkdownPreviewFieldProps> = ({
           id={id}
           value={safeValue}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={onPaste}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
           rows={rows}
           placeholder={placeholder}
           disabled={disabled}

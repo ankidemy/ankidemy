@@ -4176,12 +4176,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setShowFrenzySolution(false);
       setFrenzyNotePreview(false);
       setFrenzyNoteIsNewVersion(false);
-    }
-    if (frenzyQuestNote) {
-      await saveFrenzyQuestNote(true);
-      setFrenzyQuestNote(null);
-      setFrenzyQuestCodeDraft('');
-      setFrenzyQuestNameDraft('');
+	    }
+	    if (frenzyQuestNote) {
+	      setFrenzyQuestNote(null);
+	      setFrenzyQuestCodeDraft('');
+	      setFrenzyQuestNameDraft('');
       setFrenzyQuestKindDraft('todo');
       setFrenzyQuestVisibilityDraft('private');
       setFrenzyQuestActiveDraft(true);
@@ -4198,9 +4197,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyQuestUntilDateDraft('');
       setFrenzyQuestAutoSaveStatus('idle');
       frenzyQuestLastAutoSavedRef.current = '';
-    }
-    setIsDraggingFrenzyNote(false);
-  }, [frenzyNote, frenzyQuestNote, saveFrenzyNote, saveFrenzyQuestNote]);
+	    }
+	    setIsDraggingFrenzyNote(false);
+	  }, [frenzyNote, frenzyQuestNote, saveFrenzyNote]);
 
 	  useEffect(() => {
 	    const handleEsc = (event: KeyboardEvent) => {
@@ -6440,326 +6439,62 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	            {frenzyQuestNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="absolute z-40 w-80 bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-3"
+	                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-2"
 	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
 	              >
 	                <div
-	                  className="flex items-start justify-between gap-3 cursor-move select-none"
+	                  className="flex items-start justify-between gap-3 cursor-move select-none px-1 pb-2"
 	                  onMouseDown={handleFrenzyNoteMouseDown}
 	                >
 	                  <div className="min-w-0">
 	                    <div className="text-sm font-semibold text-yellow-900 truncate">
-	                      {frenzyQuestCodeDraft.trim() || frenzyQuestNote.nodeId}
+	                      {frenzyQuestNote.nodeId}
 	                    </div>
 	                    <div className="text-xs text-yellow-700 truncate">
-	                      {frenzyQuestNameDraft.trim() || frenzyQuestNote.nodeName}
+	                      {frenzyQuestNote.nodeName}
 	                    </div>
 	                  </div>
 	                  <Button
 	                    size="sm"
 	                    variant="ghost"
 	                    onClick={closeFrenzyNote}
-	                    disabled={isSavingFrenzyQuestNote}
 	                    className="text-xs"
 	                  >
 	                    Close
 	                  </Button>
 	                </div>
-
-	                <div className="mt-2">
-	                  <div className="mb-2">
-	                    <label className="block text-xs text-yellow-800 mb-1">Code</label>
-	                    <input
-	                      value={frenzyQuestCodeDraft}
-	                      onChange={(e) => setFrenzyQuestCodeDraft(e.target.value)}
-	                      onBlur={() => { void saveFrenzyQuestNote(true); }}
-	                      className={`w-full bg-yellow-50 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
-	                        frenzyQuestCodeConflict
-	                          ? 'border-red-400 focus:ring-red-200 text-red-700'
-	                          : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
-	                      }`}
-	                      aria-invalid={frenzyQuestCodeConflict}
-	                    />
-	                    {frenzyQuestCodeConflict && (
-	                      <div className="mt-1 text-xs text-red-600">
-	                        Code already exists in this domain.
-	                      </div>
-	                    )}
-	                  </div>
-
-	                  <div className="mb-2">
-	                    <label className="block text-xs text-yellow-800 mb-1">Name</label>
-	                    <input
-	                      value={frenzyQuestNameDraft}
-	                      onChange={(e) => setFrenzyQuestNameDraft(e.target.value)}
-	                      onBlur={() => { void saveFrenzyQuestNote(true); }}
-	                      className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                    />
-	                  </div>
-
-	                  <div className="grid grid-cols-2 gap-2 mb-2">
-	                    <div>
-	                      <label className="block text-xs text-yellow-800 mb-1">Kind</label>
-	                      <select
-	                        value={frenzyQuestKindDraft}
-	                        onChange={(e) => {
-	                          const next = e.target.value as 'todo' | 'habit' | 'daily';
-	                          setFrenzyQuestKindDraft(next);
-	                          if (next === 'habit') setFrenzyQuestRepeatEnabledDraft(true);
-	                          if (next === 'daily') setFrenzyQuestRepeatEnabledDraft(false);
-	                        }}
-	                        className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                      >
-	                        <option value="todo">todo</option>
-	                        <option value="habit">habit</option>
-	                        <option value="daily">daily</option>
-	                      </select>
-	                    </div>
-	                    <div>
-	                      <label className="block text-xs text-yellow-800 mb-1">Visibility</label>
-	                      <select
-	                        value={frenzyQuestVisibilityDraft}
-	                        onChange={(e) => setFrenzyQuestVisibilityDraft(e.target.value as 'private' | 'domain')}
-	                        className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                      >
-	                        <option value="private">private</option>
-	                        <option value="domain">domain</option>
-	                      </select>
-	                    </div>
-	                  </div>
-
-	                  <div className="mb-2 flex items-center justify-between">
-	                    <label className="text-xs text-yellow-800">Active</label>
-	                    <input
-	                      type="checkbox"
-	                      checked={frenzyQuestActiveDraft}
-	                      onChange={(e) => setFrenzyQuestActiveDraft(e.target.checked)}
-	                    />
-	                  </div>
-
-	                  <div className="mb-2">
-	                    <label className="block text-xs text-yellow-800 mb-1">Timezone</label>
-	                    <div className="flex items-center gap-2">
-	                      <input
-	                        value={frenzyQuestTimezoneDraft}
-	                        onChange={(e) => setFrenzyQuestTimezoneDraft(e.target.value)}
-	                        onBlur={() => { void saveFrenzyQuestNote(true); }}
-	                        className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                      />
-	                      <Button
-	                        size="sm"
-	                        variant="outline"
-	                        onClick={() => setFrenzyQuestTimezoneDraft(coalesceTimezone())}
-	                        className="h-7 px-2 text-[11px]"
-	                      >
-	                        Local
-	                      </Button>
-	                    </div>
-	                  </div>
-
-	                  <div className="grid grid-cols-2 gap-2 mb-2">
-	                    <div>
-	                      <label className="block text-xs text-yellow-800 mb-1">Date</label>
-	                      <input
-	                        type="date"
-	                        value={frenzyQuestDueDateDraft}
-	                        onChange={(e) => setFrenzyQuestDueDateDraft(e.target.value)}
-	                        className="w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                      />
-	                    </div>
-	                    <div>
-	                      <label className="block text-xs text-yellow-800 mb-1">Time</label>
-	                      <div className="flex items-center gap-2">
-	                        <input
-	                          ref={frenzyQuestTimeInputRef}
-	                          type="time"
-	                          value={frenzyQuestDueTimeDraft}
-	                          onChange={(e) => setFrenzyQuestDueTimeDraft(e.target.value)}
-	                          className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                        />
-	                        <Button
-	                          size="sm"
-	                          variant="outline"
-	                          className="h-7 w-8 px-0"
-	                          onClick={() => {
-	                            const el = frenzyQuestTimeInputRef.current as any;
-	                            if (!el) return;
-	                            if (typeof el.showPicker === 'function') {
-	                              el.showPicker();
-	                              return;
-	                            }
-	                            el.focus();
-	                          }}
-	                        >
-	                          <Clock className="h-4 w-4" />
-	                        </Button>
-	                      </div>
-	                    </div>
-	                  </div>
-
-	                  <div className="mb-2">
-	                    <div className="flex items-center justify-between gap-2">
-	                      <label className="text-xs text-yellow-800">Repeat</label>
-	                      <input
-	                        type="checkbox"
-	                        checked={frenzyQuestKindDraft === 'habit' ? true : frenzyQuestRepeatEnabledDraft}
-	                        disabled={frenzyQuestKindDraft === 'habit'}
-	                        onChange={(e) => {
-	                          const next = e.target.checked;
-	                          setFrenzyQuestRepeatEnabledDraft(next);
-	                          if (next && !frenzyQuestRepeatPresetDraft) {
-	                            setFrenzyQuestRepeatPresetDraft('daily');
-	                          }
-	                        }}
-	                      />
-	                    </div>
-
-	                    {(frenzyQuestKindDraft === 'habit' || frenzyQuestRepeatEnabledDraft) && (
-	                      <div className="mt-2">
-	                        <div className="flex flex-wrap gap-1">
-	                          {([
-	                            { id: 'daily' as RepeatPreset, label: 'Daily' },
-	                            { id: 'weekdays' as RepeatPreset, label: 'Weekdays' },
-	                            { id: 'weekly' as RepeatPreset, label: 'Weekly' },
-	                            { id: 'monthly' as RepeatPreset, label: 'Monthly' },
-	                            { id: 'yearly' as RepeatPreset, label: 'Yearly' },
-	                            { id: 'custom' as RepeatPreset, label: 'Custom' },
-	                          ]).map(opt => (
-	                            <Button
-	                              key={opt.id}
-	                              variant={frenzyQuestRepeatPresetDraft === opt.id ? 'default' : 'outline'}
-	                              size="sm"
-	                              onClick={() => setFrenzyQuestRepeatPresetDraft(opt.id)}
-	                              className="h-6 px-2 text-[10px]"
-	                            >
-	                              {opt.label}
-	                            </Button>
-	                          ))}
-	                        </div>
-
-	                        {frenzyQuestRepeatPresetDraft === 'custom' && (
-	                          <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2">
-	                            <div className="flex items-center gap-2 mb-2">
-	                              <span className="text-xs text-yellow-800">Repeat every</span>
-	                              <input
-	                                type="number"
-	                                min={1}
-	                                value={frenzyQuestCustomRepeatEveryDraft}
-	                                onChange={(e) => setFrenzyQuestCustomRepeatEveryDraft(Math.max(1, Number(e.target.value) || 1))}
-	                                className="w-16 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                              />
-	                              <select
-	                                value={frenzyQuestCustomRepeatPeriodDraft}
-	                                onChange={(e) => setFrenzyQuestCustomRepeatPeriodDraft(e.target.value as CustomRepeatPeriod)}
-	                                className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                              >
-	                                <option value="days">days</option>
-	                                <option value="weeks">weeks</option>
-	                                <option value="months">months</option>
-	                                <option value="years">years</option>
-	                              </select>
-	                            </div>
-
-	                            {frenzyQuestCustomRepeatPeriodDraft === 'weeks' && (
-	                              <div className="flex flex-wrap gap-1">
-	                                {weekdayLabels.map(d => {
-	                                  const selected = frenzyQuestCustomRepeatWeekdaysDraft.has(d.code);
-	                                  return (
-	                                    <Button
-	                                      key={d.code}
-	                                      size="sm"
-	                                      variant={selected ? 'default' : 'outline'}
-	                                      className="h-6 px-2 text-[10px]"
-	                                      onClick={() => {
-	                                        setFrenzyQuestCustomRepeatWeekdaysDraft(prev => {
-	                                          const next = new Set(prev);
-	                                          if (next.has(d.code)) next.delete(d.code);
-	                                          else next.add(d.code);
-	                                          if (next.size === 0) next.add(d.code);
-	                                          return next;
-	                                        });
-	                                      }}
-	                                    >
-	                                      {d.label}
-	                                    </Button>
-	                                  );
-	                                })}
-	                              </div>
-	                            )}
-	                          </div>
-	                        )}
-
-	                        <div className="mt-2">
-	                          <label className="block text-xs text-yellow-800 mb-1">Duration</label>
-	                          <div className="flex flex-wrap gap-1">
-	                            {([
-	                              { id: 'forever' as DurationMode, label: 'Forever' },
-	                              { id: 'count' as DurationMode, label: 'n times' },
-	                              { id: 'until' as DurationMode, label: 'Until' },
-	                            ]).map(opt => (
-	                              <Button
-	                                key={opt.id}
-	                                variant={frenzyQuestDurationModeDraft === opt.id ? 'default' : 'outline'}
-	                                size="sm"
-	                                onClick={() => setFrenzyQuestDurationModeDraft(opt.id)}
-	                                className="h-6 px-2 text-[10px]"
-	                              >
-	                                {opt.label}
-	                              </Button>
-	                            ))}
-	                          </div>
-
-	                          {frenzyQuestDurationModeDraft === 'count' && (
-	                            <div className="mt-2 flex items-center gap-2">
-	                              <span className="text-xs text-yellow-800">Times</span>
-	                              <input
-	                                type="number"
-	                                min={1}
-	                                value={frenzyQuestDurationCountDraft}
-	                                onChange={(e) => setFrenzyQuestDurationCountDraft(Math.max(1, Number(e.target.value) || 1))}
-	                                className="w-20 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                              />
-	                            </div>
-	                          )}
-
-	                          {frenzyQuestDurationModeDraft === 'until' && (
-	                            <div className="mt-2 flex items-center gap-2">
-	                              <span className="text-xs text-yellow-800">Until</span>
-	                              <input
-	                                type="date"
-	                                value={frenzyQuestUntilDateDraft}
-	                                onChange={(e) => setFrenzyQuestUntilDateDraft(e.target.value)}
-	                                className="flex-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                              />
-	                            </div>
-	                          )}
-	                        </div>
-	                      </div>
-	                    )}
-	                  </div>
-
-	                  <div className="mt-2 flex items-center justify-between">
-	                    <Button
-	                      size="sm"
-	                      variant="outline"
-	                      onClick={() => { void saveFrenzyQuestNote(true); }}
-	                      disabled={isSavingFrenzyQuestNote}
-	                    >
-	                      Save
-	                    </Button>
-	                    {(isSavingFrenzyQuestNote || frenzyQuestAutoSaveStatus !== 'idle') && (
-	                      <span className="text-xs text-gray-600">
-	                        {frenzyQuestAutoSaveStatus === 'saving'
-	                          ? 'Saving...'
-	                          : frenzyQuestAutoSaveStatus === 'saved'
-	                            ? 'Saved'
-	                            : frenzyQuestAutoSaveStatus === 'error'
-	                              ? 'Error'
-	                              : ''}
-	                      </span>
-	                    )}
-	                  </div>
-	                </div>
+	                <QuestWindowContent
+	                  windowId={`frenzy-quest-${frenzyQuestNote.questId}`}
+	                  questData={{
+	                    id: frenzyQuestNote.questId,
+	                    code: frenzyQuestNote.nodeId,
+	                    name: frenzyQuestNote.nodeName,
+	                    kind: frenzyQuestNote.kind,
+	                    schedule: frenzyQuestNote.schedule as any,
+	                    visibility: frenzyQuestNote.visibility,
+	                    active: frenzyQuestNote.active,
+	                  }}
+	                  domainId={parseInt(subjectMatterId, 10)}
+	                  graphData={currentStructuralGraphData}
+	                  onNavigateToNode={navigateToNodeById}
+	                  onUpdateQuest={(updated) => {
+	                    applyQuestUpdateToGraph(updated);
+	                    setFrenzyQuestNote(prev => prev ? {
+	                      ...prev,
+	                      nodeId: updated.code || prev.nodeId,
+	                      nodeName: updated.name || prev.nodeName,
+	                      kind: isQuestKindValue((updated as { kind?: unknown }).kind) ? (updated as { kind: 'todo' | 'habit' | 'daily' }).kind : prev.kind,
+	                      visibility: isQuestVisibilityValue((updated as { visibility?: unknown }).visibility) ? (updated as { visibility: 'private' | 'domain' }).visibility : prev.visibility,
+	                      active: updated.active ?? prev.active,
+	                      schedule: updated.schedule ?? prev.schedule,
+	                    } : prev);
+	                  }}
+	                  onDeleteQuest={(code) => {
+	                    removeAuxNodeFromGraph('quest', code);
+	                  }}
+	                  onRelevantLinksUpdated={refreshDomainRelations}
+	                  isFrenzyEditMode
+	                />
 	              </div>
 	            )}
 	          </div>
