@@ -4,13 +4,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
-import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, BarChart3, SlidersHorizontal } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
 import PrerequisitesPanel from '../details/PrerequisitesPanel';
 import MetaExerciseEditForm from '../details/MetaExerciseEditForm';
 import MetaDefinitionEditForm from '../details/MetaDefinitionEditForm';
+import VersionHeaderControls from '../components/VersionHeaderControls';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
 import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
@@ -132,6 +133,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [isEditMode, setIsEditMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDetaching, setIsDetaching] = useState(false);
+  const [isVersionUpdating, setIsVersionUpdating] = useState(false);
   
   // Definition-specific state
   const [showDefinition, setShowDefinition] = useState(true);
@@ -878,6 +880,93 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [currentNode.type, versionCount]);
 
+  const handleAddVersion = useCallback(async () => {
+    if (!canEdit) {
+      showToast('Only domain owners or editors can add versions.', 'warning');
+      return;
+    }
+    if (isVersionUpdating) return;
+    if (currentNode.type !== 'definition' && currentNode.type !== 'exercise') return;
+
+    setIsVersionUpdating(true);
+    try {
+      if (currentNode.type === 'definition') {
+        const meta = metaDetails as MetaDefinition | null;
+        if (!meta) throw new Error('Missing definition metadata.');
+        await addMetaDefinitionVersion(meta.id, {
+          prompt: `Define ${meta.name}`,
+          type: 'open_ended',
+          description: '',
+          notes: '',
+          references: [],
+        });
+        const fresh = await getMetaDefinition(meta.id);
+        setMetaDetails(fresh);
+        setSelectedDefinitionIndex(Math.max(0, (fresh.versions?.length || 1) - 1));
+      } else {
+        const meta = metaDetails as MetaExercise | null;
+        if (!meta) throw new Error('Missing exercise metadata.');
+        await addMetaExerciseVersion(meta.id, {
+          statement: `Solve ${meta.name}`,
+          description: '',
+          hints: '',
+          notes: '',
+          difficulty: 3,
+          verifiable: false,
+          result: '',
+        });
+        const fresh = await getMetaExercise(meta.id);
+        setMetaDetails(fresh);
+        setSelectedVersionIndex(Math.max(0, (fresh.versions?.length || 1) - 1));
+      }
+      showToast('Version added.', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to add version.', 'error');
+    } finally {
+      setIsVersionUpdating(false);
+    }
+  }, [canEdit, currentNode.type, isVersionUpdating, metaDetails]);
+
+  const handleDeleteActiveVersion = useCallback(async () => {
+    if (!canEdit) {
+      showToast('Only domain owners or editors can delete versions.', 'warning');
+      return;
+    }
+    if (versionCount <= 1) {
+      showToast('At least one version must remain.', 'warning');
+      return;
+    }
+    if (isVersionUpdating) return;
+    if (currentNode.type !== 'definition' && currentNode.type !== 'exercise') return;
+    if (!confirm('Delete this version?')) return;
+
+    setIsVersionUpdating(true);
+    try {
+      if (currentNode.type === 'definition') {
+        const meta = metaDetails as MetaDefinition | null;
+        const versionId = meta?.versions?.[versionIndex]?.id;
+        if (!meta || !versionId) throw new Error('Missing definition version.');
+        await deleteMetaDefinitionVersion(meta.id, versionId);
+        const fresh = await getMetaDefinition(meta.id);
+        setMetaDetails(fresh);
+        setSelectedDefinitionIndex(Math.min(versionIndex, Math.max(0, (fresh.versions?.length || 1) - 1)));
+      } else {
+        const meta = metaDetails as MetaExercise | null;
+        const versionId = meta?.versions?.[versionIndex]?.id;
+        if (!meta || !versionId) throw new Error('Missing exercise version.');
+        await deleteMetaExerciseVersion(meta.id, versionId);
+        const fresh = await getMetaExercise(meta.id);
+        setMetaDetails(fresh);
+        setSelectedVersionIndex(Math.min(versionIndex, Math.max(0, (fresh.versions?.length || 1) - 1)));
+      }
+      showToast('Version deleted.', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to delete version.', 'error');
+    } finally {
+      setIsVersionUpdating(false);
+    }
+  }, [canEdit, currentNode.type, isVersionUpdating, metaDetails, versionCount, versionIndex]);
+
   const handleDetachVersion = useCallback(async () => {
     if (isDetaching) return;
     if (currentNode.type !== 'definition' && currentNode.type !== 'exercise') return;
@@ -1105,7 +1194,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             </Button>
           </div>
         </div>
-        {(nodeProgress?.nextReview || nodeProgress?.status || showStatusPicker || (versionCount > 1 && !isEditMode)) && (
+        {(nodeProgress?.nextReview || nodeProgress?.status || showStatusPicker || versionCount > 0) && (
           <div className="flex items-center gap-2 text-xs text-gray-600">
             {showStatusPicker ? (
               <div className="flex items-center gap-1">
@@ -1152,45 +1241,34 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 {formatNextReview(nodeProgress.nextReview)}
               </span>
             )}
-            {!isEditMode && versionCount > 1 && (
+            {versionCount > 0 && (
               <div className="ml-auto flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDetachVersion}
-                  disabled={isDetaching || versionCount < 2 || !canEdit}
-                  className="h-6 px-2 text-[11px]"
-                  title={
-                    !canEdit
-                      ? 'Only domain owners or editors can detach versions'
-                      : 'Detach this version into a new node'
-                  }
-                >
-                  {isDetaching ? 'Detaching…' : 'Detach'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handlePrevVersion}
-                  disabled={versionIndex <= 0}
-                  className="h-8 w-8"
-                  title="Previous version"
-                >
-                  <ChevronLeft size={16} />
-                </Button>
-                <span className="text-xs text-gray-500 min-w-[70px] text-center">
-                  Ver {versionIndex + 1}/{versionCount}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleNextVersion}
-                  disabled={versionIndex >= versionCount - 1}
-                  className="h-8 w-8"
-                  title="Next version"
-                >
-                  <ChevronRight size={16} />
-                </Button>
+                {!isEditMode && versionCount > 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDetachVersion}
+                    disabled={isDetaching || versionCount < 2 || !canEdit}
+                    className="h-6 px-2 text-[11px]"
+                    title={
+                      !canEdit
+                        ? 'Only domain owners or editors can detach versions'
+                        : 'Detach this version into a new node'
+                    }
+                  >
+                    {isDetaching ? 'Detaching…' : 'Detach'}
+                  </Button>
+                )}
+                <VersionHeaderControls
+                  index={versionIndex}
+                  count={versionCount}
+                  onPrevious={handlePrevVersion}
+                  onNext={handleNextVersion}
+                  onAdd={isEditMode && canEdit ? handleAddVersion : undefined}
+                  onDelete={isEditMode && canEdit ? handleDeleteActiveVersion : undefined}
+                  addDisabled={isVersionUpdating}
+                  deleteDisabled={isVersionUpdating || versionCount <= 1}
+                />
               </div>
             )}
           </div>
@@ -1213,24 +1291,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               <MetaDefinitionEditForm
                 meta={metaDetails as MetaDefinition}
                 initialActiveIndex={selectedDefinitionIndex}
-                onAddVersion={async (v) => {
-                  if (!metaDetails) return;
-                  await addMetaDefinitionVersion(metaDetails.id, v as any);
-                  const fresh = await getMetaDefinition(metaDetails.id);
-                  setMetaDetails(fresh);
-                  // Initialize Details with the first version if none selected yet
-                  if (!currentVersion && fresh.versions && fresh.versions.length > 0) {
-                    const ver = fresh.versions[0];
-                    setCurrentVersion(ver);
-                    setNodeDetails({
-                      code: fresh.code,
-                      name: fresh.name,
-                      description: ver.description || '',
-                      type: 'definition'
-                    } as Definition);
-                  }
-                  showToast('Version added', 'success');
-                }}
                 onUpdateVersion={async (id, v) => {
                   if (!metaDetails) return;
                   await updateMetaDefinitionVersion(metaDetails.id, id, v as any);
@@ -1249,37 +1309,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     }
                   }
                   showToast('Version updated', 'success');
-                }}
-                onDeleteVersion={async (id) => {
-                  if (!metaDetails) return;
-                  try {
-                    await deleteMetaDefinitionVersion(metaDetails.id, id);
-                  } catch (e: any) {
-                    showToast(e?.message || 'Cannot delete version', 'error');
-                    return;
-                  }
-                  const fresh = await getMetaDefinition(metaDetails.id);
-                  setMetaDetails(fresh);
-                  if (currentVersion && currentVersion.id === id) {
-                    const fallback = (fresh.versions || [])[0] || null;
-                    setCurrentVersion(fallback as any);
-                    if (fallback) {
-                      setNodeDetails({
-                        code: fresh.code,
-                        name: fresh.name,
-                        description: fallback.description || '',
-                        type: 'definition'
-                      } as Definition);
-                    } else {
-                      setNodeDetails({
-                        code: fresh.code,
-                        name: fresh.name,
-                        description: '',
-                        type: 'definition'
-                      } as Definition);
-                    }
-                  }
-                  showToast('Version deleted', 'success');
                 }}
                 onUpdateMeta={async (payload) => {
                   if (!metaDetails) return;
@@ -1329,19 +1358,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               <MetaExerciseEditForm
                 meta={metaDetails as any}
                 initialActiveIndex={selectedVersionIndex}
-                onAddVersion={async (v)=>{
-                  if (!metaDetails) return;
-                  await addMetaExerciseVersion(metaDetails.id, v as any);
-                  const fresh = await getMetaExercise(metaDetails.id);
-                  setMetaDetails(fresh);
-                  // Initialize Details with the first version if none selected yet
-                  if (!currentVersion && fresh.versions && fresh.versions.length > 0) {
-                    const ver = fresh.versions[0];
-                    setCurrentVersion(ver);
-                    setNodeDetails({ ...(ver as any), id: ver.id, code: fresh.code, name: fresh.name, type: 'exercise' } as Exercise);
-                  }
-                  showToast('Version added','success');
-                }}
                 onUpdateVersion={async (id, v)=>{
                   if (!metaDetails) return;
                   await updateMetaExerciseVersion(metaDetails.id, id, v as any);
@@ -1355,27 +1371,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     }
                   }
                   showToast('Version updated','success');
-                }}
-                onDeleteVersion={async (id)=>{
-                  if (!metaDetails) return;
-                  try {
-                    await deleteMetaExerciseVersion(metaDetails.id, id);
-                  } catch (e: any) {
-                    showToast(e?.message || 'Cannot delete version', 'error');
-                    return;
-                  }
-                  const fresh = await getMetaExercise(metaDetails.id);
-                  setMetaDetails(fresh);
-                  if (currentVersion && currentVersion.id === id) {
-                    const fallback = (fresh.versions || [])[0] || null;
-                    setCurrentVersion(fallback as any);
-                    if (fallback) {
-                      setNodeDetails({ ...(fallback as any), id: fallback.id, code: fresh.code, name: fresh.name, type: 'exercise' } as Exercise);
-                    } else {
-                      setNodeDetails({ id: 0, code: fresh.code, name: fresh.name, statement: '', description: '', notes: '', hints: '', verifiable: false, type: 'exercise' } as any);
-                    }
-                  }
-                  showToast('Version deleted','success');
                 }}
                 onUpdateMeta={async (payload) => {
                   if (!metaDetails) return;

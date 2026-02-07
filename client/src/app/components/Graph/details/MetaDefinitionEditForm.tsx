@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
@@ -13,7 +14,6 @@ interface Props {
   onAddVersion?: (v: Partial<DefinitionVersion> & { prompt: string }) => Promise<void>;
   onUpdateVersion?: (id: number, v: Partial<DefinitionVersion>) => Promise<void>;
   onDeleteVersion?: (id: number) => Promise<void>;
-  // Only name updates are exposed in the UI now
   onUpdateMeta?: (payload: { name?: string }) => Promise<void>;
   onBack?: () => void;
   initialActiveIndex?: number;
@@ -21,120 +21,49 @@ interface Props {
 
 const MetaDefinitionEditForm: React.FC<Props> = ({
   meta,
-  onAddVersion,
+  onAddVersion: _onAddVersion,
   onUpdateVersion,
-  onDeleteVersion,
+  onDeleteVersion: _onDeleteVersion,
   onUpdateMeta,
   onBack: _onBack,
   initialActiveIndex,
 }) => {
-  // active can be a version index or the special string 'new' for an unsaved draft
-  const [active, setActive] = useState<number | 'new'>(() => {
-    // Use initialActiveIndex if provided and valid
-    if (initialActiveIndex !== undefined && meta.versions && meta.versions.length > 0) {
-      const safeIndex = Math.max(0, Math.min(initialActiveIndex, meta.versions.length - 1));
-      return safeIndex;
-    }
-    return (meta.versions && meta.versions.length > 0 ? 0 : 'new');
-  });
   const versions = meta.versions || [];
-  const hasVersions = versions.length > 0;
-  const cur = typeof active === 'number' ? versions[active] : undefined;
-
+  const [active, setActive] = useState<number>(() => {
+    if (versions.length === 0) return 0;
+    if (initialActiveIndex === undefined) return 0;
+    return Math.max(0, Math.min(initialActiveIndex, versions.length - 1));
+  });
+  const cur = versions[active];
   const [draft, setDraft] = useState<Partial<DefinitionVersion>>({});
 
-  // When a new version is added (parent refreshes meta), jump to the last version if we were on draft
-  const [prevLen, setPrevLen] = useState<number>(versions.length);
-  React.useEffect(() => {
-    if (active === 'new' && versions.length > prevLen) {
-      setActive(versions.length - 1);
-      setDraft({});
-    }
-    if (typeof active === 'number' && versions.length > 0 && active >= versions.length) {
-      setActive(versions.length - 1);
-      setDraft({});
-    }
-    setPrevLen(versions.length);
-  }, [active, prevLen, versions.length]);
-
-  const isDraft = active === 'new';
-
-  // Helper to read current field value (controlled inputs)
   const val = <K extends keyof DefinitionVersion>(key: K, fallback: any = ''): any => {
-    if (isDraft) {
-      const d: any = draft as any;
-      return (d[key] !== undefined && d[key] !== null) ? d[key] : fallback;
-    }
-    const d: any = draft as any;
+    const d: any = draft;
     if (d[key] !== undefined && d[key] !== null) return d[key];
-    const c: any = cur as any;
+    const c: any = cur;
     return (c && c[key] !== undefined && c[key] !== null) ? c[key] : fallback;
   };
 
   const handleSave = async () => {
-    if (isDraft) {
-      if (!onAddVersion) return;
-      const prompt = (draft.prompt || '').toString().trim();
-      if (prompt.length === 0) {
-        showToast('Prompt is required', 'error');
-        return;
-      }
-      await onAddVersion({
-        prompt,
-        type: draft.type || 'open_ended',
-        description: draft.description,
-        notes: draft.notes,
-        references: draft.references,
-        promptImagePath: draft.promptImagePath,
-        descriptionImagePath: draft.descriptionImagePath,
-      });
-      // Parent will refresh meta; effect above will switch to the new last version
+    if (!cur || !onUpdateVersion) return;
+    const prompt = String(val('prompt', '')).trim();
+    if (!prompt) {
+      showToast('Prompt is required', 'error');
       return;
     }
-    if (!cur || !onUpdateVersion) return;
-    // Send merged payload to avoid server wiping fields on missing JSON keys
     const payload: Partial<DefinitionVersion> = {
-      prompt: val('prompt', ''),
+      prompt,
       type: val('type', 'open_ended'),
       description: val('description', ''),
       notes: val('notes', ''),
       references: val('references', []),
       promptImagePath: val('promptImagePath', ''),
       descriptionImagePath: val('descriptionImagePath', ''),
-    } as Partial<DefinitionVersion>;
+    };
     await onUpdateVersion(cur.id, payload);
     setDraft({});
   };
 
-  const startDraft = () => {
-    setDraft({
-      prompt: `Define ${meta.name}`,
-      type: 'open_ended',
-      description: '',
-      notes: '',
-      references: [],
-      promptImagePath: '',
-      descriptionImagePath: '',
-    });
-    setActive('new');
-  };
-
-  const discardDraft = () => {
-    setDraft({});
-    setActive(hasVersions ? 0 : 'new');
-  };
-
-  const handleDelete = async () => {
-    if (!cur || !onDeleteVersion) return;
-    if (versions.length === 1) {
-      showToast('Cannot delete the last version. A concept must have at least one version.', 'error');
-      return;
-    }
-    await onDeleteVersion(cur.id);
-    setActive(0);
-  };
-
-  // Meta-level editing (name only)
   const [metaDraft, setMetaDraft] = useState({ name: meta.name });
 
   const performMetaSave = async (payload: { name?: string }) => {
@@ -144,8 +73,6 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
       showToast('Concept updated', 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to update concept', 'error');
-    } finally {
-      // no-op
     }
   };
 
@@ -153,7 +80,6 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
     if (!onUpdateMeta) return;
 
     const payload: { name?: string } = {};
-
     if (metaDraft.name.trim() !== meta.name) {
       if (metaDraft.name.trim() === '') {
         showToast('Name cannot be empty', 'error');
@@ -170,24 +96,30 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
     await performMetaSave(payload);
   };
 
-  // Update metaDraft when meta changes (e.g., after successful save)
   React.useEffect(() => {
     setMetaDraft({ name: meta.name });
   }, [meta.name]);
 
-  // Apply initialActiveIndex when it changes
   React.useEffect(() => {
-    if (initialActiveIndex !== undefined && versions.length > 0) {
+    if (versions.length === 0) {
+      setActive(0);
+      setDraft({});
+      return;
+    }
+    if (initialActiveIndex !== undefined) {
       const safeIndex = Math.max(0, Math.min(initialActiveIndex, versions.length - 1));
       setActive(safeIndex);
       setDraft({});
+      return;
     }
-  }, [initialActiveIndex, versions.length]);
+    if (active >= versions.length) {
+      setActive(versions.length - 1);
+      setDraft({});
+    }
+  }, [active, initialActiveIndex, versions.length]);
 
   return (
     <div className="space-y-3">
-
-      {/* Meta fields (Name with Edit→Save flow) */}
       <div className="p-3 border border-blue-200 rounded bg-blue-50">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold text-blue-900">Edit Concept Pool</h2>
@@ -207,146 +139,111 @@ const MetaDefinitionEditForm: React.FC<Props> = ({
             Save Name
           </Button>
         </div>
-        <p className="text-xs text-gray-500 mt-2">{versions.length} version{versions.length !== 1 ? 's' : ''} total</p>
+        <p className="text-xs text-gray-500 mt-2">
+          {versions.length} version{versions.length !== 1 ? 's' : ''} total. Use the header arrows to switch versions.
+        </p>
       </div>
 
-      {/* Code change confirmation removed (code editing disabled) */}
+      {!cur ? (
+        <div className="p-4 border rounded text-xs text-gray-500">
+          No versions available.
+        </div>
+      ) : (
+        <>
+          <div className="p-4 space-y-3 border rounded" key={cur.id}>
+            <MarkdownPreviewField
+              label="Prompt *"
+              value={val('prompt', '')}
+              onChange={(value) => setDraft(d => ({ ...d, prompt: value }))}
+              rows={3}
+              placeholder="The review question to display..."
+              helperText="The question shown during reviews"
+            />
 
-      {/* Version selector */}
-      <div className="p-3 border rounded bg-blue-50">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-medium">Versions:</span>
-          {versions.map((v, idx) => (
-            <Button
-              key={v.id}
-              size="sm"
-              variant={active === idx ? 'default' : 'outline'}
-              onClick={() => {
-                setActive(idx);
-                setDraft({});
+            <ImageUploadField
+              label="Prompt Image"
+              helperText="Supports one image per prompt."
+              imagePath={val('promptImagePath', '')}
+              onUpload={async (file) => {
+                const { imagePath } = await uploadNodeImage({
+                  file,
+                  domainId: meta.domainId,
+                  nodeType: 'definition',
+                  field: 'prompt',
+                });
+                return imagePath;
               }}
-              className="px-2 py-1 text-xs"
-            >
-              V{idx + 1}
+              onChange={(path) => setDraft(d => ({ ...d, promptImagePath: path }))}
+              onClear={() => setDraft(d => ({ ...d, promptImagePath: '' }))}
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={val('type', 'open_ended')}
+                onChange={(e) => setDraft(d => ({ ...d, type: e.target.value }))}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+              >
+                <option value="open_ended">Open Ended</option>
+              </select>
+            </div>
+
+            <MarkdownPreviewField
+              label="Description (Optional)"
+              value={val('description', '')}
+              onChange={(value) => setDraft(d => ({ ...d, description: value }))}
+              rows={4}
+              placeholder="Additional context or explanation..."
+              helperText="Supports LaTeX notation"
+            />
+
+            <ImageUploadField
+              label="Description Image"
+              helperText="Supports one image per description."
+              imagePath={val('descriptionImagePath', '')}
+              onUpload={async (file) => {
+                const { imagePath } = await uploadNodeImage({
+                  file,
+                  domainId: meta.domainId,
+                  nodeType: 'definition',
+                  field: 'description',
+                });
+                return imagePath;
+              }}
+              onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
+              onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
+            />
+
+            <MarkdownPreviewField
+              label="Notes (Optional)"
+              value={val('notes', '')}
+              onChange={(value) => setDraft(d => ({ ...d, notes: value }))}
+              rows={2}
+              placeholder="Internal notes..."
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">References (Optional)</label>
+              <Input
+                value={(val('references', []) as string[]).join(', ')}
+                onChange={(e) => {
+                  const refs = e.target.value.split(',').map(r => r.trim()).filter(r => r);
+                  setDraft(d => ({ ...d, references: refs }));
+                }}
+                placeholder="URL1, URL2, URL3"
+                className="text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">Comma-separated URLs</p>
+            </div>
+          </div>
+
+          <div className="border-t p-4 flex gap-2">
+            <Button onClick={handleSave} disabled={!cur || Object.keys(draft).length === 0}>
+              Save Version
             </Button>
-          ))}
-          {isDraft && (
-            <Button size="sm" variant="default" className="px-2 py-1 text-xs">
-              NEW
-            </Button>
-          )}
-          {!isDraft && (
-            <Button size="sm" variant="outline" onClick={startDraft} className="px-2 py-1 text-xs">
-              + New
-            </Button>
-          )}
-        </div>
-        {isDraft && (
-          <Button size="sm" variant="ghost" onClick={discardDraft} className="text-xs">
-            Discard Draft
-          </Button>
-        )}
-      </div>
-
-      {/* Version editor */}
-      <div className="p-4 space-y-3 border rounded">
-        <MarkdownPreviewField
-          label="Prompt *"
-          value={val('prompt', '')}
-          onChange={(value) => setDraft(d => ({ ...d, prompt: value }))}
-          rows={3}
-          placeholder="The review question to display..."
-          helperText="The question shown during reviews"
-        />
-
-        <ImageUploadField
-          label="Prompt Image"
-          helperText="Supports one image per prompt."
-          imagePath={val('promptImagePath', '')}
-          onUpload={async (file) => {
-            const { imagePath } = await uploadNodeImage({
-              file,
-              domainId: meta.domainId,
-              nodeType: 'definition',
-              field: 'prompt',
-            });
-            return imagePath;
-          }}
-          onChange={(path) => setDraft(d => ({ ...d, promptImagePath: path }))}
-          onClear={() => setDraft(d => ({ ...d, promptImagePath: '' }))}
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-          <select
-            value={val('type', 'open_ended')}
-            onChange={(e) => setDraft(d => ({ ...d, type: e.target.value }))}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
-          >
-            <option value="open_ended">Open Ended</option>
-          </select>
-        </div>
-
-        <MarkdownPreviewField
-          label="Description (Optional)"
-          value={val('description', '')}
-          onChange={(value) => setDraft(d => ({ ...d, description: value }))}
-          rows={4}
-          placeholder="Additional context or explanation..."
-          helperText="Supports LaTeX notation"
-        />
-
-        <ImageUploadField
-          label="Description Image"
-          helperText="Supports one image per description."
-          imagePath={val('descriptionImagePath', '')}
-          onUpload={async (file) => {
-            const { imagePath } = await uploadNodeImage({
-              file,
-              domainId: meta.domainId,
-              nodeType: 'definition',
-              field: 'description',
-            });
-            return imagePath;
-          }}
-          onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
-          onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
-        />
-
-        <MarkdownPreviewField
-          label="Notes (Optional)"
-          value={val('notes', '')}
-          onChange={(value) => setDraft(d => ({ ...d, notes: value }))}
-          rows={2}
-          placeholder="Internal notes..."
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">References (Optional)</label>
-          <Input
-            value={(val('references', []) as string[]).join(', ')}
-            onChange={(e) => {
-              const refs = e.target.value.split(',').map(r => r.trim()).filter(r => r);
-              setDraft(d => ({ ...d, references: refs }));
-            }}
-            placeholder="URL1, URL2, URL3"
-            className="text-sm"
-          />
-          <p className="text-xs text-gray-500 mt-1">Comma-separated URLs</p>
-        </div>
-      </div>
-
-      {/* Footer actions */}
-      <div className="border-t p-4 flex gap-2">
-        <Button onClick={handleSave} disabled={!isDraft && Object.keys(draft).length === 0}>
-          {isDraft ? 'Add Version' : 'Update Version'}
-        </Button>
-        {!isDraft && (
-          <Button onClick={handleDelete} variant="destructive">
-            Delete Version
-          </Button>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

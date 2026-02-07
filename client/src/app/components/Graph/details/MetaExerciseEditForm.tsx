@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
@@ -13,7 +14,6 @@ interface Props {
   onAddVersion?: (v: Partial<ExerciseVersion> & { statement: string }) => Promise<void>;
   onUpdateVersion?: (id: number, v: Partial<ExerciseVersion>) => Promise<void>;
   onDeleteVersion?: (id: number) => Promise<void>;
-  // Only name updates are exposed in the UI now
   onUpdateMeta?: (payload: { name?: string }) => Promise<void>;
   onBack?: () => void;
   initialActiveIndex?: number;
@@ -21,109 +21,51 @@ interface Props {
 
 const MetaExerciseEditForm: React.FC<Props> = ({
   meta,
-  onAddVersion,
+  onAddVersion: _onAddVersion,
   onUpdateVersion,
-  onDeleteVersion,
+  onDeleteVersion: _onDeleteVersion,
   onUpdateMeta,
   onBack: _onBack,
   initialActiveIndex,
 }) => {
-  // active can be a version index or the special string 'new' for an unsaved draft
-  const [active, setActive] = useState<number | 'new'>(() => {
-    // Use initialActiveIndex if provided and valid
-    if (initialActiveIndex !== undefined && meta.versions && meta.versions.length > 0) {
-      const safeIndex = Math.max(0, Math.min(initialActiveIndex, meta.versions.length - 1));
-      return safeIndex;
-    }
-    return (meta.versions && meta.versions.length > 0 ? 0 : 'new');
-  });
   const versions = meta.versions || [];
-  const hasVersions = versions.length > 0;
-  const cur = typeof active === 'number' ? versions[active] : undefined;
-
+  const [active, setActive] = useState<number>(() => {
+    if (versions.length === 0) return 0;
+    if (initialActiveIndex === undefined) return 0;
+    return Math.max(0, Math.min(initialActiveIndex, versions.length - 1));
+  });
+  const cur = versions[active];
   const [draft, setDraft] = useState<Partial<ExerciseVersion>>({});
 
-  // When a new version is added (parent refreshes meta), jump to the last version if we were on draft
-  const [prevLen, setPrevLen] = useState<number>(versions.length);
-  React.useEffect(() => {
-    if (active === 'new' && versions.length > prevLen) {
-      setActive(versions.length - 1);
-      setDraft({});
-    }
-    if (typeof active === 'number' && versions.length > 0 && active >= versions.length) {
-      setActive(versions.length - 1);
-      setDraft({});
-    }
-    setPrevLen(versions.length);
-  }, [active, prevLen, versions.length]);
-
-  const isDraft = active === 'new';
-
-  // Helper to read current field value (controlled inputs)
   const val = <K extends keyof ExerciseVersion>(key: K, fallback: any = ''): any => {
-    if (isDraft) {
-      const d: any = draft as any;
-      return (d[key] !== undefined && d[key] !== null) ? d[key] : fallback;
-    }
-    const d: any = draft as any;
+    const d: any = draft;
     if (d[key] !== undefined && d[key] !== null) return d[key];
-    const c: any = cur as any;
+    const c: any = cur;
     return (c && c[key] !== undefined && c[key] !== null) ? c[key] : fallback;
   };
 
   const handleSave = async () => {
-    if (isDraft) {
-      if (!onAddVersion) return;
-      const statement = (draft.statement || '').toString().trim();
-      if (statement.length === 0) return;
-      const difficulty = typeof draft.difficulty === 'number' && draft.difficulty >= 1 && draft.difficulty <= 7 ? draft.difficulty : 3;
-      await onAddVersion({
-        statement,
-        description: draft.description,
-        hints: draft.hints,
-        notes: draft.notes,
-        difficulty,
-        verifiable: !!draft.verifiable,
-        result: draft.result,
-        statementImagePath: draft.statementImagePath,
-        descriptionImagePath: draft.descriptionImagePath,
-      });
-      // Parent will refresh meta; effect above will switch to the new last version
+    if (!cur || !onUpdateVersion) return;
+    const statement = String(val('statement', '')).trim();
+    if (!statement) {
+      showToast('Statement is required', 'error');
       return;
     }
-    if (!cur || !onUpdateVersion) return;
-    // Send merged payload to avoid server wiping fields on missing JSON keys
     const payload: Partial<ExerciseVersion> = {
-      statement: val('statement',''),
-      description: val('description',''),
-      hints: val('hints',''),
-      notes: val('notes',''),
+      statement,
+      description: val('description', ''),
+      hints: val('hints', ''),
+      notes: val('notes', ''),
       difficulty: val('difficulty', 3),
       verifiable: val('verifiable', false),
-      result: val('result',''),
+      result: val('result', ''),
       statementImagePath: val('statementImagePath', ''),
       descriptionImagePath: val('descriptionImagePath', ''),
-    } as Partial<ExerciseVersion>;
+    };
     await onUpdateVersion(cur.id, payload);
     setDraft({});
   };
 
-  const startDraft = () => {
-    setDraft({ statement: '', description: '', hints: '', notes: '', result: '', difficulty: 3, verifiable: false, statementImagePath: '', descriptionImagePath: '' });
-    setActive('new');
-  };
-  const discardDraft = () => {
-    setDraft({});
-    setActive(hasVersions ? 0 : 'new');
-  };
-
-  const handleDelete = async () => {
-    if (!cur || !onDeleteVersion) return;
-    await onDeleteVersion(cur.id);
-    setActive(0);
-  };
-
-  // Meta-level editing (name only)
   const [metaDraft, setMetaDraft] = useState({ name: meta.name });
 
   const performMetaSave = async (payload: { name?: string }) => {
@@ -133,8 +75,6 @@ const MetaExerciseEditForm: React.FC<Props> = ({
       showToast('Meta updated', 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to update meta', 'error');
-    } finally {
-      // no-op
     }
   };
 
@@ -142,7 +82,6 @@ const MetaExerciseEditForm: React.FC<Props> = ({
     if (!onUpdateMeta) return;
 
     const payload: { name?: string } = {};
-
     if (metaDraft.name.trim() !== meta.name) {
       if (metaDraft.name.trim() === '') {
         showToast('Name cannot be empty', 'error');
@@ -159,23 +98,30 @@ const MetaExerciseEditForm: React.FC<Props> = ({
     await performMetaSave(payload);
   };
 
-  // Update metaDraft when meta changes (e.g., after successful save)
   React.useEffect(() => {
     setMetaDraft({ name: meta.name });
   }, [meta.name]);
 
-  // Apply initialActiveIndex when it changes
   React.useEffect(() => {
-    if (initialActiveIndex !== undefined && versions.length > 0) {
+    if (versions.length === 0) {
+      setActive(0);
+      setDraft({});
+      return;
+    }
+    if (initialActiveIndex !== undefined) {
       const safeIndex = Math.max(0, Math.min(initialActiveIndex, versions.length - 1));
       setActive(safeIndex);
       setDraft({});
+      return;
     }
-  }, [initialActiveIndex, versions.length]);
+    if (active >= versions.length) {
+      setActive(versions.length - 1);
+      setDraft({});
+    }
+  }, [active, initialActiveIndex, versions.length]);
 
   return (
     <div className="space-y-3">
-      {/* Meta Section (name only) */}
       {onUpdateMeta && (
         <div className="p-3 border border-blue-200 rounded bg-blue-50">
           <div className="flex items-center justify-between mb-2">
@@ -192,173 +138,151 @@ const MetaExerciseEditForm: React.FC<Props> = ({
               />
             </div>
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="default"
-                onClick={handleMetaSave}
-              >
+              <Button size="sm" variant="default" onClick={handleMetaSave}>
                 Save Name
               </Button>
             </div>
+            <p className="text-xs text-gray-500">
+              {versions.length} version{versions.length !== 1 ? 's' : ''} total. Use the header arrows to switch versions.
+            </p>
           </div>
         </div>
       )}
 
-      {/* Versions Section */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {(versions).map((v, idx) => (
-            <Button key={v.id} size="sm" variant={idx===active? 'default':'outline'} onClick={()=>{ setActive(idx); setDraft({}); }}>V{idx+1}</Button>
-          ))}
-          {onAddVersion && (
-            <Button size="sm" variant={active==='new' ? 'default':'outline'} onClick={startDraft}>+ New</Button>
-          )}
-          <span className="text-xs text-gray-500 ml-2">{versions.length} version(s)</span>
+      {!cur ? (
+        <div className="p-4 border rounded text-xs text-gray-500">
+          No versions available.
         </div>
-      </div>
-
-      <div className="p-2 border rounded" key={isDraft ? 'draft' : (cur?.id ?? 'no-version')}>
-        <MarkdownPreviewField
-          label="Statement"
-          value={val('statement', '')}
-          onChange={(value) => setDraft(d => ({ ...d, statement: value }))}
-          rows={4}
-          disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-          labelClassName="text-xs font-medium text-gray-600"
-          textareaClassName="w-full border rounded px-2 py-1 text-sm"
-          previewClassName="p-2 border rounded bg-gray-50 text-sm"
-          buttonClassName="h-5 text-[10px] px-1"
-        />
-        <ImageUploadField
-          label="Statement Image"
-          helperText="Supports one image per statement."
-          imagePath={val('statementImagePath', '')}
-          onUpload={async (file) => {
-            const { imagePath } = await uploadNodeImage({
-              file,
-              domainId: meta.domainId,
-              nodeType: 'exercise',
-              field: 'statement',
-            });
-            return imagePath;
-          }}
-          onChange={(path) => setDraft(d => ({ ...d, statementImagePath: path }))}
-          onClear={() => setDraft(d => ({ ...d, statementImagePath: '' }))}
-        />
-        <div className="mt-2">
-          <MarkdownPreviewField
-            label="Solution"
-            value={val('description', '')}
-            onChange={(value) => setDraft(d => ({ ...d, description: value }))}
-            rows={4}
-            disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-            labelClassName="text-xs font-medium text-gray-600"
-            textareaClassName="w-full border rounded px-2 py-1 text-sm"
-            previewClassName="p-2 border rounded bg-gray-50 text-sm"
-            buttonClassName="h-5 text-[10px] px-1"
-          />
-        </div>
-        <ImageUploadField
-          label="Solution Image"
-          helperText="Supports one image per solution."
-          imagePath={val('descriptionImagePath', '')}
-          onUpload={async (file) => {
-            const { imagePath } = await uploadNodeImage({
-              file,
-              domainId: meta.domainId,
-              nodeType: 'exercise',
-              field: 'description',
-            });
-            return imagePath;
-          }}
-          onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
-          onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
-        />
-        <div className="mt-2">
-          <MarkdownPreviewField
-            label="Hints"
-            value={val('hints', '')}
-            onChange={(value) => setDraft(d => ({ ...d, hints: value }))}
-            rows={3}
-            disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-            labelClassName="text-xs font-medium text-gray-600"
-            textareaClassName="w-full border rounded px-2 py-1 text-sm"
-            previewClassName="p-2 border rounded bg-gray-50 text-sm"
-            buttonClassName="h-5 text-[10px] px-1"
-          />
-        </div>
-        <div className="mt-2">
-          <MarkdownPreviewField
-            label="Notes"
-            value={val('notes', '')}
-            onChange={(value) => setDraft(d => ({ ...d, notes: value }))}
-            rows={3}
-            disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-            labelClassName="text-xs font-medium text-gray-600"
-            textareaClassName="w-full border rounded px-2 py-1 text-sm"
-            previewClassName="p-2 border rounded bg-gray-50 text-sm"
-            buttonClassName="h-5 text-[10px] px-1"
-          />
-        </div>
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          <div>
-            <label className="block text-xs font-medium mb-1 text-gray-600">Difficulty (1-7)</label>
-            <Input
-              type="number"
-              min={1}
-              max={7}
-              value={val('difficulty',3)}
-              onChange={(e)=> {
-                const n = parseInt(e.target.value,10);
-                const clamped = isNaN(n) ? 3 : Math.max(1, Math.min(7, n));
-                setDraft(d=> ({...d, difficulty: clamped}))
+      ) : (
+        <>
+          <div className="p-2 border rounded" key={cur.id}>
+            <MarkdownPreviewField
+              label="Statement"
+              value={val('statement', '')}
+              onChange={(value) => setDraft(d => ({ ...d, statement: value }))}
+              rows={4}
+              labelClassName="text-xs font-medium text-gray-600"
+              textareaClassName="w-full border rounded px-2 py-1 text-sm"
+              previewClassName="p-2 border rounded bg-gray-50 text-sm"
+              buttonClassName="h-5 text-[10px] px-1"
+            />
+            <ImageUploadField
+              label="Statement Image"
+              helperText="Supports one image per statement."
+              imagePath={val('statementImagePath', '')}
+              onUpload={async (file) => {
+                const { imagePath } = await uploadNodeImage({
+                  file,
+                  domainId: meta.domainId,
+                  nodeType: 'exercise',
+                  field: 'statement',
+                });
+                return imagePath;
               }}
-              disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
+              onChange={(path) => setDraft(d => ({ ...d, statementImagePath: path }))}
+              onClear={() => setDraft(d => ({ ...d, statementImagePath: '' }))}
             />
-          </div>
-          <div className="flex items-center mt-5">
-            {(() => { const chkId = `verifiable_v_${cur?.id ?? 'new'}`; return (
-              <>
-                <input
-                  id={chkId}
-                  type="checkbox"
-                  checked={!!val('verifiable', false)}
-                  onChange={(e)=> setDraft(d=> ({...d, verifiable: e.target.checked}))}
-                  className="mr-2"
-                  disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-                />
-                <label htmlFor={chkId} className="text-xs text-gray-600">Verifiable</label>
-              </>
-            ); })()}
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1 text-gray-600">Expected Result</label>
-            <Input
-              value={val('result','')}
-              onChange={(e)=> setDraft(d=> ({...d, result: e.target.value}))}
-              disabled={!(isDraft ? onAddVersion : onUpdateVersion)}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-between mt-3">
-          <div className="space-x-2">
-            {(isDraft ? onAddVersion : onUpdateVersion) && (
-              <Button size="sm" variant="default" onClick={handleSave}>{isDraft ? 'Save New Version' : 'Save Version'}</Button>
-            )}
-            {!isDraft && onDeleteVersion && (
-              <Button size="sm" variant="destructive" onClick={handleDelete} disabled={versions.length <= 1}>Delete Version</Button>
-            )}
-          </div>
-          {isDraft ? (
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={discardDraft}>Discard</Button>
+            <div className="mt-2">
+              <MarkdownPreviewField
+                label="Solution"
+                value={val('description', '')}
+                onChange={(value) => setDraft(d => ({ ...d, description: value }))}
+                rows={4}
+                labelClassName="text-xs font-medium text-gray-600"
+                textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                buttonClassName="h-5 text-[10px] px-1"
+              />
             </div>
-          ) : (
-            onAddVersion && <div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={startDraft}>Add Version</Button></div>
-          )}
-        </div>
-      </div>
+            <ImageUploadField
+              label="Solution Image"
+              helperText="Supports one image per solution."
+              imagePath={val('descriptionImagePath', '')}
+              onUpload={async (file) => {
+                const { imagePath } = await uploadNodeImage({
+                  file,
+                  domainId: meta.domainId,
+                  nodeType: 'exercise',
+                  field: 'description',
+                });
+                return imagePath;
+              }}
+              onChange={(path) => setDraft(d => ({ ...d, descriptionImagePath: path }))}
+              onClear={() => setDraft(d => ({ ...d, descriptionImagePath: '' }))}
+            />
+            <div className="mt-2">
+              <MarkdownPreviewField
+                label="Hints"
+                value={val('hints', '')}
+                onChange={(value) => setDraft(d => ({ ...d, hints: value }))}
+                rows={3}
+                labelClassName="text-xs font-medium text-gray-600"
+                textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                buttonClassName="h-5 text-[10px] px-1"
+              />
+            </div>
+            <div className="mt-2">
+              <MarkdownPreviewField
+                label="Notes"
+                value={val('notes', '')}
+                onChange={(value) => setDraft(d => ({ ...d, notes: value }))}
+                rows={3}
+                labelClassName="text-xs font-medium text-gray-600"
+                textareaClassName="w-full border rounded px-2 py-1 text-sm"
+                previewClassName="p-2 border rounded bg-gray-50 text-sm"
+                buttonClassName="h-5 text-[10px] px-1"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <div>
+                <label className="block text-xs font-medium mb-1 text-gray-600">Difficulty (1-7)</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={7}
+                  value={String(val('difficulty', 3))}
+                  onChange={(e)=> {
+                    const n = parseInt(e.target.value, 10);
+                    const clamped = isNaN(n) ? 3 : Math.max(1, Math.min(7, n));
+                    setDraft(d=> ({...d, difficulty: clamped}));
+                  }}
+                />
+              </div>
+              <div className="flex items-center mt-5">
+                {(() => {
+                  const chkId = `verifiable_v_${cur.id}`;
+                  return (
+                    <>
+                      <input
+                        id={chkId}
+                        type="checkbox"
+                        checked={!!val('verifiable', false)}
+                        onChange={(e)=> setDraft(d=> ({...d, verifiable: e.target.checked}))}
+                        className="mr-2"
+                      />
+                      <label htmlFor={chkId} className="text-xs text-gray-600">Verifiable</label>
+                    </>
+                  );
+                })()}
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1 text-gray-600">Expected Result</label>
+                <Input
+                  value={val('result', '')}
+                  onChange={(e)=> setDraft(d=> ({...d, result: e.target.value}))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end mt-3">
+            <Button size="sm" variant="default" onClick={handleSave} disabled={!cur || Object.keys(draft).length === 0}>
+              Save Version
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

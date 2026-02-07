@@ -7,7 +7,8 @@ import { Input } from "@/app/components/core/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { ArrowLeft, Clock, Edit, Loader2, Save, X, ChevronLeft, ChevronRight, Lock, Unlock, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Clock, Edit, Loader2, Save, X, Lock, Unlock, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
+import VersionHeaderControls from '../components/VersionHeaderControls';
 import {
   MetaQuestDTO,
   QuestVersionDTO,
@@ -89,7 +90,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [quest, setQuest] = useState<MetaQuestDTO | null>(null);
   const [versions, setVersions] = useState<QuestVersionDTO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'details' | 'versions' | 'relations'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'relations'>('details');
   const [isEditMode, setIsEditMode] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [codeDraft, setCodeDraft] = useState('');
@@ -108,9 +109,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [durationCountDraft, setDurationCountDraft] = useState(10);
   const [untilDateDraft, setUntilDateDraft] = useState('');
   const [versionDrafts, setVersionDrafts] = useState<Record<number, { title: string; descriptionMd: string }>>({});
-  const [newVersionTitle, setNewVersionTitle] = useState('');
-  const [newVersionDescription, setNewVersionDescription] = useState('');
-  const [showAddVersionForm, setShowAddVersionForm] = useState(false);
   const [relevantLinks, setRelevantLinks] = useState<RelationDraft[]>([]);
   const [newRelation, setNewRelation] = useState<RelationDraft>({
     relationType: 'relevant',
@@ -121,6 +119,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isVersionMutating, setIsVersionMutating] = useState(false);
   const [viewMode, setViewMode] = useState<'details' | 'advanced'>('details');
 
   const effectiveEditMode = isFrenzyEditMode || isEditMode;
@@ -140,6 +139,20 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (!activeVersion) return 'No version';
     return activeVersion.title?.trim() || `Version ${activeVersionIndex + 1}`;
   }, [activeVersion, activeVersionIndex]);
+
+  const activeVersionDraft = useMemo(() => {
+    if (!activeVersion) return { title: '', descriptionMd: '' };
+    if (!activeVersion.id) {
+      return {
+        title: activeVersion.title || '',
+        descriptionMd: activeVersion.descriptionMd || '',
+      };
+    }
+    return versionDrafts[activeVersion.id] || {
+      title: activeVersion.title || '',
+      descriptionMd: activeVersion.descriptionMd || '',
+    };
+  }, [activeVersion, versionDrafts]);
 
   const kindLabel = useMemo(() => {
     const value = quest?.kind || questData?.kind || 'todo';
@@ -182,7 +195,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setVisibilityDraft(fresh.visibility || 'private');
       setActiveDraft(fresh.active ?? true);
       setActiveTab('details');
-      setShowAddVersionForm(false);
       const drafts = parseScheduleToDrafts(fresh.schedule);
       setTimezoneDraft(drafts.timezone);
       setDueDateDraft(drafts.date);
@@ -216,7 +228,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setVisibilityDraft(fallback.visibility || 'private');
       setActiveDraft(fallback.active ?? true);
       setActiveTab('details');
-      setShowAddVersionForm(false);
       const drafts = parseScheduleToDrafts(fallback.schedule);
       setTimezoneDraft(drafts.timezone);
       setDueDateDraft(drafts.date);
@@ -253,12 +264,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setSelectedVersionId(versions[0].id ?? null);
     }
   }, [versions, selectedVersionId]);
-
-  useEffect(() => {
-    if (!effectiveEditMode && activeTab === 'versions') {
-      setActiveTab('details');
-    }
-  }, [effectiveEditMode, activeTab]);
 
   useEffect(() => {
     if (!effectiveEditMode) {
@@ -501,25 +506,24 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const handleAddVersion = useCallback(async () => {
     if (!quest?.id) return;
-    if (newVersionTitle.trim().length === 0) {
-      showToast('Version title is required.', 'warning');
-      return;
-    }
+    if (isVersionMutating) return;
+    const baseTitle = activeVersion?.title?.trim();
+    const nextLabel = `Version ${versions.length + 1}`;
     try {
+      setIsVersionMutating(true);
       const created = await addQuestVersion(quest.id, {
-        title: newVersionTitle.trim(),
-        descriptionMd: newVersionDescription || '',
+        title: baseTitle ? `${baseTitle} (Copy)` : nextLabel,
+        descriptionMd: activeVersion?.descriptionMd || '',
       });
       setVersions(prev => [...prev, created]);
-      setNewVersionTitle('');
-      setNewVersionDescription('');
       setSelectedVersionId(created.id || null);
-      setShowAddVersionForm(false);
       showToast('Version added.', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to add version.', 'error');
+    } finally {
+      setIsVersionMutating(false);
     }
-  }, [quest?.id, newVersionTitle, newVersionDescription]);
+  }, [activeVersion?.descriptionMd, activeVersion?.title, isVersionMutating, quest?.id, versions.length]);
 
   const handleDeleteVersion = useCallback(async (versionId: number) => {
     if (!quest?.id) return;
@@ -527,19 +531,33 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       showToast('A quest must have at least one version.', 'warning');
       return;
     }
+    if (isVersionMutating) return;
     if (!confirm('Delete this version?')) return;
     try {
+      setIsVersionMutating(true);
       await deleteQuestVersion(quest.id, versionId);
-      setVersions(prev => prev.filter(v => v.id !== versionId));
+      const remaining = versions.filter(v => v.id !== versionId);
+      setVersions(remaining);
       if (selectedVersionId === versionId) {
-        const next = versions.find(v => v.id !== versionId)?.id ?? null;
-        setSelectedVersionId(next);
+        setSelectedVersionId(remaining[0]?.id ?? null);
       }
+      setVersionDrafts(prev => {
+        const next = { ...prev };
+        delete next[versionId];
+        return next;
+      });
       showToast('Version deleted.', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to delete version.', 'error');
+    } finally {
+      setIsVersionMutating(false);
     }
-  }, [quest?.id, versions, selectedVersionId]);
+  }, [isVersionMutating, quest?.id, selectedVersionId, versions]);
+
+  const handleDeleteActiveVersion = useCallback(() => {
+    if (!selectedVersionId) return;
+    void handleDeleteVersion(selectedVersionId);
+  }, [handleDeleteVersion, selectedVersionId]);
 
   const handleDeleteQuest = useCallback(async () => {
     if (!quest?.id) return;
@@ -1051,7 +1069,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
         </div>
       </div>
 
-      {!isFrenzyEditMode && (kindLabel || dueLabel || (!effectiveEditMode && versions.length > 1)) && (
+      {!isFrenzyEditMode && (kindLabel || dueLabel || versions.length > 0) && (
         <div className="flex items-center gap-2 text-xs text-gray-600">
           <span className="text-[11px] text-gray-500">{kindLabel}</span>
           {dueLabel && (
@@ -1061,31 +1079,18 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               {dueLabel}
             </span>
           )}
-          {!effectiveEditMode && versions.length > 1 && (
+          {versions.length > 0 && (
             <div className="ml-auto flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handlePrevVersion}
-                disabled={activeVersionIndex <= 0}
-                className="h-7 w-7"
-                title="Previous version"
-              >
-                <ChevronLeft size={14} />
-              </Button>
-              <span className="text-xs text-gray-500 min-w-[70px] text-center">
-                Ver {activeVersionIndex + 1}/{versions.length}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleNextVersion}
-                disabled={activeVersionIndex >= versions.length - 1}
-                className="h-7 w-7"
-                title="Next version"
-              >
-                <ChevronRight size={14} />
-              </Button>
+              <VersionHeaderControls
+                index={activeVersionIndex}
+                count={versions.length}
+                onPrevious={handlePrevVersion}
+                onNext={handleNextVersion}
+                onAdd={effectiveEditMode ? handleAddVersion : undefined}
+                onDelete={effectiveEditMode ? handleDeleteActiveVersion : undefined}
+                addDisabled={isVersionMutating || !quest?.id}
+                deleteDisabled={isVersionMutating || !quest?.id || versions.length <= 1 || !selectedVersionId}
+              />
             </div>
           )}
         </div>
@@ -1159,12 +1164,11 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       ) : effectiveEditMode ? (
         <Tabs
           value={activeTab}
-          onValueChange={(value) => setActiveTab(value as 'details' | 'versions' | 'relations')}
+          onValueChange={(value) => setActiveTab(value as 'details' | 'relations')}
           className="w-full"
         >
           <TabsList className="w-full justify-start">
             <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="versions">Versions</TabsTrigger>
             <TabsTrigger value="relations">Relevant Links</TabsTrigger>
           </TabsList>
 
@@ -1227,6 +1231,49 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                 <div className="mt-2">{renderScheduleEditor('standard')}</div>
               </div>
 
+              <div className="rounded-md border border-gray-200 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold text-gray-700">Current Version</div>
+                  <div className="text-xs text-gray-500">{activeVersionLabel}</div>
+                </div>
+                {activeVersion ? (
+                  <>
+                    <Input
+                      value={activeVersionDraft.title}
+                      onChange={(e) => {
+                        if (!activeVersion.id) return;
+                        const value = e.target.value;
+                        setVersionDrafts(prev => ({ ...prev, [activeVersion.id || 0]: { ...activeVersionDraft, title: value } }));
+                      }}
+                      className="h-8"
+                      placeholder="Version title"
+                      disabled={!activeVersion.id}
+                    />
+                    <MarkdownPreviewField
+                      label="Description (Markdown)"
+                      value={activeVersionDraft.descriptionMd}
+                      onChange={(value) => {
+                        if (!activeVersion.id) return;
+                        setVersionDrafts(prev => ({ ...prev, [activeVersion.id || 0]: { ...activeVersionDraft, descriptionMd: value } }));
+                      }}
+                      rows={4}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSaveVersion(activeVersion.id || 0)}
+                        disabled={!activeVersion.id}
+                      >
+                        Save Version
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-gray-500">No versions yet.</div>
+                )}
+              </div>
+
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="destructive" onClick={handleDeleteQuest} disabled={!quest?.id || isDeleting}>
                   {isDeleting ? 'Deleting…' : 'Delete Quest'}
@@ -1234,75 +1281,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               </div>
             </>
           </TabsContent>
-
-          <TabsContent value="versions" className="mt-3 space-y-3">
-              {versions.length === 0 && <div className="text-xs text-gray-500">No versions yet.</div>}
-              {versions.map((version, index) => {
-                const draft = versionDrafts[version.id || 0] || { title: version.title || '', descriptionMd: version.descriptionMd || '' };
-                return (
-                  <div key={version.id} className="rounded-md border border-gray-200 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-semibold text-gray-700">Version {index + 1}</div>
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleSaveVersion(version.id || 0)} disabled={!version.id}>
-                          Save
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDeleteVersion(version.id || 0)} disabled={!version.id || versions.length <= 1}>
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                    <Input
-                      value={draft.title}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setVersionDrafts(prev => ({ ...prev, [version.id || 0]: { ...draft, title: value } }));
-                      }}
-                      className="h-8"
-                      placeholder="Version title"
-                    />
-                    <MarkdownPreviewField
-                      label="Description (Markdown)"
-                      value={draft.descriptionMd}
-                      onChange={(value) => {
-                        setVersionDrafts(prev => ({ ...prev, [version.id || 0]: { ...draft, descriptionMd: value } }));
-                      }}
-                      rows={4}
-                    />
-                  </div>
-                );
-              })}
-
-              {showAddVersionForm ? (
-                <div className="rounded-md border border-dashed border-gray-200 p-3 space-y-2">
-                  <div className="text-xs font-semibold text-gray-700">Add New Version</div>
-                  <Input
-                    value={newVersionTitle}
-                    onChange={(e) => setNewVersionTitle(e.target.value)}
-                    className="h-8"
-                    placeholder="Version title"
-                  />
-                  <MarkdownPreviewField
-                    label="Description (Markdown)"
-                    value={newVersionDescription}
-                    onChange={(value) => setNewVersionDescription(value)}
-                    rows={3}
-                  />
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" onClick={handleAddVersion} disabled={!quest?.id}>
-                      Add Version
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setShowAddVersionForm(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button size="sm" variant="outline" onClick={() => setShowAddVersionForm(true)}>
-                  Add New Version
-                </Button>
-              )}
-            </TabsContent>
 
           <TabsContent value="relations" className="mt-3 space-y-2">
             <div className="flex items-center justify-between">
