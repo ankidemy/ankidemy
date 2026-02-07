@@ -1,13 +1,15 @@
 package services
 
 import (
-    "fmt"
-    "math"
-    "sort"
-    "strconv"
-    "strings"
-    "time"
-    "myapp/server/models"
+	"encoding/json"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"myapp/server/models"
 )
 
 // SpacedRepetitionService implements the SM-2 algorithm
@@ -25,35 +27,167 @@ type SRSResult struct {
 	NextReview     time.Time
 }
 
+const (
+	defaultSRSIntervalMultiplier = 1.0
+	defaultSRSFirstIntervalDays  = 1.0
+	defaultSRSSecondIntervalDays = 6.0
+	defaultSRSLapseIntervalDays  = 1.0
+	defaultSRSMinEasinessFactor  = 1.3
+
+	minSRSIntervalMultiplier = 0.25
+	maxSRSIntervalMultiplier = 4.0
+	minSRSIntervalDays       = 1.0
+	maxSRSIntervalDays       = 120.0
+	minSRSMinEasinessFactor  = 1.1
+	maxSRSMinEasinessFactor  = 2.5
+)
+
+// SRSAlgorithmConfig tunes SM-2 behavior per user/domain.
+type SRSAlgorithmConfig struct {
+	IntervalMultiplier float64
+	FirstIntervalDays  float64
+	SecondIntervalDays float64
+	LapseIntervalDays  float64
+	MinEasinessFactor  float64
+}
+
+type domainUserPreferences struct {
+	Review *domainReviewPreferences `json:"review"`
+}
+
+type domainReviewPreferences struct {
+	SRS *domainSRSPreferences `json:"srs"`
+}
+
+type domainSRSPreferences struct {
+	IntervalMultiplier *float64 `json:"intervalMultiplier"`
+	FirstIntervalDays  *float64 `json:"firstIntervalDays"`
+	SecondIntervalDays *float64 `json:"secondIntervalDays"`
+	LapseIntervalDays  *float64 `json:"lapseIntervalDays"`
+	MinEasinessFactor  *float64 `json:"minEasinessFactor"`
+}
+
+func DefaultSRSAlgorithmConfig() SRSAlgorithmConfig {
+	return SRSAlgorithmConfig{
+		IntervalMultiplier: defaultSRSIntervalMultiplier,
+		FirstIntervalDays:  defaultSRSFirstIntervalDays,
+		SecondIntervalDays: defaultSRSSecondIntervalDays,
+		LapseIntervalDays:  defaultSRSLapseIntervalDays,
+		MinEasinessFactor:  defaultSRSMinEasinessFactor,
+	}
+}
+
+// ParseSRSAlgorithmConfig extracts and clamps preferences.review.srs.
+func ParseSRSAlgorithmConfig(preferences json.RawMessage) SRSAlgorithmConfig {
+	config := DefaultSRSAlgorithmConfig()
+	if len(preferences) == 0 {
+		return config
+	}
+
+	var parsed domainUserPreferences
+	if err := json.Unmarshal(preferences, &parsed); err != nil || parsed.Review == nil || parsed.Review.SRS == nil {
+		return config
+	}
+
+	srsPrefs := parsed.Review.SRS
+	config.IntervalMultiplier = getSRSFloatOrDefault(srsPrefs.IntervalMultiplier, config.IntervalMultiplier)
+	config.FirstIntervalDays = getSRSFloatOrDefault(srsPrefs.FirstIntervalDays, config.FirstIntervalDays)
+	config.SecondIntervalDays = getSRSFloatOrDefault(srsPrefs.SecondIntervalDays, config.SecondIntervalDays)
+	config.LapseIntervalDays = getSRSFloatOrDefault(srsPrefs.LapseIntervalDays, config.LapseIntervalDays)
+	config.MinEasinessFactor = getSRSFloatOrDefault(srsPrefs.MinEasinessFactor, config.MinEasinessFactor)
+
+	return normalizeSRSAlgorithmConfig(config)
+}
+
+func getSRSFloatOrDefault(value *float64, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	if math.IsNaN(*value) || math.IsInf(*value, 0) {
+		return fallback
+	}
+	return *value
+}
+
+func clampSRSFloat(value float64, min float64, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func normalizeSRSAlgorithmConfig(config SRSAlgorithmConfig) SRSAlgorithmConfig {
+	normalized := DefaultSRSAlgorithmConfig()
+
+	normalized.IntervalMultiplier = clampSRSFloat(
+		getSRSFloatOrDefault(&config.IntervalMultiplier, normalized.IntervalMultiplier),
+		minSRSIntervalMultiplier,
+		maxSRSIntervalMultiplier,
+	)
+	normalized.FirstIntervalDays = clampSRSFloat(
+		getSRSFloatOrDefault(&config.FirstIntervalDays, normalized.FirstIntervalDays),
+		minSRSIntervalDays,
+		maxSRSIntervalDays,
+	)
+	normalized.SecondIntervalDays = clampSRSFloat(
+		getSRSFloatOrDefault(&config.SecondIntervalDays, normalized.SecondIntervalDays),
+		minSRSIntervalDays,
+		maxSRSIntervalDays,
+	)
+	normalized.LapseIntervalDays = clampSRSFloat(
+		getSRSFloatOrDefault(&config.LapseIntervalDays, normalized.LapseIntervalDays),
+		minSRSIntervalDays,
+		maxSRSIntervalDays,
+	)
+	normalized.MinEasinessFactor = clampSRSFloat(
+		getSRSFloatOrDefault(&config.MinEasinessFactor, normalized.MinEasinessFactor),
+		minSRSMinEasinessFactor,
+		maxSRSMinEasinessFactor,
+	)
+
+	if normalized.SecondIntervalDays < normalized.FirstIntervalDays {
+		normalized.SecondIntervalDays = normalized.FirstIntervalDays
+	}
+
+	return normalized
+}
+
 // CalculateNextInterval implements the SM-2 algorithm
 func (s *SpacedRepetitionService) CalculateNextInterval(
 	progress *models.UserNodeProgress,
 	quality int,
 	currentTime time.Time,
+	config SRSAlgorithmConfig,
 ) SRSResult {
+	config = normalizeSRSAlgorithmConfig(config)
+
 	ef := progress.EasinessFactor
 	interval := progress.IntervalDays
 	reps := progress.Repetitions
 
-	// Update easiness factor (EF cannot go below 1.3)
-	ef = math.Max(1.3, ef+(0.1-float64(5-quality)*(0.08+float64(5-quality)*0.02)))
+	// Update easiness factor (EF cannot go below configured minimum)
+	ef = math.Max(config.MinEasinessFactor, ef+(0.1-float64(5-quality)*(0.08+float64(5-quality)*0.02)))
 
 	// Calculate next interval
 	if quality < 3 {
 		// Failed review - restart
 		reps = 0
-		interval = 1
+		interval = config.LapseIntervalDays
 	} else {
 		// Successful review
 		reps++
 		if reps == 1 {
-			interval = 1
+			interval = config.FirstIntervalDays
 		} else if reps == 2 {
-			interval = 6
+			interval = config.SecondIntervalDays
 		} else {
 			interval = math.Round(interval * ef)
 		}
 	}
+	interval = math.Max(1, math.Round(interval*config.IntervalMultiplier))
 
 	// Calculate next review date
 	nextReview := currentTime.AddDate(0, 0, int(interval))
@@ -116,167 +250,167 @@ const (
 
 // PropagateCredit calculates credit flow from an explicit review
 func (c *CreditPropagationService) PropagateCredit(
-    reviewedNodeID uint,
-    reviewedNodeType string,
-    success bool,
-    graph map[string]*GraphNode,
+	reviewedNodeID uint,
+	reviewedNodeType string,
+	success bool,
+	graph map[string]*GraphNode,
 ) []models.CreditUpdate {
-    credits := []models.CreditUpdate{}
+	credits := []models.CreditUpdate{}
 
-    // Always include the explicitly reviewed node
-    credits = append(credits, models.CreditUpdate{
-        NodeID:   reviewedNodeID,
-        NodeType: reviewedNodeType,
-        Credit:   1.0,
-        Type:     "explicit",
-    })
+	// Always include the explicitly reviewed node
+	credits = append(credits, models.CreditUpdate{
+		NodeID:   reviewedNodeID,
+		NodeType: reviewedNodeType,
+		Credit:   1.0,
+		Type:     "explicit",
+	})
 
-    nodeType := reviewedNodeType
-    nodeKey := c.getNodeKey(reviewedNodeID, nodeType)
-    startNode, exists := graph[nodeKey]
-    if !exists {
-        // Fallback: treat 'exercise' and 'meta_exercise' as equivalent node kinds
-        // Also treat 'definition' and 'meta_definition' as equivalent
-        if reviewedNodeType == "exercise" {
-            nodeType = "meta_exercise"
-        } else if reviewedNodeType == "meta_exercise" {
-            nodeType = "exercise"
-        } else if reviewedNodeType == "definition" {
-            nodeType = "meta_definition"
-        } else if reviewedNodeType == "meta_definition" {
-            nodeType = "definition"
-        }
-        nodeKey = c.getNodeKey(reviewedNodeID, nodeType)
-        startNode, exists = graph[nodeKey]
-        if !exists {
-            return credits
-        }
-    }
+	nodeType := reviewedNodeType
+	nodeKey := c.getNodeKey(reviewedNodeID, nodeType)
+	startNode, exists := graph[nodeKey]
+	if !exists {
+		// Fallback: treat 'exercise' and 'meta_exercise' as equivalent node kinds
+		// Also treat 'definition' and 'meta_definition' as equivalent
+		if reviewedNodeType == "exercise" {
+			nodeType = "meta_exercise"
+		} else if reviewedNodeType == "meta_exercise" {
+			nodeType = "exercise"
+		} else if reviewedNodeType == "definition" {
+			nodeType = "meta_definition"
+		} else if reviewedNodeType == "meta_definition" {
+			nodeType = "definition"
+		}
+		nodeKey = c.getNodeKey(reviewedNodeID, nodeType)
+		startNode, exists = graph[nodeKey]
+		if !exists {
+			return credits
+		}
+	}
 
-    // Perform BFS-based propagation for implicit credits
-    implicit := c.bfsPropagate(startNode, success, graph)
-    // Append implicit credits after the explicit one
-    credits = append(credits, implicit...)
+	// Perform BFS-based propagation for implicit credits
+	implicit := c.bfsPropagate(startNode, success, graph)
+	// Append implicit credits after the explicit one
+	credits = append(credits, implicit...)
 
-    return credits
+	return credits
 }
 
 // bfsPropagate performs breadth-first propagation of implicit credits.
 // It guarantees that nodes at shorter distances are processed first and
 // aggregates contributions from multiple shortest paths at the same distance.
 func (c *CreditPropagationService) bfsPropagate(
-    start *GraphNode,
-    success bool,
-    graph map[string]*GraphNode,
+	start *GraphNode,
+	success bool,
+	graph map[string]*GraphNode,
 ) []models.CreditUpdate {
-    type entry struct {
-        id         uint
-        t          string
-        distance   int
-        pathWeight float64
-    }
+	type entry struct {
+		id         uint
+		t          string
+		distance   int
+		pathWeight float64
+	}
 
-    // Helper to get next edges based on direction
-    nextEdges := func(n *GraphNode) []GraphEdge {
-        if success {
-            return n.Prerequisites
-        }
-        return n.Dependents
-    }
+	// Helper to get next edges based on direction
+	nextEdges := func(n *GraphNode) []GraphEdge {
+		if success {
+			return n.Prerequisites
+		}
+		return n.Dependents
+	}
 
-    // Track best (shortest) distance discovered per node
-    bestDist := make(map[string]int)
-    // Track single contributing path weight for a node at the best distance.
-    // To avoid multi-parent amplification, we keep only one contribution per node.
-    bestWeight := make(map[string]float64)
-    // Maintain discovery order to output credits in BFS order
-    discovery := make([]string, 0, 64)
+	// Track best (shortest) distance discovered per node
+	bestDist := make(map[string]int)
+	// Track single contributing path weight for a node at the best distance.
+	// To avoid multi-parent amplification, we keep only one contribution per node.
+	bestWeight := make(map[string]float64)
+	// Maintain discovery order to output credits in BFS order
+	discovery := make([]string, 0, 64)
 
-    // Prevent the explicitly reviewed start node from receiving implicit credit
-    // via cycles by pre-marking it as seen at distance 0.
-    startKey := c.getNodeKey(start.ID, start.Type)
-    bestDist[startKey] = 0
-    bestWeight[startKey] = 0
+	// Prevent the explicitly reviewed start node from receiving implicit credit
+	// via cycles by pre-marking it as seen at distance 0.
+	startKey := c.getNodeKey(start.ID, start.Type)
+	bestDist[startKey] = 0
+	bestWeight[startKey] = 0
 
-    // Initialize queue with immediate neighbors
-    q := make([]entry, 0, 64)
-    for _, e := range nextEdges(start) {
-        // Start with d=2 for immediate neighbors so that
-        // amount = 1/d yields 1/2 for distance-1 = 1.
-        // This avoids any chance of giving full (1.0) credit to neighbors.
-        q = append(q, entry{id: e.ID, t: e.Type, distance: 2, pathWeight: e.Weight})
-    }
+	// Initialize queue with immediate neighbors
+	q := make([]entry, 0, 64)
+	for _, e := range nextEdges(start) {
+		// Start with d=2 for immediate neighbors so that
+		// amount = 1/d yields 1/2 for distance-1 = 1.
+		// This avoids any chance of giving full (1.0) credit to neighbors.
+		q = append(q, entry{id: e.ID, t: e.Type, distance: 2, pathWeight: e.Weight})
+	}
 
-    for len(q) > 0 {
-        cur := q[0]
-        q = q[1:]
+	for len(q) > 0 {
+		cur := q[0]
+		q = q[1:]
 
-        // Maintain MaxDistance as a cap on graph distance.
-        // Our 'distance' here is actually (graphDistance + 1), i.e., the denominator d.
-        // So we compare (cur.distance - 1) to MaxDistance.
-        if cur.distance-1 > MaxDistance {
-            continue
-        }
+		// Maintain MaxDistance as a cap on graph distance.
+		// Our 'distance' here is actually (graphDistance + 1), i.e., the denominator d.
+		// So we compare (cur.distance - 1) to MaxDistance.
+		if cur.distance-1 > MaxDistance {
+			continue
+		}
 
-        key := c.getNodeKey(cur.id, cur.t)
-        // First time discovered: set distance, initialize weight, and enqueue neighbors
-        d, seen := bestDist[key]
-        if !seen {
-            bestDist[key] = cur.distance
-            bestWeight[key] = cur.pathWeight
-            discovery = append(discovery, key)
+		key := c.getNodeKey(cur.id, cur.t)
+		// First time discovered: set distance, initialize weight, and enqueue neighbors
+		d, seen := bestDist[key]
+		if !seen {
+			bestDist[key] = cur.distance
+			bestWeight[key] = cur.pathWeight
+			discovery = append(discovery, key)
 
-            // Enqueue neighbors for further expansion
-            if node, ok := graph[key]; ok {
-                for _, e := range nextEdges(node) {
-                    q = append(q, entry{
-                        id:         e.ID,
-                        t:          e.Type,
-                        distance:   cur.distance + 1, // increment denominator d by 1 per hop
-                        pathWeight: cur.pathWeight * e.Weight,
-                    })
-                }
-            }
-            continue
-        }
+			// Enqueue neighbors for further expansion
+			if node, ok := graph[key]; ok {
+				for _, e := range nextEdges(node) {
+					q = append(q, entry{
+						id:         e.ID,
+						t:          e.Type,
+						distance:   cur.distance + 1, // increment denominator d by 1 per hop
+						pathWeight: cur.pathWeight * e.Weight,
+					})
+				}
+			}
+			continue
+		}
 
-        // If we encounter another shortest path of equal distance, keep only a single
-        // contribution. Choose the path with the larger absolute weight to avoid
-        // under-crediting strongly connected paths while preventing accumulation.
-        if cur.distance == d {
-            if math.Abs(cur.pathWeight) > math.Abs(bestWeight[key]) {
-                bestWeight[key] = cur.pathWeight
-            }
-            continue
-        }
+		// If we encounter another shortest path of equal distance, keep only a single
+		// contribution. Choose the path with the larger absolute weight to avoid
+		// under-crediting strongly connected paths while preventing accumulation.
+		if cur.distance == d {
+			if math.Abs(cur.pathWeight) > math.Abs(bestWeight[key]) {
+				bestWeight[key] = cur.pathWeight
+			}
+			continue
+		}
 
-        // If the path is longer than the best known, ignore (BFS ensures this mostly)
-    }
+		// If the path is longer than the best known, ignore (BFS ensures this mostly)
+	}
 
-    // Build implicit credit updates in BFS discovery order
-    credits := make([]models.CreditUpdate, 0, len(discovery))
-    for _, key := range discovery {
-        id, t := c.parseNodeKey(key)
-        distance := bestDist[key]
-        weight := bestWeight[key]
+	// Build implicit credit updates in BFS discovery order
+	credits := make([]models.CreditUpdate, 0, len(discovery))
+	for _, key := range discovery {
+		id, t := c.parseNodeKey(key)
+		distance := bestDist[key]
+		weight := bestWeight[key]
 
-        // distance here is the denominator d = (graph distance + 1).
-        amount := weight / float64(distance)
-        if math.Abs(amount) < CreditThreshold {
-            continue
-        }
-        if !success {
-            amount = -amount
-        }
-        credits = append(credits, models.CreditUpdate{
-            NodeID:   id,
-            NodeType: t,
-            Credit:   amount,
-            Type:     "implicit",
-        })
-    }
+		// distance here is the denominator d = (graph distance + 1).
+		amount := weight / float64(distance)
+		if math.Abs(amount) < CreditThreshold {
+			continue
+		}
+		if !success {
+			amount = -amount
+		}
+		credits = append(credits, models.CreditUpdate{
+			NodeID:   id,
+			NodeType: t,
+			Credit:   amount,
+			Type:     "implicit",
+		})
+	}
 
-    return credits
+	return credits
 }
 
 // BuildGraph creates a graph representation from prerequisites
@@ -338,12 +472,12 @@ func (c *CreditPropagationService) parseNodeKey(key string) (uint, string) {
 	if len(parts) != 2 {
 		return 0, ""
 	}
-	
+
 	id, err := strconv.ParseUint(parts[1], 10, 32)
 	if err != nil {
 		return 0, ""
 	}
-	
+
 	return uint(id), parts[0]
 }
 
@@ -387,7 +521,7 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 		// Calculate impact (credit propagated to other due nodes)
 		credits := r.creditService.PropagateCredit(node.NodeID, node.NodeType, true, graph)
 		impact := 0.0
-		
+
 		for _, credit := range credits {
 			creditKey := r.creditService.getNodeKey(credit.NodeID, credit.NodeType)
 			if dueSet[creditKey] && credit.Type == "implicit" && credit.Credit > 0 {
@@ -417,7 +551,7 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 	// Reorder original nodes based on scores
 	result := make([]models.NodeProgress, 0, len(dueNodes))
 	nodeMap := make(map[string]models.NodeProgress)
-	
+
 	for _, node := range dueNodes {
 		key := r.creditService.getNodeKey(node.NodeID, node.NodeType)
 		nodeMap[key] = node

@@ -65,6 +65,41 @@ const isValidTimeZone = (value: string) => {
   }
 };
 
+const SRS_INTERVAL_MULTIPLIER_MIN = 0.25;
+const SRS_INTERVAL_MULTIPLIER_MAX = 4;
+const SRS_INTERVAL_DAYS_MIN = 1;
+const SRS_INTERVAL_DAYS_MAX = 120;
+const SRS_MIN_EASINESS_FACTOR_MIN = 1.1;
+const SRS_MIN_EASINESS_FACTOR_MAX = 2.5;
+
+const DEFAULT_SRS_OPTIONS = {
+  intervalMultiplier: 1,
+  firstIntervalDays: 1,
+  secondIntervalDays: 6,
+  lapseIntervalDays: 1,
+  minEasinessFactor: 1.3,
+};
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const normalizeNumberOption = (
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number
+) => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return clampNumber(parsed, min, max);
+};
+
+const normalizeIntegerOption = (
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number
+) => Math.round(normalizeNumberOption(value, fallback, min, max));
+
 interface TopControlsProps {
   subjectMatterId: string;
   mode: AppMode;
@@ -130,6 +165,11 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsDraftExercises, setOptionsDraftExercises] = useState<number>(1);
   const [optionsDraftTimezone, setOptionsDraftTimezone] = useState<string>('UTC');
+  const [optionsDraftIntervalMultiplier, setOptionsDraftIntervalMultiplier] = useState<number>(DEFAULT_SRS_OPTIONS.intervalMultiplier);
+  const [optionsDraftFirstIntervalDays, setOptionsDraftFirstIntervalDays] = useState<number>(DEFAULT_SRS_OPTIONS.firstIntervalDays);
+  const [optionsDraftSecondIntervalDays, setOptionsDraftSecondIntervalDays] = useState<number>(DEFAULT_SRS_OPTIONS.secondIntervalDays);
+  const [optionsDraftLapseIntervalDays, setOptionsDraftLapseIntervalDays] = useState<number>(DEFAULT_SRS_OPTIONS.lapseIntervalDays);
+  const [optionsDraftMinEasinessFactor, setOptionsDraftMinEasinessFactor] = useState<number>(DEFAULT_SRS_OPTIONS.minEasinessFactor);
   const [browserTimezone, setBrowserTimezone] = useState('UTC');
   const optionsRef = useRef<HTMLDivElement>(null);
   const supportedTimezones = useMemo(() => {
@@ -292,6 +332,48 @@ const TopControls: React.FC<TopControlsProps> = ({
     } else {
       setOptionsDraftExercises(1);
     }
+    const srsPreferences = domainSettings?.preferences?.review?.srs;
+    const firstInterval = normalizeIntegerOption(
+      srsPreferences?.firstIntervalDays,
+      DEFAULT_SRS_OPTIONS.firstIntervalDays,
+      SRS_INTERVAL_DAYS_MIN,
+      SRS_INTERVAL_DAYS_MAX
+    );
+    const secondInterval = Math.max(
+      firstInterval,
+      normalizeIntegerOption(
+        srsPreferences?.secondIntervalDays,
+        DEFAULT_SRS_OPTIONS.secondIntervalDays,
+        SRS_INTERVAL_DAYS_MIN,
+        SRS_INTERVAL_DAYS_MAX
+      )
+    );
+    setOptionsDraftIntervalMultiplier(
+      normalizeNumberOption(
+        srsPreferences?.intervalMultiplier,
+        DEFAULT_SRS_OPTIONS.intervalMultiplier,
+        SRS_INTERVAL_MULTIPLIER_MIN,
+        SRS_INTERVAL_MULTIPLIER_MAX
+      )
+    );
+    setOptionsDraftFirstIntervalDays(firstInterval);
+    setOptionsDraftSecondIntervalDays(secondInterval);
+    setOptionsDraftLapseIntervalDays(
+      normalizeIntegerOption(
+        srsPreferences?.lapseIntervalDays,
+        DEFAULT_SRS_OPTIONS.lapseIntervalDays,
+        SRS_INTERVAL_DAYS_MIN,
+        SRS_INTERVAL_DAYS_MAX
+      )
+    );
+    setOptionsDraftMinEasinessFactor(
+      normalizeNumberOption(
+        srsPreferences?.minEasinessFactor,
+        DEFAULT_SRS_OPTIONS.minEasinessFactor,
+        SRS_MIN_EASINESS_FACTOR_MIN,
+        SRS_MIN_EASINESS_FACTOR_MAX
+      )
+    );
     setOptionsDraftTimezone(domainSettings?.timezone || browserTimezone || 'UTC');
     setOptionsError(null);
   }, [showOptions, domainSettings, browserTimezone]);
@@ -384,14 +466,59 @@ const TopControls: React.FC<TopControlsProps> = ({
         setOptionsError('Enter a valid IANA time zone (e.g., America/New_York).');
         return;
       }
+      const normalizedIntervalMultiplier = normalizeNumberOption(
+        optionsDraftIntervalMultiplier,
+        DEFAULT_SRS_OPTIONS.intervalMultiplier,
+        SRS_INTERVAL_MULTIPLIER_MIN,
+        SRS_INTERVAL_MULTIPLIER_MAX
+      );
+      const normalizedFirstInterval = normalizeIntegerOption(
+        optionsDraftFirstIntervalDays,
+        DEFAULT_SRS_OPTIONS.firstIntervalDays,
+        SRS_INTERVAL_DAYS_MIN,
+        SRS_INTERVAL_DAYS_MAX
+      );
+      const normalizedSecondInterval = Math.max(
+        normalizedFirstInterval,
+        normalizeIntegerOption(
+          optionsDraftSecondIntervalDays,
+          DEFAULT_SRS_OPTIONS.secondIntervalDays,
+          SRS_INTERVAL_DAYS_MIN,
+          SRS_INTERVAL_DAYS_MAX
+        )
+      );
+      const normalizedLapseInterval = normalizeIntegerOption(
+        optionsDraftLapseIntervalDays,
+        DEFAULT_SRS_OPTIONS.lapseIntervalDays,
+        SRS_INTERVAL_DAYS_MIN,
+        SRS_INTERVAL_DAYS_MAX
+      );
+      const normalizedMinEasiness = normalizeNumberOption(
+        optionsDraftMinEasinessFactor,
+        DEFAULT_SRS_OPTIONS.minEasinessFactor,
+        SRS_MIN_EASINESS_FACTOR_MIN,
+        SRS_MIN_EASINESS_FACTOR_MAX
+      );
       await onUpdateDomainSettings({
         timezone: trimmedTimezone,
         preferences: {
           review: {
             exercisesPerDefinition: optionsDraftExercises,
+            srs: {
+              intervalMultiplier: normalizedIntervalMultiplier,
+              firstIntervalDays: normalizedFirstInterval,
+              secondIntervalDays: normalizedSecondInterval,
+              lapseIntervalDays: normalizedLapseInterval,
+              minEasinessFactor: normalizedMinEasiness,
+            },
           },
         },
       });
+      setOptionsDraftIntervalMultiplier(normalizedIntervalMultiplier);
+      setOptionsDraftFirstIntervalDays(normalizedFirstInterval);
+      setOptionsDraftSecondIntervalDays(normalizedSecondInterval);
+      setOptionsDraftLapseIntervalDays(normalizedLapseInterval);
+      setOptionsDraftMinEasinessFactor(normalizedMinEasiness);
       setShowOptions(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save options.';
@@ -399,7 +526,18 @@ const TopControls: React.FC<TopControlsProps> = ({
     } finally {
       setOptionsSaving(false);
     }
-  }, [canChangeOptions, onUpdateDomainSettings, optionsDraftExercises, optionsDraftTimezone, browserTimezone]);
+  }, [
+    canChangeOptions,
+    onUpdateDomainSettings,
+    optionsDraftExercises,
+    optionsDraftTimezone,
+    optionsDraftIntervalMultiplier,
+    optionsDraftFirstIntervalDays,
+    optionsDraftSecondIntervalDays,
+    optionsDraftLapseIntervalDays,
+    optionsDraftMinEasinessFactor,
+    browserTimezone,
+  ]);
 
   const handleToggleReviewQueue = () => {
     setShowSurveyQueue(false);
@@ -729,7 +867,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             <Wrench size={14} className="ml-1" />
           </Button>
           {showOptions && (
-            <div className="absolute right-0 mt-2 w-72 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
+            <div className="absolute right-0 mt-2 w-96 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
               <div className="font-semibold text-gray-800 mb-3">Options</div>
               <div className="space-y-3">
                 <label className="flex items-center justify-between gap-3">
@@ -762,6 +900,144 @@ const TopControls: React.FC<TopControlsProps> = ({
                     className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
                   />
                 </label>
+                <details className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                  <summary className="cursor-pointer select-none text-xs font-medium text-gray-700">
+                    SRS tuning (advanced)
+                  </summary>
+                  <div className="mt-2 space-y-3">
+                    <div className="rounded-md border border-orange-100 bg-orange-50 p-2 text-xs text-orange-800">
+                      Increasing SRS spacing values gives fewer reviews. Decreasing them gives more reviews.
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Interval multiplier</span>
+                        <input
+                          type="number"
+                          min={SRS_INTERVAL_MULTIPLIER_MIN}
+                          max={SRS_INTERVAL_MULTIPLIER_MAX}
+                          step={0.05}
+                          value={optionsDraftIntervalMultiplier}
+                          onChange={(e) => {
+                            setOptionsDraftIntervalMultiplier(
+                              normalizeNumberOption(
+                                e.target.value,
+                                DEFAULT_SRS_OPTIONS.intervalMultiplier,
+                                SRS_INTERVAL_MULTIPLIER_MIN,
+                                SRS_INTERVAL_MULTIPLIER_MAX
+                              )
+                            );
+                            setOptionsError(null);
+                          }}
+                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                        />
+                      </label>
+                      <p className="text-[11px] text-gray-500">Increase: fewer reviews. Decrease: more reviews.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">First success interval (days)</span>
+                        <input
+                          type="number"
+                          min={SRS_INTERVAL_DAYS_MIN}
+                          max={SRS_INTERVAL_DAYS_MAX}
+                          step={1}
+                          value={optionsDraftFirstIntervalDays}
+                          onChange={(e) => {
+                            const nextFirst = normalizeIntegerOption(
+                              e.target.value,
+                              DEFAULT_SRS_OPTIONS.firstIntervalDays,
+                              SRS_INTERVAL_DAYS_MIN,
+                              SRS_INTERVAL_DAYS_MAX
+                            );
+                            setOptionsDraftFirstIntervalDays(nextFirst);
+                            setOptionsDraftSecondIntervalDays((previous) => Math.max(previous, nextFirst));
+                            setOptionsError(null);
+                          }}
+                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                        />
+                      </label>
+                      <p className="text-[11px] text-gray-500">Increase: fewer reviews. Decrease: more reviews.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Second success interval (days)</span>
+                        <input
+                          type="number"
+                          min={SRS_INTERVAL_DAYS_MIN}
+                          max={SRS_INTERVAL_DAYS_MAX}
+                          step={1}
+                          value={optionsDraftSecondIntervalDays}
+                          onChange={(e) => {
+                            setOptionsDraftSecondIntervalDays(
+                              Math.max(
+                                optionsDraftFirstIntervalDays,
+                                normalizeIntegerOption(
+                                  e.target.value,
+                                  DEFAULT_SRS_OPTIONS.secondIntervalDays,
+                                  SRS_INTERVAL_DAYS_MIN,
+                                  SRS_INTERVAL_DAYS_MAX
+                                )
+                              )
+                            );
+                            setOptionsError(null);
+                          }}
+                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                        />
+                      </label>
+                      <p className="text-[11px] text-gray-500">Increase: fewer reviews. Decrease: more reviews.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Lapse interval after failure (days)</span>
+                        <input
+                          type="number"
+                          min={SRS_INTERVAL_DAYS_MIN}
+                          max={SRS_INTERVAL_DAYS_MAX}
+                          step={1}
+                          value={optionsDraftLapseIntervalDays}
+                          onChange={(e) => {
+                            setOptionsDraftLapseIntervalDays(
+                              normalizeIntegerOption(
+                                e.target.value,
+                                DEFAULT_SRS_OPTIONS.lapseIntervalDays,
+                                SRS_INTERVAL_DAYS_MIN,
+                                SRS_INTERVAL_DAYS_MAX
+                              )
+                            );
+                            setOptionsError(null);
+                          }}
+                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                        />
+                      </label>
+                      <p className="text-[11px] text-gray-500">Increase: fewer reviews. Decrease: more reviews.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">Minimum easiness factor</span>
+                        <input
+                          type="number"
+                          min={SRS_MIN_EASINESS_FACTOR_MIN}
+                          max={SRS_MIN_EASINESS_FACTOR_MAX}
+                          step={0.05}
+                          value={optionsDraftMinEasinessFactor}
+                          onChange={(e) => {
+                            setOptionsDraftMinEasinessFactor(
+                              normalizeNumberOption(
+                                e.target.value,
+                                DEFAULT_SRS_OPTIONS.minEasinessFactor,
+                                SRS_MIN_EASINESS_FACTOR_MIN,
+                                SRS_MIN_EASINESS_FACTOR_MAX
+                              )
+                            );
+                            setOptionsError(null);
+                          }}
+                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                        />
+                      </label>
+                      <p className="text-[11px] text-gray-500">Increase: fewer reviews. Decrease: more reviews.</p>
+                    </div>
+                  </div>
+                </details>
                 {optionsError && (
                   <div className="text-xs text-red-600">{optionsError}</div>
                 )}

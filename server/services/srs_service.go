@@ -21,6 +21,7 @@ import (
 type SRSService struct {
 	db                    *gorm.DB
 	srsDao                *dao.SRSDao
+	settingsDAO           *dao.UserDomainSettingsDAO
 	srAlgorithm           *SpacedRepetitionService
 	creditService         *CreditPropagationService
 	optimizationService   *ReviewOptimizationService
@@ -36,6 +37,7 @@ func NewSRSService(db *gorm.DB, notificationReadModel *NotificationReadModelServ
 	return &SRSService{
 		db:                    db,
 		srsDao:                dao.NewSRSDao(db),
+		settingsDAO:           dao.NewUserDomainSettingsDAO(db),
 		srAlgorithm:           NewSpacedRepetitionService(),
 		creditService:         NewCreditPropagationService(),
 		optimizationService:   NewReviewOptimizationService(),
@@ -122,12 +124,18 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to get prerequisites: %w", err)
 	}
+	algorithmConfig := DefaultSRSAlgorithmConfig()
+	if settings, settingsErr := s.settingsDAO.GetOrCreate(userID, domainID); settingsErr != nil {
+		log.Printf("warning: failed to load SRS settings for user %d domain %d: %v", userID, domainID, settingsErr)
+	} else {
+		algorithmConfig = ParseSRSAlgorithmConfig(settings.Preferences)
+	}
 
 	graph := s.creditService.BuildGraph(prerequisites)
 	credits := s.creditService.PropagateCredit(request.NodeID, request.NodeType, request.Success, graph)
 
 	// Apply credits to all affected nodes
-	updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, time.Now())
+	updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, time.Now(), algorithmConfig)
 	if err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to apply credits: %w", err)
@@ -196,7 +204,14 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 }
 
 // Enhanced applyCredits with better error handling
-func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.CreditUpdate, quality int, currentTime time.Time) ([]models.UserNodeProgress, error) {
+func (s *SRSService) applyCredits(
+	tx *gorm.DB,
+	userID uint,
+	credits []models.CreditUpdate,
+	quality int,
+	currentTime time.Time,
+	algorithmConfig SRSAlgorithmConfig,
+) ([]models.UserNodeProgress, error) {
 	var updatedNodes []models.UserNodeProgress
 	srsDao := dao.NewSRSDao(tx)
 	var warnings []string
@@ -264,7 +279,7 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
 
 		if credit.Type == "explicit" {
 			// Full review - update SRS parameters
-			srResult := s.srAlgorithm.CalculateNextInterval(progress, quality, currentTime)
+			srResult := s.srAlgorithm.CalculateNextInterval(progress, quality, currentTime, algorithmConfig)
 
 			progress.EasinessFactor = srResult.EasinessFactor
 			progress.IntervalDays = srResult.IntervalDays
@@ -330,7 +345,7 @@ func (s *SRSService) applyCredits(tx *gorm.DB, userID uint, credits []models.Cre
 					creditPostponed = true
 
 					// Calculate next review based on current SR parameters
-					srResult := s.srAlgorithm.CalculateNextInterval(progress, 4, currentTime) // Default "good" quality
+					srResult := s.srAlgorithm.CalculateNextInterval(progress, 4, currentTime, algorithmConfig) // Default "good" quality
 					progress.NextReview = &srResult.NextReview
 					progress.Repetitions = srResult.Repetitions
 					progress.IntervalDays = srResult.IntervalDays

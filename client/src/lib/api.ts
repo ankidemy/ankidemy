@@ -77,6 +77,15 @@ export interface Domain {
 
 export interface DomainReviewPreferences {
   exercisesPerDefinition?: number;
+  srs?: DomainSRSPreferences;
+}
+
+export interface DomainSRSPreferences {
+  intervalMultiplier?: number;
+  firstIntervalDays?: number;
+  secondIntervalDays?: number;
+  lapseIntervalDays?: number;
+  minEasinessFactor?: number;
 }
 
 export interface DomainUserPreferences {
