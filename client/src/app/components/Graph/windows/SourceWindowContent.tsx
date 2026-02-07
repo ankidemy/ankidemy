@@ -100,6 +100,8 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isHeaderCodeEditing, setIsHeaderCodeEditing] = useState(false);
+  const [isRelevantLinksExpanded, setIsRelevantLinksExpanded] = useState(false);
 
   const [codeDraft, setCodeDraft] = useState('');
   const [titleDraft, setTitleDraft] = useState('');
@@ -172,6 +174,8 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     setVisibilityDraft(initial.visibility || 'private');
     setIsDirty(false);
     setIsEditMode(false);
+    setIsHeaderCodeEditing(false);
+    setIsRelevantLinksExpanded(false);
     setShowReminderForm(false);
     setReminderDraft(getDefaultReminderDraft());
   }, [sourceData]);
@@ -189,6 +193,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
         setContentDraft(fresh.contentMd || '');
         setBibtexDraft(fresh.bibtexKey || '');
         setVisibilityDraft(fresh.visibility || 'private');
+        setIsHeaderCodeEditing(false);
       })
       .catch(err => {
         console.warn('Failed to load source:', err);
@@ -268,8 +273,13 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       setVisibilityDraft(updated.visibility || 'private');
       setIsDirty(false);
       onUpdateSource?.(updated);
+      ui.updateWindow(windowId, {
+        title: updated.title || updated.code || 'Source',
+        contentProps: { sourceData: updated },
+      });
       showToast('Source updated.', 'success');
       setIsEditMode(false);
+      setIsHeaderCodeEditing(false);
     } catch (err: unknown) {
       const message = getErrorMessage(err);
       if (message.includes('409') || message.toLowerCase().includes('conflict')) {
@@ -280,7 +290,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     } finally {
       setIsSaving(false);
     }
-  }, [source?.id, codeDraft, titleDraft, contentDraft, bibtexDraft, visibilityDraft, canSave, onUpdateSource]);
+  }, [source?.id, codeDraft, titleDraft, contentDraft, bibtexDraft, visibilityDraft, canSave, onUpdateSource, ui, windowId]);
 
   const handleCancelEdit = useCallback(() => {
     const base = source;
@@ -295,6 +305,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     setBibtexDraft(base.bibtexKey || '');
     setVisibilityDraft(base.visibility || 'private');
     setIsDirty(false);
+    setIsHeaderCodeEditing(false);
     setIsEditMode(false);
   }, [source]);
 
@@ -304,7 +315,10 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       return;
     }
     if (!source?.id) return;
+    setShowReminderForm(false);
     setIsEditMode(true);
+    setIsHeaderCodeEditing(false);
+    setIsRelevantLinksExpanded(false);
   }, [handleCancelEdit, isEditMode, source?.id]);
 
   const handleDelete = useCallback(async () => {
@@ -445,6 +459,17 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     }
   }, [source?.id, source?.visibility, onUpdateSource]);
 
+  const handleHeaderVisibilityToggle = useCallback(() => {
+    if (isEditMode) {
+      setVisibilityDraft(prev => (prev === 'domain' ? 'private' : 'domain'));
+      setIsDirty(true);
+      return;
+    }
+    void handleToggleVisibility();
+  }, [handleToggleVisibility, isEditMode]);
+
+  const headerVisibility = isEditMode ? visibilityDraft : (source?.visibility || 'private');
+
   const getLinkLabel = useCallback((link: RelationDraft): string => {
     if (!graphData) return link.toCode;
     if (link.toType === 'meta_definition') {
@@ -457,88 +482,114 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   }, [graphData]);
 
   return (
-    <div className="flex flex-col gap-4 text-sm p-4">
-      <div className="flex items-center justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            {isEditMode && (
+    <div className="h-full flex flex-col text-sm">
+      <div className="p-4 pb-2 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              {isEditMode && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={handleCancelEdit}
+                  title="Back"
+                >
+                  <ArrowLeft size={14} />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                onClick={handleCancelEdit}
-                title="Back"
+                onClick={handleHeaderVisibilityToggle}
+                disabled={!source?.id}
+                title={
+                  isEditMode
+                    ? (headerVisibility === 'domain' ? 'Set private' : 'Set domain')
+                    : (headerVisibility === 'domain' ? 'Make private' : 'Make public')
+                }
               >
-                <ArrowLeft size={14} />
+                {headerVisibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
+              </Button>
+              <div className="text-base font-semibold text-gray-900 truncate">{source?.title?.trim() || 'Source'}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
+            {!isEditMode && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowReminderForm(prev => !prev)}
+                disabled={!source?.id}
+              >
+                {showReminderForm ? 'Close Reminder' : 'Remind Me'}
               </Button>
             )}
             <Button
-              variant="ghost"
               size="icon"
-              className="h-7 w-7"
-              onClick={handleToggleVisibility}
-              disabled={!source?.id || isEditMode}
-              title={source?.visibility === 'domain' ? 'Make private' : 'Make public'}
-            >
-              {source?.visibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
-            </Button>
-            <div className="text-base font-semibold text-gray-900 truncate">{source?.title?.trim() || 'Source'}</div>
-          </div>
-          {source?.bibtexKey && (
-            <div className="text-xs text-gray-500">BibTeX: {source.bibtexKey}</div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
-          {!isEditMode && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowReminderForm(prev => !prev)}
+              variant={isEditMode ? 'outline' : 'ghost'}
+              onClick={handleToggleEditMode}
               disabled={!source?.id}
+              className="h-8 w-8"
+              title={isEditMode ? 'View Mode' : 'Edit Mode'}
             >
-              {showReminderForm ? 'Close Reminder' : 'Remind Me'}
+              <Edit size={16} />
             </Button>
+            {isEditMode && (
+              <>
+                <Button size="sm" variant="outline" onClick={handleCancelEdit}>
+                  <X className="h-4 w-4 mr-1" />
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSave} disabled={!canSave || isSaving}>
+                  <Save className="h-4 w-4 mr-1" />
+                  {isSaving ? 'Saving…' : 'Save'}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-gray-600">
+          {isEditMode ? (
+            isHeaderCodeEditing ? (
+              <Input
+                value={codeDraft}
+                onChange={(e) => {
+                  setCodeDraft(e.target.value);
+                  setIsDirty(true);
+                }}
+                onBlur={() => setIsHeaderCodeEditing(false)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === 'Escape') {
+                    event.preventDefault();
+                    setIsHeaderCodeEditing(false);
+                  }
+                }}
+                autoFocus
+                className="h-6 w-36 bg-white px-2 text-[11px]"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsHeaderCodeEditing(true)}
+                className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700 hover:bg-gray-50"
+                title="Click to edit code"
+              >
+                {codeDraft.trim() || source?.code || sourceData.code || 'SRC?'}
+              </button>
+            )
+          ) : (
+            <span className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700">
+              {source?.code || sourceData.code || 'SRC?'}
+            </span>
           )}
-          <Button
-            size="icon"
-            variant={isEditMode ? 'outline' : 'ghost'}
-            onClick={handleToggleEditMode}
-            disabled={!source?.id}
-            className="h-8 w-8"
-            title={isEditMode ? 'View Mode' : 'Edit Mode'}
-          >
-            <Edit size={16} />
-          </Button>
-          {isEditMode && (
-            <>
-              <Button size="sm" variant="outline" onClick={handleCancelEdit}>
-                <X className="h-4 w-4 mr-1" />
-                Cancel
-              </Button>
-              <Button size="sm" onClick={handleSave} disabled={!canSave || isSaving}>
-                <Save className="h-4 w-4 mr-1" />
-                {isSaving ? 'Saving…' : 'Save'}
-              </Button>
-            </>
-          )}
+          <span className="text-[11px] text-gray-500">{headerVisibility === 'domain' ? 'Domain' : 'Private'}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
-        {isEditMode && (
-          <div>
-            <label className="text-xs font-medium text-gray-600">Code</label>
-            <Input
-              value={codeDraft}
-              onChange={(e) => {
-                setCodeDraft(e.target.value);
-                setIsDirty(true);
-              }}
-              className="h-8 mt-1"
-            />
-          </div>
-        )}
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 pt-3 space-y-4">
         {isEditMode && (
           <div>
             <label className="text-xs font-medium text-gray-600">Title</label>
@@ -591,31 +642,6 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
             />
           </div>
         )}
-        {isEditMode && (
-          <div>
-            <label className="text-xs font-medium text-gray-600">Visibility</label>
-            <select
-              value={visibilityDraft}
-              onChange={(e) => {
-                setVisibilityDraft(e.target.value as 'private' | 'domain');
-                setIsDirty(true);
-              }}
-              className="mt-1 h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs text-gray-700"
-            >
-              <option value="private">Private</option>
-              <option value="domain">Domain</option>
-            </select>
-          </div>
-        )}
-      </div>
-
-      {isEditMode && (
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="destructive" onClick={handleDelete} disabled={isDeleting || !source?.id}>
-            {isDeleting ? 'Deleting…' : 'Delete'}
-          </Button>
-        </div>
-      )}
 
       {showReminderForm && (
         <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 space-y-2">
@@ -675,68 +701,99 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
         </div>
       )}
 
-      <div className="border-t pt-3 space-y-2">
-        <div className="text-xs font-semibold text-gray-700">Relevant Links</div>
-        {relevantLinks.length === 0 && (
-          <div className="text-xs text-gray-500">No relevant links yet.</div>
-        )}
-        {!isEditMode && relevantLinks.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {relevantLinks.map((link, idx) => {
-              const style =
-                link.toType === 'meta_definition'
-                  ? 'bg-blue-50 hover:bg-blue-100 border-blue-200'
-                  : 'bg-orange-50 hover:bg-orange-100 border-orange-200';
-              return (
-                <Button
-                  key={`${link.toCode}-${idx}`}
-                  variant="outline"
-                  size="sm"
-                  className={`h-6 text-xs px-1.5 ${style}`}
-                  onClick={() => onNavigateToNode?.(link.toCode)}
-                >
-                  {getLinkLabel(link)}
-                </Button>
-              );
-            })}
-          </div>
-        )}
-        {isEditMode && relevantLinks.map((link, idx) => (
-          <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
-            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-              {link.toType === 'meta_definition' ? 'Definition' : 'Exercise'}
-            </span>
-            <span className="text-gray-800">{link.toCode}</span>
+      {isEditMode ? (
+        <>
+          <div className="flex items-center justify-between">
             <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => handleRemoveRelevantLink(link)}
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-xs"
+              onClick={() => setIsRelevantLinksExpanded(prev => !prev)}
             >
-              Remove
+              {isRelevantLinksExpanded ? 'Hide relevant links' : 'Edit relevant links'}
             </Button>
           </div>
-        ))}
-        {isEditMode && (
-          <div className="flex items-center gap-2">
-            <select
-              value={newRelation.toType}
-              onChange={(e) => setNewRelation(prev => ({ ...prev, toType: e.target.value as RelationDraft['toType'] }))}
-              className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
-            >
-              <option value="meta_definition">Definition</option>
-              <option value="meta_exercise">Exercise</option>
-            </select>
-            <Input
-              value={newRelation.toCode}
-              onChange={(e) => setNewRelation(prev => ({ ...prev, toCode: e.target.value }))}
-              className="h-7 text-xs"
-              placeholder="Target code"
-            />
-            <Button size="sm" variant="outline" onClick={handleAddRelevantLink}>
-              Add
-            </Button>
-          </div>
-        )}
+
+          {isRelevantLinksExpanded && (
+            <div className="rounded-md border border-gray-200 p-3 space-y-2">
+              <div className="text-xs font-semibold text-gray-700">Relevant Links</div>
+              {relevantLinks.length === 0 && (
+                <div className="text-xs text-gray-500">No relevant links yet.</div>
+              )}
+              {relevantLinks.map((link, idx) => (
+                <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
+                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                    {link.toType === 'meta_definition' ? 'Definition' : 'Exercise'}
+                  </span>
+                  <span className="text-gray-800">{link.toCode}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleRemoveRelevantLink(link)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <select
+                  value={newRelation.toType}
+                  onChange={(e) => setNewRelation(prev => ({ ...prev, toType: e.target.value as RelationDraft['toType'] }))}
+                  className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
+                >
+                  <option value="meta_definition">Definition</option>
+                  <option value="meta_exercise">Exercise</option>
+                </select>
+                <Input
+                  value={newRelation.toCode}
+                  onChange={(e) => setNewRelation(prev => ({ ...prev, toCode: e.target.value }))}
+                  className="h-7 text-xs"
+                  placeholder="Target code"
+                />
+                <Button size="sm" variant="outline" onClick={handleAddRelevantLink}>
+                  Add
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rounded-md border border-gray-200 p-3 space-y-2">
+          <div className="text-xs font-semibold text-gray-700">Relevant Links</div>
+          {relevantLinks.length === 0 && (
+            <div className="text-xs text-gray-500">No relevant links yet.</div>
+          )}
+          {relevantLinks.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {relevantLinks.map((link, idx) => {
+                const style =
+                  link.toType === 'meta_definition'
+                    ? 'bg-blue-50 hover:bg-blue-100 border-blue-200'
+                    : 'bg-orange-50 hover:bg-orange-100 border-orange-200';
+                return (
+                  <Button
+                    key={`${link.toCode}-${idx}`}
+                    variant="outline"
+                    size="sm"
+                    className={`h-6 text-xs px-1.5 ${style}`}
+                    onClick={() => onNavigateToNode?.(link.toCode)}
+                  >
+                    {getLinkLabel(link)}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isEditMode && (
+        <div className="flex items-center justify-end gap-2">
+          <Button size="sm" variant="destructive" onClick={handleDelete} disabled={isDeleting || !source?.id}>
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </Button>
+        </div>
+      )}
       </div>
     </div>
   );

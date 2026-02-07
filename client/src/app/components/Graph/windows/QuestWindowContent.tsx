@@ -1193,6 +1193,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               rows={variant === 'frenzy' ? 3 : 4}
             />
             <ImageUploadField
+              compact
               label="Description Image"
               helperText="Paste, drop, or upload an image. This updates imagePath only."
               imagePath={activeVersionDraft.imagePath}
@@ -1585,6 +1586,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                 {activeVersionDraft.imagePath?.trim() && (
                   <div className="min-w-0 rounded-md border border-gray-200 p-2">
                     <ImageUploadField
+                      compact
                       label="Image"
                       helperText="Shown beside description while attached."
                       imagePath={activeVersionDraft.imagePath}
@@ -1605,6 +1607,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               {!activeVersionDraft.imagePath?.trim() && (
                 <div>
                   <ImageUploadField
+                    compact
                     label="Image"
                     helperText="Optional. When attached, it appears in a side column."
                     imagePath={activeVersionDraft.imagePath}

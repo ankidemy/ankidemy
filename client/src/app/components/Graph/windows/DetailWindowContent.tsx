@@ -137,6 +137,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [isVersionUpdating, setIsVersionUpdating] = useState(false);
   const [isSavingActiveVersion, setIsSavingActiveVersion] = useState(false);
   const [isActiveVersionDirty, setIsActiveVersionDirty] = useState(false);
+  const [codeDraft, setCodeDraft] = useState(initialNodeData.id);
+  const [isHeaderCodeEditing, setIsHeaderCodeEditing] = useState(false);
   const definitionEditFormRef = React.useRef<MetaDefinitionEditFormRef | null>(null);
   const exerciseEditFormRef = React.useRef<MetaExerciseEditFormRef | null>(null);
   
@@ -307,6 +309,16 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     setReminderDraft(getDefaultReminderDraft());
     setReminderTitle(currentNode?.name ? `Review: ${currentNode.name}` : '');
   }, [currentNode.id, currentNode.name]);
+  useEffect(() => {
+    setCodeDraft(currentNode.id);
+    setIsHeaderCodeEditing(false);
+  }, [currentNode.id]);
+  useEffect(() => {
+    if (!isEditMode) {
+      setCodeDraft(currentNode.id);
+      setIsHeaderCodeEditing(false);
+    }
+  }, [currentNode.id, isEditMode]);
 
   // Navigation within window
   const navigateToNode = useCallback(async (nodeId: string) => {
@@ -976,12 +988,12 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [canEdit, currentNode.type, isVersionUpdating, metaDetails, versionCount, versionIndex]);
 
-  const canShowSaveVersionInHeader = isEditMode
+  const hasPendingEditChanges = isEditMode
     && (currentNode.type === 'definition' || currentNode.type === 'exercise')
     && isActiveVersionDirty;
 
   const handleSaveActiveVersion = useCallback(async () => {
-    if (!canShowSaveVersionInHeader || isSavingActiveVersion) return;
+    if (!isEditMode || isSavingActiveVersion) return;
     setIsSavingActiveVersion(true);
     try {
       if (currentNode.type === 'definition') {
@@ -994,7 +1006,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     } finally {
       setIsSavingActiveVersion(false);
     }
-  }, [canShowSaveVersionInHeader, currentNode.type, isSavingActiveVersion]);
+  }, [currentNode.type, isEditMode, isSavingActiveVersion]);
 
   const handleDetachVersion = useCallback(async () => {
     if (isDetaching) return;
@@ -1139,16 +1151,17 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col text-sm">
       {/* Header with navigation */}
-      <div className="p-4 pb-2 flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+      <div className="p-4 pb-2 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
             {(isEditMode || activeTab !== 'details' || nodeHistory.length > 0) && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-7 w-7"
                 onClick={() => {
                   if (isEditMode) {
                     setIsEditMode(false);
@@ -1165,14 +1178,15 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 }}
                 title="Back"
               >
-                <ArrowLeft size={16} />
+                <ArrowLeft size={14} />
               </Button>
             )}
-            <h3 className="font-semibold text-base truncate">
+            <div className="text-base font-semibold text-gray-900 truncate">
               <InlineMarkdownKatex>{currentNode.name}</InlineMarkdownKatex>
-            </h3>
+            </div>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             {!isEditMode && (currentNode.type === 'definition' || currentNode.type === 'exercise') && (
               <Button
                 size="sm"
@@ -1181,18 +1195,6 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 onClick={() => setShowReminderForm(prev => !prev)}
               >
                 {showReminderForm ? 'Close Reminder' : 'Remind Me'}
-              </Button>
-            )}
-            {canShowSaveVersionInHeader && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={handleSaveActiveVersion}
-                disabled={isSavingActiveVersion || isVersionUpdating}
-              >
-                <Save size={14} className="mr-1" />
-                {isSavingActiveVersion ? 'Saving…' : 'Save Version'}
               </Button>
             )}
             {currentNode.type !== 'source' && currentNode.type !== 'quest' && (
@@ -1218,7 +1220,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               </>
             )}
             <Button
-              variant="ghost"
+              variant={isEditMode ? "outline" : "ghost"}
               size="icon"
               onClick={toggleEditMode}
               disabled={!canEdit && !isEditMode}
@@ -1233,10 +1235,64 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             >
               <Edit size={16} />
             </Button>
+            {isEditMode && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => {
+                    setIsEditMode(false);
+                    setActiveTab('details');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8"
+                  onClick={handleSaveActiveVersion}
+                  disabled={!hasPendingEditChanges || isSavingActiveVersion || isVersionUpdating}
+                >
+                  <Save size={14} className="mr-1" />
+                  {isSavingActiveVersion ? 'Saving…' : 'Save'}
+                </Button>
+              </>
+            )}
           </div>
         </div>
-        {(nodeProgress?.nextReview || nodeProgress?.status || showStatusPicker || versionCount > 0) && (
+        {(nodeProgress?.nextReview || nodeProgress?.status || showStatusPicker || versionCount > 0 || currentNode.id) && (
           <div className="flex items-center gap-2 text-xs text-gray-600">
+            {isEditMode ? (
+              isHeaderCodeEditing ? (
+                <Input
+                  value={codeDraft}
+                  onChange={(e) => setCodeDraft(e.target.value)}
+                  onBlur={() => setIsHeaderCodeEditing(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === 'Escape') {
+                      event.preventDefault();
+                      setIsHeaderCodeEditing(false);
+                    }
+                  }}
+                  autoFocus
+                  className="h-6 w-36 bg-white px-2 text-[11px]"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsHeaderCodeEditing(true)}
+                  className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700 hover:bg-gray-50"
+                  title="Click to edit code"
+                >
+                  {codeDraft.trim() || currentNode.id}
+                </button>
+              )
+            ) : (
+              <span className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700">
+                {currentNode.id}
+              </span>
+            )}
             {showStatusPicker ? (
               <div className="flex items-center gap-1">
                 <span className="text-[11px] text-gray-500">Select:</span>
@@ -1317,7 +1373,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 pt-3">
         {shouldHideContent && !isEditMode ? (
           <div className="text-center py-10">
             <Eye size={48} className="mx-auto text-gray-400 mb-4" />
@@ -1332,6 +1388,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               <MetaDefinitionEditForm
                 ref={definitionEditFormRef}
                 meta={metaDetails as MetaDefinition}
+                codeDraft={codeDraft}
                 initialActiveIndex={selectedDefinitionIndex}
                 onVersionDirtyChange={setIsActiveVersionDirty}
                 onUpdateVersion={async (id, v) => {
@@ -1401,6 +1458,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               <MetaExerciseEditForm
                 ref={exerciseEditFormRef}
                 meta={metaDetails as any}
+                codeDraft={codeDraft}
                 initialActiveIndex={selectedVersionIndex}
                 onVersionDirtyChange={setIsActiveVersionDirty}
                 onUpdateVersion={async (id, v)=>{
