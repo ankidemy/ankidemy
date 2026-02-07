@@ -13,6 +13,7 @@ interface VersionHeaderControlsProps {
   onDelete?: () => void;
   addDisabled?: boolean;
   deleteDisabled?: boolean;
+  compact?: boolean;
   className?: string;
 }
 
@@ -25,22 +26,31 @@ const VersionHeaderControls: React.FC<VersionHeaderControlsProps> = ({
   onDelete,
   addDisabled = false,
   deleteDisabled = false,
+  compact = false,
   className = '',
 }) => {
   if (count <= 0) return null;
 
+  const iconButtonSize = compact ? 'h-6 w-6' : 'h-8 w-8';
+  const iconSize = compact ? 12 : 14;
+  const navIconSize = compact ? 14 : 16;
+  const labelClass = compact
+    ? 'text-[11px] text-gray-500 min-w-[56px] text-center'
+    : 'text-xs text-gray-500 min-w-[70px] text-center';
+  const gapClass = compact ? 'gap-0.5' : 'gap-1';
+
   return (
-    <div className={`flex items-center gap-1 ${className}`.trim()}>
+    <div className={`flex items-center ${gapClass} ${className}`.trim()}>
       {onDelete && (
         <Button
           variant="ghost"
           size="icon"
           onClick={onDelete}
           disabled={deleteDisabled}
-          className="h-8 w-8"
+          className={iconButtonSize}
           title="Delete version"
         >
-          <Minus size={14} />
+          <Minus size={iconSize} />
         </Button>
       )}
       {onAdd && (
@@ -49,10 +59,10 @@ const VersionHeaderControls: React.FC<VersionHeaderControlsProps> = ({
           size="icon"
           onClick={onAdd}
           disabled={addDisabled}
-          className="h-8 w-8"
+          className={iconButtonSize}
           title="Add version"
         >
-          <Plus size={14} />
+          <Plus size={iconSize} />
         </Button>
       )}
       <Button
@@ -60,12 +70,12 @@ const VersionHeaderControls: React.FC<VersionHeaderControlsProps> = ({
         size="icon"
         onClick={onPrevious}
         disabled={index <= 0}
-        className="h-8 w-8"
+        className={iconButtonSize}
         title="Previous version"
       >
-        <ChevronLeft size={16} />
+        <ChevronLeft size={navIconSize} />
       </Button>
-      <span className="text-xs text-gray-500 min-w-[70px] text-center">
+      <span className={labelClass}>
         Ver {index + 1}/{count}
       </span>
       <Button
@@ -73,10 +83,10 @@ const VersionHeaderControls: React.FC<VersionHeaderControlsProps> = ({
         size="icon"
         onClick={onNext}
         disabled={index >= count - 1}
-        className="h-8 w-8"
+        className={iconButtonSize}
         title="Next version"
       >
-        <ChevronRight size={16} />
+        <ChevronRight size={navIconSize} />
       </Button>
     </div>
   );

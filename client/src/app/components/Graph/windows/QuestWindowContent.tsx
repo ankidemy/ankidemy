@@ -51,6 +51,8 @@ interface QuestWindowContentProps {
   onRelevantLinksUpdated?: () => void | Promise<void>;
   isFrenzyEditMode?: boolean;
   onNavigateToNode?: (nodeId: string) => void;
+  onClose?: () => void;
+  onHeaderMouseDown?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 type RelationDraft = { relationType: string; toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest'; toCode: string };
@@ -90,6 +92,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   onRelevantLinksUpdated,
   isFrenzyEditMode = false,
   onNavigateToNode,
+  onClose,
+  onHeaderMouseDown,
 }) => {
   const ui = useUI();
   const [quest, setQuest] = useState<MetaQuestDTO | null>(null);
@@ -127,6 +131,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [isVersionSaving, setIsVersionSaving] = useState(false);
   const [isVersionMutating, setIsVersionMutating] = useState(false);
   const [viewMode, setViewMode] = useState<'details' | 'advanced'>('details');
+  const [isFrenzyCodeEditing, setIsFrenzyCodeEditing] = useState(false);
 
   const effectiveEditMode = isFrenzyEditMode || isEditMode;
 
@@ -568,13 +573,18 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       });
   }, [patchVersionDraft, uploadQuestVersionImage]);
 
-  const handleSaveVersion = useCallback(async (versionId: number) => {
-    if (!quest?.id) return;
-    if (isVersionSaving) return;
+  const handleSaveVersion = useCallback(async (
+    versionId: number,
+    options?: { silent?: boolean }
+  ): Promise<boolean> => {
+    if (!quest?.id) return false;
+    if (isVersionSaving) return false;
     const draft = versionDrafts[versionId];
     if (!draft || draft.title.trim().length === 0) {
-      showToast('Version title is required.', 'warning');
-      return;
+      if (!options?.silent) {
+        showToast('Version title is required.', 'warning');
+      }
+      return false;
     }
     setIsVersionSaving(true);
     try {
@@ -584,17 +594,53 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
         imagePath: draft.imagePath || '',
       });
       setVersions(prev => prev.map(v => (v.id === versionId ? { ...v, ...updated } : v)));
-      showToast('Version updated.', 'success');
+      if (!options?.silent) {
+        showToast('Version updated.', 'success');
+      }
+      return true;
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to update version.', 'error');
+      if (!options?.silent) {
+        showToast(err instanceof Error ? err.message : 'Failed to update version.', 'error');
+      }
+      return false;
     } finally {
       setIsVersionSaving(false);
     }
   }, [isVersionSaving, quest?.id, versionDrafts]);
 
+  const selectVersionWithAutoSave = useCallback(async (nextIndex: number) => {
+    if (versions.length <= 1) return;
+    if (nextIndex < 0 || nextIndex >= versions.length) return;
+    if (nextIndex === activeVersionIndex) return;
+    if (isFrenzyEditMode && activeVersion?.id && hasActiveVersionChanges) {
+      const saved = await handleSaveVersion(activeVersion.id, { silent: true });
+      if (!saved) return;
+    }
+    setSelectedVersionId(versions[nextIndex]?.id ?? null);
+  }, [
+    versions,
+    activeVersionIndex,
+    isFrenzyEditMode,
+    activeVersion?.id,
+    hasActiveVersionChanges,
+    handleSaveVersion,
+  ]);
+
+  const handleFrenzyPrevVersion = useCallback(() => {
+    void selectVersionWithAutoSave(Math.max(0, activeVersionIndex - 1));
+  }, [activeVersionIndex, selectVersionWithAutoSave]);
+
+  const handleFrenzyNextVersion = useCallback(() => {
+    void selectVersionWithAutoSave(Math.min(versions.length - 1, activeVersionIndex + 1));
+  }, [versions.length, activeVersionIndex, selectVersionWithAutoSave]);
+
   const handleAddVersion = useCallback(async () => {
     if (!quest?.id) return;
     if (isVersionMutating) return;
+    if (isFrenzyEditMode && activeVersion?.id && hasActiveVersionChanges) {
+      const saved = await handleSaveVersion(activeVersion.id, { silent: true });
+      if (!saved) return;
+    }
     const baseTitle = activeVersion?.title?.trim();
     const nextLabel = `Version ${versions.length + 1}`;
     try {
@@ -612,7 +658,18 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     } finally {
       setIsVersionMutating(false);
     }
-  }, [activeVersion?.descriptionMd, activeVersion?.imagePath, activeVersion?.title, isVersionMutating, quest?.id, versions.length]);
+  }, [
+    activeVersion?.descriptionMd,
+    activeVersion?.id,
+    activeVersion?.imagePath,
+    activeVersion?.title,
+    hasActiveVersionChanges,
+    isFrenzyEditMode,
+    isVersionMutating,
+    quest?.id,
+    versions.length,
+    handleSaveVersion,
+  ]);
 
   const handleDeleteVersion = useCallback(async (versionId: number) => {
     if (!quest?.id) return;
@@ -621,6 +678,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       return;
     }
     if (isVersionMutating) return;
+    if (isFrenzyEditMode && activeVersion?.id && hasActiveVersionChanges) {
+      const saved = await handleSaveVersion(activeVersion.id, { silent: true });
+      if (!saved) return;
+    }
     if (!confirm('Delete this version?')) return;
     try {
       setIsVersionMutating(true);
@@ -641,7 +702,16 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     } finally {
       setIsVersionMutating(false);
     }
-  }, [isVersionMutating, quest?.id, selectedVersionId, versions]);
+  }, [
+    isVersionMutating,
+    isFrenzyEditMode,
+    activeVersion?.id,
+    hasActiveVersionChanges,
+    handleSaveVersion,
+    quest?.id,
+    selectedVersionId,
+    versions,
+  ]);
 
   const handleDeleteActiveVersion = useCallback(() => {
     if (!selectedVersionId) return;
@@ -754,6 +824,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (!isFrenzyEditMode) return;
     lastAutoSavedRef.current = '';
     setAutoSaveStatus('idle');
+    setIsFrenzyCodeEditing(false);
   }, [isFrenzyEditMode, quest?.id]);
 
   useEffect(() => {
@@ -811,6 +882,26 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     quest?.id,
     quest?.schedule,
     visibilityDraft,
+  ]);
+
+  useEffect(() => {
+    if (!isFrenzyEditMode) return;
+    if (!activeVersion?.id) return;
+    if (!hasActiveVersionChanges) return;
+
+    const timer = setTimeout(() => {
+      void handleSaveVersion(activeVersion.id || 0, { silent: true });
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [
+    isFrenzyEditMode,
+    activeVersion?.id,
+    activeVersionDraft.title,
+    activeVersionDraft.descriptionMd,
+    activeVersionDraft.imagePath,
+    hasActiveVersionChanges,
+    handleSaveVersion,
   ]);
 
   const renderScheduleEditor = (variant: 'standard' | 'frenzy') => {
@@ -1106,105 +1197,166 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   return (
     <div className={isFrenzyEditMode ? "h-full flex flex-col text-sm bg-amber-50/70" : "h-full flex flex-col text-sm"}>
       <div className={isFrenzyEditMode ? "p-3 pb-2 flex flex-col gap-2 border-b border-amber-200/70" : "p-4 pb-2 flex flex-col gap-2"}>
-        <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            {!isFrenzyEditMode && (isEditMode || viewMode !== 'details') && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={handleBack}
-                title="Back"
-              >
-                <ArrowLeft size={14} />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={handleToggleVisibility}
-              disabled={!quest?.id || effectiveEditMode}
-              title={quest?.visibility === 'domain' ? 'Make private' : 'Make public'}
+        {isFrenzyEditMode ? (
+          <>
+            <div
+              className="flex items-start justify-between gap-2 cursor-move select-none"
+              onMouseDown={onHeaderMouseDown}
             >
-              {quest?.visibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
-            </Button>
-            <div className="text-base font-semibold text-gray-900 truncate">
-              {quest?.name?.trim() || questData.name?.trim() || 'Quest'}
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-semibold text-gray-900 truncate">
+                  {nameDraft.trim() || quest?.name?.trim() || questData.name?.trim() || 'Quest'}
+                </div>
+                {isFrenzyCodeEditing ? (
+                  <Input
+                    value={codeDraft}
+                    onChange={(e) => setCodeDraft(e.target.value)}
+                    onBlur={() => setIsFrenzyCodeEditing(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === 'Escape') {
+                        event.preventDefault();
+                        setIsFrenzyCodeEditing(false);
+                      }
+                    }}
+                    autoFocus
+                    className="h-6 mt-0.5 w-full max-w-[140px] bg-white text-[11px]"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsFrenzyCodeEditing(true)}
+                    className="mt-0.5 text-[11px] text-amber-700 truncate hover:underline"
+                    title="Click to edit code"
+                  >
+                    {codeDraft.trim() || quest?.code || questData.code || 'Q?'}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-start gap-2">
+                {versions.length > 0 && (
+                  <VersionHeaderControls
+                    index={activeVersionIndex}
+                    count={versions.length}
+                    onPrevious={handleFrenzyPrevVersion}
+                    onNext={handleFrenzyNextVersion}
+                    onAdd={handleAddVersion}
+                    onDelete={handleDeleteActiveVersion}
+                    addDisabled={isVersionMutating || isVersionSaving || !quest?.id}
+                    deleteDisabled={isVersionMutating || isVersionSaving || !quest?.id || versions.length <= 1 || !selectedVersionId}
+                    compact
+                    className="rounded-md border border-amber-300 bg-amber-50/70 px-0.5 py-0"
+                  />
+                )}
+                <span className="text-xs text-amber-700 flex items-center gap-1 h-7 px-1">
+                  {autoSaveStatus === 'saving' && (<><Loader2 className="h-3 w-3 animate-spin" /> Saving</>)}
+                  {autoSaveStatus === 'saved' && 'Saved'}
+                  {autoSaveStatus === 'error' && 'Save failed'}
+                </span>
+                {onClose && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={onClose}
+                    className="h-7 w-7"
+                    title="Close"
+                  >
+                    <X size={14} />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                {!isFrenzyEditMode && (isEditMode || viewMode !== 'details') && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleBack}
+                    title="Back"
+                  >
+                    <ArrowLeft size={14} />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={handleToggleVisibility}
+                  disabled={!quest?.id || effectiveEditMode}
+                  title={quest?.visibility === 'domain' ? 'Make private' : 'Make public'}
+                >
+                  {quest?.visibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
+                </Button>
+                <div className="text-base font-semibold text-gray-900 truncate">
+                  {quest?.name?.trim() || questData.name?.trim() || 'Quest'}
+                </div>
+              </div>
+            </div>
 
-        <div className="flex items-center gap-2">
-          {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
-          {effectiveEditMode && activeVersion?.id && hasActiveVersionChanges && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleSaveVersion(activeVersion.id || 0)}
-              disabled={isVersionSaving}
-            >
-              <Save className="h-4 w-4 mr-1" />
-              {isVersionSaving ? 'Saving…' : 'Save Version'}
-            </Button>
-          )}
-
-          {isFrenzyEditMode ? (
-            <span className="text-xs text-amber-700 flex items-center gap-1">
-              {autoSaveStatus === 'saving' && (<><Loader2 className="h-3 w-3 animate-spin" /> Saving</>)}
-              {autoSaveStatus === 'saved' && 'Saved'}
-              {autoSaveStatus === 'error' && 'Save failed'}
-            </span>
-          ) : (
-            <>
-              {!effectiveEditMode && (
+            <div className="flex items-center gap-2">
+              {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
+              {!isFrenzyEditMode && effectiveEditMode && activeVersion?.id && hasActiveVersionChanges && (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleCompleteQuest}
-                  disabled={!quest?.id || isCompleting}
+                  onClick={() => handleSaveVersion(activeVersion.id || 0)}
+                  disabled={isVersionSaving}
                 >
-                  <CheckCircle2 className="h-4 w-4 mr-1" />
-                  {isCompleting ? 'Completing…' : 'Done'}
+                  <Save className="h-4 w-4 mr-1" />
+                  {isVersionSaving ? 'Saving…' : 'Save Version'}
                 </Button>
               )}
-              <Button
-                variant={viewMode === 'advanced' ? 'outline' : 'ghost'}
-                size="icon"
-                className="h-8 w-8"
-                onClick={handleToggleViewMode}
-                title="Advanced"
-              >
-                <SlidersHorizontal size={16} />
-              </Button>
-              <Button
-                size="icon"
-                variant={isEditMode ? 'outline' : 'ghost'}
-                onClick={handleToggleEditMode}
-                disabled={!quest?.id}
-                className="h-8 w-8"
-                title={isEditMode ? 'View Mode' : 'Edit Mode'}
-              >
-                <Edit size={16} />
-              </Button>
-              {isEditMode && (
-                <>
-                  <Button size="sm" variant="outline" onClick={handleCancelEdit}>
-                    <X className="h-4 w-4 mr-1" />
-                    Cancel
+              <>
+                {!effectiveEditMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCompleteQuest}
+                    disabled={!quest?.id || isCompleting}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                    {isCompleting ? 'Completing…' : 'Done'}
                   </Button>
-                  <Button size="sm" onClick={handleSaveQuest} disabled={isSaving || !quest?.id}>
-                    <Save className="h-4 w-4 mr-1" />
-                    {isSaving ? 'Saving…' : 'Save'}
-                  </Button>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
+                )}
+                <Button
+                  variant={viewMode === 'advanced' ? 'outline' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={handleToggleViewMode}
+                  title="Advanced"
+                >
+                  <SlidersHorizontal size={16} />
+                </Button>
+                <Button
+                  size="icon"
+                  variant={isEditMode ? 'outline' : 'ghost'}
+                  onClick={handleToggleEditMode}
+                  disabled={!quest?.id}
+                  className="h-8 w-8"
+                  title={isEditMode ? 'View Mode' : 'Edit Mode'}
+                >
+                  <Edit size={16} />
+                </Button>
+                {isEditMode && (
+                  <>
+                    <Button size="sm" variant="outline" onClick={handleCancelEdit}>
+                      <X className="h-4 w-4 mr-1" />
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSaveQuest} disabled={isSaving || !quest?.id}>
+                      <Save className="h-4 w-4 mr-1" />
+                      {isSaving ? 'Saving…' : 'Save'}
+                    </Button>
+                  </>
+                )}
+              </>
+            </div>
+          </div>
+        )}
       {!isFrenzyEditMode && (kindLabel || dueLabel || versions.length > 0) && (
         <div className="flex items-center gap-2 text-xs text-gray-600">
           <span className="text-[11px] text-gray-500">{kindLabel}</span>
@@ -1233,7 +1385,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       )}
       </div>
 
-      <div className={isFrenzyEditMode ? "flex-1 min-h-0 overflow-y-auto p-3 pt-2" : "flex-1 min-h-0 overflow-y-auto p-4 pt-3"}>
+      <div className={isFrenzyEditMode ? "flex-1 min-h-0 overflow-y-auto p-3 pt-2 pb-4" : "flex-1 min-h-0 overflow-y-auto p-4 pt-3"}>
       {isFrenzyEditMode ? (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3">
@@ -1241,24 +1393,18 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               <label className="text-xs font-medium text-gray-700">Name</label>
               <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 mt-1 bg-white" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs font-medium text-gray-700">Code</label>
-                <Input value={codeDraft} onChange={(e) => setCodeDraft(e.target.value)} className="h-8 mt-1 bg-white" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-700">Active</label>
-                <div className="mt-1 flex items-center gap-2 h-8">
-                  <input
-                    type="checkbox"
-                    checked={activeDraft}
-                    onChange={(e) => setActiveDraft(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  {quest?.nextDueAt && (
-                    <span className="text-xs text-gray-700">Next due: {new Date(quest.nextDueAt).toLocaleString()}</span>
-                  )}
-                </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700">Active</label>
+              <div className="mt-1 flex items-center gap-2 h-8">
+                <input
+                  type="checkbox"
+                  checked={activeDraft}
+                  onChange={(e) => setActiveDraft(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                {quest?.nextDueAt && (
+                  <span className="text-xs text-gray-700">Next due: {new Date(quest.nextDueAt).toLocaleString()}</span>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">

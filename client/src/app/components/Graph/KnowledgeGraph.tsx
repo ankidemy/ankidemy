@@ -15,7 +15,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers, Clock } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers, Clock, X } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { getAppTimeZone } from '@/lib/app-preferences';
 import {
@@ -122,6 +122,7 @@ import ZoomableImage from './components/ZoomableImage';
 import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
 import SelectionInfoPanel from './components/SelectionInfoPanel';
+import VersionHeaderControls from './components/VersionHeaderControls';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 import DomainAccessModal from '@/app/components/Domain/DomainAccessModal';
@@ -525,6 +526,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyNotePreview, setFrenzyNotePreview] = useState(false);
   const [isSavingFrenzyNote, setIsSavingFrenzyNote] = useState(false);
   const [frenzyNoteIsNewVersion, setFrenzyNoteIsNewVersion] = useState(false);
+  const [isFrenzyCodeEditing, setIsFrenzyCodeEditing] = useState(false);
   const [frenzyQuestNote, setFrenzyQuestNote] = useState<FrenzyQuestNoteState | null>(null);
   const [frenzyQuestCodeDraft, setFrenzyQuestCodeDraft] = useState('');
   const [frenzyQuestNameDraft, setFrenzyQuestNameDraft] = useState('');
@@ -2106,6 +2108,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setShowFrenzySolution(false);
     setFrenzyNotePreview(false);
     setFrenzyNoteIsNewVersion(false);
+    setIsFrenzyCodeEditing(false);
     setIsDraggingFrenzyNote(false);
     if (frenzyClickTimerRef.current) {
       clearTimeout(frenzyClickTimerRef.current);
@@ -2728,6 +2731,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         setShowFrenzySolution(false);
         setFrenzyNotePreview(false);
         setFrenzyNoteIsNewVersion(false);
+        setIsFrenzyCodeEditing(false);
         if (anchor) {
           requestAnimationFrame(() => {
             const adjusted = getFrenzyNotePlacement(anchor);
@@ -2790,6 +2794,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	        setShowFrenzySolution(false);
 	        setFrenzyNotePreview(false);
 	        setFrenzyNoteIsNewVersion(false);
+	        setIsFrenzyCodeEditing(false);
 
 		        setFrenzyQuestNote({
 		          nodeId: resolvedCode,
@@ -2930,6 +2935,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setShowFrenzySolution(false);
       setFrenzyNotePreview(false);
       setFrenzyNoteIsNewVersion(false);
+      setIsFrenzyCodeEditing(false);
       if (anchor) {
         requestAnimationFrame(() => {
           const adjusted = getFrenzyNotePlacement(anchor);
@@ -2990,6 +2996,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyNoteNameDraft('');
       setFrenzyNotePromptDraft('');
       setFrenzyNotePreview(false);
+      setFrenzyNoteIsNewVersion(false);
+      setIsFrenzyCodeEditing(false);
       setIsDraggingFrenzyNote(false);
     }
     if (frenzyQuestNote?.nodeId === code) {
@@ -3118,6 +3126,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setFrenzyNoteSolutionDraft('');
     setFrenzyNoteSolutionImagePath('');
     setFrenzyNoteIsNewVersion(true);
+    setIsFrenzyCodeEditing(false);
     setShowFrenzySolution(false);
     setFrenzyNotePreview(false);
   }, [frenzyNote]);
@@ -3814,6 +3823,41 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    existingCodes,
 	  ]);
 
+  const handleFrenzyVersionNavigation = useCallback(async (nextIndex: number) => {
+    if (!frenzyNote || frenzyNote.nodeType === 'source') return;
+    if (frenzyNoteIsNewVersion) return;
+    if (nextIndex < 0 || nextIndex >= frenzyNote.allVersions.length) return;
+    if (nextIndex === frenzyNote.versionIndex) return;
+    if (frenzyCodeConflict) {
+      showToast('Resolve the duplicate code before changing versions.', 'warning');
+      return;
+    }
+    await saveFrenzyNote();
+    switchFrenzyNoteVersion(nextIndex);
+  }, [frenzyNote, frenzyNoteIsNewVersion, frenzyCodeConflict, saveFrenzyNote, switchFrenzyNoteVersion]);
+
+  const handleFrenzyAddVersion = useCallback(async () => {
+    if (!frenzyNote || frenzyNote.nodeType === 'source') return;
+    if (frenzyNoteIsNewVersion || isSavingFrenzyNote) return;
+    if (frenzyCodeConflict) {
+      showToast('Resolve the duplicate code before adding a version.', 'warning');
+      return;
+    }
+    await saveFrenzyNote();
+    startFrenzyNewVersion();
+  }, [frenzyNote, frenzyNoteIsNewVersion, isSavingFrenzyNote, frenzyCodeConflict, saveFrenzyNote, startFrenzyNewVersion]);
+
+  const handleFrenzyDeleteVersion = useCallback(async () => {
+    if (!frenzyNote || frenzyNote.nodeType === 'source') return;
+    if (frenzyNoteIsNewVersion || isSavingFrenzyNote) return;
+    if (frenzyCodeConflict) {
+      showToast('Resolve the duplicate code before deleting a version.', 'warning');
+      return;
+    }
+    await saveFrenzyNote();
+    await deleteFrenzyNoteVersion();
+  }, [frenzyNote, frenzyNoteIsNewVersion, isSavingFrenzyNote, frenzyCodeConflict, saveFrenzyNote, deleteFrenzyNoteVersion]);
+
   const saveFrenzyQuestNote = useCallback(async (force?: boolean) => {
     if (!frenzyQuestNote) return;
     if (isSavingFrenzyQuestNote) return;
@@ -4176,6 +4220,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setShowFrenzySolution(false);
       setFrenzyNotePreview(false);
       setFrenzyNoteIsNewVersion(false);
+      setIsFrenzyCodeEditing(false);
 	    }
 	    if (frenzyQuestNote) {
 	      setFrenzyQuestNote(null);
@@ -4413,6 +4458,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         setFrenzyNoteNameDraft('');
         setFrenzyNotePromptDraft('');
         setFrenzyNotePreview(false);
+        setFrenzyNoteIsNewVersion(false);
+        setIsFrenzyCodeEditing(false);
         setIsDraggingFrenzyNote(false);
       }
 
@@ -6099,128 +6146,124 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             {frenzyNote && (
               <div
                 ref={frenzyNoteRef}
-                className="absolute z-40 w-80 bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-3"
+                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
                 style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
               >
-                <div
-                  className="flex items-start justify-between gap-3 cursor-move select-none"
-                  onMouseDown={handleFrenzyNoteMouseDown}
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-yellow-900 truncate">
-                      {frenzyNoteCodeDraft.trim() || frenzyNote.nodeId}
-                    </div>
-                    <div className="text-xs text-yellow-700 truncate">
-                      {frenzyNoteNameDraft.trim() || frenzyNote.nodeName}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={closeFrenzyNote}
-                    disabled={isSavingFrenzyNote}
-                    className="text-xs"
+                <div className="px-3 pt-3 pb-2 border-b border-yellow-300 bg-yellow-100/95">
+                  <div
+                    className="flex items-start justify-between gap-2 cursor-move select-none"
+                    onMouseDown={handleFrenzyNoteMouseDown}
                   >
-                    Close
-                  </Button>
-                </div>
-
-                {/* Version Navigation */}
-                {frenzyNote && frenzyNote.nodeType !== 'source' && frenzyNote.allVersions.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-yellow-300">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={frenzyNoteIsNewVersion || frenzyNote.versionIndex === 0}
-                        onClick={() => switchFrenzyNoteVersion(frenzyNote.versionIndex - 1)}
-                        className="h-6 px-2 text-[11px]"
-                      >
-                        Prev
-                      </Button>
-                      <span className="text-xs font-medium text-yellow-800">
-                        {frenzyNoteIsNewVersion ? 'New Version' : `Ver ${frenzyNote.versionIndex + 1}/${frenzyNote.allVersions.length}`}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={frenzyNoteIsNewVersion || frenzyNote.versionIndex >= frenzyNote.allVersions.length - 1}
-                        onClick={() => switchFrenzyNoteVersion(frenzyNote.versionIndex + 1)}
-                        className="h-6 px-2 text-[11px]"
-                      >
-                        Next
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-1 mb-2">
-                      <div className="flex flex-wrap gap-1">
-                        {frenzyNote.allVersions.map((_, idx) => (
-                          <Button
-                            key={idx}
-                            variant={!frenzyNoteIsNewVersion && idx === frenzyNote.versionIndex ? 'default' : 'outline'}
-                            size="sm"
-                            disabled={frenzyNoteIsNewVersion}
-                            onClick={() => switchFrenzyNoteVersion(idx)}
-                            className="h-6 px-2 text-[10px]"
-                          >
-                            V{idx + 1}
-                          </Button>
-                        ))}
-                        {frenzyNoteIsNewVersion ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={cancelFrenzyNewVersion}
-                            className="h-6 px-2 text-[10px] text-red-600"
-                          >
-                            Cancel
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={startFrenzyNewVersion}
-                            className="h-6 px-2 text-[10px]"
-                          >
-                            + New
-                          </Button>
-                        )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-yellow-900 truncate">
+                        {frenzyNoteNameDraft.trim() || frenzyNote.nodeName}
                       </div>
-                      {!frenzyNoteIsNewVersion && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={frenzyNote.allVersions.length <= 1}
-                          onClick={deleteFrenzyNoteVersion}
-                          className="h-6 px-2 text-[10px] text-red-600 disabled:opacity-30 ml-auto"
+                      {isFrenzyCodeEditing ? (
+                        <input
+                          value={frenzyNoteCodeDraft}
+                          onChange={(e) => setFrenzyNoteCodeDraft(e.target.value)}
+                          onBlur={() => {
+                            const hasConflict = frenzyCodeConflict;
+                            void saveFrenzyNote();
+                            if (!hasConflict) setIsFrenzyCodeEditing(false);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              const hasConflict = frenzyCodeConflict;
+                              void saveFrenzyNote();
+                              if (!hasConflict) setIsFrenzyCodeEditing(false);
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault();
+                              setIsFrenzyCodeEditing(false);
+                            }
+                          }}
+                          autoFocus
+                          disabled={frenzyNoteIsNewVersion}
+                          className={`mt-0.5 h-6 w-full max-w-[140px] bg-yellow-50 border rounded px-1.5 text-[11px] focus:outline-none focus:ring-2 ${
+                            frenzyCodeConflict
+                              ? 'border-red-400 focus:ring-red-200 text-red-700'
+                              : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
+                          } ${frenzyNoteIsNewVersion ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          aria-invalid={frenzyCodeConflict}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (frenzyNoteIsNewVersion || isSavingFrenzyNote) return;
+                            setIsFrenzyCodeEditing(true);
+                          }}
+                          disabled={frenzyNoteIsNewVersion || isSavingFrenzyNote}
+                          className={`mt-0.5 text-[11px] text-left truncate ${
+                            frenzyNoteIsNewVersion || isSavingFrenzyNote
+                              ? 'text-yellow-700/70 cursor-default'
+                              : 'text-yellow-700 hover:underline'
+                          }`}
+                          title="Click to edit code"
                         >
-                          Delete
-                        </Button>
+                          {frenzyNoteCodeDraft.trim() || frenzyNote.nodeId}
+                        </button>
                       )}
                     </div>
-                  </div>
-                )}
-
-                <div className="mt-2">
-                  <div className="mb-2">
-                    <label className="block text-xs text-yellow-800 mb-1">Code</label>
-                    <input
-                      value={frenzyNoteCodeDraft}
-                      onChange={(e) => setFrenzyNoteCodeDraft(e.target.value)}
-                      onBlur={() => saveFrenzyNote()}
-                      disabled={frenzyNoteIsNewVersion}
-                      className={`w-full bg-yellow-50 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
-                        frenzyCodeConflict
-                          ? 'border-red-400 focus:ring-red-200 text-red-700'
-                          : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
-                      } ${frenzyNoteIsNewVersion ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      aria-invalid={frenzyCodeConflict}
-                    />
-                    {frenzyCodeConflict && (
-                      <div className="mt-1 text-xs text-red-600">
-                        Code already exists in this domain.
+                    <div className="flex items-start gap-2">
+                      {frenzyNote.nodeType !== 'source' && frenzyNote.allVersions.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <VersionHeaderControls
+                            index={frenzyNote.versionIndex}
+                            count={frenzyNote.allVersions.length}
+                            onPrevious={() => {
+                              void handleFrenzyVersionNavigation(frenzyNote.versionIndex - 1);
+                            }}
+                            onNext={() => {
+                              void handleFrenzyVersionNavigation(frenzyNote.versionIndex + 1);
+                            }}
+                            onAdd={() => {
+                              void handleFrenzyAddVersion();
+                            }}
+                            onDelete={() => {
+                              void handleFrenzyDeleteVersion();
+                            }}
+                            addDisabled={isSavingFrenzyNote || frenzyNoteIsNewVersion}
+                            deleteDisabled={isSavingFrenzyNote || frenzyNoteIsNewVersion || frenzyNote.allVersions.length <= 1}
+                            compact
+                            className="rounded-md border border-yellow-300 bg-yellow-50/70 px-0.5 py-0"
+                          />
+                          {frenzyNoteIsNewVersion && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={cancelFrenzyNewVersion}
+                              className="h-7 px-2 text-[11px] text-red-600"
+                            >
+                              Cancel draft
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={closeFrenzyNote}
+                        disabled={isSavingFrenzyNote}
+                        className="h-7 w-7"
+                        title="Close"
+                      >
+                        <X size={14} />
+                      </Button>
                       </div>
-                    )}
+                    </div>
                   </div>
+                  {frenzyCodeConflict && (
+                    <div className="mt-1 text-xs text-red-600">
+                      Code already exists in this domain.
+                    </div>
+                  )}
+
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
                   <div className="mb-2">
                     <label className="block text-xs text-yellow-800 mb-1">Name</label>
                     <input
@@ -6301,168 +6344,147 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                           ? 'Source'
                           : 'Statement'}
                     </label>
-                  {frenzyNotePreview ? (
-                    <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-56 overflow-y-auto">
-                      <MarkdownKatex className="whitespace-pre-wrap">
-                        {frenzyNoteDraft || frenzyNote.defaultContent}
-                      </MarkdownKatex>
-                    </div>
-                  ) : (
-                    <textarea
-                      value={frenzyNoteDraft}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setFrenzyNoteDraft(value);
-                        if (frenzyNote.isAutoContent && value !== frenzyNote.defaultContent) {
-                          setFrenzyNote(prev => prev ? { ...prev, isAutoContent: false } : prev);
-                        }
-                      }}
-                      onPaste={(e) => handleFrenzyPaste(e, 'content')}
-                      onFocus={(e) => {
-                        if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
-                          e.currentTarget.select();
-                        }
-                      }}
-                      onClick={(e) => {
-                        if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
-                          e.currentTarget.select();
-                        }
-                      }}
-                      onBlur={() => saveFrenzyNote()}
-                      rows={6}
-                      placeholder={frenzyNote.defaultContent}
-                      className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
-                        frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent ? 'text-gray-500' : 'text-gray-800'
-                      }`}
-                    />
-                  )}
-                  {frenzyNote.nodeType !== 'source' && (
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      {frenzyNoteContentImagePath ? (
-                        <ZoomableImage src={frenzyNoteContentImagePath} alt="Content image" maxHeightClass="max-h-24" className="max-w-[180px]" />
-                      ) : (
-                        <span className="text-[11px] text-yellow-700">No image attached</span>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={frenzyContentImageInputRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) uploadFrenzyImage(file, 'content');
-                            if (e.currentTarget) e.currentTarget.value = '';
-                          }}
-                        />
-                        <Button size="sm" variant="outline" onClick={() => frenzyContentImageInputRef.current?.click()}>
-                          Upload Image
-                        </Button>
+                    {frenzyNotePreview ? (
+                      <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-56 overflow-y-auto">
+                        <MarkdownKatex className="whitespace-pre-wrap">
+                          {frenzyNoteDraft || frenzyNote.defaultContent}
+                        </MarkdownKatex>
                       </div>
-                    </div>
-                  )}
-                  </div>
-                </div>
-                {frenzyNote.nodeType === 'exercise' && (
-                  <div className="mb-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs text-yellow-800">Solution</label>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setShowFrenzySolution(prev => !prev)}
-                        className="text-[11px]"
-                      >
-                        {showFrenzySolution ? 'Hide' : 'Show'}
-                      </Button>
-                    </div>
-                    {showFrenzySolution && (
-                      <>
-                        {frenzyNotePreview ? (
-                          <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-40 overflow-y-auto">
-                            <MarkdownKatex className="whitespace-pre-wrap">
-                              {frenzyNoteSolutionDraft || 'No solution'}
-                            </MarkdownKatex>
-                          </div>
+                    ) : (
+                      <textarea
+                        value={frenzyNoteDraft}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setFrenzyNoteDraft(value);
+                          if (frenzyNote.isAutoContent && value !== frenzyNote.defaultContent) {
+                            setFrenzyNote(prev => prev ? { ...prev, isAutoContent: false } : prev);
+                          }
+                        }}
+                        onPaste={(e) => handleFrenzyPaste(e, 'content')}
+                        onFocus={(e) => {
+                          if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
+                            e.currentTarget.select();
+                          }
+                        }}
+                        onClick={(e) => {
+                          if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
+                            e.currentTarget.select();
+                          }
+                        }}
+                        onBlur={() => saveFrenzyNote()}
+                        rows={6}
+                        placeholder={frenzyNote.defaultContent}
+                        className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
+                          frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent ? 'text-gray-500' : 'text-gray-800'
+                        }`}
+                      />
+                    )}
+                    {frenzyNote.nodeType !== 'source' && (
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        {frenzyNoteContentImagePath ? (
+                          <ZoomableImage src={frenzyNoteContentImagePath} alt="Content image" maxHeightClass="max-h-24" className="max-w-[180px]" />
                         ) : (
-                          <textarea
-                            value={frenzyNoteSolutionDraft}
-                            onChange={(e) => setFrenzyNoteSolutionDraft(e.target.value)}
-                            onPaste={(e) => handleFrenzyPaste(e, 'solution')}
-                            onBlur={() => saveFrenzyNote()}
-                            rows={4}
-                            placeholder="Solution or explanation..."
-                            className="w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-                          />
+                          <span className="text-[11px] text-yellow-700">No image attached</span>
                         )}
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          {frenzyNoteSolutionImagePath ? (
-                            <ZoomableImage src={frenzyNoteSolutionImagePath} alt="Solution image" maxHeightClass="max-h-24" className="max-w-[180px]" />
-                          ) : (
-                            <span className="text-[11px] text-yellow-700">No solution image</span>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <input
-                              ref={frenzySolutionImageInputRef}
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) uploadFrenzyImage(file, 'solution');
-                                if (e.currentTarget) e.currentTarget.value = '';
-                              }}
-                            />
-                            <Button size="sm" variant="outline" onClick={() => frenzySolutionImageInputRef.current?.click()}>
-                              Upload Image
-                            </Button>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={frenzyContentImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadFrenzyImage(file, 'content');
+                              if (e.currentTarget) e.currentTarget.value = '';
+                            }}
+                          />
+                          <Button size="sm" variant="outline" onClick={() => frenzyContentImageInputRef.current?.click()}>
+                            Upload Image
+                          </Button>
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
-                )}
-                <div className="mt-2 flex items-center justify-between">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setFrenzyNotePreview(prev => !prev)}
-                  >
-                    {frenzyNotePreview ? 'Edit' : 'Preview'}
-                  </Button>
-                  {isSavingFrenzyNote && (
-                    <span className="text-xs text-gray-600">Saving...</span>
+                  {frenzyNote.nodeType === 'exercise' && (
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs text-yellow-800">Solution</label>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowFrenzySolution(prev => !prev)}
+                          className="text-[11px]"
+                        >
+                          {showFrenzySolution ? 'Hide' : 'Show'}
+                        </Button>
+                      </div>
+                      {showFrenzySolution && (
+                        <>
+                          {frenzyNotePreview ? (
+                            <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-40 overflow-y-auto">
+                              <MarkdownKatex className="whitespace-pre-wrap">
+                                {frenzyNoteSolutionDraft || 'No solution'}
+                              </MarkdownKatex>
+                            </div>
+                          ) : (
+                            <textarea
+                              value={frenzyNoteSolutionDraft}
+                              onChange={(e) => setFrenzyNoteSolutionDraft(e.target.value)}
+                              onPaste={(e) => handleFrenzyPaste(e, 'solution')}
+                              onBlur={() => saveFrenzyNote()}
+                              rows={4}
+                              placeholder="Solution or explanation..."
+                              className="w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+                            />
+                          )}
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            {frenzyNoteSolutionImagePath ? (
+                              <ZoomableImage src={frenzyNoteSolutionImagePath} alt="Solution image" maxHeightClass="max-h-24" className="max-w-[180px]" />
+                            ) : (
+                              <span className="text-[11px] text-yellow-700">No solution image</span>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <input
+                                ref={frenzySolutionImageInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) uploadFrenzyImage(file, 'solution');
+                                  if (e.currentTarget) e.currentTarget.value = '';
+                                }}
+                              />
+                              <Button size="sm" variant="outline" onClick={() => frenzySolutionImageInputRef.current?.click()}>
+                                Upload Image
+                              </Button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
+                  <div className="mt-2 flex items-center justify-between">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setFrenzyNotePreview(prev => !prev)}
+                    >
+                      {frenzyNotePreview ? 'Edit' : 'Preview'}
+                    </Button>
+                    {isSavingFrenzyNote && (
+                      <span className="text-xs text-gray-600">Saving...</span>
+                    )}
+                  </div>
                 </div>
-	              </div>
-	            )}
+              </div>
+            )}
 	            {frenzyQuestNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl p-2 flex flex-col overflow-hidden"
+	                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
 	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
 	              >
-	                <div
-	                  className="flex items-start justify-between gap-3 cursor-move select-none px-1 pb-2"
-	                  onMouseDown={handleFrenzyNoteMouseDown}
-	                >
-	                  <div className="min-w-0">
-	                    <div className="text-sm font-semibold text-yellow-900 truncate">
-	                      {frenzyQuestNote.nodeId}
-	                    </div>
-	                    <div className="text-xs text-yellow-700 truncate">
-	                      {frenzyQuestNote.nodeName}
-	                    </div>
-	                  </div>
-	                  <Button
-	                    size="sm"
-	                    variant="ghost"
-	                    onClick={closeFrenzyNote}
-	                    className="text-xs"
-	                  >
-	                    Close
-	                  </Button>
-	                </div>
 	                <div className="min-h-0 flex-1 overflow-hidden">
 	                  <QuestWindowContent
 	                    windowId={`frenzy-quest-${frenzyQuestNote.questId}`}
@@ -6495,6 +6517,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	                    }}
 	                    onRelevantLinksUpdated={refreshDomainRelations}
 	                    isFrenzyEditMode
+	                    onClose={() => {
+	                      void closeFrenzyNote();
+	                    }}
+	                    onHeaderMouseDown={handleFrenzyNoteMouseDown}
 	                  />
 	                </div>
 	              </div>
