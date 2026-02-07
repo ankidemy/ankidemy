@@ -45,15 +45,16 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="block text-xs font-medium text-gray-600">{label}</label>
-        <div className="flex items-center gap-2">
+    <div className="space-y-2 min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <label className="block min-w-0 text-xs font-medium text-gray-600">{label}</label>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {imagePath && onClear && (
             <Button
               type="button"
               size="sm"
               variant="ghost"
+              className="h-7 px-2 text-xs"
               onClick={onClear}
               disabled={disabled || isUploading}
             >
@@ -64,6 +65,7 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
             type="button"
             size="sm"
             variant="outline"
+            className="h-7 px-2 text-xs"
             onClick={() => inputRef.current?.click()}
             disabled={disabled || isUploading}
           >

@@ -4,7 +4,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/core/tabs";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
 import ImageUploadField from '../components/ImageUploadField';
 import ZoomableImage from '../components/ZoomableImage';
@@ -60,6 +59,8 @@ type RelationDraft = { relationType: string; toType: 'meta_definition' | 'meta_e
 type QuestKind = 'todo' | 'habit' | 'daily';
 type QuestVisibility = 'private' | 'domain';
 type QuestVersionDraft = { title: string; descriptionMd: string; imagePath: string };
+const questKindOrder: QuestKind[] = ['todo', 'habit', 'daily'];
+const formatQuestKindLabel = (value: QuestKind) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const isQuestKind = (value: string): value is QuestKind => value === 'todo' || value === 'habit' || value === 'daily';
 const isQuestVisibility = (value: string): value is QuestVisibility => value === 'private' || value === 'domain';
@@ -99,7 +100,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [quest, setQuest] = useState<MetaQuestDTO | null>(null);
   const [versions, setVersions] = useState<QuestVersionDTO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'details' | 'relations'>('details');
   const [isEditMode, setIsEditMode] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [codeDraft, setCodeDraft] = useState('');
@@ -132,6 +132,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [isVersionMutating, setIsVersionMutating] = useState(false);
   const [viewMode, setViewMode] = useState<'details' | 'advanced'>('details');
   const [isFrenzyCodeEditing, setIsFrenzyCodeEditing] = useState(false);
+  const [isHeaderCodeEditing, setIsHeaderCodeEditing] = useState(false);
+  const [isRelevantLinksExpanded, setIsRelevantLinksExpanded] = useState(false);
 
   const effectiveEditMode = isFrenzyEditMode || isEditMode;
 
@@ -178,13 +180,22 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const kindLabel = useMemo(() => {
     const value = quest?.kind || questData?.kind || 'todo';
-    return value.charAt(0).toUpperCase() + value.slice(1);
+    return isQuestKind(value) ? formatQuestKindLabel(value) : formatQuestKindLabel('todo');
   }, [quest?.kind, questData?.kind]);
 
   const dueLabel = useMemo(() => {
     if (!quest?.nextDueAt) return null;
     return formatNextReview(quest.nextDueAt);
   }, [quest?.nextDueAt]);
+
+  const headerVisibility = useMemo<QuestVisibility>(() => {
+    if (isEditMode) return visibilityDraft;
+    if (quest?.visibility && isQuestVisibility(quest.visibility)) return quest.visibility;
+    if (questData?.visibility && isQuestVisibility(questData.visibility)) return questData.visibility;
+    return 'private';
+  }, [isEditMode, visibilityDraft, quest?.visibility, questData?.visibility]);
+
+  const showHeaderDraftMeta = !isFrenzyEditMode && isEditMode && viewMode === 'details';
 
   const codeLookup = useMemo(() => {
     const map = new Map<string, string>();
@@ -216,7 +227,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setKindDraft(fresh.kind || 'todo');
       setVisibilityDraft(fresh.visibility || 'private');
       setActiveDraft(fresh.active ?? true);
-      setActiveTab('details');
       const drafts = parseScheduleToDrafts(fresh.schedule);
       setTimezoneDraft(coalesceTimezone());
       setDueDateDraft(drafts.date);
@@ -249,7 +259,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setKindDraft(fallback.kind || 'todo');
       setVisibilityDraft(fallback.visibility || 'private');
       setActiveDraft(fallback.active ?? true);
-      setActiveTab('details');
       const drafts = parseScheduleToDrafts(fallback.schedule);
       setTimezoneDraft(coalesceTimezone());
       setDueDateDraft(drafts.date);
@@ -406,6 +415,14 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       showToast(err instanceof Error ? err.message : 'Failed to update visibility.', 'error');
     }
   }, [quest?.id, quest?.visibility, onUpdateQuest]);
+
+  const handleCycleKindDraft = useCallback(() => {
+    setKindDraft(prev => {
+      const idx = questKindOrder.indexOf(prev);
+      const nextIdx = idx >= 0 ? (idx + 1) % questKindOrder.length : 0;
+      return questKindOrder[nextIdx];
+    });
+  }, []);
 
   const getLinkLabel = useCallback((link: RelationDraft): string => {
     if (!graphData) return link.toCode;
@@ -777,6 +794,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     setDurationModeDraft(drafts.durationMode);
     setDurationCountDraft(drafts.durationCount);
     setUntilDateDraft(drafts.untilDate);
+    setIsHeaderCodeEditing(false);
+    setIsRelevantLinksExpanded(false);
     setIsEditMode(false);
   }, [quest, questData]);
 
@@ -785,12 +804,12 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (isEditMode) {
       handleCancelEdit();
       setViewMode('details');
-      setActiveTab('details');
       return;
     }
     if (!quest?.id) return;
     setViewMode('details');
-    setActiveTab('details');
+    setIsHeaderCodeEditing(false);
+    setIsRelevantLinksExpanded(false);
     setIsEditMode(true);
   }, [handleCancelEdit, isEditMode, isFrenzyEditMode, quest?.id]);
 
@@ -798,7 +817,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (isFrenzyEditMode) return;
     if (isEditMode) {
       handleCancelEdit();
-      setActiveTab('details');
     }
     setViewMode(prev => (prev === 'advanced' ? 'details' : 'advanced'));
   }, [handleCancelEdit, isEditMode, isFrenzyEditMode]);
@@ -808,12 +826,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (isEditMode) {
       handleCancelEdit();
       setViewMode('details');
-      setActiveTab('details');
       return;
     }
     if (viewMode !== 'details') {
       setViewMode('details');
-      setActiveTab('details');
     }
   }, [handleCancelEdit, isEditMode, isFrenzyEditMode, viewMode]);
 
@@ -826,6 +842,11 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     setAutoSaveStatus('idle');
     setIsFrenzyCodeEditing(false);
   }, [isFrenzyEditMode, quest?.id]);
+
+  useEffect(() => {
+    if (isEditMode) return;
+    setIsHeaderCodeEditing(false);
+  }, [isEditMode, quest?.id]);
 
   useEffect(() => {
     if (!isFrenzyEditMode) return;
@@ -1285,11 +1306,21 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  onClick={handleToggleVisibility}
-                  disabled={!quest?.id || effectiveEditMode}
-                  title={quest?.visibility === 'domain' ? 'Make private' : 'Make public'}
+                  onClick={() => {
+                    if (isEditMode) {
+                      setVisibilityDraft(prev => (prev === 'domain' ? 'private' : 'domain'));
+                      return;
+                    }
+                    void handleToggleVisibility();
+                  }}
+                  disabled={!quest?.id}
+                  title={
+                    isEditMode
+                      ? (headerVisibility === 'domain' ? 'Set private' : 'Set domain')
+                      : (headerVisibility === 'domain' ? 'Make private' : 'Make public')
+                  }
                 >
-                  {quest?.visibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
+                  {headerVisibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
                 </Button>
                 <div className="text-base font-semibold text-gray-900 truncate">
                   {quest?.name?.trim() || questData.name?.trim() || 'Quest'}
@@ -1357,9 +1388,51 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
             </div>
           </div>
         )}
-      {!isFrenzyEditMode && (kindLabel || dueLabel || versions.length > 0) && (
+      {!isFrenzyEditMode && (showHeaderDraftMeta || kindLabel || dueLabel || versions.length > 0) && (
         <div className="flex items-center gap-2 text-xs text-gray-600">
-          <span className="text-[11px] text-gray-500">{kindLabel}</span>
+          {showHeaderDraftMeta ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 text-[11px]"
+                onClick={handleCycleKindDraft}
+                title="Click to cycle kind"
+              >
+                {formatQuestKindLabel(kindDraft)}
+              </Button>
+              {isHeaderCodeEditing ? (
+                <Input
+                  value={codeDraft}
+                  onChange={(e) => setCodeDraft(e.target.value)}
+                  onBlur={() => setIsHeaderCodeEditing(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === 'Escape') {
+                      event.preventDefault();
+                      setIsHeaderCodeEditing(false);
+                    }
+                  }}
+                  autoFocus
+                  className="h-6 w-36 bg-white text-[11px]"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsHeaderCodeEditing(true)}
+                  className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700 hover:bg-gray-50"
+                  title="Click to edit code"
+                >
+                  {codeDraft.trim() || quest?.code || questData.code || 'Q?'}
+                </button>
+              )}
+              <span className="text-[11px] text-gray-500">
+                {headerVisibility === 'domain' ? 'Domain' : 'Private'}
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] text-gray-500">{kindLabel}</span>
+          )}
           {dueLabel && (
             <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
               quest?.nextDueAt && new Date(quest.nextDueAt) <= new Date() ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'
@@ -1448,99 +1521,144 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
           {renderVersionEditor('frenzy')}
         </div>
       ) : effectiveEditMode ? (
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as 'details' | 'relations')}
-          className="w-full"
-        >
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="relations">Relevant Links</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="details" className="mt-3 space-y-3">
-            <>
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Name</label>
-                  <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 mt-1" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Code</label>
-                  <Input value={codeDraft} onChange={(e) => setCodeDraft(e.target.value)} className="h-8 mt-1" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Kind</label>
-                  <select
-                    value={kindDraft}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (isQuestKind(value)) setKindDraft(value);
-                    }}
-                    className="mt-1 h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs text-gray-700"
-                  >
-                    <option value="todo">Todo</option>
-                    <option value="habit">Habit</option>
-                    <option value="daily">Daily</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Visibility</label>
-                  <select
-                    value={visibilityDraft}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (isQuestVisibility(value)) setVisibilityDraft(value);
-                    }}
-                    className="mt-1 h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs text-gray-700"
-                  >
-                    <option value="private">Private</option>
-                    <option value="domain">Domain</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-600">Active</label>
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3 lg:items-start">
+            <div className="lg:col-span-2">
+              <label className="text-xs font-medium text-gray-600">Name</label>
+              <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} className="h-8 mt-1" />
+            </div>
+            <div className="order-3 lg:order-none lg:col-span-1 lg:row-span-2">
+              <label className="text-xs font-medium text-gray-600">Status</label>
+              <div className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1">
+                <label className="flex items-center gap-2 text-xs text-gray-700">
                   <input
                     type="checkbox"
                     checked={activeDraft}
                     onChange={(e) => setActiveDraft(e.target.checked)}
                     className="h-4 w-4"
                   />
-                  {quest?.nextDueAt && (
-                    <span className="text-xs text-gray-500">Next due: {new Date(quest.nextDueAt).toLocaleString()}</span>
-                  )}
+                  Active
+                </label>
+                <div className="text-[11px] text-gray-500">
+                  {quest?.nextDueAt ? `Next due: ${new Date(quest.nextDueAt).toLocaleString()}` : 'Next due: —'}
                 </div>
               </div>
-
-              <div className="rounded-md border border-gray-200 p-3">
-                <div className="text-xs font-semibold text-gray-700">Schedule</div>
-                <div className="mt-2">{renderScheduleEditor('standard')}</div>
-              </div>
-
-              {renderVersionEditor('standard')}
-
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="destructive" onClick={handleDeleteQuest} disabled={!quest?.id || isDeleting}>
-                  {isDeleting ? 'Deleting…' : 'Delete Quest'}
-                </Button>
-              </div>
-            </>
-          </TabsContent>
-
-          <TabsContent value="relations" className="mt-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold text-gray-700">Relevant Links</div>
-              <div className="text-xs text-gray-500">Version: {activeVersionLabel}</div>
             </div>
-            {relevantLinks.length === 0 && (
-              <div className="text-xs text-gray-500">No relevant links for this version.</div>
+            <div className="order-2 lg:order-none lg:col-span-2">
+              <label className="text-xs font-medium text-gray-600">Version name</label>
+              <Input
+                value={activeVersionDraft.title}
+                onChange={(e) => {
+                  if (!activeVersion?.id) return;
+                  patchVersionDraft(activeVersion.id, { title: e.target.value });
+                }}
+                className="h-8 mt-1"
+                placeholder="Version name"
+                disabled={!activeVersion?.id}
+              />
+            </div>
+          </div>
+
+          {activeVersion ? (
+            <>
+              <div className={activeVersionDraft.imagePath?.trim() ? "grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" : "grid grid-cols-1"}>
+                <div className="min-w-0">
+                  <MarkdownPreviewField
+                    label="Description (Markdown)"
+                    value={activeVersionDraft.descriptionMd}
+                    onChange={(value) => {
+                      if (!activeVersion.id) return;
+                      patchVersionDraft(activeVersion.id, { descriptionMd: value });
+                    }}
+                    onPaste={(event) => {
+                      if (!activeVersion.id) return;
+                      handleVersionDescriptionPaste(event, activeVersion.id);
+                    }}
+                    onDrop={(event) => {
+                      if (!activeVersion.id) return;
+                      handleVersionDescriptionDrop(event, activeVersion.id);
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    rows={6}
+                  />
+                </div>
+                {activeVersionDraft.imagePath?.trim() && (
+                  <div className="min-w-0 rounded-md border border-gray-200 p-2">
+                    <ImageUploadField
+                      label="Image"
+                      helperText="Shown beside description while attached."
+                      imagePath={activeVersionDraft.imagePath}
+                      onUpload={uploadQuestVersionImage}
+                      onChange={(path) => {
+                        if (!activeVersion.id) return;
+                        patchVersionDraft(activeVersion.id, { imagePath: path });
+                      }}
+                      onClear={() => {
+                        if (!activeVersion.id) return;
+                        patchVersionDraft(activeVersion.id, { imagePath: '' });
+                      }}
+                      disabled={!activeVersion.id}
+                    />
+                  </div>
+                )}
+              </div>
+              {!activeVersionDraft.imagePath?.trim() && (
+                <div>
+                  <ImageUploadField
+                    label="Image"
+                    helperText="Optional. When attached, it appears in a side column."
+                    imagePath={activeVersionDraft.imagePath}
+                    onUpload={uploadQuestVersionImage}
+                    onChange={(path) => {
+                      if (!activeVersion.id) return;
+                      patchVersionDraft(activeVersion.id, { imagePath: path });
+                    }}
+                    onClear={() => {
+                      if (!activeVersion.id) return;
+                      patchVersionDraft(activeVersion.id, { imagePath: '' });
+                    }}
+                    disabled={!activeVersion.id}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-xs text-gray-500">No versions yet.</div>
+          )}
+
+          {kindDraft !== 'daily' && (
+            <div className="rounded-md border border-gray-200 p-3">
+              <div className="text-xs font-semibold text-gray-700">Date & Time</div>
+              <div className="mt-2">
+                {renderScheduleEditor('standard')}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-xs"
+              onClick={() => setIsRelevantLinksExpanded(prev => !prev)}
+            >
+              {isRelevantLinksExpanded ? 'Hide relevant links' : 'Edit relevant links'}
+            </Button>
+            {isRelevantLinksExpanded && (
+              <div className="text-xs text-gray-500">Version: {activeVersionLabel}</div>
             )}
-            {relevantLinks.map((link, idx) => (
-              <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
-                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.relationType}</span>
-                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.toType}</span>
-                <span className="text-gray-800">{link.toCode}</span>
-                {effectiveEditMode && (
+          </div>
+
+          {isRelevantLinksExpanded && (
+            <div className="rounded-md border border-gray-200 p-3 space-y-2">
+              {relevantLinks.length === 0 && (
+                <div className="text-xs text-gray-500">No relevant links for this version.</div>
+              )}
+              {relevantLinks.map((link, idx) => (
+                <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
+                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.relationType}</span>
+                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.toType}</span>
+                  <span className="text-gray-800">{link.toCode}</span>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1548,15 +1666,13 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   >
                     Remove
                   </Button>
-                )}
-              </div>
-            ))}
-            {effectiveEditMode && (
-              <div className="flex items-center gap-2">
+                </div>
+              ))}
+              <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={newRelation.relationType}
                   onChange={(e) => setNewRelation(prev => ({ ...prev, relationType: e.target.value }))}
-                  className="h-7 text-xs"
+                  className="h-7 text-xs sm:w-36"
                   placeholder="relation type"
                 />
                 <select
@@ -1576,7 +1692,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                 <Input
                   value={newRelation.toCode}
                   onChange={(e) => setNewRelation(prev => ({ ...prev, toCode: e.target.value }))}
-                  className="h-7 text-xs"
+                  className="h-7 text-xs sm:w-48"
                   placeholder="Target code"
                 />
                 <Button size="sm" variant="outline" onClick={handleAddRelevantLink}>
@@ -1586,9 +1702,15 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   Save Links
                 </Button>
               </div>
-            )}
-          </TabsContent>
-        </Tabs>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="destructive" onClick={handleDeleteQuest} disabled={!quest?.id || isDeleting}>
+              {isDeleting ? 'Deleting…' : 'Delete Quest'}
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="mt-3 space-y-4">
           {viewMode === 'details' && (
