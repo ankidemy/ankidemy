@@ -137,7 +137,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const previousDomainAlertDueCountsRef = useRef<Record<number, number>>({});
   const hasAlertSnapshotRef = useRef(false);
   const lastBatchSizeRef = useRef<number | null>(null);
-  const invitePollIntervalMs = 20000;
+  const notificationPollIntervalMs = 20000;
 
   const refreshNotifications = useCallback(async () => {
     if (refreshInFlight.current || typeof window === "undefined") return;
@@ -237,9 +237,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     refreshNotifications();
-    const interval = setInterval(refreshNotifications, 60000);
+    const interval = setInterval(refreshNotifications, notificationPollIntervalMs);
     return () => clearInterval(interval);
-  }, [refreshNotifications]);
+  }, [refreshNotifications, notificationPollIntervalMs]);
 
   useEffect(() => {
     const primeAudio = () => {
@@ -272,30 +272,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [refreshNotifications]);
-
-  useEffect(() => {
-    const pollInvites = async () => {
-      if (typeof window === "undefined") return;
-      const token = localStorage.getItem("token");
-      if (!token) return;
-      try {
-        const summary = await getNotificationSummary({
-          component: "NotificationContext.pollInvites",
-          action: "invite-count-poll",
-        });
-        const inviteCount = typeof summary?.inviteCount === "number" ? summary.inviteCount : 0;
-        if (inviteCount !== pendingInviteCount) {
-          refreshNotifications();
-        }
-      } catch (error) {
-        console.warn("Failed to poll invites:", error);
-      }
-    };
-
-    pollInvites();
-    const interval = setInterval(pollInvites, invitePollIntervalMs);
-    return () => clearInterval(interval);
-  }, [pendingInviteCount, refreshNotifications, invitePollIntervalMs]);
 
   const totalDueCount = useMemo(() => {
     return Object.values(domainDueCounts).reduce((sum, value) => sum + value, 0);

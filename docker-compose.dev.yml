@@ -64,7 +64,7 @@ services:
       "
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1"]
-      interval: 10s
+      interval: 60s
       timeout: 5s
       retries: 3
       start_period: 10s
