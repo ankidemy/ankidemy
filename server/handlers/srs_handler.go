@@ -16,19 +16,21 @@ import (
 
 // SRSHandler handles SRS-related HTTP requests
 type SRSHandler struct {
-	db            *gorm.DB
-	srsService    *services.SRSService
-	srsDao        *dao.SRSDao
-	permissionDAO *dao.DomainPermissionDAO
+	db                    *gorm.DB
+	srsService            *services.SRSService
+	srsDao                *dao.SRSDao
+	permissionDAO         *dao.DomainPermissionDAO
+	notificationReadModel *services.NotificationReadModelService
 }
 
 // NewSRSHandler creates a new SRSHandler
-func NewSRSHandler(db *gorm.DB, permissionDAO *dao.DomainPermissionDAO) *SRSHandler {
+func NewSRSHandler(db *gorm.DB, permissionDAO *dao.DomainPermissionDAO, notificationReadModel *services.NotificationReadModelService) *SRSHandler {
 	return &SRSHandler{
-		db:            db,
-		srsService:    services.NewSRSService(db),
-		srsDao:        dao.NewSRSDao(db),
-		permissionDAO: permissionDAO,
+		db:                    db,
+		srsService:            services.NewSRSService(db, notificationReadModel),
+		srsDao:                dao.NewSRSDao(db),
+		permissionDAO:         permissionDAO,
+		notificationReadModel: notificationReadModel,
 	}
 }
 
@@ -271,6 +273,26 @@ func (h *SRSHandler) GetDomainStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// GetNotificationSummary returns a single read-model payload used by notification polling.
+func (h *SRSHandler) GetNotificationSummary(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	if h.notificationReadModel == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Notification read model is unavailable"})
+		return
+	}
+
+	summary, err := h.notificationReadModel.GetSummary(userID.(uint), middleware.GetRequestID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve notification summary"})
+		return
+	}
+	c.JSON(http.StatusOK, summary)
 }
 
 // UpdateNodeStatus updates the status of a node

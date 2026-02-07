@@ -16,21 +16,23 @@ import (
 
 // SRSService is the main service for spaced repetition functionality
 type SRSService struct {
-	db                  *gorm.DB
-	srsDao              *dao.SRSDao
-	srAlgorithm         *SpacedRepetitionService
-	creditService       *CreditPropagationService
-	optimizationService *ReviewOptimizationService
+	db                    *gorm.DB
+	srsDao                *dao.SRSDao
+	srAlgorithm           *SpacedRepetitionService
+	creditService         *CreditPropagationService
+	optimizationService   *ReviewOptimizationService
+	notificationReadModel *NotificationReadModelService
 }
 
 // NewSRSService creates a new SRS service instance
-func NewSRSService(db *gorm.DB) *SRSService {
+func NewSRSService(db *gorm.DB, notificationReadModel *NotificationReadModelService) *SRSService {
 	return &SRSService{
-		db:                  db,
-		srsDao:              dao.NewSRSDao(db),
-		srAlgorithm:         NewSpacedRepetitionService(),
-		creditService:       NewCreditPropagationService(),
-		optimizationService: NewReviewOptimizationService(),
+		db:                    db,
+		srsDao:                dao.NewSRSDao(db),
+		srAlgorithm:           NewSpacedRepetitionService(),
+		creditService:         NewCreditPropagationService(),
+		optimizationService:   NewReviewOptimizationService(),
+		notificationReadModel: notificationReadModel,
 	}
 }
 
@@ -144,6 +146,14 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 	if err := s.recordReviewHistory(tx, userID, request, progress); err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to record review history: %w", err)
+	}
+
+	// Keep notification read model in sync with write transaction.
+	if s.notificationReadModel != nil {
+		if err := s.notificationReadModel.EnqueueDomainDueRefreshTx(tx, userID, domainID); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to enqueue due projection refresh: %w", err)
+		}
 	}
 
 	// Update session if provided
@@ -366,6 +376,12 @@ func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string,
 
 	srsDao := dao.NewSRSDao(tx)
 
+	domainID, err := s.getDomainIDForNode(nodeID, nodeType)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
 	// Normalize type for progress table
 	normProgressType := toProgressType(nodeType)
 
@@ -405,6 +421,13 @@ func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string,
 	if err := s.propagateStatus(tx, userID, nodeID, graphType, status); err != nil {
 		tx.Rollback()
 		return err
+	}
+
+	if s.notificationReadModel != nil {
+		if err := s.notificationReadModel.EnqueueDomainDueRefreshTx(tx, userID, domainID); err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
 
 	return tx.Commit().Error

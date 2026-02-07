@@ -81,6 +81,8 @@ func InitDB() (*gorm.DB, error) {
 		&models.DomainNodeCode{},
 		&models.UserDomainSettings{},
 		&models.UserDailyQuestDraw{},
+		&models.ReadModelEvent{},
+		&models.UserDomainDueProjection{},
 	}
 
 	// AutoMigrate all models - note that in production you might want more controlled migrations

@@ -13,7 +13,8 @@ import {
   CreditUpdate,
   SessionType,
   NodeStatus,
-  ReviewQueueItem
+  ReviewQueueItem,
+  NotificationSummary
 } from '../types/srs';
 
 // FIX: Import required functions from api.ts
@@ -123,6 +124,20 @@ export const getDomainStats = async (
 ): Promise<DomainStats> => {
   const response = await observedFetch(
     `${API_URL}/api/srs/domains/${domainId}/stats`,
+    {
+      headers: getAuthHeaders(),
+    },
+    requestMeta,
+  );
+  return handleSRSResponse(response);
+};
+
+// Get notification summary (domain due counts + pending invites) in one call
+export const getNotificationSummary = async (
+  requestMeta?: RequestObservabilityMeta,
+): Promise<NotificationSummary> => {
+  const response = await observedFetch(
+    `${API_URL}/api/srs/notifications/summary`,
     {
       headers: getAuthHeaders(),
     },

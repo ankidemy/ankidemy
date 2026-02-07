@@ -84,6 +84,7 @@ La aplicación utiliza los siguientes puertos para evitar conflictos con otras a
 | Cliente (Next.js) | 4500 | 3000 | Interfaz web de usuario |
 | Servidor (Go API) | 8765 | 8765 | API REST del backend |
 | Base de Datos (PostgreSQL) | 54320 | 5432 | Base de datos PostgreSQL |
+| Redis | 6379 | 6379 | Cache y soporte para read models/proyecciones |
 | PgAdmin | 5051 | 5050 | Interfaz de administración de BD |
 
 **Nota**: Los puertos externos son los que usas desde tu máquina host. Los puertos internos son los que usa Docker internamente en la red de contenedores.

@@ -1,16 +1,14 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { getEnrolledDomains, getMyDomains, getPendingDomainInvites } from "@/lib/api";
-import { getDomainStats } from "@/lib/srs-api";
+import { getNotificationSummary } from "@/lib/srs-api";
 import { getDueReviewBatchSize, isDueReviewBatchSoundEnabled } from "@/lib/app-preferences";
 import {
   playDueReviewNotificationSound,
   primeDueReviewNotificationSound,
 } from "@/lib/due-review-notification-sound";
-import type { Domain } from "@/lib/api";
-import type { DomainInvite } from "@/lib/api";
 import type { NotificationItem } from "@/types/notifications";
+import type { NotificationSummaryDomain, NotificationSummaryInvite } from "@/types/srs";
 
 interface NotificationContextValue {
   notifications: NotificationItem[];
@@ -66,9 +64,8 @@ const getAlertLabel = (alertedDueCount: number, dueCount: number): string =>
   dueCount > alertedDueCount ? `${alertedDueCount}+` : `${alertedDueCount}`;
 
 const buildNotifications = (
-  domains: Domain[],
-  stats: Array<number | null>,
-  invites: DomainInvite[],
+  domains: NotificationSummaryDomain[],
+  invites: NotificationSummaryInvite[],
   batchSize: number,
 ): {
   notifications: NotificationItem[];
@@ -96,24 +93,22 @@ const buildNotifications = (
     });
   });
 
-  stats.forEach((dueCount, index) => {
-    const domain = domains[index];
-    if (!domain) return;
-    const safeCount = typeof dueCount === "number" && Number.isFinite(dueCount) ? Math.max(0, Math.floor(dueCount)) : 0;
+  domains.forEach(domain => {
+    const safeCount = Number.isFinite(domain.dueCount) ? Math.max(0, Math.floor(domain.dueCount)) : 0;
     const alertedDueCount = getAlertedDueCount(safeCount, batchSize);
     const dueLabel = getAlertLabel(alertedDueCount, safeCount);
-    domainDueCounts[domain.id] = safeCount;
-    domainAlertDueCounts[domain.id] = alertedDueCount;
+    domainDueCounts[domain.domainId] = safeCount;
+    domainAlertDueCounts[domain.domainId] = alertedDueCount;
     if (alertedDueCount > 0) {
       notifications.push({
-        id: `domain-${domain.id}-due`,
+        id: `domain-${domain.domainId}-due`,
         kind: "domain-review-due",
-        title: domain.name,
+        title: domain.domainName,
         description: `${dueLabel} item${alertedDueCount === 1 ? "" : "s"} ready for review`,
-        href: `/main/domains/${domain.id}/study`,
+        href: `/main/domains/${domain.domainId}/study`,
         createdAt: timestamp,
         meta: {
-          domainId: domain.id,
+          domainId: domain.domainId,
           dueCount: alertedDueCount,
           dueLabel,
         },
@@ -164,25 +159,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     refreshInFlight.current = true;
     setLoading(true);
     try {
-      const [myResult, enrolledResult, inviteResult] = await Promise.allSettled([
-        getMyDomains(),
-        getEnrolledDomains(),
-        getPendingDomainInvites({
-          component: "NotificationContext.refreshNotifications",
-          action: "invite-list-refresh",
-        }),
-      ]);
+      const summary = await getNotificationSummary({
+        component: "NotificationContext.refreshNotifications",
+        action: "summary-refresh",
+      });
 
-      const domainMap = new Map<number, Domain>();
-      if (myResult.status === "fulfilled") {
-        myResult.value.forEach(domain => domainMap.set(domain.id, domain));
-      }
-      if (enrolledResult.status === "fulfilled") {
-        enrolledResult.value.forEach(domain => domainMap.set(domain.id, domain));
-      }
-
-      const domains = Array.from(domainMap.values());
-      const invites = inviteResult.status === "fulfilled" ? inviteResult.value : [];
+      const domains = Array.isArray(summary?.domains) ? summary.domains : [];
+      const invites = Array.isArray(summary?.invites) ? summary.invites : [];
       if (domains.length === 0 && invites.length === 0) {
         setNotifications([]);
         setDomainDueCounts({});
@@ -195,27 +178,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         return;
       }
 
-      const statsResults = await Promise.allSettled(
-        domains.map(domain =>
-          getDomainStats(domain.id, {
-            component: "NotificationContext.refreshNotifications",
-            action: "due-count-poll",
-          }),
-        ),
-      );
-
-      const dueCounts = statsResults.map(result => {
-        if (result.status !== "fulfilled") return null;
-        return typeof result.value?.dueReviews === "number" ? result.value.dueReviews : 0;
-      });
-
       const batchSize = getDueReviewBatchSize();
       const {
         notifications,
         domainDueCounts,
         domainAlertDueCounts,
         inviteCount,
-      } = buildNotifications(domains, dueCounts, invites, batchSize);
+      } = buildNotifications(domains, invites, batchSize);
       const batchSizeChanged = lastBatchSizeRef.current !== null && lastBatchSizeRef.current !== batchSize;
       const shouldPlaySound =
         hasAlertSnapshotRef.current &&
@@ -310,11 +279,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const token = localStorage.getItem("token");
       if (!token) return;
       try {
-        const invites = await getPendingDomainInvites({
+        const summary = await getNotificationSummary({
           component: "NotificationContext.pollInvites",
           action: "invite-count-poll",
         });
-        const inviteCount = Array.isArray(invites) ? invites.length : 0;
+        const inviteCount = typeof summary?.inviteCount === "number" ? summary.inviteCount : 0;
         if (inviteCount !== pendingInviteCount) {
           refreshNotifications();
         }

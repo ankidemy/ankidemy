@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -11,23 +12,33 @@ import (
 	"myapp/server/dao"
 	"myapp/server/middleware"
 	"myapp/server/models"
+	"myapp/server/services"
 )
 
 type DomainAccessHandler struct {
-	domainDAO     *dao.DomainDAO
-	permissionDAO *dao.DomainPermissionDAO
-	inviteDAO     *dao.DomainInviteDAO
-	userDAO       *dao.UserDAO
-	progressDAO   *dao.ProgressDAO
+	domainDAO             *dao.DomainDAO
+	permissionDAO         *dao.DomainPermissionDAO
+	inviteDAO             *dao.DomainInviteDAO
+	userDAO               *dao.UserDAO
+	progressDAO           *dao.ProgressDAO
+	notificationReadModel *services.NotificationReadModelService
 }
 
-func NewDomainAccessHandler(domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, inviteDAO *dao.DomainInviteDAO, userDAO *dao.UserDAO, progressDAO *dao.ProgressDAO) *DomainAccessHandler {
+func NewDomainAccessHandler(
+	domainDAO *dao.DomainDAO,
+	permissionDAO *dao.DomainPermissionDAO,
+	inviteDAO *dao.DomainInviteDAO,
+	userDAO *dao.UserDAO,
+	progressDAO *dao.ProgressDAO,
+	notificationReadModel *services.NotificationReadModelService,
+) *DomainAccessHandler {
 	return &DomainAccessHandler{
-		domainDAO:     domainDAO,
-		permissionDAO: permissionDAO,
-		inviteDAO:     inviteDAO,
-		userDAO:       userDAO,
-		progressDAO:   progressDAO,
+		domainDAO:             domainDAO,
+		permissionDAO:         permissionDAO,
+		inviteDAO:             inviteDAO,
+		userDAO:               userDAO,
+		progressDAO:           progressDAO,
+		notificationReadModel: notificationReadModel,
 	}
 }
 
@@ -254,6 +265,7 @@ func (h *DomainAccessHandler) CreateInvite(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invite"})
 			return
 		}
+		h.enqueueNotificationSummaryInvalidate(invitee.ID)
 		c.JSON(http.StatusOK, pending)
 		return
 	}
@@ -270,6 +282,7 @@ func (h *DomainAccessHandler) CreateInvite(c *gin.Context) {
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(invitee.ID)
 	c.JSON(http.StatusCreated, invite)
 }
 
@@ -372,6 +385,7 @@ func (h *DomainAccessHandler) RemovePermission(c *gin.Context) {
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(uint(targetUserID))
 	c.JSON(http.StatusOK, gin.H{"message": "Permission removed"})
 }
 
@@ -466,6 +480,7 @@ func (h *DomainAccessHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Invite accepted"})
 }
 
@@ -505,5 +520,15 @@ func (h *DomainAccessHandler) DeclineInvite(c *gin.Context) {
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Invite declined"})
+}
+
+func (h *DomainAccessHandler) enqueueNotificationSummaryInvalidate(userID uint) {
+	if h.notificationReadModel == nil {
+		return
+	}
+	if err := h.notificationReadModel.EnqueueSummaryInvalidate(userID); err != nil {
+		log.Printf("warning: failed to enqueue notification summary invalidation for user %d: %v", userID, err)
+	}
 }

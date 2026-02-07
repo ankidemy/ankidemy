@@ -21,6 +21,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # Cache / Read-model event helper (Redis)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Server Service (Go)
   server:
     image: golang:1.25-alpine
@@ -34,6 +51,10 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - DB_PORT=${DB_PORT}
+      - REDIS_ADDR=${REDIS_ADDR}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB}
+      - REDIS_CACHE_PREFIX=${REDIS_CACHE_PREFIX}
       - SERVER_PORT=${SERVER_PORT:-8765}
       - APP_ENV=${APP_ENV:-production}
     ports:
@@ -42,6 +63,8 @@ services:
       - app-network
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # Client Service (NextJS)
@@ -66,4 +89,6 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
     driver: local

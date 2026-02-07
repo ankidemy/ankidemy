@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,19 +24,27 @@ import (
 
 // DomainHandler handles domain-related HTTP requests
 type DomainHandler struct {
-	domainDAO     *dao.DomainDAO
-	progressDAO   *dao.ProgressDAO
-	importService *services.ImportService
-	permissionDAO *dao.DomainPermissionDAO
+	domainDAO             *dao.DomainDAO
+	progressDAO           *dao.ProgressDAO
+	importService         *services.ImportService
+	permissionDAO         *dao.DomainPermissionDAO
+	notificationReadModel *services.NotificationReadModelService
 }
 
 // NewDomainHandler creates a new DomainHandler
-func NewDomainHandler(domainDAO *dao.DomainDAO, progressDAO *dao.ProgressDAO, importService *services.ImportService, permissionDAO *dao.DomainPermissionDAO) *DomainHandler {
+func NewDomainHandler(
+	domainDAO *dao.DomainDAO,
+	progressDAO *dao.ProgressDAO,
+	importService *services.ImportService,
+	permissionDAO *dao.DomainPermissionDAO,
+	notificationReadModel *services.NotificationReadModelService,
+) *DomainHandler {
 	return &DomainHandler{
-		domainDAO:     domainDAO,
-		progressDAO:   progressDAO,
-		importService: importService,
-		permissionDAO: permissionDAO,
+		domainDAO:             domainDAO,
+		progressDAO:           progressDAO,
+		importService:         importService,
+		permissionDAO:         permissionDAO,
+		notificationReadModel: notificationReadModel,
 	}
 }
 
@@ -235,10 +244,12 @@ func (h *DomainHandler) CreateDomain(c *gin.Context) {
 	// Return the newly created domain with its initial stats
 	domainWithStats, err := h.domainDAO.FindByIDWithStats(domain.ID)
 	if err != nil {
+		h.enqueueNotificationSummaryInvalidate(userID.(uint))
 		c.JSON(http.StatusCreated, domain) // Fallback to returning without stats
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(userID.(uint))
 	c.JSON(http.StatusCreated, domainWithStats)
 }
 
@@ -676,10 +687,12 @@ func (h *DomainHandler) CopyDomain(c *gin.Context) {
 
 	domainWithStats, err := h.domainDAO.FindByIDWithStats(newDomain.ID)
 	if err != nil {
+		h.enqueueNotificationSummaryInvalidate(userID)
 		c.JSON(http.StatusCreated, newDomain)
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(userID)
 	c.JSON(http.StatusCreated, domainWithStats)
 }
 
@@ -1053,7 +1066,17 @@ func (h *DomainHandler) EnrollInDomain(c *gin.Context) {
 		return
 	}
 
+	h.enqueueNotificationSummaryInvalidate(userID.(uint))
 	c.JSON(http.StatusOK, gin.H{"message": "Enrolled in domain successfully"})
+}
+
+func (h *DomainHandler) enqueueNotificationSummaryInvalidate(userID uint) {
+	if h.notificationReadModel == nil {
+		return
+	}
+	if err := h.notificationReadModel.EnqueueSummaryInvalidate(userID); err != nil {
+		log.Printf("warning: failed to enqueue notification summary invalidation for user %d: %v", userID, err)
+	}
 }
 
 // GetComments returns comments for a domain

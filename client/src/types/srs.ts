@@ -97,6 +97,30 @@ export interface DomainStats {
   successRate: number;
 }
 
+export interface NotificationSummaryDomain {
+  domainId: number;
+  domainName: string;
+  dueCount: number;
+}
+
+export interface NotificationSummaryInvite {
+  id: number;
+  domainId: number;
+  domainName: string;
+  invitedBy: number;
+  invitedByUsername: string;
+  role: 'editor' | 'viewer';
+  createdAt: string;
+}
+
+export interface NotificationSummary {
+  domains: NotificationSummaryDomain[];
+  invites: NotificationSummaryInvite[];
+  totalDue: number;
+  inviteCount: number;
+  generatedAt: string;
+}
+
 // Enhanced definition with SRS data
 export interface DefinitionWithSRS extends Definition {
   progress?: NodeProgress;

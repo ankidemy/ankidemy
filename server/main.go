@@ -80,6 +80,9 @@ func main() {
 	surveyService := services.NewSurveyService(db)
 	userDomainSettingsDAO := dao.NewUserDomainSettingsDAO(db)
 	pgStatStatementsDAO := dao.NewPGStatStatementsDAO(db)
+	queryCache := services.NewQueryCacheServiceFromEnv()
+	notificationReadModelService := services.NewNotificationReadModelService(db, queryCache)
+	notificationReadModelService.StartWorker()
 
 	// Create admin user if it doesn't exist
 	adminUser := &models.User{
@@ -99,17 +102,17 @@ func main() {
 	// Initialize handlers with ImportService
 	userHandler := handlers.NewUserHandler(userDAO)
 	authHandler := handlers.NewAuthHandler(userDAO)
-	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO, importService, permissionDAO) // Added ImportService
+	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO, importService, permissionDAO, notificationReadModelService) // Added ImportService
 	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO, metaDefinitionDAO, permissionDAO)
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO, permissionDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO, sourceDAO, metaQuestDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
-	srsHandler := handlers.NewSRSHandler(db, permissionDAO)
+	srsHandler := handlers.NewSRSHandler(db, permissionDAO, notificationReadModelService)
 	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc, permissionDAO)
 	metaDefinitionHandler := handlers.NewMetaDefinitionHandler(metaDefinitionDAO, domainDAO, metaDefSvc, permissionDAO)
 	mediaHandler := handlers.NewMediaHandler(domainDAO, progressDAO, permissionDAO)
-	domainAccessHandler := handlers.NewDomainAccessHandler(domainDAO, permissionDAO, inviteDAO, userDAO, progressDAO)
+	domainAccessHandler := handlers.NewDomainAccessHandler(domainDAO, permissionDAO, inviteDAO, userDAO, progressDAO, notificationReadModelService)
 	externalPrerequisiteHandler := handlers.NewExternalPrerequisiteHandler(domainDAO, permissionDAO, externalPrerequisiteDAO, metaDefinitionDAO, metaExerciseDAO)
 	groupHandler := handlers.NewGroupHandler(groupDAO, domainDAO, permissionDAO, metaDefinitionDAO, metaExerciseDAO)
 	sourceHandler := handlers.NewSourceHandler(sourceDAO, domainDAO, permissionDAO, codeRegistryDAO)
@@ -384,6 +387,7 @@ func main() {
 				// Progress endpoints
 				srs.GET("/domains/:domainId/progress", srsHandler.GetDomainProgress)
 				srs.GET("/domains/:domainId/stats", srsHandler.GetDomainStats)
+				srs.GET("/notifications/summary", srsHandler.GetNotificationSummary)
 				srs.PUT("/nodes/status", srsHandler.UpdateNodeStatus)
 
 				// Session endpoints
