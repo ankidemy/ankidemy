@@ -128,7 +128,7 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 	if nodeType == "meta_definition" {
 		nodeType = "definition"
 	}
-	dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType)
+	dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType, middleware.GetRequestID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -179,7 +179,7 @@ func (h *SRSHandler) GetReviewQueue(c *gin.Context) {
 		exCount = 1
 	}
 
-	queue, err := h.srsService.GetReviewQueue(userID.(uint), uint(domainID), sessionType, mode, exCount)
+	queue, err := h.srsService.GetReviewQueue(userID.(uint), uint(domainID), sessionType, mode, exCount, middleware.GetRequestID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

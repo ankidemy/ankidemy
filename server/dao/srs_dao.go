@@ -13,6 +13,11 @@ type SRSDao struct {
 	db *gorm.DB
 }
 
+const (
+	srsDueRoute         = "/api/srs/domains/:domainId/due"
+	srsReviewQueueRoute = "/api/srs/domains/:domainId/review-queue"
+)
+
 // NewSRSDao creates a new SRSDao instance
 func NewSRSDao(db *gorm.DB) *SRSDao {
 	return &SRSDao{db: db}
@@ -25,47 +30,99 @@ func (d *SRSDao) CreatePrerequisite(prerequisite *models.NodePrerequisite) error
 	return d.db.Create(prerequisite).Error
 }
 
-// GetPrerequisitesByDomain gets all prerequisites for nodes in a domain
+// GetPrerequisitesByDomain gets all prerequisites for nodes in a domain.
 func (d *SRSDao) GetPrerequisitesByDomain(domainID uint) ([]models.NodePrerequisite, error) {
+	return d.getPrerequisitesByDomainInternal(domainID, "", "", "")
+}
+
+// GetPrerequisitesByDomainObserved gets prerequisites with route/stage SQL comments and DAO stage logs.
+func (d *SRSDao) GetPrerequisitesByDomainObserved(domainID uint, requestID string, route string, stage string) ([]models.NodePrerequisite, error) {
+	return d.getPrerequisitesByDomainInternal(domainID, requestID, route, stage)
+}
+
+func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID string, route string, stage string) ([]models.NodePrerequisite, error) {
+	const daoMethod = "SRSDao.GetPrerequisitesByDomain"
 	var prerequisites []models.NodePrerequisite
 
+	comment := ""
+	if route != "" && stage != "" {
+		comment = fmt.Sprintf("/* route:%s stage:%s */", route, stage)
+	}
+	startedAt := time.Now()
+
 	// Get prerequisites for legacy definitions (backward compatibility)
-	definitionQuery := `
+	definitionQuery := fmt.Sprintf(`
+		%s
 		SELECT np.* FROM node_prerequisites np
 		JOIN definitions d ON (np.node_id = d.id AND np.node_type = 'definition')
 		   OR (np.prerequisite_id = d.id AND np.prerequisite_type = 'definition')
 		WHERE d.domain_id = ?
-	`
+	`, comment)
 
 	// Get prerequisites for meta_definitions (concept pools)
-	metaDefQuery := `
+	metaDefQuery := fmt.Sprintf(`
+		%s
 		SELECT np.* FROM node_prerequisites np
 		JOIN meta_definitions md ON (np.node_id = md.id AND np.node_type = 'meta_definition')
 		   OR (np.prerequisite_id = md.id AND np.prerequisite_type = 'meta_definition')
 		WHERE md.domain_id = ?
-	`
+	`, comment)
 
 	// Get prerequisites for meta_exercises
-	exerciseQuery := `
-        SELECT np.* FROM node_prerequisites np
-        JOIN meta_exercises e ON (np.node_id = e.id AND np.node_type = 'meta_exercise')
-           OR (np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise')
-        WHERE e.domain_id = ?
-    `
+	exerciseQuery := fmt.Sprintf(`
+		%s
+		SELECT np.* FROM node_prerequisites np
+		JOIN meta_exercises e ON (np.node_id = e.id AND np.node_type = 'meta_exercise')
+		   OR (np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise')
+		WHERE e.domain_id = ?
+	`, comment)
 
 	var defPrereqs []models.NodePrerequisite
 	var metaDefPrereqs []models.NodePrerequisite
 	var exPrereqs []models.NodePrerequisite
 
 	if err := d.db.Raw(definitionQuery, domainID).Scan(&defPrereqs).Error; err != nil {
+		if stage != "" {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"domainId": domainID},
+			)
+		}
 		return nil, err
 	}
 
 	if err := d.db.Raw(metaDefQuery, domainID).Scan(&metaDefPrereqs).Error; err != nil {
+		if stage != "" {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"domainId": domainID},
+			)
+		}
 		return nil, err
 	}
 
 	if err := d.db.Raw(exerciseQuery, domainID).Scan(&exPrereqs).Error; err != nil {
+		if stage != "" {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"domainId": domainID},
+			)
+		}
 		return nil, err
 	}
 
@@ -86,6 +143,24 @@ func (d *SRSDao) GetPrerequisitesByDomain(domainID uint) ([]models.NodePrerequis
 
 	for _, prereq := range prereqMap {
 		prerequisites = append(prerequisites, prereq)
+	}
+
+	if stage != "" {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			nil,
+			map[string]interface{}{
+				"domainId":            domainID,
+				"definitionCount":     len(defPrereqs),
+				"metaDefinitionCount": len(metaDefPrereqs),
+				"exerciseCount":       len(exPrereqs),
+				"resultCount":         len(prerequisites),
+			},
+		)
 	}
 
 	return prerequisites, nil
@@ -213,13 +288,24 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
 	return results, nil
 }
 
-// GetDueReviews gets nodes due for review
-func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]models.NodeProgress, error) {
+// GetDueReviews gets nodes due for review.
+func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requestID string, route string, stage string) ([]models.NodeProgress, error) {
+	const daoMethod = "SRSDao.GetDueReviews"
+	if route == "" {
+		route = srsDueRoute
+	}
+	if stage == "" {
+		stage = "fetch_due_rows"
+	}
+
+	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
+	startedAt := time.Now()
 	var results []models.NodeProgress
 
 	var query string
 	if nodeType == "definition" {
-		query = `
+		query = fmt.Sprintf(`
+			%s
 			SELECT
 				md.id as node_id,
 				'definition' as node_type,
@@ -243,36 +329,37 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
 			WHERE md.domain_id = ? AND unp.status = 'grasped'
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
 			ORDER BY unp.next_review ASC NULLS FIRST
-		`
+		`, comment)
 	} else if nodeType == "exercise" || nodeType == "meta_exercise" {
-		query = `
-            SELECT 
-                e.id as node_id,
-                'exercise' as node_type,
-                e.code as node_code,
-                e.name as node_name,
-                unp.status,
-                unp.easiness_factor,
-                unp.interval_days,
-                unp.repetitions,
-                unp.last_review,
-                unp.next_review,
-                unp.accumulated_credit,
-                unp.credit_postponed,
-                unp.total_reviews,
-                unp.successful_reviews,
-                0 as days_until_review,
-                true as is_due
-            FROM meta_exercises e
-            JOIN user_node_progress unp ON e.id = unp.node_id 
-                AND unp.node_type = 'exercise' AND unp.user_id = ?
-            WHERE e.domain_id = ? AND unp.status = 'grasped' 
-                AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-            ORDER BY unp.next_review ASC NULLS FIRST
-        `
+		query = fmt.Sprintf(`
+			%s
+			SELECT
+				e.id as node_id,
+				'exercise' as node_type,
+				e.code as node_code,
+				e.name as node_name,
+				unp.status,
+				unp.easiness_factor,
+				unp.interval_days,
+				unp.repetitions,
+				unp.last_review,
+				unp.next_review,
+				unp.accumulated_credit,
+				unp.credit_postponed,
+				unp.total_reviews,
+				unp.successful_reviews,
+				0 as days_until_review,
+				true as is_due
+			FROM meta_exercises e
+			JOIN user_node_progress unp ON e.id = unp.node_id
+				AND unp.node_type = 'exercise' AND unp.user_id = ?
+			WHERE e.domain_id = ? AND unp.status = 'grasped'
+				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+			ORDER BY unp.next_review ASC NULLS FIRST
+		`, comment)
 	} else {
-		// Mixed - get both
-		defQuery := `
+		defQuery := fmt.Sprintf(`
+			%s
 			SELECT
 				md.id as node_id,
 				'definition' as node_type,
@@ -295,57 +382,127 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string) ([]m
 				AND unp.node_type = 'definition' AND unp.user_id = ?
 			WHERE md.domain_id = ? AND unp.status = 'grasped'
 				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-		`
+		`, comment)
 
-		exQuery := `
-            SELECT 
-                e.id as node_id,
-                'exercise' as node_type,
-                e.code as node_code,
-                e.name as node_name,
-                unp.status,
-                unp.easiness_factor,
-                unp.interval_days,
-                unp.repetitions,
-                unp.last_review,
-                unp.next_review,
-                unp.accumulated_credit,
-                unp.credit_postponed,
-                unp.total_reviews,
-                unp.successful_reviews,
-                0 as days_until_review,
-                true as is_due
-            FROM meta_exercises e
-            JOIN user_node_progress unp ON e.id = unp.node_id 
-                AND unp.node_type = 'exercise' AND unp.user_id = ?
-            WHERE e.domain_id = ? AND unp.status = 'grasped' 
-                AND (unp.next_review IS NULL OR unp.next_review <= NOW())
-        `
+		exQuery := fmt.Sprintf(`
+			%s
+			SELECT
+				e.id as node_id,
+				'exercise' as node_type,
+				e.code as node_code,
+				e.name as node_name,
+				unp.status,
+				unp.easiness_factor,
+				unp.interval_days,
+				unp.repetitions,
+				unp.last_review,
+				unp.next_review,
+				unp.accumulated_credit,
+				unp.credit_postponed,
+				unp.total_reviews,
+				unp.successful_reviews,
+				0 as days_until_review,
+				true as is_due
+			FROM meta_exercises e
+			JOIN user_node_progress unp ON e.id = unp.node_id
+				AND unp.node_type = 'exercise' AND unp.user_id = ?
+			WHERE e.domain_id = ? AND unp.status = 'grasped'
+				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+		`, comment)
 
 		var defResults []models.NodeProgress
 		var exResults []models.NodeProgress
 
 		if err := d.db.Raw(defQuery, userID, domainID).Scan(&defResults).Error; err != nil {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
+			)
 			return nil, err
 		}
 
 		if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
+			)
 			return nil, err
 		}
 
 		results = append(results, defResults...)
 		results = append(results, exResults...)
-
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			nil,
+			map[string]interface{}{
+				"userId":          userID,
+				"domainId":        domainID,
+				"nodeType":        nodeType,
+				"definitionCount": len(defResults),
+				"exerciseCount":   len(exResults),
+				"resultCount":     len(results),
+			},
+		)
 		return results, nil
 	}
 
-	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
+		)
+		return nil, err
+	}
+
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		stage,
+		startedAt,
+		nil,
+		map[string]interface{}{
+			"userId":      userID,
+			"domainId":    domainID,
+			"nodeType":    nodeType,
+			"resultCount": len(results),
+		},
+	)
+	return results, nil
 }
 
 // GetGraspedDefinitions gets all grasped definitions for a domain.
-func (d *SRSDao) GetGraspedDefinitions(userID uint, domainID uint) ([]models.NodeProgress, error) {
-	var results []models.NodeProgress
-	query := `
+func (d *SRSDao) GetGraspedDefinitions(userID uint, domainID uint, requestID string, route string, stage string) ([]models.NodeProgress, error) {
+	const daoMethod = "SRSDao.GetGraspedDefinitions"
+	if route == "" {
+		route = srsReviewQueueRoute
+	}
+	if stage == "" {
+		stage = "load_grasped_fallback"
+	}
+
+	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
+	query := fmt.Sprintf(`
+		%s
 		SELECT
 			md.id as node_id,
 			'definition' as node_type,
@@ -374,14 +531,52 @@ func (d *SRSDao) GetGraspedDefinitions(userID uint, domainID uint) ([]models.Nod
 		JOIN user_node_progress unp ON md.id = unp.node_id
 			AND unp.node_type = 'definition' AND unp.user_id = ?
 		WHERE md.domain_id = ? AND unp.status = 'grasped'
-	`
-	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+	`, comment)
+
+	startedAt := time.Now()
+	var results []models.NodeProgress
+	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
+		return nil, err
+	}
+
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		stage,
+		startedAt,
+		nil,
+		map[string]interface{}{
+			"userId":      userID,
+			"domainId":    domainID,
+			"resultCount": len(results),
+		},
+	)
+	return results, nil
 }
 
 // GetGraspedExercises gets all grasped exercises for a domain.
-func (d *SRSDao) GetGraspedExercises(userID uint, domainID uint) ([]models.NodeProgress, error) {
-	var results []models.NodeProgress
-	query := `
+func (d *SRSDao) GetGraspedExercises(userID uint, domainID uint, requestID string, route string, stage string) ([]models.NodeProgress, error) {
+	const daoMethod = "SRSDao.GetGraspedExercises"
+	if route == "" {
+		route = srsReviewQueueRoute
+	}
+	if stage == "" {
+		stage = "load_grasped_fallback"
+	}
+
+	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
+	query := fmt.Sprintf(`
+		%s
 		SELECT
 			e.id as node_id,
 			'exercise' as node_type,
@@ -410,14 +605,52 @@ func (d *SRSDao) GetGraspedExercises(userID uint, domainID uint) ([]models.NodeP
 		JOIN user_node_progress unp ON e.id = unp.node_id
 			AND unp.node_type = 'exercise' AND unp.user_id = ?
 		WHERE e.domain_id = ? AND unp.status = 'grasped'
-	`
-	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+	`, comment)
+
+	startedAt := time.Now()
+	var results []models.NodeProgress
+	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
+		return nil, err
+	}
+
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		stage,
+		startedAt,
+		nil,
+		map[string]interface{}{
+			"userId":      userID,
+			"domainId":    domainID,
+			"resultCount": len(results),
+		},
+	)
+	return results, nil
 }
 
 // GetDefinitionsWithSuccessfulReviews gets grasped definitions with successful_reviews > 0.
-func (d *SRSDao) GetDefinitionsWithSuccessfulReviews(userID uint, domainID uint) ([]models.NodeProgress, error) {
-	var results []models.NodeProgress
-	query := `
+func (d *SRSDao) GetDefinitionsWithSuccessfulReviews(userID uint, domainID uint, requestID string, route string, stage string) ([]models.NodeProgress, error) {
+	const daoMethod = "SRSDao.GetDefinitionsWithSuccessfulReviews"
+	if route == "" {
+		route = srsReviewQueueRoute
+	}
+	if stage == "" {
+		stage = "load_grasped_fallback"
+	}
+
+	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
+	query := fmt.Sprintf(`
+		%s
 		SELECT
 			md.id as node_id,
 			'definition' as node_type,
@@ -446,8 +679,37 @@ func (d *SRSDao) GetDefinitionsWithSuccessfulReviews(userID uint, domainID uint)
 		JOIN user_node_progress unp ON md.id = unp.node_id
 			AND unp.node_type = 'definition' AND unp.user_id = ?
 		WHERE md.domain_id = ? AND unp.status = 'grasped' AND unp.successful_reviews > 0
-	`
-	return results, d.db.Raw(query, userID, domainID).Scan(&results).Error
+	`, comment)
+
+	startedAt := time.Now()
+	var results []models.NodeProgress
+	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID},
+		)
+		return nil, err
+	}
+
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		stage,
+		startedAt,
+		nil,
+		map[string]interface{}{
+			"userId":      userID,
+			"domainId":    domainID,
+			"resultCount": len(results),
+		},
+	)
+	return results, nil
 }
 
 // === Study Sessions ===

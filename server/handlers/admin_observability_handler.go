@@ -55,6 +55,12 @@ func defaultPGQueryFilter(target string) string {
 	case "srs_domain_stats":
 		// Uses inline SQL comments in SRSDao.GetDomainStats for easy filtering.
 		return "%route:/api/srs/domains/:domainId/stats%"
+	case "srs_due":
+		// Uses inline SQL comments in SRSDao.GetDueReviews.
+		return "%route:/api/srs/domains/:domainId/due%"
+	case "srs_review_queue":
+		// Uses inline SQL comments in SRSDao.GetDueReviews and fallback queue selectors.
+		return "%route:/api/srs/domains/:domainId/review-queue%"
 	case "domain_invites":
 		return "%domain_invites%"
 	default:

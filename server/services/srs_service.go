@@ -630,9 +630,45 @@ func (s *SRSService) propagateFresh(tx *gorm.DB, userID uint, nodeID uint, nodeT
 	return nil
 }
 
-// GetDueReviews gets optimally ordered due reviews
-func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string) ([]models.NodeProgress, error) {
-	dueNodes, err := s.srsDao.GetDueReviews(userID, domainID, nodeType)
+const (
+	srsDueRoutePath         = "/api/srs/domains/:domainId/due"
+	srsReviewQueueRoutePath = "/api/srs/domains/:domainId/review-queue"
+)
+
+func (s *SRSService) getDueReviewsOptimized(
+	userID uint,
+	domainID uint,
+	nodeType string,
+	requestID string,
+	route string,
+	serviceMethod string,
+	fetchStage string,
+	logFetchStage bool,
+	logDueOptimizationStages bool,
+) ([]models.NodeProgress, error) {
+	if fetchStage == "" {
+		fetchStage = "fetch_due_rows"
+	}
+
+	fetchDueRowsStartedAt := time.Now()
+	dueNodes, err := s.srsDao.GetDueReviews(userID, domainID, nodeType, requestID, route, fetchStage)
+	if logFetchStage {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			fetchStage,
+			fetchDueRowsStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":    userID,
+				"domainId":  domainID,
+				"nodeType":  nodeType,
+				"dueCount":  len(dueNodes),
+				"routeUsed": route,
+			},
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -641,46 +677,171 @@ func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string) 
 		return dueNodes, nil
 	}
 
-	// Get prerequisites for optimization
-	prerequisites, err := s.srsDao.GetPrerequisitesByDomain(domainID)
+	loadPrerequisitesStartedAt := time.Now()
+	var prerequisites []models.NodePrerequisite
+	if logDueOptimizationStages {
+		prerequisites, err = s.srsDao.GetPrerequisitesByDomainObserved(domainID, requestID, route, "load_prerequisites")
+	} else {
+		prerequisites, err = s.srsDao.GetPrerequisitesByDomain(domainID)
+	}
+	if logDueOptimizationStages {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"load_prerequisites",
+			loadPrerequisitesStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":            userID,
+				"domainId":          domainID,
+				"nodeType":          nodeType,
+				"prerequisiteCount": len(prerequisites),
+			},
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	buildGraphStartedAt := time.Now()
 	graph := s.creditService.BuildGraph(prerequisites)
-	return s.optimizationService.OptimizeReviewOrder(dueNodes, graph), nil
+	if logDueOptimizationStages {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"build_graph",
+			buildGraphStartedAt,
+			nil,
+			map[string]interface{}{
+				"userId":    userID,
+				"domainId":  domainID,
+				"nodeType":  nodeType,
+				"graphSize": len(graph),
+			},
+		)
+	}
+
+	optimizeOrderStartedAt := time.Now()
+	ordered := s.optimizationService.OptimizeReviewOrder(dueNodes, graph)
+	if logDueOptimizationStages {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"optimize_order",
+			optimizeOrderStartedAt,
+			nil,
+			map[string]interface{}{
+				"userId":      userID,
+				"domainId":    domainID,
+				"nodeType":    nodeType,
+				"inputCount":  len(dueNodes),
+				"outputCount": len(ordered),
+			},
+		)
+	}
+	return ordered, nil
+}
+
+// GetDueReviews gets optimally ordered due reviews.
+func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string, requestID string) ([]models.NodeProgress, error) {
+	const serviceMethod = "SRSService.GetDueReviews"
+	return s.getDueReviewsOptimized(
+		userID,
+		domainID,
+		nodeType,
+		requestID,
+		srsDueRoutePath,
+		serviceMethod,
+		"fetch_due_rows",
+		true,
+		true,
+	)
 }
 
 // GetReviewQueue builds a review queue for practice/mixed sessions.
-func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType string, mode string, exercisesPerDefinition int) ([]models.ReviewQueueItem, error) {
+func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType string, mode string, exercisesPerDefinition int, requestID string) (queue []models.ReviewQueueItem, err error) {
+	const route = srsReviewQueueRoutePath
+	const serviceMethod = "SRSService.GetReviewQueue"
+
 	if exercisesPerDefinition <= 0 {
 		exercisesPerDefinition = 1
 	}
 
 	isFrenzy := mode == "frenzy"
-	queue := make([]models.ReviewQueueItem, 0)
+	queue = make([]models.ReviewQueueItem, 0)
+
+	assembleQueueStartedAt := time.Now()
+	defer func() {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"assemble_queue",
+			assembleQueueStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":                 userID,
+				"domainId":               domainID,
+				"sessionType":            sessionType,
+				"mode":                   mode,
+				"exercisesPerDefinition": exercisesPerDefinition,
+				"queueCount":             len(queue),
+			},
+		)
+	}()
 
 	// ========================================================================
 	// DEFINITION SESSION
 	// ========================================================================
 	if sessionType == "definition" {
 		var defs []models.NodeProgress
-		var err error
 
-		// CRITICAL: Both normal and frenzy should prioritize due-first
-		defs, err = s.GetDueReviews(userID, domainID, "definition")
+		loadDueDefinitionsStartedAt := time.Now()
+		defs, err = s.getDueReviewsOptimized(userID, domainID, "definition", requestID, route, serviceMethod, "load_due_definitions", false, false)
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"load_due_definitions",
+			loadDueDefinitionsStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":    userID,
+				"domainId":  domainID,
+				"dueCount":  len(defs),
+				"nodeType":  "definition",
+				"routeUsed": route,
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
 
 		if len(defs) == 0 {
-			// No due definitions, enter practice/frenzy mode
-			// Both normal and frenzy use all grasped in this case
-			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
+			loadFallbackStartedAt := time.Now()
+			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID, requestID, route, "load_grasped_fallback")
+			logServiceStage(
+				requestID,
+				route,
+				serviceMethod,
+				"load_grasped_fallback",
+				loadFallbackStartedAt,
+				err,
+				map[string]interface{}{
+					"userId":         userID,
+					"domainId":       domainID,
+					"fallbackSource": "grasped_definitions",
+					"resultCount":    len(defs),
+				},
+			)
 			if err != nil {
 				return nil, err
 			}
 		}
+
 		for _, def := range defs {
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:   def.NodeID,
@@ -698,38 +859,98 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	// ========================================================================
 	if sessionType == "exercise" {
 		var exercises []models.NodeProgress
-		var err error
 
-		// CRITICAL: Both normal and frenzy should prioritize due-first
-		exercises, err = s.GetDueReviews(userID, domainID, "exercise")
+		loadDueExercisesStartedAt := time.Now()
+		exercises, err = s.getDueReviewsOptimized(userID, domainID, "exercise", requestID, route, serviceMethod, "load_due_exercises", false, false)
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"load_due_exercises",
+			loadDueExercisesStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":    userID,
+				"domainId":  domainID,
+				"dueCount":  len(exercises),
+				"nodeType":  "exercise",
+				"routeUsed": route,
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
 
 		if len(exercises) == 0 {
-			// No due exercises, enter practice/frenzy mode
 			if isFrenzy {
-				// Frenzy: all grasped exercises
-				exercises, err = s.srsDao.GetGraspedExercises(userID, domainID)
+				loadFallbackStartedAt := time.Now()
+				exercises, err = s.srsDao.GetGraspedExercises(userID, domainID, requestID, route, "load_grasped_fallback")
+				logServiceStage(
+					requestID,
+					route,
+					serviceMethod,
+					"load_grasped_fallback",
+					loadFallbackStartedAt,
+					err,
+					map[string]interface{}{
+						"userId":         userID,
+						"domainId":       domainID,
+						"fallbackSource": "grasped_exercises",
+						"resultCount":    len(exercises),
+					},
+				)
 				if err != nil {
 					return nil, err
 				}
 			} else {
-				// Normal practice: exercises related to definitions with successful_reviews > 0
-				defs, defErr := s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
-				if defErr != nil {
-					return nil, defErr
+				loadFallbackStartedAt := time.Now()
+				var defs []models.NodeProgress
+				defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID, requestID, route, "load_grasped_fallback")
+				logServiceStage(
+					requestID,
+					route,
+					serviceMethod,
+					"load_grasped_fallback",
+					loadFallbackStartedAt,
+					err,
+					map[string]interface{}{
+						"userId":         userID,
+						"domainId":       domainID,
+						"fallbackSource": "definitions_with_successful_reviews",
+						"resultCount":    len(defs),
+					},
+				)
+				if err != nil {
+					return nil, err
 				}
 
-				// Select exercises for these definitions
+				selectExercisesStartedAt := time.Now()
+				selectedExercises := 0
 				metaSvc := NewMetaExerciseService(s.db)
 				for _, def := range defs {
-					metas, err := metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
+					var metas []models.MetaExercise
+					metas, err = metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
 					if err != nil {
+						logServiceStage(
+							requestID,
+							route,
+							serviceMethod,
+							"select_exercises_batch",
+							selectExercisesStartedAt,
+							err,
+							map[string]interface{}{
+								"userId":             userID,
+								"domainId":           domainID,
+								"definitionCount":    len(defs),
+								"selectedMetaCount":  selectedExercises,
+								"perDefinitionCount": exercisesPerDefinition,
+							},
+						)
 						return nil, err
 					}
+					selectedExercises += len(metas)
+
 					for _, meta := range metas {
-						// Get exercise progress to determine isDue
 						progress, _ := s.srsDao.GetUserProgress(userID, meta.ID, "exercise")
 						isDue := false
 						if progress != nil && progress.Status == "grasped" {
@@ -750,17 +971,26 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 						})
 					}
 				}
+				logServiceStage(
+					requestID,
+					route,
+					serviceMethod,
+					"select_exercises_batch",
+					selectExercisesStartedAt,
+					nil,
+					map[string]interface{}{
+						"userId":             userID,
+						"domainId":           domainID,
+						"definitionCount":    len(defs),
+						"selectedMetaCount":  selectedExercises,
+						"perDefinitionCount": exercisesPerDefinition,
+					},
+				)
 				return queue, nil
 			}
 		}
 
-		if err != nil {
-			return nil, err
-		}
-
-		// For due exercises, we need to get the parent definition info
 		for _, ex := range exercises {
-			// Find a definition that depends on this exercise (or just use exercise as standalone)
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:           ex.NodeID,
 				NodeType:         "exercise",
@@ -779,36 +1009,81 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 	// MIXED SESSION
 	// ========================================================================
 	var defs []models.NodeProgress
-	var err error
 	usingGrasped := false
 
-	// CRITICAL: Check if there are ANY due items (definitions OR exercises)
-	// before falling back to practice mode
-	dueDefs, err := s.GetDueReviews(userID, domainID, "definition")
-	if err != nil {
+	loadDueDefinitionsStartedAt := time.Now()
+	dueDefs, dueDefsErr := s.getDueReviewsOptimized(userID, domainID, "definition", requestID, route, serviceMethod, "load_due_definitions", false, false)
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"load_due_definitions",
+		loadDueDefinitionsStartedAt,
+		dueDefsErr,
+		map[string]interface{}{
+			"userId":    userID,
+			"domainId":  domainID,
+			"dueCount":  len(dueDefs),
+			"nodeType":  "definition",
+			"routeUsed": route,
+		},
+	)
+	if dueDefsErr != nil {
+		err = dueDefsErr
 		return nil, err
 	}
 
-	dueExs, err := s.GetDueReviews(userID, domainID, "exercise")
-	if err != nil {
+	loadDueExercisesStartedAt := time.Now()
+	dueExs, dueExErr := s.getDueReviewsOptimized(userID, domainID, "exercise", requestID, route, serviceMethod, "load_due_exercises", false, false)
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"load_due_exercises",
+		loadDueExercisesStartedAt,
+		dueExErr,
+		map[string]interface{}{
+			"userId":    userID,
+			"domainId":  domainID,
+			"dueCount":  len(dueExs),
+			"nodeType":  "exercise",
+			"routeUsed": route,
+		},
+	)
+	if dueExErr != nil {
+		err = dueExErr
 		return nil, err
 	}
 
 	hasDueItems := len(dueDefs) > 0 || len(dueExs) > 0
-
 	if hasDueItems {
-		// Due-first mode: use due definitions as base
 		defs = dueDefs
 		usingGrasped = false
 	} else {
-		// No due items at all, enter practice/frenzy mode
+		loadFallbackStartedAt := time.Now()
 		if isFrenzy {
-			// Frenzy: all grasped definitions
-			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID)
+			defs, err = s.srsDao.GetGraspedDefinitions(userID, domainID, requestID, route, "load_grasped_fallback")
 		} else {
-			// Normal practice: definitions with successful_reviews > 0
-			defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID)
+			defs, err = s.srsDao.GetDefinitionsWithSuccessfulReviews(userID, domainID, requestID, route, "load_grasped_fallback")
 		}
+		fallbackSource := "definitions_with_successful_reviews"
+		if isFrenzy {
+			fallbackSource = "grasped_definitions"
+		}
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			"load_grasped_fallback",
+			loadFallbackStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":         userID,
+				"domainId":       domainID,
+				"fallbackSource": fallbackSource,
+				"resultCount":    len(defs),
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -820,17 +1095,34 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 		rand.Shuffle(len(defs), func(i, j int) { defs[i], defs[j] = defs[j], defs[i] })
 	}
 
+	selectExercisesStartedAt := time.Now()
+	selectedExercises := 0
 	metaSvc := NewMetaExerciseService(s.db)
 
-	// Add definitions and their exercises
 	for _, def := range defs {
-		metas, err := metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
+		var metas []models.MetaExercise
+		metas, err = metaSvc.SelectExercisesForDefinition(userID, def.NodeID, exercisesPerDefinition)
 		if err != nil {
+			logServiceStage(
+				requestID,
+				route,
+				serviceMethod,
+				"select_exercises_batch",
+				selectExercisesStartedAt,
+				err,
+				map[string]interface{}{
+					"userId":             userID,
+					"domainId":           domainID,
+					"definitionCount":    len(defs),
+					"selectedMetaCount":  selectedExercises,
+					"perDefinitionCount": exercisesPerDefinition,
+				},
+			)
 			return nil, err
 		}
+		selectedExercises += len(metas)
 
 		if len(metas) == 0 {
-			// No exercises for this definition, add definition alone
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:   def.NodeID,
 				NodeType: def.NodeType,
@@ -841,7 +1133,6 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 			continue
 		}
 
-		// If definition is due, add it FIRST (without exercise) to test memory
 		if def.IsDue {
 			queue = append(queue, models.ReviewQueueItem{
 				NodeID:   def.NodeID,
@@ -852,9 +1143,7 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 			})
 		}
 
-		// Then add the exercise(s) separately to test understanding
 		for _, meta := range metas {
-			// Get exercise progress to determine if THIS exercise is due
 			progress, _ := s.srsDao.GetUserProgress(userID, meta.ID, "exercise")
 			exerciseIsDue := false
 			if progress != nil && progress.Status == "grasped" {
@@ -875,11 +1164,23 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 			})
 		}
 	}
+	logServiceStage(
+		requestID,
+		route,
+		serviceMethod,
+		"select_exercises_batch",
+		selectExercisesStartedAt,
+		nil,
+		map[string]interface{}{
+			"userId":             userID,
+			"domainId":           domainID,
+			"definitionCount":    len(defs),
+			"selectedMetaCount":  selectedExercises,
+			"perDefinitionCount": exercisesPerDefinition,
+		},
+	)
 
-	// CRITICAL FIX: Add ALL due exercises independently in mixed mode
 	if !usingGrasped && len(dueExs) > 0 {
-		// In due-first mode, also include all due exercises that weren't already added
-		// Track which exercises we've already added
 		addedExercises := make(map[uint]bool)
 		for _, item := range queue {
 			if item.ExerciseMetaID != nil {
@@ -887,7 +1188,6 @@ func (s *SRSService) GetReviewQueue(userID uint, domainID uint, sessionType stri
 			}
 		}
 
-		// Add any due exercises that weren't included via definition-exercise pairs
 		for _, ex := range dueExs {
 			if !addedExercises[ex.NodeID] {
 				queue = append(queue, models.ReviewQueueItem{

@@ -14,13 +14,15 @@ This project now performs best-effort startup enablement for `pg_stat_statements
 
 - Endpoint: `GET /api/admin/db/query-stats`
 - Query params:
-  - `target`: `all` | `srs_domain_stats` | `domain_invites`
+  - `target`: `all` | `srs_domain_stats` | `srs_due` | `srs_review_queue` | `domain_invites`
   - `limit`: integer (default `20`, max `200`)
   - `filter`: optional `ILIKE` filter override
 
 Examples:
 
 - `GET /api/admin/db/query-stats?target=srs_domain_stats&limit=25`
+- `GET /api/admin/db/query-stats?target=srs_due&limit=25`
+- `GET /api/admin/db/query-stats?target=srs_review_queue&limit=25`
 - `GET /api/admin/db/query-stats?target=domain_invites&limit=25`
 - `GET /api/admin/db/query-stats?filter=%review_history%&limit=50`
 
@@ -43,6 +45,18 @@ The DAO SQL includes inline route/stage comments for filtering:
 
 Primary query table filter:
 - `domain_invites`
+
+### `/api/srs/domains/:domainId/due`
+
+The DAO SQL includes inline route/stage comments for filtering:
+- `route:/api/srs/domains/:domainId/due`
+- stage: `fetch_due_rows`
+
+### `/api/srs/domains/:domainId/review-queue`
+
+The DAO SQL includes inline route/stage comments for filtering:
+- `route:/api/srs/domains/:domainId/review-queue`
+- stages: `load_due_definitions`, `load_due_exercises`, `load_grasped_fallback`
 
 ## 4) Raw SQL (manual)
 
