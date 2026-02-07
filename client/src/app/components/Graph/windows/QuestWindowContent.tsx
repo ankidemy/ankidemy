@@ -178,6 +178,55 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     );
   }, [activeVersion, activeVersionDraft]);
 
+  const hasMetaChanges = useMemo(() => {
+    if (!quest) return false;
+
+    const baseScheduleDrafts = parseScheduleToDrafts(quest.schedule);
+    const baseKind = isQuestKind(quest.kind) ? quest.kind : 'todo';
+    const baseVisibility = quest.visibility && isQuestVisibility(quest.visibility) ? quest.visibility : 'private';
+    const currentRepeatEnabled = kindDraft === 'habit' ? true : repeatEnabledDraft;
+    const baseRepeatEnabled = baseKind === 'habit' ? true : baseScheduleDrafts.repeatEnabled;
+    const currentWeekdays = Array.from(customRepeatWeekdaysDraft).sort().join(',');
+    const baseWeekdays = Array.from(baseScheduleDrafts.customWeekdays).sort().join(',');
+
+    return (
+      nameDraft.trim() !== (quest.name || quest.versions?.[0]?.title || '').trim()
+      || codeDraft.trim() !== (quest.code || '').trim()
+      || kindDraft !== baseKind
+      || visibilityDraft !== baseVisibility
+      || activeDraft !== (quest.active ?? true)
+      || dueDateDraft !== baseScheduleDrafts.date
+      || dueTimeDraft !== baseScheduleDrafts.time
+      || currentRepeatEnabled !== baseRepeatEnabled
+      || repeatPresetDraft !== baseScheduleDrafts.preset
+      || customRepeatEveryDraft !== baseScheduleDrafts.customEvery
+      || customRepeatPeriodDraft !== baseScheduleDrafts.customPeriod
+      || currentWeekdays !== baseWeekdays
+      || durationModeDraft !== baseScheduleDrafts.durationMode
+      || durationCountDraft !== baseScheduleDrafts.durationCount
+      || untilDateDraft !== baseScheduleDrafts.untilDate
+    );
+  }, [
+    activeDraft,
+    codeDraft,
+    customRepeatEveryDraft,
+    customRepeatPeriodDraft,
+    customRepeatWeekdaysDraft,
+    dueDateDraft,
+    dueTimeDraft,
+    durationCountDraft,
+    durationModeDraft,
+    kindDraft,
+    nameDraft,
+    quest,
+    repeatEnabledDraft,
+    repeatPresetDraft,
+    untilDateDraft,
+    visibilityDraft,
+  ]);
+
+  const hasPendingEditChanges = isEditMode && (hasMetaChanges || hasActiveVersionChanges);
+
   const kindLabel = useMemo(() => {
     const value = quest?.kind || questData?.kind || 'todo';
     return isQuestKind(value) ? formatQuestKindLabel(value) : formatQuestKindLabel('todo');
@@ -480,28 +529,96 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const handleSaveQuest = useCallback(async () => {
     if (!quest?.id) return;
-    if (nameDraft.trim().length === 0) {
+    const shouldSaveMeta = hasMetaChanges;
+    const shouldSaveVersion = !!activeVersion?.id && hasActiveVersionChanges;
+
+    if (!shouldSaveMeta && !shouldSaveVersion) return;
+
+    if (shouldSaveMeta && nameDraft.trim().length === 0) {
       showToast('Quest name is required.', 'warning');
       return;
     }
+    if (shouldSaveVersion && activeVersionDraft.title.trim().length === 0) {
+      showToast('Version title is required.', 'warning');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const parsedSchedule = buildSchedulePayload(quest.schedule);
-      const payload: Partial<MetaQuestDTO> & { active?: boolean } = {
-        name: nameDraft.trim(),
-        code: codeDraft.trim(),
-        kind: kindDraft,
-        schedule: parsedSchedule,
-        visibility: visibilityDraft,
-        active: activeDraft,
-      };
-      const updated = await updateQuest(quest.id, payload);
-      setQuest(updated);
-      if (updated.name) {
-        setNameDraft(updated.name);
+      let mergedQuest: MetaQuestDTO = quest;
+      let mergedVersions: QuestVersionDTO[] = versions;
+
+      if (shouldSaveMeta) {
+        const parsedSchedule = buildSchedulePayload(quest.schedule);
+        const payload: Partial<MetaQuestDTO> & { active?: boolean } = {
+          name: nameDraft.trim(),
+          code: codeDraft.trim(),
+          kind: kindDraft,
+          schedule: parsedSchedule,
+          visibility: visibilityDraft,
+          active: activeDraft,
+        };
+        const updatedQuest = await updateQuest(quest.id, payload);
+        mergedQuest = { ...mergedQuest, ...updatedQuest };
+        if (Array.isArray(updatedQuest.versions)) {
+          mergedVersions = updatedQuest.versions;
+        }
       }
-      onUpdateQuest?.(updated);
-      showToast('Quest updated.', 'success');
+
+      if (shouldSaveVersion && activeVersion?.id) {
+        const updatedVersion = await updateQuestVersion(quest.id, activeVersion.id, {
+          title: activeVersionDraft.title.trim(),
+          descriptionMd: activeVersionDraft.descriptionMd || '',
+          imagePath: activeVersionDraft.imagePath || '',
+        });
+        const baseVersions = mergedVersions.length > 0 ? mergedVersions : (mergedQuest.versions || []);
+        mergedVersions = baseVersions.map(v => (v.id === activeVersion.id ? { ...v, ...updatedVersion } : v));
+      }
+
+      const finalQuest: MetaQuestDTO = {
+        ...mergedQuest,
+        versions: mergedVersions,
+      };
+
+      setQuest(finalQuest);
+      setVersions(mergedVersions);
+      if (mergedVersions.length > 0) {
+        setSelectedVersionId(prev => (
+          prev && mergedVersions.some(v => v.id === prev)
+            ? prev
+            : mergedVersions[0].id ?? null
+        ));
+      } else {
+        setSelectedVersionId(null);
+      }
+
+      const scheduleDrafts = parseScheduleToDrafts(finalQuest.schedule);
+      setNameDraft(finalQuest.name || finalQuest.versions?.[0]?.title || '');
+      setCodeDraft(finalQuest.code || '');
+      setKindDraft(isQuestKind(finalQuest.kind) ? finalQuest.kind : 'todo');
+      setVisibilityDraft(finalQuest.visibility && isQuestVisibility(finalQuest.visibility) ? finalQuest.visibility : 'private');
+      setActiveDraft(finalQuest.active ?? true);
+      setTimezoneDraft(coalesceTimezone());
+      setDueDateDraft(scheduleDrafts.date);
+      setDueTimeDraft(scheduleDrafts.time);
+      setRepeatEnabledDraft(scheduleDrafts.repeatEnabled);
+      setRepeatPresetDraft(scheduleDrafts.preset);
+      setCustomRepeatEveryDraft(scheduleDrafts.customEvery);
+      setCustomRepeatPeriodDraft(scheduleDrafts.customPeriod);
+      setCustomRepeatWeekdaysDraft(scheduleDrafts.customWeekdays);
+      setDurationModeDraft(scheduleDrafts.durationMode);
+      setDurationCountDraft(scheduleDrafts.durationCount);
+      setUntilDateDraft(scheduleDrafts.untilDate);
+
+      onUpdateQuest?.(finalQuest);
+      showToast(
+        shouldSaveMeta && shouldSaveVersion
+          ? 'Quest and version updated.'
+          : shouldSaveMeta
+          ? 'Quest updated.'
+          : 'Version updated.',
+        'success'
+      );
       if (!isFrenzyEditMode) setIsEditMode(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
@@ -514,16 +631,22 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setIsSaving(false);
     }
   }, [
-    quest?.id,
     nameDraft,
     buildSchedulePayload,
     codeDraft,
     kindDraft,
     visibilityDraft,
     activeDraft,
+    activeVersion?.id,
+    activeVersionDraft.descriptionMd,
+    activeVersionDraft.imagePath,
+    activeVersionDraft.title,
+    hasActiveVersionChanges,
+    hasMetaChanges,
     onUpdateQuest,
-    quest?.schedule,
+    quest,
     isFrenzyEditMode,
+    versions,
   ]);
 
   const getVersionDraftBase = useCallback((versionId: number): QuestVersionDraft => {
@@ -1331,17 +1454,6 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
             <div className="flex items-center gap-2">
               {isLoading && <span className="text-xs text-gray-500">Loading…</span>}
-              {!isFrenzyEditMode && effectiveEditMode && activeVersion?.id && hasActiveVersionChanges && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSaveVersion(activeVersion.id || 0)}
-                  disabled={isVersionSaving}
-                >
-                  <Save className="h-4 w-4 mr-1" />
-                  {isVersionSaving ? 'Saving…' : 'Save Version'}
-                </Button>
-              )}
               <>
                 {!effectiveEditMode && (
                   <Button
@@ -1379,7 +1491,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                       <X className="h-4 w-4 mr-1" />
                       Cancel
                     </Button>
-                    <Button size="sm" onClick={handleSaveQuest} disabled={isSaving || !quest?.id}>
+                    <Button size="sm" onClick={handleSaveQuest} disabled={!hasPendingEditChanges || isSaving || isVersionSaving || !quest?.id}>
                       <Save className="h-4 w-4 mr-1" />
                       {isSaving ? 'Saving…' : 'Save'}
                     </Button>
