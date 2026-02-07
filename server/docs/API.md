@@ -1338,9 +1338,11 @@ Nodes (definitions and exercises) can have the following statuses:
 - **Method**: `GET`
 - **Auth Required**: Yes
 - **URL Parameters**: `domainId` - Domain ID
-- **Query Parameters**: `type` - Optional filter (definition|exercise|mixed, default: mixed)
+- **Query Parameters**:
+  - `type` - Optional filter (`definition|exercise|mixed`, default: `mixed`)
+  - `view` - Optional response shape (`full|compact`, default: `full`)
 - **Description**: Get nodes that are due for review, optimally ordered
-- **Response**: `200 OK`
+- **Response (`view=full`)**: `200 OK`
   ```json
   {
     "dueNodes": [
@@ -1360,6 +1362,22 @@ Nodes (definitions and exercises) can have the following statuses:
         "totalReviews": "number",
         "successfulReviews": "number",
         "daysUntilReview": "number",
+        "isDue": "boolean"
+      }
+    ]
+  }
+  ```
+- **Response (`view=compact`)**: `200 OK`
+  ```json
+  {
+    "dueNodes": [
+      {
+        "nodeId": "number",
+        "nodeType": "string",
+        "nodeCode": "string",
+        "nodeName": "string",
+        "status": "string",
+        "nextReview": "timestamp",
         "isDue": "boolean"
       }
     ]

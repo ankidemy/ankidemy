@@ -6,6 +6,7 @@ import type { Definition, Exercise } from "../app/components/Graph/utils/types";
 export type NodeStatus = 'fresh' | 'tackling' | 'grasped' | 'learned';
 export type ReviewQuality = 0 | 1 | 2 | 3 | 4 | 5;
 export type SessionType = 'definition' | 'exercise' | 'mixed';
+export type DueView = 'full' | 'compact';
 
 // Progress tracking for individual nodes
 export interface NodeProgress {

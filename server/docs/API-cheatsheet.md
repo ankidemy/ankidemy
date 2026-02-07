@@ -65,7 +65,7 @@
 | Endpoint                       | Method | Auth Required | Description                 | Key Request Fields                |
 | :----------------------------- | :----- | :------------ | :-------------------------- | :-------------------------------- |
 | `/api/srs/reviews`             | `POST` | Yes           | Submit review (explicit)    | `nodeId`, `nodeType`, `success`, `quality`, etc. |
-| `/api/srs/domains/:domainId/due`| `GET`  | Yes           | Get due reviews             | Query: `type`                     |
+| `/api/srs/domains/:domainId/due`| `GET`  | Yes           | Get due reviews             | Query: `type`, `view`             |
 | `/api/srs/reviews/history`     | `GET`  | Yes           | Get review history          | Query: `nodeId`, `nodeType`, `limit` |
 
 ### Progress & Statistics

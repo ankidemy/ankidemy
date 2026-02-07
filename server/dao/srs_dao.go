@@ -490,6 +490,172 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requ
 	return results, nil
 }
 
+// GetDueReviewsCompact gets nodes due for review using the compact projection shape.
+func (d *SRSDao) GetDueReviewsCompact(userID uint, domainID uint, nodeType string, requestID string, route string, stage string) ([]models.DueReviewCompact, error) {
+	const daoMethod = "SRSDao.GetDueReviewsCompact"
+	if route == "" {
+		route = srsDueRoute
+	}
+	if stage == "" {
+		stage = "fetch_due_rows"
+	}
+
+	comment := fmt.Sprintf("/* route:%s stage:%s */", route, stage)
+	startedAt := time.Now()
+	var results []models.DueReviewCompact
+
+	var query string
+	if nodeType == "definition" {
+		query = fmt.Sprintf(`
+			%s
+			SELECT
+				md.id as node_id,
+				'definition' as node_type,
+				md.code as node_code,
+				md.name as node_name,
+				unp.status,
+				unp.next_review,
+				true as is_due
+			FROM meta_definitions md
+			JOIN user_node_progress unp ON md.id = unp.node_id
+				AND unp.node_type = 'definition' AND unp.user_id = ?
+			WHERE md.domain_id = ? AND unp.status = 'grasped'
+				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+			ORDER BY unp.next_review ASC NULLS FIRST
+		`, comment)
+	} else if nodeType == "exercise" || nodeType == "meta_exercise" {
+		query = fmt.Sprintf(`
+			%s
+			SELECT
+				e.id as node_id,
+				'exercise' as node_type,
+				e.code as node_code,
+				e.name as node_name,
+				unp.status,
+				unp.next_review,
+				true as is_due
+			FROM meta_exercises e
+			JOIN user_node_progress unp ON e.id = unp.node_id
+				AND unp.node_type = 'exercise' AND unp.user_id = ?
+			WHERE e.domain_id = ? AND unp.status = 'grasped'
+				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+			ORDER BY unp.next_review ASC NULLS FIRST
+		`, comment)
+	} else {
+		defQuery := fmt.Sprintf(`
+			%s
+			SELECT
+				md.id as node_id,
+				'definition' as node_type,
+				md.code as node_code,
+				md.name as node_name,
+				unp.status,
+				unp.next_review,
+				true as is_due
+			FROM meta_definitions md
+			JOIN user_node_progress unp ON md.id = unp.node_id
+				AND unp.node_type = 'definition' AND unp.user_id = ?
+			WHERE md.domain_id = ? AND unp.status = 'grasped'
+				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+		`, comment)
+
+		exQuery := fmt.Sprintf(`
+			%s
+			SELECT
+				e.id as node_id,
+				'exercise' as node_type,
+				e.code as node_code,
+				e.name as node_name,
+				unp.status,
+				unp.next_review,
+				true as is_due
+			FROM meta_exercises e
+			JOIN user_node_progress unp ON e.id = unp.node_id
+				AND unp.node_type = 'exercise' AND unp.user_id = ?
+			WHERE e.domain_id = ? AND unp.status = 'grasped'
+				AND (unp.next_review IS NULL OR unp.next_review <= NOW())
+		`, comment)
+
+		var defResults []models.DueReviewCompact
+		var exResults []models.DueReviewCompact
+
+		if err := d.db.Raw(defQuery, userID, domainID).Scan(&defResults).Error; err != nil {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
+			)
+			return nil, err
+		}
+
+		if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
+			logDAOStage(
+				requestID,
+				route,
+				daoMethod,
+				stage,
+				startedAt,
+				err,
+				map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
+			)
+			return nil, err
+		}
+
+		results = append(results, defResults...)
+		results = append(results, exResults...)
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			nil,
+			map[string]interface{}{
+				"userId":          userID,
+				"domainId":        domainID,
+				"nodeType":        nodeType,
+				"definitionCount": len(defResults),
+				"exerciseCount":   len(exResults),
+				"resultCount":     len(results),
+			},
+		)
+		return results, nil
+	}
+
+	if err := d.db.Raw(query, userID, domainID).Scan(&results).Error; err != nil {
+		logDAOStage(
+			requestID,
+			route,
+			daoMethod,
+			stage,
+			startedAt,
+			err,
+			map[string]interface{}{"userId": userID, "domainId": domainID, "nodeType": nodeType},
+		)
+		return nil, err
+	}
+
+	logDAOStage(
+		requestID,
+		route,
+		daoMethod,
+		stage,
+		startedAt,
+		nil,
+		map[string]interface{}{
+			"userId":      userID,
+			"domainId":    domainID,
+			"nodeType":    nodeType,
+			"resultCount": len(results),
+		},
+	)
+	return results, nil
+}
+
 // GetGraspedDefinitions gets all grasped definitions for a domain.
 func (d *SRSDao) GetGraspedDefinitions(userID uint, domainID uint, requestID string, route string, stage string) ([]models.NodeProgress, error) {
 	const daoMethod = "SRSDao.GetGraspedDefinitions"

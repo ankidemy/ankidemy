@@ -206,7 +206,7 @@ func CacheGetOrLoadJSON[T any](
 	}
 
 	marshalStartedAt := time.Now()
-	payload, err := json.Marshal(loaded)
+	payload, err = json.Marshal(loaded)
 	logServiceStage(
 		requestID,
 		route,

@@ -121,6 +121,15 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 		return
 	}
 
+	view := c.Query("view")
+	if view == "" {
+		view = "full"
+	}
+	if view != "full" && view != "compact" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "View must be 'full' or 'compact'"})
+		return
+	}
+
 	// Normalize meta types to base types for due selection
 	if nodeType == "meta_exercise" {
 		nodeType = "exercise"
@@ -128,12 +137,23 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 	if nodeType == "meta_definition" {
 		nodeType = "definition"
 	}
-	dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType, middleware.GetRequestID(c))
+
+	requestID := middleware.GetRequestID(c)
+	if view == "compact" {
+		dueNodes, err := h.srsService.GetDueReviewsCompact(userID.(uint), uint(domainID), nodeType, requestID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"dueNodes": dueNodes})
+		return
+	}
+
+	dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType, requestID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"dueNodes": dueNodes})
 }
 

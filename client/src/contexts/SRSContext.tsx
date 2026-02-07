@@ -347,7 +347,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           action: "domain-load",
         }),
         srsApi.getDomainPrerequisites(domainId),
-        srsApi.getDueReviews(domainId, 'mixed')
+        srsApi.getDueReviews(domainId, 'mixed', 'compact')
       ]);
   
       const [progress, stats, prerequisites, dueReviewsResult] = await Promise.race([
@@ -575,7 +575,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               action: "post-review-refresh",
             }),
             // Fetch reviews based on the session type if in a session, otherwise mixed
-            srsApi.getDueReviews(domainId, review.sessionId ? currentSession?.sessionType : 'mixed')
+            srsApi.getDueReviews(domainId, review.sessionId ? currentSession?.sessionType : 'mixed', 'compact')
         ]);
 
         if (stats.status === 'fulfilled') {
@@ -615,7 +615,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      const dueReviewsResult = await srsApi.getDueReviews(domainId, sessionType);
+      const dueReviewsResult = await srsApi.getDueReviews(domainId, sessionType, 'compact');
       // Ensure the payload is an array before dispatching
       const dueNodes = Array.isArray(dueReviewsResult?.dueNodes) ? dueReviewsResult.dueNodes : [];
       if (!Array.isArray(dueReviewsResult?.dueNodes)) {

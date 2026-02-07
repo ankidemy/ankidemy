@@ -673,10 +673,88 @@ func (s *SRSService) getDueReviewsOptimized(
 		return nil, err
 	}
 
+	return s.optimizeDueReviews(
+		dueNodes,
+		userID,
+		domainID,
+		nodeType,
+		requestID,
+		route,
+		serviceMethod,
+		logDueOptimizationStages,
+	)
+}
+
+func (s *SRSService) getDueReviewsCompactOptimized(
+	userID uint,
+	domainID uint,
+	nodeType string,
+	requestID string,
+	route string,
+	serviceMethod string,
+	fetchStage string,
+	logFetchStage bool,
+	logDueOptimizationStages bool,
+) ([]models.DueReviewCompact, error) {
+	if fetchStage == "" {
+		fetchStage = "fetch_due_rows"
+	}
+
+	fetchDueRowsStartedAt := time.Now()
+	dueNodes, err := s.srsDao.GetDueReviewsCompact(userID, domainID, nodeType, requestID, route, fetchStage)
+	if logFetchStage {
+		logServiceStage(
+			requestID,
+			route,
+			serviceMethod,
+			fetchStage,
+			fetchDueRowsStartedAt,
+			err,
+			map[string]interface{}{
+				"userId":    userID,
+				"domainId":  domainID,
+				"nodeType":  nodeType,
+				"dueCount":  len(dueNodes),
+				"routeUsed": route,
+			},
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	optimized, err := s.optimizeDueReviews(
+		compactDueReviewsToNodeProgress(dueNodes),
+		userID,
+		domainID,
+		nodeType,
+		requestID,
+		route,
+		serviceMethod,
+		logDueOptimizationStages,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return nodeProgressToCompactDueReviews(optimized), nil
+}
+
+func (s *SRSService) optimizeDueReviews(
+	dueNodes []models.NodeProgress,
+	userID uint,
+	domainID uint,
+	nodeType string,
+	requestID string,
+	route string,
+	serviceMethod string,
+	logDueOptimizationStages bool,
+) ([]models.NodeProgress, error) {
 	if len(dueNodes) == 0 {
 		return dueNodes, nil
 	}
 
+	var err error
 	loadPrerequisitesStartedAt := time.Now()
 	var prerequisites []models.NodePrerequisite
 	if logDueOptimizationStages {
@@ -745,10 +823,66 @@ func (s *SRSService) getDueReviewsOptimized(
 	return ordered, nil
 }
 
+func compactDueReviewsToNodeProgress(dueNodes []models.DueReviewCompact) []models.NodeProgress {
+	if len(dueNodes) == 0 {
+		return []models.NodeProgress{}
+	}
+
+	result := make([]models.NodeProgress, 0, len(dueNodes))
+	for _, dueNode := range dueNodes {
+		result = append(result, models.NodeProgress{
+			NodeID:     dueNode.NodeID,
+			NodeType:   dueNode.NodeType,
+			NodeCode:   dueNode.NodeCode,
+			NodeName:   dueNode.NodeName,
+			Status:     dueNode.Status,
+			NextReview: dueNode.NextReview,
+			IsDue:      dueNode.IsDue,
+		})
+	}
+	return result
+}
+
+func nodeProgressToCompactDueReviews(dueNodes []models.NodeProgress) []models.DueReviewCompact {
+	if len(dueNodes) == 0 {
+		return []models.DueReviewCompact{}
+	}
+
+	result := make([]models.DueReviewCompact, 0, len(dueNodes))
+	for _, dueNode := range dueNodes {
+		result = append(result, models.DueReviewCompact{
+			NodeID:     dueNode.NodeID,
+			NodeType:   dueNode.NodeType,
+			NodeCode:   dueNode.NodeCode,
+			NodeName:   dueNode.NodeName,
+			Status:     dueNode.Status,
+			NextReview: dueNode.NextReview,
+			IsDue:      dueNode.IsDue,
+		})
+	}
+	return result
+}
+
 // GetDueReviews gets optimally ordered due reviews.
 func (s *SRSService) GetDueReviews(userID uint, domainID uint, nodeType string, requestID string) ([]models.NodeProgress, error) {
 	const serviceMethod = "SRSService.GetDueReviews"
 	return s.getDueReviewsOptimized(
+		userID,
+		domainID,
+		nodeType,
+		requestID,
+		srsDueRoutePath,
+		serviceMethod,
+		"fetch_due_rows",
+		true,
+		true,
+	)
+}
+
+// GetDueReviewsCompact gets optimally ordered due reviews in compact response shape.
+func (s *SRSService) GetDueReviewsCompact(userID uint, domainID uint, nodeType string, requestID string) ([]models.DueReviewCompact, error) {
+	const serviceMethod = "SRSService.GetDueReviewsCompact"
+	return s.getDueReviewsCompactOptimized(
 		userID,
 		domainID,
 		nodeType,

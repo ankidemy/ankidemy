@@ -176,6 +176,17 @@ type NodeProgress struct {
 	IsDue             bool       `json:"isDue"`
 }
 
+// DueReviewCompact is the compact payload shape for /srs/domains/:domainId/due?view=compact.
+type DueReviewCompact struct {
+	NodeID     uint       `json:"nodeId"`
+	NodeType   string     `json:"nodeType"`
+	NodeCode   string     `json:"nodeCode"`
+	NodeName   string     `json:"nodeName"`
+	Status     string     `json:"status"`
+	NextReview *time.Time `json:"nextReview"`
+	IsDue      bool       `json:"isDue"`
+}
+
 // ReviewQueueItem represents a practice/review queue entry.
 type ReviewQueueItem struct {
 	NodeID           uint    `json:"nodeId"`

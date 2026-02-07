@@ -12,6 +12,7 @@ import {
   ReviewHistoryItem,
   CreditUpdate,
   SessionType,
+  DueView,
   NodeStatus,
   ReviewQueueItem,
   NotificationSummary
@@ -199,9 +200,13 @@ export const submitReview = async (review: ReviewRequest): Promise<ReviewRespons
 // Get due reviews for a domain (already returns optimally ordered results)
 export const getDueReviews = async (
   domainId: number, 
-  type: SessionType = 'mixed'
+  type: SessionType = 'mixed',
+  view: DueView = 'full',
 ): Promise<{ dueNodes: DueReview[] }> => {
-  const response = await observedFetch(`${API_URL}/api/srs/domains/${domainId}/due?type=${type}`, {
+  const params = new URLSearchParams();
+  params.set('type', type);
+  params.set('view', view);
+  const response = await observedFetch(`${API_URL}/api/srs/domains/${domainId}/due?${params.toString()}`, {
     headers: getAuthHeaders(),
   });
   return handleSRSResponse(response);
