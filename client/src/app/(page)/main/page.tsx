@@ -581,7 +581,9 @@ export default function MainPage() {
                     <div className="flex items-start justify-between gap-2 pr-8">
                       <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
                       {domainDueCounts[domain.id] > 0 && (
-                        <span className="mt-1 inline-flex items-center rounded-full bg-orange-100 text-orange-700 text-xs font-semibold px-2 py-0.5">
+                        <span className={`mt-1 inline-flex items-center rounded-full text-xs font-semibold px-2 py-0.5 ${
+                          isDarkMode ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700'
+                        }`}>
                           {domainDueCounts[domain.id]} due
                         </span>
                       )}

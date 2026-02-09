@@ -5894,7 +5894,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   return (
-      <div className={`knowledge-graph-shell h-full flex flex-col overflow-hidden bg-gray-100 ${isNightMode ? 'kg-night-mode dark' : ''}`}>
+      <div className={`knowledge-graph-shell h-full flex flex-col overflow-hidden ${isNightMode ? 'bg-slate-950 kg-night-mode dark' : 'bg-gray-100'}`}>
         {/* Modals */}
         <NodeCreationModal
           type={nodeCreationType}
@@ -5990,7 +5990,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           {!showLeftPanel && <LeftPanelToggle onClick={toggleLeftPanel} />}
 
           {/* Graph Area */}
-          <div ref={graphContainerRef} className="flex-1 bg-gray-50 overflow-hidden relative">
+          <div
+            ref={graphContainerRef}
+            className={`flex-1 overflow-hidden relative ${isNightMode ? 'bg-slate-950' : 'bg-gray-50'}`}
+          >
             <ContextToolbar
               id="toolbox-toolbar"
               boundsRef={graphContainerRef}
@@ -6158,10 +6161,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             {frenzyNote && (
               <div
                 ref={frenzyNoteRef}
-                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
+                className="frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
                 style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
               >
-                <div className="px-3 pt-3 pb-2 border-b border-yellow-300 bg-yellow-100/95">
+                <div className="frenzy-note-theme-header px-3 pt-3 pb-2 border-b border-yellow-300 bg-yellow-100/95">
                   <div
                     className="flex items-start justify-between gap-2 cursor-move select-none"
                     onMouseDown={handleFrenzyNoteMouseDown}
@@ -6494,7 +6497,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	            {frenzyQuestNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
+	                className="frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
 	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
 	              >
 	                <div className="min-h-0 flex-1 overflow-hidden">

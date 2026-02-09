@@ -7,9 +7,10 @@ import { useNotifications } from "@/contexts/NotificationContext";
 
 interface NotificationCenterProps {
   suppressDomainId?: number;
+  isNightMode?: boolean;
 }
 
-const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainId }) => {
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainId, isNightMode = false }) => {
   const {
     notifications,
     domainAlertDueCounts,
@@ -146,7 +147,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ suppressDomainI
                             </span>
                             {notification.meta?.dueCount !== undefined &&
                               (!suppressDomainId || notification.meta?.domainId !== suppressDomainId) && (
-                              <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isNightMode ? 'text-white bg-orange-500' : 'text-orange-600 bg-orange-100'}`}>
                                 {notification.meta.dueLabel || notification.meta.dueCount}
                               </span>
                             )}

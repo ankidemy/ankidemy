@@ -553,7 +553,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             <List size={14} className="mr-1" />
             Queue
             {dueCount > 0 && (
-              <span className="ml-2 rounded-full bg-orange-100 text-orange-700 text-[11px] font-semibold px-2 py-0.5">
+              <span className={`ml-2 rounded-full text-[11px] font-semibold px-2 py-0.5 ${isNightMode ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700'}`}>
                 {dueCount}
               </span>
             )}
@@ -637,7 +637,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             <List size={14} className="mr-1" />
             Survey
             {surveyDueCount > 0 && (
-              <span className="ml-2 rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5">
+              <span className={`ml-2 rounded-full text-[11px] font-semibold px-2 py-0.5 ${isNightMode ? 'bg-amber-500 text-white' : 'bg-amber-100 text-amber-700'}`}>
                 {surveyDueCount}
               </span>
             )}
@@ -766,7 +766,7 @@ const TopControls: React.FC<TopControlsProps> = ({
           </Button>
         )}
 
-        <NotificationCenter suppressDomainId={currentDomainId} />
+        <NotificationCenter suppressDomainId={currentDomainId} isNightMode={isNightMode} />
 
         <div className="relative" ref={optionsRef}>
           <Button

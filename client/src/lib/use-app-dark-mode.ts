@@ -8,7 +8,8 @@ import {
 } from '@/lib/app-preferences';
 
 export const useAppDarkMode = (): boolean => {
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => isAppDarkModeEnabled());
+  // Keep initial render deterministic between SSR and first client hydration.
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   useEffect(() => {
     const sync = () => {
@@ -20,6 +21,7 @@ export const useAppDarkMode = (): boolean => {
       sync();
     };
 
+    sync();
     window.addEventListener('storage', handleStorage);
     window.addEventListener(APP_PREFERENCES_UPDATED_EVENT, sync);
 
@@ -31,4 +33,3 @@ export const useAppDarkMode = (): boolean => {
 
   return isDarkMode;
 };
-

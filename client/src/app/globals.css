@@ -173,12 +173,12 @@
 
 .kg-night-mode .bg-amber-50,
 .kg-night-mode .bg-yellow-50 {
-  background-color: #451a03 !important;
+  background-color: #7c2d12 !important;
 }
 
 .kg-night-mode .bg-amber-100,
 .kg-night-mode .bg-yellow-100 {
-  background-color: #78350f !important;
+  background-color: #c2410c !important;
 }
 
 .kg-night-mode .bg-red-100 {
@@ -190,7 +190,7 @@
 }
 
 .kg-night-mode .bg-orange-100 {
-  background-color: #7c2d12 !important;
+  background-color: #ea580c !important;
 }
 
 .kg-night-mode .bg-purple-100 {
@@ -199,7 +199,12 @@
 
 .kg-night-mode [class*="bg-amber-50/"],
 .kg-night-mode [class*="bg-yellow-50/"] {
-  background-color: rgba(120, 53, 15, 0.42) !important;
+  background-color: rgba(234, 88, 12, 0.35) !important;
+}
+
+.kg-night-mode [class*="bg-amber-100/"],
+.kg-night-mode [class*="bg-yellow-100/"] {
+  background-color: rgba(194, 65, 12, 0.9) !important;
 }
 
 .kg-night-mode .from-gray-100.to-gray-50 {
@@ -290,7 +295,7 @@
 .kg-night-mode .text-orange-700,
 .kg-night-mode .text-orange-600,
 .kg-night-mode .text-orange-500 {
-  color: #fdba74 !important;
+  color: #fb923c !important;
 }
 
 .kg-night-mode .text-purple-800,
@@ -346,4 +351,79 @@
 
 .kg-night-mode .bg-gray-800 {
   background-color: #e2e8f0 !important;
+}
+
+/* Keep frenzy note windows blue-toned in night mode without affecting standard draggable windows. */
+.kg-night-mode .frenzy-note-theme {
+  /* Override shadcn token vars locally so reused buttons/controls stay blue-toned in frenzy notes. */
+  --background: 221 72% 32%;
+  --foreground: 210 100% 96%;
+  --border: 213 94% 68%;
+  --input: 213 94% 68%;
+  --accent: 221 66% 38%;
+  --accent-foreground: 210 100% 96%;
+  --secondary: 221 58% 36%;
+  --secondary-foreground: 210 100% 96%;
+  --primary: 210 100% 64%;
+  --primary-foreground: 222 47% 11%;
+  --ring: 210 100% 64%;
+  background-color: #1e3a8a !important;
+  border-color: #60a5fa !important;
+}
+
+.kg-night-mode .frenzy-note-theme .frenzy-note-theme-header,
+.kg-night-mode .frenzy-note-theme [class*="bg-yellow-100/"],
+.kg-night-mode .frenzy-note-theme [class*="bg-amber-100/"] {
+  background-color: rgba(37, 99, 235, 0.9) !important;
+  border-color: #60a5fa !important;
+}
+
+.kg-night-mode .frenzy-note-theme .bg-yellow-100,
+.kg-night-mode .frenzy-note-theme .bg-amber-100,
+.kg-night-mode .frenzy-note-theme [class*="bg-yellow-50/"],
+.kg-night-mode .frenzy-note-theme [class*="bg-amber-50/"] {
+  background-color: rgba(30, 64, 175, 0.68) !important;
+}
+
+.kg-night-mode .frenzy-note-theme .bg-yellow-50,
+.kg-night-mode .frenzy-note-theme .bg-amber-50,
+.kg-night-mode .frenzy-note-theme .bg-white,
+.kg-night-mode .frenzy-note-theme [class*="bg-white/"] {
+  background-color: #1e40af !important;
+}
+
+.kg-night-mode .frenzy-note-theme input,
+.kg-night-mode .frenzy-note-theme textarea,
+.kg-night-mode .frenzy-note-theme select {
+  background-color: #1e40af !important;
+  color: #eff6ff !important;
+  border-color: #60a5fa !important;
+}
+
+.kg-night-mode .frenzy-note-theme input::placeholder,
+.kg-night-mode .frenzy-note-theme textarea::placeholder {
+  color: #bfdbfe !important;
+}
+
+/* Improve text selection contrast inside frenzy-note blue editors. */
+.kg-night-mode .frenzy-note-theme input::selection,
+.kg-night-mode .frenzy-note-theme textarea::selection {
+  background-color: #bfdbfe;
+  color: #0f172a;
+}
+
+.kg-night-mode .frenzy-note-theme input::-moz-selection,
+.kg-night-mode .frenzy-note-theme textarea::-moz-selection {
+  background-color: #bfdbfe;
+  color: #0f172a;
+}
+
+/* Avoid oversized dark glow on shadcn outline buttons inside frenzy notes. */
+.kg-night-mode .frenzy-note-theme .shadow,
+.kg-night-mode .frenzy-note-theme .shadow-sm,
+.kg-night-mode .frenzy-note-theme .shadow-md,
+.kg-night-mode .frenzy-note-theme .shadow-lg,
+.kg-night-mode .frenzy-note-theme .shadow-xl,
+.kg-night-mode .frenzy-note-theme .shadow-2xl {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2) !important;
 }

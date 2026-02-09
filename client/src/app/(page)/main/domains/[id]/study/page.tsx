@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { use } from 'react';
 import KnowledgeGraph from '@/app/components/Graph/KnowledgeGraph';
 import { exportDomain, updateGraphPositions, GraphData } from '@/lib/api';
+import { useAppDarkMode } from '@/lib/use-app-dark-mode';
 
 // Add correct typing for params
 interface StudyPageProps {
@@ -19,6 +20,7 @@ export default function StudyPage({ params }: StudyPageProps) {
   // Unwrap params to access the id safely
   const resolvedParams = use(params);
   const id = resolvedParams.id;
+  const isDarkMode = useAppDarkMode();
   
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +71,7 @@ export default function StudyPage({ params }: StudyPageProps) {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className={`h-screen flex items-center justify-center ${isDarkMode ? 'bg-slate-950 text-slate-100' : ''}`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500 mx-auto"></div>
           <p className="mt-4 text-lg">Loading domain graph...</p>
@@ -80,10 +82,10 @@ export default function StudyPage({ params }: StudyPageProps) {
 
   if (error || !graphData) {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="max-w-md p-6 bg-white rounded-lg shadow-md">
+      <div className={`h-screen flex items-center justify-center ${isDarkMode ? 'bg-slate-950' : ''}`}>
+        <div className={`max-w-md p-6 rounded-lg shadow-md ${isDarkMode ? 'bg-slate-900 border border-slate-700 text-slate-100' : 'bg-white'}`}>
           <h2 className="text-xl font-bold text-red-600 mb-4">Error Loading Domain</h2>
-          <p className="text-gray-700 mb-4">{error || 'Could not load domain data.'}</p>
+          <p className={`mb-4 ${isDarkMode ? 'text-slate-300' : 'text-gray-700'}`}>{error || 'Could not load domain data.'}</p>
           <button
             onClick={() => router.push('/dashboard')}
             className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
@@ -98,7 +100,7 @@ export default function StudyPage({ params }: StudyPageProps) {
   // Note: We don't need to wrap the KnowledgeGraph with MathJaxProvider here
   // because KnowledgeGraph already has its own MathJaxProvider
   return (
-    <div className="h-screen">
+    <div className={`h-screen ${isDarkMode ? 'bg-slate-950' : ''}`}>
       <KnowledgeGraph
         graphData={graphData}
         subjectMatterId={id}
