@@ -885,12 +885,16 @@ const handleResponse = async (response: Response) => {
         errorMessage = `Bad Request: ${errorMessage}`;
         break;
       case 401:
-        errorMessage = 'Authentication required. Please log in again.';
-        try { localStorage.removeItem('token'); } catch {}
-        // Redirect to login after current microtask
-        Promise.resolve().then(redirectToLogin);
-        // Downgrade to warn to avoid noisy console errors for expected expiry
-        console.warn('Auth expired or missing; redirecting to login', { url: response.url });
+        // For login/register endpoints, preserve the server error message (e.g. "Invalid credentials")
+        // and don't clear the token or redirect — the caller handles the error.
+        if (!response.url.includes('/api/auth/login') && !response.url.includes('/api/auth/register')) {
+          errorMessage = 'Authentication required. Please log in again.';
+          try { localStorage.removeItem('token'); } catch {}
+          // Redirect to login after current microtask
+          Promise.resolve().then(redirectToLogin);
+          // Downgrade to warn to avoid noisy console errors for expected expiry
+          console.warn('Auth expired or missing; redirecting to login', { url: response.url });
+        }
         break;
       case 403:
         errorMessage = 'You do not have permission to perform this action.';
