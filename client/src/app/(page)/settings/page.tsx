@@ -54,6 +54,7 @@ export default function SettingsPage() {
 
   const surveySoundEnabled = preferences.notifications?.surveyQueueSoundEnabled !== false;
   const dueReviewSoundEnabled = preferences.notifications?.dueReviewBatchSoundEnabled !== false;
+  const knowledgeGraphNightModeEnabled = preferences.general?.knowledgeGraphNightMode === true;
   const browserTimezone = getBrowserTimeZone();
   const configuredTimezone = (preferences.general?.timezone || '').trim();
   const appTimezone = isValidTimeZone(configuredTimezone) ? configuredTimezone : getAppTimeZone();
@@ -114,6 +115,15 @@ export default function SettingsPage() {
     setPreferences(next);
   };
 
+  const handleKnowledgeGraphNightModeToggle = (enabled: boolean) => {
+    const next = updateAppPreferences({
+      general: {
+        knowledgeGraphNightMode: enabled,
+      },
+    });
+    setPreferences(next);
+  };
+
   if (loading) {
     return <p className="text-center text-gray-500 py-10">Loading settings...</p>;
   }
@@ -165,6 +175,28 @@ export default function SettingsPage() {
                 Use Browser Local
               </Button>
             </div>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-md border border-gray-200 p-4">
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-gray-900">
+                Knowledge Graph Night Mode
+              </div>
+              <p className="text-xs text-gray-600">
+                Apply dark surfaces and light text in knowledge graph views for all domains.
+              </p>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={knowledgeGraphNightModeEnabled}
+                onChange={(event) => handleKnowledgeGraphNightModeToggle(event.target.checked)}
+              />
+              <span className="text-xs text-gray-700">
+                {knowledgeGraphNightModeEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </label>
           </div>
 
           <div className="flex items-start justify-between gap-4 rounded-md border border-gray-200 p-4">

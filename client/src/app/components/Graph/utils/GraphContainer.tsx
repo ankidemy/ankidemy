@@ -55,6 +55,7 @@ interface GraphContainerProps {
   structureVersion?: number;
   dagMode?: 'td' | 'bu' | 'lr' | 'rl' | 'radialout' | 'radialin' | null;
   onDagError?: (loop: (string | number)[]) => void;
+  isNightMode?: boolean;
 }
 
 // Pure renderer with memoized calculations
@@ -86,6 +87,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   structureVersion,
   dagMode = null,
   onDagError,
+  isNightMode = false,
 }) => {
   // Position tracking and incremental repaint scheduling
   const nodePositions = useRef(new Map<string, {x: number, y: number}>());
@@ -124,6 +126,54 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     };
   }, []);
 
+  const graphTheme = useMemo(() => {
+    if (!isNightMode) {
+      return {
+        canvasBackground: '#f9fafb',
+        labelText: '#333333',
+        labelBackgroundFill: 'rgba(255, 255, 255, 0.95)',
+        labelBackgroundStroke: 'rgba(0, 0, 0, 0.12)',
+        fallbackLabelText: '#1f2937',
+        relationLink: 'rgba(31, 41, 55, 0.55)',
+        defaultLink: 'rgba(120, 120, 120, 0.25)',
+        weightedLinkLow: 'rgba(100, 120, 180, 0.25)',
+        highlightedLink: 'rgba(0, 123, 255, 0.8)',
+        exerciseLink: 'rgba(255, 69, 0, 0.3)',
+        weightLabelBackground: 'rgba(255, 255, 255, 0.95)',
+        weightLabelText: '#333333',
+        nodeBorder: {
+          group: 'rgba(15, 23, 42, 0.85)',
+          defaultStrong: 'rgba(0, 0, 0, 0.5)',
+          definition: 'rgba(0, 0, 0, 0.3)',
+          exercise: 'rgba(0, 0, 0, 0.4)',
+          sourceQuest: 'rgba(0,0,0,0.25)',
+        },
+      };
+    }
+
+    return {
+      canvasBackground: '#020617',
+      labelText: '#e5e7eb',
+      labelBackgroundFill: 'rgba(15, 23, 42, 0.92)',
+      labelBackgroundStroke: 'rgba(148, 163, 184, 0.45)',
+      fallbackLabelText: '#e2e8f0',
+      relationLink: 'rgba(148, 163, 184, 0.75)',
+      defaultLink: 'rgba(148, 163, 184, 0.45)',
+      weightedLinkLow: 'rgba(125, 211, 252, 0.45)',
+      highlightedLink: 'rgba(125, 211, 252, 0.9)',
+      exerciseLink: 'rgba(251, 146, 60, 0.6)',
+      weightLabelBackground: 'rgba(15, 23, 42, 0.92)',
+      weightLabelText: '#f8fafc',
+      nodeBorder: {
+        group: 'rgba(226, 232, 240, 0.95)',
+        defaultStrong: 'rgba(248, 250, 252, 0.65)',
+        definition: 'rgba(226, 232, 240, 0.45)',
+        exercise: 'rgba(226, 232, 240, 0.55)',
+        sourceQuest: 'rgba(226, 232, 240, 0.45)',
+      },
+    };
+  }, [isNightMode]);
+
   const scheduleRafRefresh = useCallback(() => {
     if (rafRefreshRef.current != null) return;
     rafRefreshRef.current = requestAnimationFrame(() => {
@@ -142,6 +192,24 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     window.addEventListener(MATHJAX_READY_EVENT, onMathJaxReady);
     return () => window.removeEventListener(MATHJAX_READY_EVENT, onMathJaxReady);
   }, [scheduleRafRefresh]);
+
+  useEffect(() => {
+    const renderer = labelRendererRef.current;
+    renderer.setTheme({
+      textColor: graphTheme.labelText,
+      backgroundFill: graphTheme.labelBackgroundFill,
+      backgroundStroke: graphTheme.labelBackgroundStroke,
+      fallbackTextColor: graphTheme.fallbackLabelText,
+    });
+    renderer.clearCache();
+    scheduleRafRefresh();
+  }, [
+    graphTheme.labelBackgroundStroke,
+    graphTheme.fallbackLabelText,
+    graphTheme.labelBackgroundFill,
+    graphTheme.labelText,
+    scheduleRafRefresh,
+  ]);
 
   // Pre-warm label cache to avoid first-hover flicker
   // We derive a coarse key from label mode + node set identity (length + edge ids)
@@ -176,12 +244,14 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   // so we key this on `structureVersion` to force ForceGraph to rebuild pointer
   // hit maps when topology changes (new node/link insertions).
   const memoizedGraphData = useMemo(() => {
+    void structureVersion;
     console.log(`GraphContainer: Creating graph data with ${graphNodes.length} nodes, ${graphLinks.length} links`);
     return { nodes: graphNodes, links: graphLinks };
   }, [graphNodes, graphLinks, structureVersion]);
 
   // Derive node positions map without effects (consumed by overlay on animation creation)
   const computedNodePositions = useMemo(() => {
+    void structureVersion;
     const map = new Map<string, { x: number; y: number }>();
     graphNodes.forEach(node => {
       if (typeof node.x === 'number' && typeof node.y === 'number') {
@@ -194,6 +264,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   }, [graphNodes, structureVersion]);
 
   const nodeById = useMemo(() => {
+    void structureVersion;
     const map = new Map<string, GraphNode>();
     graphNodes.forEach(node => map.set(node.id, node));
     return map;
@@ -331,7 +402,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     if (!finalColor) {
       let baseColor;
       if (isGroup) {
-        baseColor = '#111827';
+        baseColor = isNightMode ? '#cbd5e1' : '#111827';
       } else if (type === 'definition') {
         baseColor = node.isRootDefinition ? '#28a745' : '#007bff';
       } else if (type === 'source') {
@@ -398,16 +469,18 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       ctx.lineWidth = 1.5 / globalScale;
     } else {
       if (isGroup) {
-        ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.strokeStyle = graphTheme.nodeBorder.group;
         ctx.lineWidth = 1.5 / globalScale;
       } else if (isExternal) {
         ctx.strokeStyle = externalStatus && externalStatus !== 'ok' ? 'rgba(248, 113, 113, 0.85)' : 'rgba(148, 163, 184, 0.65)';
         ctx.lineWidth = 1 / globalScale;
       } else {
         if (type === 'source' || type === 'quest') {
-          ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+          ctx.strokeStyle = graphTheme.nodeBorder.sourceQuest;
         } else {
-          ctx.strokeStyle = status ? 'rgba(0,0,0,0.5)' : (type === 'definition' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.4)');
+          ctx.strokeStyle = status
+            ? graphTheme.nodeBorder.defaultStrong
+            : (type === 'definition' ? graphTheme.nodeBorder.definition : graphTheme.nodeBorder.exercise);
         }
         ctx.lineWidth = 1 / globalScale;
       }
@@ -560,7 +633,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
       }
     }
-  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundMode, scheduleRafRefresh, getNodeBaseSize]);
+  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundMode, scheduleRafRefresh, getNodeBaseSize, graphTheme, isNightMode]);
 
   const nodePointerAreaPaint = useCallback((node: any, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
@@ -601,9 +674,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       return 'rgba(245, 158, 11, 0.9)';
     }
 
-    if (link.type === 'relation') {
-      return 'rgba(31, 41, 55, 0.55)';
-    }
+    if (link.type === 'relation') return graphTheme.relationLink;
 
     const sourceNode = graphNodes.find(n => n.id === sourceId);
     if (link.type === 'external' || sourceNode?.isExternal) {
@@ -620,6 +691,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     if (sourceHighlighted || targetHighlighted) {
       const weight = link.weight || 1.0;
       const opacity = 0.6 + 0.3 * weight;
+      if (isNightMode) return `rgba(125, 211, 252, ${opacity})`;
       return `rgba(0, 123, 255, ${opacity})`;
     }
     
@@ -630,6 +702,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       const minOpacity = 0.3;
       const maxOpacity = 0.8;
       const opacity = minOpacity + (maxOpacity - minOpacity) * weight;
+      if (isNightMode) return `rgba(251, 146, 60, ${opacity})`;
       return `rgba(255, 69, 0, ${opacity})`;
     }
     
@@ -638,11 +711,13 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     const opacity = minOpacity + (maxOpacity - minOpacity) * weight;
     
     if (weight < 1.0) {
+      if (isNightMode) return `rgba(125, 211, 252, ${opacity})`;
       return `rgba(100, 120, 180, ${opacity})`;
     } else {
+      if (isNightMode) return `rgba(148, 163, 184, ${opacity})`;
       return `rgba(120, 120, 120, ${opacity})`;
     }
-  }, [graphNodes, highlightLinks, highlightNodes]);
+  }, [graphNodes, graphTheme.relationLink, highlightLinks, highlightNodes, isNightMode]);
 
   // Memoized link width calculation
   const getLinkWidth = useCallback((link: any) => {
@@ -825,7 +900,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
       const text = weight.toFixed(2);
       const textMetrics = ctx.measureText(text);
       
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillStyle = graphTheme.weightLabelBackground;
       ctx.fillRect(
         controlX - textMetrics.width / 2 - 3,
         controlY - fontSize / 2 - 2,
@@ -833,12 +908,12 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         fontSize + 4
       );
       
-      ctx.fillStyle = '#333';
+      ctx.fillStyle = graphTheme.weightLabelText;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, controlX, controlY);
     }
-  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes, getLinkCurvePoints, getNodeBaseSize]);
+  }, [getLinkColor, getLinkWidth, highlightLinks, highlightNodes, graphNodes, getLinkCurvePoints, getNodeBaseSize, graphTheme.weightLabelBackground, graphTheme.weightLabelText]);
 
   const linkPointerAreaPaint = useCallback((link: any, color: string, ctx: CanvasRenderingContext2D) => {
     const curve = getLinkCurvePoints(link);
@@ -926,7 +1001,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   const cooldownTicks = Math.max(structuralChange ? 400 : 0, dagCooldownTicks);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', backgroundColor: graphTheme.canvasBackground }}>
       <ForceGraph2D
         ref={graphInstanceRef}
         graphData={memoizedGraphData}
@@ -1030,7 +1105,8 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.requiresPhysicsReset === nextProps.requiresPhysicsReset &&
     prevProps.structureVersion === nextProps.structureVersion &&
     prevProps.dagMode === nextProps.dagMode &&
-    prevProps.onDagError === nextProps.onDagError
+    prevProps.onDagError === nextProps.onDagError &&
+    prevProps.isNightMode === nextProps.isNightMode
   );
 });
 

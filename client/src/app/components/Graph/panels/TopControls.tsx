@@ -71,6 +71,8 @@ interface TopControlsProps {
   canEdit?: boolean;
   domainSettings?: UserDomainSettings | null;
   onUpdateDomainSettings?: (updates: UserDomainSettingsUpdate) => Promise<UserDomainSettings | void>;
+  isNightMode?: boolean;
+  onNightModeChange?: (enabled: boolean) => void;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -93,6 +95,8 @@ const TopControls: React.FC<TopControlsProps> = ({
   canEdit: canEditProp,
   domainSettings,
   onUpdateDomainSettings,
+  isNightMode = false,
+  onNightModeChange,
 }) => {
   const srs = useSRS();
 
@@ -372,6 +376,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showReviewQueue, dueReviews, isEnrolled, currentDomainId, currentSrsDomainId, loadDueReviews]);
 
   const canChangeOptions = !!(isEnrolled && onUpdateDomainSettings);
+  const canOpenOptions = canChangeOptions || !!onNightModeChange;
 
   const handleSaveOptions = useCallback(async () => {
     if (!canChangeOptions || !onUpdateDomainSettings) return;
@@ -769,8 +774,8 @@ const TopControls: React.FC<TopControlsProps> = ({
             size="sm"
             onClick={() => setShowOptions(prev => !prev)}
             className="flex items-center"
-            title={canChangeOptions ? "Options" : "Enroll to save options"}
-            disabled={!canChangeOptions}
+            title={canOpenOptions ? "Options" : "Options unavailable"}
+            disabled={!canOpenOptions}
           >
             Options
             <Wrench size={14} className="ml-1" />
@@ -779,6 +784,25 @@ const TopControls: React.FC<TopControlsProps> = ({
             <div className="absolute right-0 mt-2 w-96 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
               <div className="font-semibold text-gray-800 mb-3">Options</div>
               <div className="space-y-3">
+                <label className="flex items-start justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                  <div className="space-y-1">
+                    <span className="block text-gray-700">Knowledge graph night mode</span>
+                    <span className="block text-[11px] text-gray-500">Applies to all domains in this browser.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isNightMode}
+                    onChange={(event) => onNightModeChange?.(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                  />
+                </label>
+
+                {!canChangeOptions && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Enroll in this domain to edit review options.
+                  </div>
+                )}
+
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-gray-600">Exercises per definition</span>
                   <input
@@ -789,10 +813,11 @@ const TopControls: React.FC<TopControlsProps> = ({
                       const parsed = Number(e.target.value);
                       setOptionsDraftExercises(Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1);
                     }}
+                    disabled={!canChangeOptions}
                     className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
                   />
                 </label>
-                <details className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                <details className="rounded-md border border-gray-200 bg-gray-50 p-2" open={canChangeOptions ? undefined : false}>
                   <summary className="cursor-pointer select-none text-xs font-medium text-gray-700">
                     SRS tuning (advanced)
                   </summary>
@@ -820,6 +845,7 @@ const TopControls: React.FC<TopControlsProps> = ({
                             );
                             setOptionsError(null);
                           }}
+                          disabled={!canChangeOptions}
                           className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
                       </label>
@@ -845,6 +871,7 @@ const TopControls: React.FC<TopControlsProps> = ({
                             setOptionsDraftSecondIntervalDays((previous) => Math.max(previous, nextFirst));
                             setOptionsError(null);
                           }}
+                          disabled={!canChangeOptions}
                           className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
                       </label>
@@ -873,6 +900,7 @@ const TopControls: React.FC<TopControlsProps> = ({
                             );
                             setOptionsError(null);
                           }}
+                          disabled={!canChangeOptions}
                           className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
                       </label>
@@ -898,6 +926,7 @@ const TopControls: React.FC<TopControlsProps> = ({
                             );
                             setOptionsError(null);
                           }}
+                          disabled={!canChangeOptions}
                           className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
                       </label>
@@ -923,6 +952,7 @@ const TopControls: React.FC<TopControlsProps> = ({
                             );
                             setOptionsError(null);
                           }}
+                          disabled={!canChangeOptions}
                           className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
                       </label>
@@ -940,15 +970,17 @@ const TopControls: React.FC<TopControlsProps> = ({
                     onClick={() => setShowOptions(false)}
                     disabled={optionsSaving}
                   >
-                    Cancel
+                    Close
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleSaveOptions}
-                    disabled={optionsSaving}
-                  >
-                    {optionsSaving ? 'Saving...' : 'Save'}
-                  </Button>
+                  {canChangeOptions && (
+                    <Button
+                      size="sm"
+                      onClick={handleSaveOptions}
+                      disabled={optionsSaving}
+                    >
+                      {optionsSaving ? 'Saving...' : 'Save'}
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

@@ -17,7 +17,7 @@ import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
 import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers, Clock, X } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
-import { getAppTimeZone } from '@/lib/app-preferences';
+import { getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
 import {
   buildQuestSchedulePayload,
   coalesceTimezone,
@@ -97,7 +97,6 @@ import {
   UserDomainSettingsUpdate,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
-import { isSurveyQueueSoundEnabled } from '@/lib/app-preferences';
 import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 import { useSRS } from '../../../contexts/SRSContext';
 import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
@@ -231,6 +230,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [isFrenzyEnabled, setIsFrenzyEnabled] = useState(false);
   const [isProcessingData, setIsProcessingData] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isNightMode, setIsNightMode] = useState<boolean>(() => isKnowledgeGraphNightModeEnabled());
 
   // UI state
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -305,6 +305,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const next = updateExplorerUIPreferences(numericDomainId, patch);
     if (next) setExplorerPrefs(next);
   }, [hasNumericDomainId, numericDomainId]);
+
+  const handleNightModeChange = useCallback((enabled: boolean) => {
+    setIsNightMode(enabled);
+    updateAppPreferences({
+      general: {
+        knowledgeGraphNightMode: enabled,
+      },
+    });
+  }, []);
 
 	  useEffect(() => {
 	    if (!hasNumericDomainId) return;
@@ -5885,7 +5894,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   ]);
 
   return (
-      <div className="h-full flex flex-col overflow-hidden bg-gray-100">
+      <div className={`knowledge-graph-shell h-full flex flex-col overflow-hidden bg-gray-100 ${isNightMode ? 'kg-night-mode dark' : ''}`}>
         {/* Modals */}
         <NodeCreationModal
           type={nodeCreationType}
@@ -5952,6 +5961,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
           domainSettings={domainSettings}
           onUpdateDomainSettings={handleUpdateDomainSettings}
+          isNightMode={isNightMode}
+          onNightModeChange={handleNightModeChange}
         />
 
         {/* Main Content */}
@@ -6061,6 +6072,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 structureVersion={stableGraph.structureVersion}
                 dagMode={dagMode}
                 onDagError={handleDagError}
+                isNightMode={isNightMode}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">

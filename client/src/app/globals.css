@@ -119,3 +119,196 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Knowledge graph scoped night mode */
+.kg-night-mode {
+  color-scheme: dark;
+  background-color: #0b1220;
+  color: #e5e7eb;
+}
+
+.kg-night-mode .bg-white,
+.kg-night-mode .bg-white\/90,
+.kg-night-mode .bg-white\/95 {
+  background-color: #0f172a !important;
+}
+
+.kg-night-mode [class*="bg-white/"] {
+  background-color: #0f172a !important;
+}
+
+.kg-night-mode .bg-gray-50 {
+  background-color: #111827 !important;
+}
+
+.kg-night-mode .bg-gray-100 {
+  background-color: #1f2937 !important;
+}
+
+.kg-night-mode .bg-gray-200 {
+  background-color: #334155 !important;
+}
+
+.kg-night-mode [class*="bg-gray-50/"] {
+  background-color: #1f2937 !important;
+}
+
+.kg-night-mode .bg-blue-50,
+.kg-night-mode .bg-indigo-50 {
+  background-color: #172554 !important;
+}
+
+.kg-night-mode .bg-blue-100,
+.kg-night-mode .bg-indigo-100 {
+  background-color: #1e3a8a !important;
+}
+
+.kg-night-mode .bg-green-50 {
+  background-color: #052e16 !important;
+}
+
+.kg-night-mode .bg-green-100 {
+  background-color: #14532d !important;
+}
+
+.kg-night-mode .bg-amber-50,
+.kg-night-mode .bg-yellow-50 {
+  background-color: #451a03 !important;
+}
+
+.kg-night-mode .bg-amber-100,
+.kg-night-mode .bg-yellow-100 {
+  background-color: #78350f !important;
+}
+
+.kg-night-mode .bg-red-100 {
+  background-color: #7f1d1d !important;
+}
+
+.kg-night-mode [class*="bg-amber-50/"],
+.kg-night-mode [class*="bg-yellow-50/"] {
+  background-color: rgba(120, 53, 15, 0.42) !important;
+}
+
+.kg-night-mode .from-gray-100.to-gray-50 {
+  background-image: none !important;
+  background-color: #1f2937 !important;
+}
+
+.kg-night-mode .from-gray-50.to-gray-100 {
+  background-image: none !important;
+  background-color: #1f2937 !important;
+}
+
+.kg-night-mode .border,
+.kg-night-mode .border-gray-100,
+.kg-night-mode .border-gray-200,
+.kg-night-mode .border-gray-300,
+.kg-night-mode .border-gray-400 {
+  border-color: #334155 !important;
+}
+
+.kg-night-mode .border-blue-200,
+.kg-night-mode .border-blue-300,
+.kg-night-mode .border-indigo-200,
+.kg-night-mode .border-indigo-300,
+.kg-night-mode .border-green-200,
+.kg-night-mode .border-green-300,
+.kg-night-mode .border-amber-200,
+.kg-night-mode .border-amber-300,
+.kg-night-mode .border-yellow-200,
+.kg-night-mode .border-yellow-300,
+.kg-night-mode .border-red-200,
+.kg-night-mode .border-red-300 {
+  border-color: #475569 !important;
+}
+
+.kg-night-mode .text-gray-900,
+.kg-night-mode .text-gray-800 {
+  color: #f8fafc !important;
+}
+
+.kg-night-mode .text-gray-700,
+.kg-night-mode .text-gray-600 {
+  color: #e2e8f0 !important;
+}
+
+.kg-night-mode .text-gray-500,
+.kg-night-mode .text-gray-400 {
+  color: #94a3b8 !important;
+}
+
+.kg-night-mode .text-blue-900,
+.kg-night-mode .text-blue-800,
+.kg-night-mode .text-blue-700 {
+  color: #bfdbfe !important;
+}
+
+.kg-night-mode .text-indigo-700,
+.kg-night-mode .text-indigo-600 {
+  color: #c7d2fe !important;
+}
+
+.kg-night-mode .text-green-800,
+.kg-night-mode .text-green-700 {
+  color: #86efac !important;
+}
+
+.kg-night-mode .text-amber-900,
+.kg-night-mode .text-amber-800,
+.kg-night-mode .text-amber-700,
+.kg-night-mode .text-yellow-900,
+.kg-night-mode .text-yellow-800,
+.kg-night-mode .text-yellow-700 {
+  color: #fcd34d !important;
+}
+
+.kg-night-mode .text-red-800,
+.kg-night-mode .text-red-700 {
+  color: #fca5a5 !important;
+}
+
+.kg-night-mode .hover\:bg-gray-50:hover,
+.kg-night-mode .hover\:bg-gray-100:hover,
+.kg-night-mode .hover\:bg-orange-50:hover,
+.kg-night-mode .hover\:bg-amber-50:hover {
+  background-color: #1f2937 !important;
+}
+
+.kg-night-mode .hover\:bg-blue-100:hover,
+.kg-night-mode .hover\:bg-blue-50:hover,
+.kg-night-mode .hover\:bg-yellow-100:hover,
+.kg-night-mode .hover\:bg-yellow-50:hover,
+.kg-night-mode .hover\:bg-gray-200:hover {
+  background-color: #334155 !important;
+}
+
+.kg-night-mode .hover\:text-gray-700:hover {
+  color: #f1f5f9 !important;
+}
+
+.kg-night-mode input,
+.kg-night-mode textarea,
+.kg-night-mode select {
+  background-color: #0f172a !important;
+  color: #e5e7eb !important;
+  border-color: #334155 !important;
+}
+
+.kg-night-mode input::placeholder,
+.kg-night-mode textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.kg-night-mode .shadow,
+.kg-night-mode .shadow-sm,
+.kg-night-mode .shadow-md,
+.kg-night-mode .shadow-lg,
+.kg-night-mode .shadow-xl,
+.kg-night-mode .shadow-2xl {
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.55) !important;
+}
+
+.kg-night-mode .bg-gray-300 {
+  background-color: #475569 !important;
+}

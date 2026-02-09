@@ -6,6 +6,7 @@ export type AppNotificationPreferences = {
 
 export type AppGeneralPreferences = {
   timezone?: string;
+  knowledgeGraphNightMode?: boolean;
 };
 
 export type AppPreferences = {
@@ -149,3 +150,6 @@ export const getAppTimeZone = (): string => {
   if (isValidTimeZone(preferred)) return preferred;
   return getBrowserTimeZone();
 };
+
+export const isKnowledgeGraphNightModeEnabled = (): boolean =>
+  loadAppPreferences().general?.knowledgeGraphNightMode === true;

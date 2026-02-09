@@ -83,6 +83,13 @@ interface RenderOptions {
 
 type RenderCallback = () => void;
 
+type LabelTheme = {
+  textColor: string;
+  backgroundFill: string;
+  backgroundStroke: string;
+  fallbackTextColor: string;
+};
+
 /**
  * Smart truncation that preserves TeX and inline code spans as atomic tokens.
  * Never breaks inside math delimiters ($...$, $$...$$, \(...\), \[...\]) or inline code (`...`).
@@ -295,6 +302,13 @@ export class LabelRenderer {
   private readonly maxConcurrent = 3;
   private readonly maxCacheSize = 1500;
   private readonly maxBackgroundCacheSize = 600;
+  private renderEpoch = 0;
+  private theme: LabelTheme = {
+    textColor: '#333333',
+    backgroundFill: 'rgba(255, 255, 255, 0.95)',
+    backgroundStroke: 'rgba(0, 0, 0, 0.12)',
+    fallbackTextColor: '#1f2937',
+  };
   // Markdown processor instance (built once and reused for all labels)
   private mdProcessor: ReturnType<typeof buildLabelMarkdownProcessor>;
   private readonly transparentPixel =
@@ -335,9 +349,11 @@ export class LabelRenderer {
 
       this.renderingInProgress.add(text);
       this.activeCount++;
+      const epochAtStart = this.renderEpoch;
 
       this.renderLabel(text)
         .then(renderedLabel => {
+          if (epochAtStart !== this.renderEpoch) return;
           this.cache.set(text, renderedLabel);
           this.pruneCache();
           onRendered();
@@ -360,10 +376,21 @@ export class LabelRenderer {
     return this.cache.get(text);
   }
 
+  public setTheme(theme: Partial<LabelTheme>): void {
+    this.theme = {
+      ...this.theme,
+      ...theme,
+    };
+    this.renderEpoch++;
+    this.queue = [];
+    this.renderingInProgress.clear();
+    this.backgroundCache.clear();
+  }
+
   public getLabelBackground(width: number, height: number): RenderedLabelBackground {
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height));
-    const key = `${w}x${h}`;
+    const key = `${w}x${h}:${this.theme.backgroundFill}:${this.theme.backgroundStroke}`;
     const cached = this.backgroundCache.get(key);
     if (cached) return cached;
 
@@ -406,9 +433,9 @@ export class LabelRenderer {
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillStyle = this.theme.backgroundFill;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.strokeStyle = this.theme.backgroundStroke;
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -447,7 +474,7 @@ export class LabelRenderer {
     (ctx as any).imageSmoothingQuality = 'high';
 
     // Draw sharp text in CSS pixel space (scaled by DPR under the hood)
-    ctx.fillStyle = '#1f2937';
+    ctx.fillStyle = this.theme.fallbackTextColor;
     ctx.font = `${fontSize}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -489,7 +516,7 @@ export class LabelRenderer {
     const {
       fontSize = 12,
       padding = 4,
-      color = '#333333',
+      color = this.theme.textColor,
       backgroundColor = 'transparent',
       fontFamily = 'Arial, sans-serif',
       maxWidth = 250,
@@ -771,8 +798,10 @@ export class LabelRenderer {
    * This should be called when the graph structure changes or the component unmounts.
    */
   public clearCache(): void {
+    this.renderEpoch++;
     this.cache.forEach(renderedLabel => this.revokeObjectURL(renderedLabel));
     this.cache.clear();
+    this.queue = [];
     this.renderingInProgress.clear();
     this.backgroundCache.clear();
   }
