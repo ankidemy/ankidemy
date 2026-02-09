@@ -21,9 +21,16 @@ interface SubjectMatterGraphProps {
   onCreateSubjectMatter?: () => void;
   subjectMatters?: SubjectMatter[];
   autoFitOnLoad?: boolean; // if true, fit graph to view on initial load
+  isDarkMode?: boolean;
 }
 
-const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubjectMatter, onCreateSubjectMatter, subjectMatters: subjectMattersProp, autoFitOnLoad = true }) => {
+const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({
+  onSelectSubjectMatter,
+  onCreateSubjectMatter,
+  subjectMatters: subjectMattersProp,
+  autoFitOnLoad = true,
+  isDarkMode = false,
+}) => {
   const graphRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +44,45 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
   const [links, setLinks] = useState<DomainLink[]>([]);
   const subjectMattersKeyRef = useRef<string>('');
   const initialZoomAppliedRef = useRef(false);
+  const graphTheme = useMemo(() => {
+    if (isDarkMode) {
+      return {
+        loadingText: '#cbd5e1',
+        errorText: '#fca5a5',
+        errorPanelBackground: '#0f172a',
+        retryBackground: '#2563eb',
+        retryText: '#f8fafc',
+        emptyIcon: '#475569',
+        emptyTitle: '#cbd5e1',
+        emptyBody: '#94a3b8',
+        nodeFill: '#94a3b8',
+        nodeHoverFill: '#34d399',
+        nodeStroke: '#334155',
+        nodeHoverStroke: '#e2e8f0',
+        nodeLabel: '#f8fafc',
+        nodeStats: '#94a3b8',
+        linkColor: 'rgba(148, 163, 184, 0.42)',
+      };
+    }
+
+    return {
+      loadingText: '#4b5563',
+      errorText: '#ef4444',
+      errorPanelBackground: '#ffffff',
+      retryBackground: '#3b82f6',
+      retryText: '#ffffff',
+      emptyIcon: '#d1d5db',
+      emptyTitle: '#4b5563',
+      emptyBody: '#6b7280',
+      nodeFill: '#6b7280',
+      nodeHoverFill: '#10b981',
+      nodeStroke: '#d1d5db',
+      nodeHoverStroke: '#ffffff',
+      nodeLabel: '#1f2937',
+      nodeStats: '#6b7280',
+      linkColor: 'rgba(156, 163, 175, 0.5)',
+    };
+  }, [isDarkMode]);
 
   const buildSubjectMattersKey = useCallback((items: SubjectMatter[]) => {
     return items
@@ -251,28 +297,28 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
     const baseSize = Math.max(8, Math.min(15, 8 + (nodeCount + exerciseCount) / 4));
     const size = isHovered ? baseSize * 1.15 : baseSize;
 
-    ctx.fillStyle = isHovered ? '#10B981' : '#6B7280';
+    ctx.fillStyle = isHovered ? graphTheme.nodeHoverFill : graphTheme.nodeFill;
     ctx.beginPath();
     ctx.arc(x, y, size, 0, 2 * Math.PI);
     ctx.fill();
-    ctx.strokeStyle = isHovered ? '#FFFFFF' : '#D1D5DB';
+    ctx.strokeStyle = isHovered ? graphTheme.nodeHoverStroke : graphTheme.nodeStroke;
     ctx.lineWidth = isHovered ? 1.2 : 0.6;
     ctx.stroke();
 
     ctx.font = `${fontSize}px Arial`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#1F2937';
+    ctx.fillStyle = graphTheme.nodeLabel;
     ctx.fillText(name, x, y - size - 10);
 
     if (globalScale > 0.5) {
       const statsText = `${nodeCount}d, ${exerciseCount}e`;
       const statsSize = Math.max(6, fontSize * 0.75);
       ctx.font = `${statsSize}px Arial`;
-      ctx.fillStyle = '#6B7280';
+      ctx.fillStyle = graphTheme.nodeStats;
       ctx.fillText(statsText, x, y + size + 6);
     }
-  }, [hoveredNode]);
+  }, [hoveredNode, graphTheme]);
 
   // Click/hover handlers
   const handleNodeClick = useCallback((node: any) => {
@@ -285,7 +331,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
   if (isLoading) {
     return (
       <div className="h-full w-full flex items-center justify-center">
-        <div className="text-xl text-gray-600">Loading subject matters...</div>
+        <div className="text-xl" style={{ color: graphTheme.loadingText }}>Loading subject matters...</div>
       </div>
     );
   }
@@ -293,9 +339,18 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
   if (error) {
     return (
       <div className="h-full w-full flex items-center justify-center">
-        <div className="text-red-500 text-xl p-8 bg-white rounded shadow-md">
+        <div
+          className="text-xl p-8 rounded shadow-md"
+          style={{ color: graphTheme.errorText, backgroundColor: graphTheme.errorPanelBackground }}
+        >
           {error}
-          <button onClick={() => window.location.reload()} className="block mt-4 px-4 py-2 bg-blue-500 text-white rounded">Retry</button>
+          <button
+            onClick={() => window.location.reload()}
+            className="block mt-4 px-4 py-2 rounded"
+            style={{ backgroundColor: graphTheme.retryBackground, color: graphTheme.retryText }}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -317,9 +372,9 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
       {graphData.nodes.length === 0 && !isLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
-            <div className="text-4xl text-gray-300 mb-4">📚</div>
-            <h3 className="text-lg font-medium text-gray-600 mb-2">No Domains Yet</h3>
-            <p className="text-gray-500 mb-4">You haven&apos;t enrolled in any domains yet. Create your first domain or explore public ones to get started!</p>
+            <div className="text-4xl mb-4" style={{ color: graphTheme.emptyIcon }}>📚</div>
+            <h3 className="text-lg font-medium mb-2" style={{ color: graphTheme.emptyTitle }}>No Domains Yet</h3>
+            <p className="mb-4" style={{ color: graphTheme.emptyBody }}>You haven&apos;t enrolled in any domains yet. Create your first domain or explore public ones to get started!</p>
             {onCreateSubjectMatter && (
               <Button onClick={onCreateSubjectMatter}>
                 <Plus className="w-4 h-4 mr-2" />
@@ -356,7 +411,7 @@ const SubjectMatterGraph: React.FC<SubjectMatterGraphProps> = ({ onSelectSubject
           linkDirectionalParticles={1}
           linkDirectionalParticleSpeed={0.003}
           linkDirectionalParticleWidth={0.5}
-          linkColor={() => 'rgba(156, 163, 175, 0.5)'}
+          linkColor={() => graphTheme.linkColor}
           linkWidth={3}
           d3AlphaDecay={0.05}
           d3VelocityDecay={0.25}

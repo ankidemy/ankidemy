@@ -786,8 +786,8 @@ const TopControls: React.FC<TopControlsProps> = ({
               <div className="space-y-3">
                 <label className="flex items-start justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
                   <div className="space-y-1">
-                    <span className="block text-gray-700">Knowledge graph night mode</span>
-                    <span className="block text-[11px] text-gray-500">Applies to all domains in this browser.</span>
+                    <span className="block text-gray-700">Dark mode</span>
+                    <span className="block text-[11px] text-gray-500">Applies to graph and main app pages in this browser.</span>
                   </div>
                   <input
                     type="checkbox"

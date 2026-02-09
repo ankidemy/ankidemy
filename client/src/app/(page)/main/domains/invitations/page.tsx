@@ -16,10 +16,12 @@ import {
   getPendingDomainInvites,
 } from '@/lib/api';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useAppDarkMode } from '@/lib/use-app-dark-mode';
 
 export default function DomainInvitationsPage() {
   const router = useRouter();
   const { refreshNotifications } = useNotifications();
+  const isDarkMode = useAppDarkMode();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [invites, setInvites] = useState<DomainInvite[]>([]);
@@ -98,7 +100,7 @@ export default function DomainInvitationsPage() {
   };
 
   return (
-    <div>
+    <div className={isDarkMode ? 'kg-night-mode dark' : ''}>
       <Navbar extraMenuItems={[
         { href: '/main/domains/invitations', label: 'Invitations' },
         { href: '/main/domains/archived', label: 'Archived Domains' },

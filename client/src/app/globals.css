@@ -185,6 +185,18 @@
   background-color: #7f1d1d !important;
 }
 
+.kg-night-mode .bg-red-50 {
+  background-color: #450a0a !important;
+}
+
+.kg-night-mode .bg-orange-100 {
+  background-color: #7c2d12 !important;
+}
+
+.kg-night-mode .bg-purple-100 {
+  background-color: #4c1d95 !important;
+}
+
 .kg-night-mode [class*="bg-amber-50/"],
 .kg-night-mode [class*="bg-yellow-50/"] {
   background-color: rgba(120, 53, 15, 0.42) !important;
@@ -224,7 +236,8 @@
 }
 
 .kg-night-mode .text-gray-900,
-.kg-night-mode .text-gray-800 {
+.kg-night-mode .text-gray-800,
+.kg-night-mode .text-gray-950 {
   color: #f8fafc !important;
 }
 
@@ -266,6 +279,24 @@
 .kg-night-mode .text-red-800,
 .kg-night-mode .text-red-700 {
   color: #fca5a5 !important;
+}
+
+.kg-night-mode .text-red-600,
+.kg-night-mode .text-red-500 {
+  color: #fca5a5 !important;
+}
+
+.kg-night-mode .text-orange-800,
+.kg-night-mode .text-orange-700,
+.kg-night-mode .text-orange-600,
+.kg-night-mode .text-orange-500 {
+  color: #fdba74 !important;
+}
+
+.kg-night-mode .text-purple-800,
+.kg-night-mode .text-purple-700,
+.kg-night-mode .text-purple-600 {
+  color: #ddd6fe !important;
 }
 
 .kg-night-mode .hover\:bg-gray-50:hover,
@@ -311,4 +342,8 @@
 
 .kg-night-mode .bg-gray-300 {
   background-color: #475569 !important;
+}
+
+.kg-night-mode .bg-gray-800 {
+  background-color: #e2e8f0 !important;
 }

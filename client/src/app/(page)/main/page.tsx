@@ -12,6 +12,7 @@ import Navbar from "@/app/components/Navbar";
 import DomainForm from "@/app/components/Domain/DomainForm";
 import { showToast } from '@/app/components/core/ToastNotification';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useAppDarkMode } from '@/lib/use-app-dark-mode';
 
 import {
   Domain,
@@ -30,6 +31,7 @@ import { archiveDomain } from '@/lib/api';
 
 export default function MainPage() {
   const { domainDueCounts } = useNotifications();
+  const isDarkMode = useAppDarkMode();
 
   // State
   const [loading, setLoading] = useState<boolean>(true);
@@ -370,7 +372,7 @@ export default function MainPage() {
   };
 
   return (
-    <div>
+    <div className={isDarkMode ? 'kg-night-mode dark' : ''}>
       {/* Use Navbar's built-in hamburger dropdown (no slide-over sidebar) */}
       <Navbar 
         // Do not pass onMenuClick so the Navbar shows its dropdown
@@ -391,6 +393,7 @@ export default function MainPage() {
               {displayDomains.length > 0 ? (
                 <SubjectMatterGraph
                   key={`${activeTab}-${displayDomains.length}`}
+                  isDarkMode={isDarkMode}
                   subjectMatters={displayDomains.map(domain => ({
                     id: domain.id.toString(),
                     name: domain.name,

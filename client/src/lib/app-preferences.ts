@@ -20,7 +20,9 @@ export type AppPreferencesPatch = {
   general?: AppGeneralPreferences;
 };
 
-const STORAGE_KEY = 'ankidemy:app-preferences:v1';
+export const APP_PREFERENCES_STORAGE_KEY = 'ankidemy:app-preferences:v1';
+export const APP_PREFERENCES_UPDATED_EVENT = 'ankidemy:app-preferences-updated';
+const STORAGE_KEY = APP_PREFERENCES_STORAGE_KEY;
 const DEFAULT_DUE_REVIEW_BATCH_SIZE = 10;
 
 const DEFAULT_APP_PREFERENCES: AppPreferences = {
@@ -66,6 +68,7 @@ export const saveAppPreferences = (preferences: AppPreferences) => {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+    window.dispatchEvent(new Event(APP_PREFERENCES_UPDATED_EVENT));
   } catch {}
 };
 
@@ -153,3 +156,6 @@ export const getAppTimeZone = (): string => {
 
 export const isKnowledgeGraphNightModeEnabled = (): boolean =>
   loadAppPreferences().general?.knowledgeGraphNightMode === true;
+
+export const isAppDarkModeEnabled = (): boolean =>
+  isKnowledgeGraphNightModeEnabled();

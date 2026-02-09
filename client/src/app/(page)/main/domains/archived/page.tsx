@@ -15,9 +15,11 @@ import {
   purgeDomain,
   getCurrentUser
 } from '@/lib/api';
+import { useAppDarkMode } from '@/lib/use-app-dark-mode';
 
 export default function ArchivedDomainsPage() {
   const router = useRouter();
+  const isDarkMode = useAppDarkMode();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string|null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
@@ -70,7 +72,7 @@ export default function ArchivedDomainsPage() {
 
 
   return (
-    <div>
+    <div className={isDarkMode ? 'kg-night-mode dark' : ''}>
       {/* Reuse Navbar dropdown menu like main/dashboard */}
       <Navbar extraMenuItems={[
         { href: '/main/domains/invitations', label: 'Invitations' },
