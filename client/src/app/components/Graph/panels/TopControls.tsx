@@ -3,7 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Book, BarChart, Plus, Play, Users, AlertTriangle, List, Wrench, RefreshCw } from 'lucide-react';
+import { Book, BarChart, Plus, Play, Users, AlertTriangle, List, Wrench, RefreshCw, Upload, Download, Archive } from 'lucide-react';
 import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
@@ -73,6 +73,14 @@ interface TopControlsProps {
   onUpdateDomainSettings?: (updates: UserDomainSettingsUpdate) => Promise<UserDomainSettings | void>;
   isNightMode?: boolean;
   onNightModeChange?: (enabled: boolean) => void;
+  onImportJson?: () => void;
+  onExportJson?: () => void;
+  onBackupDomain?: () => void;
+  canImportJson?: boolean;
+  canExportJson?: boolean;
+  canBackupDomain?: boolean;
+  isExportingJson?: boolean;
+  isBackingUpDomain?: boolean;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -97,6 +105,14 @@ const TopControls: React.FC<TopControlsProps> = ({
   onUpdateDomainSettings,
   isNightMode = false,
   onNightModeChange,
+  onImportJson,
+  onExportJson,
+  onBackupDomain,
+  canImportJson = false,
+  canExportJson = false,
+  canBackupDomain = false,
+  isExportingJson = false,
+  isBackingUpDomain = false,
 }) => {
   const srs = useSRS();
 
@@ -376,7 +392,26 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showReviewQueue, dueReviews, isEnrolled, currentDomainId, currentSrsDomainId, loadDueReviews]);
 
   const canChangeOptions = !!(isEnrolled && onUpdateDomainSettings);
-  const canOpenOptions = canChangeOptions || !!onNightModeChange;
+  const canShowIoActions = !!(onImportJson || onExportJson || onBackupDomain);
+  const canOpenOptions = canChangeOptions || !!onNightModeChange || canShowIoActions;
+
+  const handleOptionImportJson = useCallback(() => {
+    if (!canImportJson || !onImportJson) return;
+    setShowOptions(false);
+    onImportJson();
+  }, [canImportJson, onImportJson]);
+
+  const handleOptionExportJson = useCallback(() => {
+    if (!canExportJson || !onExportJson) return;
+    setShowOptions(false);
+    onExportJson();
+  }, [canExportJson, onExportJson]);
+
+  const handleOptionBackupDomain = useCallback(() => {
+    if (!canBackupDomain || !onBackupDomain) return;
+    setShowOptions(false);
+    onBackupDomain();
+  }, [canBackupDomain, onBackupDomain]);
 
   const handleSaveOptions = useCallback(async () => {
     if (!canChangeOptions || !onUpdateDomainSettings) return;
@@ -796,6 +831,52 @@ const TopControls: React.FC<TopControlsProps> = ({
                     className="mt-0.5 h-4 w-4 rounded border-gray-300"
                   />
                 </label>
+
+                {canShowIoActions && (
+                  <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                    <div className="mb-2 text-xs font-medium text-gray-700">Import / Export</div>
+                    <div className="grid grid-cols-1 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-start text-xs"
+                        onClick={handleOptionImportJson}
+                        disabled={!canImportJson}
+                      >
+                        <Upload size={13} className="mr-2" />
+                        Import JSON
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-start text-xs"
+                        onClick={handleOptionExportJson}
+                        disabled={!canExportJson || isExportingJson}
+                      >
+                        {isExportingJson ? (
+                          <RefreshCw size={13} className="mr-2 animate-spin" />
+                        ) : (
+                          <Download size={13} className="mr-2" />
+                        )}
+                        Export JSON
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-start text-xs"
+                        onClick={handleOptionBackupDomain}
+                        disabled={!canBackupDomain || isBackingUpDomain}
+                      >
+                        {isBackingUpDomain ? (
+                          <RefreshCw size={13} className="mr-2 animate-spin" />
+                        ) : (
+                          <Archive size={13} className="mr-2" />
+                        )}
+                        Backup Domain
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {!canChangeOptions && (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

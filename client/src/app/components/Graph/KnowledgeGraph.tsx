@@ -15,7 +15,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Archive, Zap, Layers, Clock, X } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
 import {
@@ -63,9 +63,10 @@ import {
   downloadZipFile,
 	  GroupData,
 	  GroupNodeRefRequest,
-	  MetaDefinition,
-	  MetaExercise,
-	  MetaQuestDTO,
+  MetaDefinition,
+  MetaExercise,
+  MetaQuestDTO,
+  QuestVersionDTO,
     SourceDTO,
     NodeRelationDTO,
 	  ExternalPrerequisiteLink,
@@ -95,6 +96,7 @@ import {
   updateUserDomainSettings,
   UserDomainSettings,
   UserDomainSettingsUpdate,
+  DomainExportData,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
 import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
@@ -197,6 +199,45 @@ import type {
 // MAIN COMPONENT
 // ============================================================================
 const NEW_NODE_CUE_DURATION_MS = 3000;
+
+const sanitizeFilenamePart = (value: string): string => {
+  return value
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+};
+
+const formatDownloadTimestamp = (date = new Date()): string => {
+  const pad = (input: number) => String(input).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+};
+
+const prunePrerequisites = (
+  prerequisites: string[] | undefined,
+  prerequisiteWeights: Record<string, number> | undefined,
+  allowedCodes: Set<string>,
+): { prerequisites: string[]; prerequisiteWeights?: Record<string, number> } => {
+  const cleanedPrerequisites = (prerequisites || []).filter(code => allowedCodes.has(code));
+  if (cleanedPrerequisites.length === 0) {
+    return { prerequisites: [] };
+  }
+  if (!prerequisiteWeights) {
+    return { prerequisites: cleanedPrerequisites };
+  }
+  const cleanedWeights: Record<string, number> = {};
+  cleanedPrerequisites.forEach(code => {
+    if (typeof prerequisiteWeights[code] === 'number') {
+      cleanedWeights[code] = prerequisiteWeights[code];
+    }
+  });
+  if (Object.keys(cleanedWeights).length === 0) {
+    return { prerequisites: cleanedPrerequisites };
+  }
+  return { prerequisites: cleanedPrerequisites, prerequisiteWeights: cleanedWeights };
+};
 
 const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
   return (
@@ -4764,7 +4805,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const canShare = !!(currentDomainId && isOwner);
   const canExport = !!currentDomainId;
 
-  const handleToolbarExport = useCallback(async () => {
+  const handleOptionsExportJson = useCallback(async () => {
     if (!currentDomainId || !currentDomainName) {
       showToast('No domain selected for export', 'error');
       return;
@@ -4784,6 +4825,315 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setIsExporting(false);
     }
   }, [currentDomainId, currentDomainName]);
+
+  const handleToolbarExport = useCallback(async () => {
+    if (!currentDomainId || !currentDomainName) {
+      showToast('No domain selected for export', 'error');
+      return;
+    }
+
+    const selectedCodes = Array.from(selectedNodeIds);
+    if (selectedCodes.length === 0) {
+      showToast('Select at least one node to export.', 'warning');
+      return;
+    }
+
+    const selectedDefinitionCodes = new Set<string>();
+    const selectedExerciseCodes = new Set<string>();
+    const selectedSourceCodes = new Set<string>();
+    const selectedQuestCodes = new Set<string>();
+
+    selectedCodes.forEach(code => {
+      if (currentStructuralGraphData.definitions?.[code]) {
+        selectedDefinitionCodes.add(code);
+        return;
+      }
+      if (currentStructuralGraphData.exercises?.[code]) {
+        selectedExerciseCodes.add(code);
+        return;
+      }
+      if (currentStructuralGraphData.sources?.[code]) {
+        selectedSourceCodes.add(code);
+        return;
+      }
+      if (currentStructuralGraphData.quests?.[code]) {
+        selectedQuestCodes.add(code);
+      }
+    });
+
+    const recognizedSelectionCount =
+      selectedDefinitionCodes.size +
+      selectedExerciseCodes.size +
+      selectedSourceCodes.size +
+      selectedQuestCodes.size;
+
+    if (recognizedSelectionCount === 0) {
+      showToast('Select definition, exercise, source, or quest nodes to export.', 'warning');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      showToast('Exporting selected nodes...', 'info', 2000);
+
+      const [metaDefinitionEntries, metaExerciseEntries, metaQuestEntries, domainRelations] = await Promise.all([
+        Promise.all(
+          Array.from(selectedDefinitionCodes).map(async (code) => {
+            const metaId = codeToNumericIdMap.get(code);
+            if (!metaId) {
+              throw new Error(`Missing metadata for definition "${code}".`);
+            }
+            const meta = await getMetaDefinition(metaId);
+            return [code, meta] as const;
+          })
+        ),
+        Promise.all(
+          Array.from(selectedExerciseCodes).map(async (code) => {
+            const metaId = codeToNumericIdMap.get(code);
+            if (!metaId) {
+              throw new Error(`Missing metadata for exercise "${code}".`);
+            }
+            const meta = await getMetaExercise(metaId);
+            return [code, meta] as const;
+          })
+        ),
+        Promise.all(
+          Array.from(selectedQuestCodes).map(async (code) => {
+            const questId = currentStructuralGraphData.quests?.[code]?.id;
+            if (!questId) {
+              throw new Error(`Missing metadata for quest "${code}".`);
+            }
+            const metaQuest = await getQuest(questId);
+            return [code, metaQuest] as const;
+          })
+        ),
+        getDomainRelations(currentDomainId),
+      ]);
+
+      const includedDefinitionCodes = new Set(metaDefinitionEntries.map(([code]) => code));
+      const includedExerciseCodes = new Set(metaExerciseEntries.map(([code]) => code));
+      const allowedPrerequisiteCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
+
+      const exportData: DomainExportData = {};
+
+      if (metaDefinitionEntries.length > 0) {
+        const metaDefinitions: NonNullable<DomainExportData['metaDefinitions']> = {};
+        metaDefinitionEntries.forEach(([code, meta]) => {
+          const { prerequisites, prerequisiteWeights } = prunePrerequisites(
+            meta.prerequisites,
+            meta.prerequisiteWeights,
+            allowedPrerequisiteCodes,
+          );
+          const rawVersions: Array<Partial<DefinitionVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
+            ? meta.versions
+            : [{ prompt: `Define ${meta.name || meta.code}`, type: 'open_ended' }];
+          metaDefinitions[code] = {
+            code: meta.code,
+            name: meta.name,
+            prerequisites,
+            prerequisiteWeights,
+            xPosition: meta.xPosition,
+            yPosition: meta.yPosition,
+            versions: rawVersions.map(version => ({
+              prompt: (version.prompt || '').trim() || `Define ${meta.name || meta.code}`,
+              type: (version.type || '').trim() || 'open_ended',
+              description: version.description || undefined,
+              notes: version.notes || undefined,
+              references: Array.isArray(version.references) ? version.references : [],
+              promptImagePath: version.promptImagePath || undefined,
+              descriptionImagePath: version.descriptionImagePath || undefined,
+            })),
+          };
+        });
+        exportData.metaDefinitions = metaDefinitions;
+      }
+
+      if (metaExerciseEntries.length > 0) {
+        const metaExercises: NonNullable<DomainExportData['metaExercises']> = {};
+        metaExerciseEntries.forEach(([code, meta]) => {
+          const { prerequisites, prerequisiteWeights } = prunePrerequisites(
+            meta.prerequisites,
+            meta.prerequisiteWeights,
+            allowedPrerequisiteCodes,
+          );
+          const rawVersions: Array<Partial<ExerciseVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
+            ? meta.versions
+            : [{ statement: `Solve: ${meta.name || meta.code}`, difficulty: 3 }];
+          metaExercises[code] = {
+            code: meta.code,
+            name: meta.name,
+            prerequisites,
+            prerequisiteWeights,
+            xPosition: meta.xPosition,
+            yPosition: meta.yPosition,
+            versions: rawVersions.map(version => ({
+              statement: (version.statement || '').trim() || `Solve: ${meta.name || meta.code}`,
+              description: version.description || undefined,
+              hints: version.hints || undefined,
+              verifiable: version.verifiable,
+              result: version.result || undefined,
+              difficulty: typeof version.difficulty === 'number' ? version.difficulty : 3,
+              notes: version.notes || undefined,
+              statementImagePath: version.statementImagePath || undefined,
+              descriptionImagePath: version.descriptionImagePath || undefined,
+            })),
+          };
+        });
+        exportData.metaExercises = metaExercises;
+      }
+
+      if (selectedSourceCodes.size > 0) {
+        const sources: NonNullable<DomainExportData['sources']> = {};
+        Array.from(selectedSourceCodes).forEach(code => {
+          const source = currentStructuralGraphData.sources?.[code];
+          if (!source) return;
+          sources[code] = {
+            code: source.code,
+            title: source.title,
+            contentMd: source.contentMd,
+            bibtexKey: source.bibtexKey ?? null,
+            filePath: source.filePath ?? null,
+            xPosition: source.xPosition,
+            yPosition: source.yPosition,
+          };
+        });
+        if (Object.keys(sources).length > 0) {
+          exportData.sources = sources;
+        }
+      }
+
+      if (metaQuestEntries.length > 0) {
+        const metaQuests: NonNullable<DomainExportData['metaQuests']> = {};
+        metaQuestEntries.forEach(([code, metaQuest]) => {
+          const rawVersions: Array<Partial<QuestVersionDTO>> = Array.isArray(metaQuest.versions) && metaQuest.versions.length > 0
+            ? metaQuest.versions
+            : [{ title: metaQuest.name || metaQuest.code }];
+          metaQuests[code] = {
+            code: metaQuest.code,
+            name: metaQuest.name,
+            kind: metaQuest.kind,
+            schedule: metaQuest.schedule,
+            xPosition: metaQuest.xPosition,
+            yPosition: metaQuest.yPosition,
+            versions: rawVersions.map(version => ({
+              title: (version.title || '').trim() || metaQuest.name || metaQuest.code,
+              descriptionMd: version.descriptionMd || undefined,
+              taskList: version.taskList,
+              imagePath: version.imagePath || undefined,
+            })),
+          };
+        });
+        exportData.metaQuests = metaQuests;
+      }
+
+      const selectedCodeByTypedId = new Map<string, string>();
+      includedDefinitionCodes.forEach(code => {
+        const id = codeToNumericIdMap.get(code);
+        if (id) selectedCodeByTypedId.set(`meta_definition:${id}`, code);
+      });
+      includedExerciseCodes.forEach(code => {
+        const id = codeToNumericIdMap.get(code);
+        if (id) selectedCodeByTypedId.set(`meta_exercise:${id}`, code);
+      });
+      Array.from(selectedSourceCodes).forEach(code => {
+        const id = currentStructuralGraphData.sources?.[code]?.id;
+        if (id) selectedCodeByTypedId.set(`source:${id}`, code);
+      });
+      Array.from(selectedQuestCodes).forEach(code => {
+        const id = currentStructuralGraphData.quests?.[code]?.id;
+        if (id) selectedCodeByTypedId.set(`meta_quest:${id}`, code);
+      });
+
+      const relations = domainRelations.reduce<NonNullable<DomainExportData['relations']>>((acc, relation) => {
+        const fromCode = selectedCodeByTypedId.get(`${relation.fromType}:${relation.fromId}`);
+        const toCode = selectedCodeByTypedId.get(`${relation.toType}:${relation.toId}`);
+        if (!fromCode || !toCode) return acc;
+        acc.push({
+          fromType: relation.fromType,
+          fromCode,
+          toType: relation.toType,
+          toCode,
+          relationType: relation.relationType,
+          contextKey: relation.contextKey,
+        });
+        return acc;
+      }, []);
+      if (relations.length > 0) {
+        exportData.relations = relations;
+      }
+
+      const selectedGroupCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
+      if (selectedGroupCodes.size > 0 && domainGroups.length > 0) {
+        const groups = domainGroups.reduce<NonNullable<DomainExportData['groups']>>((acc, group) => {
+          const seeds = (group.seeds || [])
+            .filter(seed => selectedGroupCodes.has(seed.nodeCode))
+            .map(seed => ({
+              nodeType: seed.nodeType,
+              code: seed.nodeCode,
+            }));
+          if (seeds.length === 0) return acc;
+          const members = (group.members || [])
+            .filter(member => selectedGroupCodes.has(member.nodeCode))
+            .map(member => ({
+              nodeType: member.nodeType,
+              code: member.nodeCode,
+            }));
+          acc.push({
+            name: group.name,
+            isExact: group.isExact,
+            xPosition: group.xPosition,
+            yPosition: group.yPosition,
+            seeds,
+            members: members.length > 0 ? members : undefined,
+          });
+          return acc;
+        }, []);
+        if (groups.length > 0) {
+          exportData.groups = groups;
+        }
+      }
+
+      const exportedNodeCount =
+        Object.keys(exportData.metaDefinitions || {}).length +
+        Object.keys(exportData.metaExercises || {}).length +
+        Object.keys(exportData.sources || {}).length +
+        Object.keys(exportData.metaQuests || {}).length;
+      if (exportedNodeCount === 0) {
+        throw new Error('No exportable nodes were found in the current selection.');
+      }
+
+      const orderedExportedCodes = selectedCodes.filter(code => (
+        includedDefinitionCodes.has(code) ||
+        includedExerciseCodes.has(code) ||
+        selectedSourceCodes.has(code) ||
+        selectedQuestCodes.has(code)
+      ));
+      const nodeNameByCode = new Map(stableGraph.nodes.map(node => [node.id, node.name || node.id]));
+      const filenameParts = orderedExportedCodes
+        .slice(0, 2)
+        .map(code => sanitizeFilenamePart(nodeNameByCode.get(code) || code))
+        .filter(Boolean);
+      const fallbackBase = sanitizeFilenamePart(currentDomainName) || 'selected_nodes';
+      const filenameBase = filenameParts.length > 0 ? filenameParts.join('_') : fallbackBase;
+      const filename = `${filenameBase}_${formatDownloadTimestamp()}`;
+
+      downloadJsonFile(exportData, filename);
+      showToast(`${exportedNodeCount} selected node${exportedNodeCount === 1 ? '' : 's'} exported successfully!`, 'success');
+    } catch (error) {
+      console.error('Selected export error:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to export selected nodes', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [
+    currentDomainId,
+    currentDomainName,
+    selectedNodeIds,
+    currentStructuralGraphData,
+    codeToNumericIdMap,
+    domainGroups,
+    stableGraph.nodes,
+  ]);
 
   const handleToolbarBackup = useCallback(async () => {
     if (!currentDomainId || !currentDomainName) {
@@ -5455,13 +5805,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
-              toolboxButton('Backup', isBackingUp ? <RefreshCw size={10} className="animate-spin" /> : <Archive size={10} />, {
-                onClick: () => void handleToolbarBackup(),
-                enabled: canBackup && !isBackingUp,
-                variant: 'ghost',
-              }),
-            ],
-            [
               toolboxButton('Share', <Users size={10} />, {
                 onClick: handleToolbarShare,
                 enabled: canShare,
@@ -5526,13 +5869,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     isSavingPositions,
     handleToolbarImport,
     handleToolbarExport,
-    handleToolbarBackup,
     handleToolbarShare,
     isExporting,
-    isBackingUp,
     canImport,
     canExport,
-    canBackup,
     canShare,
     canEdit,
     selectableGroupCodes.length,
@@ -5963,6 +6303,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onUpdateDomainSettings={handleUpdateDomainSettings}
           isNightMode={isNightMode}
           onNightModeChange={handleNightModeChange}
+          onImportJson={handleToolbarImport}
+          onExportJson={() => void handleOptionsExportJson()}
+          onBackupDomain={() => void handleToolbarBackup()}
+          canImportJson={canImport}
+          canExportJson={canExport && !isExporting}
+          canBackupDomain={canBackup && !isBackingUp}
+          isExportingJson={isExporting}
+          isBackingUpDomain={isBackingUp}
         />
 
         {/* Main Content */}
