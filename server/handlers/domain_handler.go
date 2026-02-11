@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
 )
 
 // DomainHandler handles domain-related HTTP requests
@@ -268,14 +268,20 @@ func (h *DomainHandler) ImportToDomain(c *gin.Context) {
 		return
 	}
 
-	// Check if the user is the owner
-	userID, exists := c.Get("userID")
-	if !exists || userID.(uint) != domain.OwnerID {
-		isAdmin, adminExists := c.Get("isAdmin")
-		if !adminExists || !isAdmin.(bool) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to import to this domain"})
-			return
-		}
+	// Require edit access (owner, admin, or editor)
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canEdit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to import to this domain"})
+		return
 	}
 
 	// Bind import data
