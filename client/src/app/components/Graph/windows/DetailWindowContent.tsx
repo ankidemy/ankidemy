@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
-import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, BarChart3, Save, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, BarChart3, Save, SlidersHorizontal, Copy, RefreshCw } from 'lucide-react';
 import { GraphNode, Definition, Exercise, AnswerFeedback } from '../utils/types';
 import DefinitionView from '../details/DefinitionView';
 import ExerciseView from '../details/ExerciseView';
@@ -68,6 +68,8 @@ interface DetailWindowContentProps {
   onUpdateGroup?: (groupId: number, payload: { name?: string; isExact?: boolean; seedCodes?: string[]; memberCodes?: string[] }) => Promise<GroupData | null>;
   onDeleteGroup?: (groupId: number) => Promise<void>;
   onQuestCreated?: (quest: { id?: number; code: string }, relation: { fromCode: string; toCode: string; relationType: string }) => void;
+  onCopyYaml?: () => void;
+  isCopyingYaml?: boolean;
 }
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
@@ -121,6 +123,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   onUpdateGroup,
   onDeleteGroup: _onDeleteGroup,
   onQuestCreated,
+  onCopyYaml,
+  isCopyingYaml = false,
 }) => {
   const srs = useSRS();
   const ui = useUI();
@@ -1184,6 +1188,22 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             <div className="text-base font-semibold text-gray-900 truncate">
               <InlineMarkdownKatex>{currentNode.name}</InlineMarkdownKatex>
             </div>
+            {onCopyYaml && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={onCopyYaml}
+                disabled={isCopyingYaml}
+                title="Copy node as YAML"
+              >
+                {isCopyingYaml ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : (
+                  <Copy size={14} />
+                )}
+              </Button>
+            )}
             </div>
           </div>
           <div className="flex items-center gap-2">

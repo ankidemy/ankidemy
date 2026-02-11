@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 interface DraggableWindowProps {
   id: string;
   title: React.ReactNode;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   initialPosition?: { x: number; y: number };
   initialSize?: { width: number; height: number };
@@ -28,6 +29,7 @@ interface DraggableWindowProps {
 export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   id,
   title,
+  headerActions,
   children,
   initialPosition = { x: 100, y: 100 },
   initialSize = { width: 484, height: 500 },
@@ -271,6 +273,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
           {renderTitle(title, 'truncate')}
         </h3>
         <div className="window-controls flex items-center gap-1 ml-2">
+          {headerActions}
           {onMinimize && (
             <Button
               variant="ghost"

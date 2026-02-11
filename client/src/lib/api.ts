@@ -1,6 +1,7 @@
 // FILE: src/lib/api.ts
 // Complete API client for Ankidemy with standardized import/export handling
 
+import { dump as dumpYaml, load as loadYaml } from 'js-yaml';
 import { observedFetch, type RequestObservabilityMeta } from './http-observability';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
@@ -616,6 +617,8 @@ export interface DomainExportData {
     members?: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
   }>;
 }
+
+export type DomainExportFormat = 'json' | 'yaml';
 
 export interface CreateDomainWithImportRequest {
   name: string;
@@ -2461,39 +2464,85 @@ export const createDomainWithImport = async (
 
 // NEW: File Handling Utilities
 
+const triggerBlobDownload = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  try {
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    if (link.parentNode) {
+      document.body.removeChild(link);
+    }
+    URL.revokeObjectURL(url);
+  }
+};
+
+const getExportFileDescriptor = (format: DomainExportFormat): { extension: 'json' | 'yaml'; mimeType: string } => {
+  if (format === 'yaml') {
+    return { extension: 'yaml', mimeType: 'application/yaml' };
+  }
+  return { extension: 'json', mimeType: 'application/json' };
+};
+
+export const serializeDomainExportData = (data: unknown, format: DomainExportFormat): string => {
+  if (format === 'yaml') {
+    return dumpYaml(data, {
+      noRefs: true,
+      sortKeys: true,
+      lineWidth: 120,
+    });
+  }
+  return JSON.stringify(data, null, 2);
+};
+
+export const parseDomainImportData = (text: string, format: DomainExportFormat): DomainExportData => {
+  try {
+    const rawData = format === 'yaml' ? loadYaml(text) : JSON.parse(text);
+    if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
+      throw new Error(`expected a ${format.toUpperCase()} object at the root`);
+    }
+    return standardizeImportData(rawData);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Invalid ${format.toUpperCase()} file: ${detail}`);
+  }
+};
+
+export const downloadDomainExportFile = (data: DomainExportData, filename: string, format: DomainExportFormat): void => {
+  const payload = serializeDomainExportData(data, format);
+  const descriptor = getExportFileDescriptor(format);
+  const blob = new Blob([payload], { type: `${descriptor.mimeType};charset=utf-8` });
+  triggerBlobDownload(blob, `${filename}.${descriptor.extension}`);
+};
+
 /**
  * Downloads data as a JSON file
  * @param data The data to download
  * @param filename The name of the file (without extension)
  */
 export const downloadJsonFile = (data: any, filename: string): void => {
-  const jsonString = JSON.stringify(data, null, 2);
-  const blob = new Blob([jsonString], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${filename}.json`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  
-  // Clean up the URL object
-  URL.revokeObjectURL(url);
+  const jsonString = serializeDomainExportData(data, 'json');
+  const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+  triggerBlobDownload(blob, `${filename}.json`);
+};
+
+/**
+ * Downloads data as a YAML file
+ * @param data The data to download
+ * @param filename The name of the file (without extension)
+ */
+export const downloadYamlFile = (data: DomainExportData, filename: string): void => {
+  downloadDomainExportFile(data, filename, 'yaml');
 };
 
 /**
  * Downloads a binary blob as a file
  */
 export const downloadZipFile = (blob: Blob, filename: string): void => {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, filename);
 };
 
 /**
@@ -2522,12 +2571,10 @@ export const uploadJsonFile = (): Promise<DomainExportData> => {
       reader.onload = (e) => {
         try {
           const text = e.target?.result as string;
-          const rawData = JSON.parse(text);
-          
-          const standardizedData = standardizeImportData(rawData);
+          const standardizedData = parseDomainImportData(text, 'json');
           resolve(standardizedData);
         } catch (error) {
-          reject(new Error('Invalid JSON file: ' + (error instanceof Error ? error.message : 'Unknown error')));
+          reject(new Error(error instanceof Error ? error.message : 'Invalid JSON file'));
         }
       };
       

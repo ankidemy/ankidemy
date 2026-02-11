@@ -11,7 +11,7 @@ import { getAppTimeZone } from '@/lib/app-preferences';
 import { useUI } from '@/contexts/UIContext';
 import { GraphData } from '../utils/types';
 import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
-import { ArrowLeft, Edit, Save, X, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, Edit, Save, X, Lock, Unlock, Copy, RefreshCw } from 'lucide-react';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 
 interface SourceWindowContentProps {
@@ -24,6 +24,8 @@ interface SourceWindowContentProps {
   onDeleteSource?: (code: string) => void;
   onRelevantLinksUpdated?: () => void | Promise<void>;
   onNavigateToNode?: (nodeId: string) => void;
+  onCopyYaml?: () => void;
+  isCopyingYaml?: boolean;
 }
 
 type RelationDraft = { id?: number; relationType: string; toType: 'meta_definition' | 'meta_exercise'; toCode: string };
@@ -92,6 +94,8 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   onDeleteSource,
   onRelevantLinksUpdated,
   onNavigateToNode,
+  onCopyYaml,
+  isCopyingYaml = false,
 }) => {
   const ui = useUI();
   const [source, setSource] = useState<SourceDTO | null>(null);
@@ -513,6 +517,22 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
                 {headerVisibility === 'domain' ? <Unlock size={14} /> : <Lock size={14} />}
               </Button>
               <div className="text-base font-semibold text-gray-900 truncate">{source?.title?.trim() || 'Source'}</div>
+              {onCopyYaml && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 flex-shrink-0"
+                  onClick={onCopyYaml}
+                  disabled={isCopyingYaml}
+                  title="Copy node as YAML"
+                >
+                  {isCopyingYaml ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <Copy size={14} />
+                  )}
+                </Button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

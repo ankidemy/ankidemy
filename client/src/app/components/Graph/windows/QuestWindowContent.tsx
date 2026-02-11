@@ -9,7 +9,7 @@ import ImageUploadField from '../components/ImageUploadField';
 import ZoomableImage from '../components/ZoomableImage';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { ArrowLeft, Clock, Edit, Loader2, Save, X, Lock, Unlock, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Clock, Edit, Loader2, Save, X, Lock, Unlock, SlidersHorizontal, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import VersionHeaderControls from '../components/VersionHeaderControls';
 import {
   MetaQuestDTO,
@@ -52,6 +52,8 @@ interface QuestWindowContentProps {
   onNavigateToNode?: (nodeId: string) => void;
   onClose?: () => void;
   onHeaderMouseDown?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onCopyYaml?: () => void;
+  isCopyingYaml?: boolean;
 }
 
 type RelationDraft = { relationType: string; toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest'; toCode: string };
@@ -95,6 +97,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   onNavigateToNode,
   onClose,
   onHeaderMouseDown,
+  onCopyYaml,
+  isCopyingYaml = false,
 }) => {
   const ui = useUI();
   const [quest, setQuest] = useState<MetaQuestDTO | null>(null);
@@ -1449,6 +1453,22 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                 <div className="text-base font-semibold text-gray-900 truncate">
                   {quest?.name?.trim() || questData.name?.trim() || 'Quest'}
                 </div>
+                {onCopyYaml && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 flex-shrink-0"
+                    onClick={onCopyYaml}
+                    disabled={isCopyingYaml}
+                    title="Copy node as YAML"
+                  >
+                    {isCopyingYaml ? (
+                      <RefreshCw size={14} className="animate-spin" />
+                    ) : (
+                      <Copy size={14} />
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
 

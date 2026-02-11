@@ -59,6 +59,7 @@ import {
   updateGroupPositions,
   exportDomainAsJson,
   downloadJsonFile,
+  downloadYamlFile,
   fetchDomainBackup,
   downloadZipFile,
 	  GroupData,
@@ -97,6 +98,7 @@ import {
   UserDomainSettings,
   UserDomainSettingsUpdate,
   DomainExportData,
+  serializeDomainExportData,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
 import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
@@ -237,6 +239,36 @@ const prunePrerequisites = (
     return { prerequisites: cleanedPrerequisites };
   }
   return { prerequisites: cleanedPrerequisites, prerequisiteWeights: cleanedWeights };
+};
+
+const copyTextToClipboard = async (text: string): Promise<void> => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard is not available in this environment.');
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.setAttribute('readonly', '');
+  textArea.style.position = 'fixed';
+  textArea.style.opacity = '0';
+  textArea.style.pointerEvents = 'none';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    const copied = document.execCommand('copy');
+    if (!copied) {
+      throw new Error('Copy command was rejected by the browser.');
+    }
+  } finally {
+    document.body.removeChild(textArea);
+  }
 };
 
 const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
@@ -550,6 +582,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [positionsChanged, setPositionsChanged] = useState(false);
   const [isSavingPositions, setIsSavingPositions] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [copyingWindowId, setCopyingWindowId] = useState<string | null>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
@@ -4826,16 +4859,35 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [currentDomainId, currentDomainName]);
 
-  const handleToolbarExport = useCallback(async () => {
+  const handleOptionsExportYaml = useCallback(async () => {
     if (!currentDomainId || !currentDomainName) {
       showToast('No domain selected for export', 'error');
       return;
     }
+    setIsExporting(true);
+    try {
+      showToast('Exporting graph as YAML...', 'info', 2000);
+      const exportData = await exportDomainAsJson(currentDomainId);
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `${currentDomainName.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}`;
+      downloadYamlFile(exportData, filename);
+      showToast(`Domain "${currentDomainName}" exported successfully as YAML!`, 'success');
+    } catch (error) {
+      console.error('YAML export error:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to export domain as YAML', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [currentDomainId, currentDomainName]);
 
-    const selectedCodes = Array.from(selectedNodeIds);
+  const buildExportDataForCodes = useCallback(async (codes: string[]) => {
+    if (!currentDomainId) {
+      throw new Error('No domain selected for export.');
+    }
+
+    const selectedCodes = Array.from(new Set(codes.filter((code): code is string => typeof code === 'string' && code.trim().length > 0)));
     if (selectedCodes.length === 0) {
-      showToast('Select at least one node to export.', 'warning');
-      return;
+      throw new Error('Select at least one node to export.');
     }
 
     const selectedDefinitionCodes = new Set<string>();
@@ -4868,246 +4920,273 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       selectedQuestCodes.size;
 
     if (recognizedSelectionCount === 0) {
-      showToast('Select definition, exercise, source, or quest nodes to export.', 'warning');
+      throw new Error('Select definition, exercise, source, or quest nodes to export.');
+    }
+
+    const [metaDefinitionEntries, metaExerciseEntries, metaQuestEntries, domainRelations] = await Promise.all([
+      Promise.all(
+        Array.from(selectedDefinitionCodes).map(async (code) => {
+          const metaId = codeToNumericIdMap.get(code);
+          if (!metaId) {
+            throw new Error(`Missing metadata for definition "${code}".`);
+          }
+          const meta = await getMetaDefinition(metaId);
+          return [code, meta] as const;
+        })
+      ),
+      Promise.all(
+        Array.from(selectedExerciseCodes).map(async (code) => {
+          const metaId = codeToNumericIdMap.get(code);
+          if (!metaId) {
+            throw new Error(`Missing metadata for exercise "${code}".`);
+          }
+          const meta = await getMetaExercise(metaId);
+          return [code, meta] as const;
+        })
+      ),
+      Promise.all(
+        Array.from(selectedQuestCodes).map(async (code) => {
+          const questId = currentStructuralGraphData.quests?.[code]?.id;
+          if (!questId) {
+            throw new Error(`Missing metadata for quest "${code}".`);
+          }
+          const metaQuest = await getQuest(questId);
+          return [code, metaQuest] as const;
+        })
+      ),
+      getDomainRelations(currentDomainId),
+    ]);
+
+    const includedDefinitionCodes = new Set(metaDefinitionEntries.map(([code]) => code));
+    const includedExerciseCodes = new Set(metaExerciseEntries.map(([code]) => code));
+    const allowedPrerequisiteCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
+
+    const exportData: DomainExportData = {};
+
+    if (metaDefinitionEntries.length > 0) {
+      const metaDefinitions: NonNullable<DomainExportData['metaDefinitions']> = {};
+      metaDefinitionEntries.forEach(([code, meta]) => {
+        const { prerequisites, prerequisiteWeights } = prunePrerequisites(
+          meta.prerequisites,
+          meta.prerequisiteWeights,
+          allowedPrerequisiteCodes,
+        );
+        const rawVersions: Array<Partial<DefinitionVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
+          ? meta.versions
+          : [{ prompt: `Define ${meta.name || meta.code}`, type: 'open_ended' }];
+        metaDefinitions[code] = {
+          code: meta.code,
+          name: meta.name,
+          prerequisites,
+          prerequisiteWeights,
+          xPosition: meta.xPosition,
+          yPosition: meta.yPosition,
+          versions: rawVersions.map(version => ({
+            prompt: (version.prompt || '').trim() || `Define ${meta.name || meta.code}`,
+            type: (version.type || '').trim() || 'open_ended',
+            description: version.description || undefined,
+            notes: version.notes || undefined,
+            references: Array.isArray(version.references) ? version.references : [],
+            promptImagePath: version.promptImagePath || undefined,
+            descriptionImagePath: version.descriptionImagePath || undefined,
+          })),
+        };
+      });
+      exportData.metaDefinitions = metaDefinitions;
+    }
+
+    if (metaExerciseEntries.length > 0) {
+      const metaExercises: NonNullable<DomainExportData['metaExercises']> = {};
+      metaExerciseEntries.forEach(([code, meta]) => {
+        const { prerequisites, prerequisiteWeights } = prunePrerequisites(
+          meta.prerequisites,
+          meta.prerequisiteWeights,
+          allowedPrerequisiteCodes,
+        );
+        const rawVersions: Array<Partial<ExerciseVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
+          ? meta.versions
+          : [{ statement: `Solve: ${meta.name || meta.code}`, difficulty: 3 }];
+        metaExercises[code] = {
+          code: meta.code,
+          name: meta.name,
+          prerequisites,
+          prerequisiteWeights,
+          xPosition: meta.xPosition,
+          yPosition: meta.yPosition,
+          versions: rawVersions.map(version => ({
+            statement: (version.statement || '').trim() || `Solve: ${meta.name || meta.code}`,
+            description: version.description || undefined,
+            hints: version.hints || undefined,
+            verifiable: version.verifiable,
+            result: version.result || undefined,
+            difficulty: typeof version.difficulty === 'number' ? version.difficulty : 3,
+            notes: version.notes || undefined,
+            statementImagePath: version.statementImagePath || undefined,
+            descriptionImagePath: version.descriptionImagePath || undefined,
+          })),
+        };
+      });
+      exportData.metaExercises = metaExercises;
+    }
+
+    if (selectedSourceCodes.size > 0) {
+      const sources: NonNullable<DomainExportData['sources']> = {};
+      Array.from(selectedSourceCodes).forEach(code => {
+        const source = currentStructuralGraphData.sources?.[code];
+        if (!source) return;
+        sources[code] = {
+          code: source.code,
+          title: source.title,
+          contentMd: source.contentMd,
+          bibtexKey: source.bibtexKey ?? null,
+          filePath: source.filePath ?? null,
+          xPosition: source.xPosition,
+          yPosition: source.yPosition,
+        };
+      });
+      if (Object.keys(sources).length > 0) {
+        exportData.sources = sources;
+      }
+    }
+
+    if (metaQuestEntries.length > 0) {
+      const metaQuests: NonNullable<DomainExportData['metaQuests']> = {};
+      metaQuestEntries.forEach(([code, metaQuest]) => {
+        const rawVersions: Array<Partial<QuestVersionDTO>> = Array.isArray(metaQuest.versions) && metaQuest.versions.length > 0
+          ? metaQuest.versions
+          : [{ title: metaQuest.name || metaQuest.code }];
+        metaQuests[code] = {
+          code: metaQuest.code,
+          name: metaQuest.name,
+          kind: metaQuest.kind,
+          schedule: metaQuest.schedule,
+          xPosition: metaQuest.xPosition,
+          yPosition: metaQuest.yPosition,
+          versions: rawVersions.map(version => ({
+            title: (version.title || '').trim() || metaQuest.name || metaQuest.code,
+            descriptionMd: version.descriptionMd || undefined,
+            taskList: version.taskList,
+            imagePath: version.imagePath || undefined,
+          })),
+        };
+      });
+      exportData.metaQuests = metaQuests;
+    }
+
+    const selectedCodeByTypedId = new Map<string, string>();
+    includedDefinitionCodes.forEach(code => {
+      const id = codeToNumericIdMap.get(code);
+      if (id) selectedCodeByTypedId.set(`meta_definition:${id}`, code);
+    });
+    includedExerciseCodes.forEach(code => {
+      const id = codeToNumericIdMap.get(code);
+      if (id) selectedCodeByTypedId.set(`meta_exercise:${id}`, code);
+    });
+    Array.from(selectedSourceCodes).forEach(code => {
+      const id = currentStructuralGraphData.sources?.[code]?.id;
+      if (id) selectedCodeByTypedId.set(`source:${id}`, code);
+    });
+    Array.from(selectedQuestCodes).forEach(code => {
+      const id = currentStructuralGraphData.quests?.[code]?.id;
+      if (id) selectedCodeByTypedId.set(`meta_quest:${id}`, code);
+    });
+
+    const relations = domainRelations.reduce<NonNullable<DomainExportData['relations']>>((acc, relation) => {
+      const fromCode = selectedCodeByTypedId.get(`${relation.fromType}:${relation.fromId}`);
+      const toCode = selectedCodeByTypedId.get(`${relation.toType}:${relation.toId}`);
+      if (!fromCode || !toCode) return acc;
+      acc.push({
+        fromType: relation.fromType,
+        fromCode,
+        toType: relation.toType,
+        toCode,
+        relationType: relation.relationType,
+        contextKey: relation.contextKey,
+      });
+      return acc;
+    }, []);
+    if (relations.length > 0) {
+      exportData.relations = relations;
+    }
+
+    const selectedGroupCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
+    if (selectedGroupCodes.size > 0 && domainGroups.length > 0) {
+      const groups = domainGroups.reduce<NonNullable<DomainExportData['groups']>>((acc, group) => {
+        const seeds = (group.seeds || [])
+          .filter(seed => selectedGroupCodes.has(seed.nodeCode))
+          .map(seed => ({
+            nodeType: seed.nodeType,
+            code: seed.nodeCode,
+          }));
+        if (seeds.length === 0) return acc;
+        const members = (group.members || [])
+          .filter(member => selectedGroupCodes.has(member.nodeCode))
+          .map(member => ({
+            nodeType: member.nodeType,
+            code: member.nodeCode,
+          }));
+        acc.push({
+          name: group.name,
+          isExact: group.isExact,
+          xPosition: group.xPosition,
+          yPosition: group.yPosition,
+          seeds,
+          members: members.length > 0 ? members : undefined,
+        });
+        return acc;
+      }, []);
+      if (groups.length > 0) {
+        exportData.groups = groups;
+      }
+    }
+
+    const exportedNodeCount =
+      Object.keys(exportData.metaDefinitions || {}).length +
+      Object.keys(exportData.metaExercises || {}).length +
+      Object.keys(exportData.sources || {}).length +
+      Object.keys(exportData.metaQuests || {}).length;
+
+    if (exportedNodeCount === 0) {
+      throw new Error('No exportable nodes were found in the current selection.');
+    }
+
+    const orderedExportedCodes = selectedCodes.filter(code => (
+      includedDefinitionCodes.has(code) ||
+      includedExerciseCodes.has(code) ||
+      selectedSourceCodes.has(code) ||
+      selectedQuestCodes.has(code)
+    ));
+
+    return {
+      exportData,
+      exportedNodeCount,
+      orderedExportedCodes,
+    };
+  }, [
+    currentDomainId,
+    currentStructuralGraphData,
+    codeToNumericIdMap,
+    domainGroups,
+  ]);
+
+  const handleToolbarExport = useCallback(async (format: 'json' | 'yaml' = 'yaml') => {
+    if (!currentDomainId || !currentDomainName) {
+      showToast('No domain selected for export', 'error');
+      return;
+    }
+
+    const selectedCodes = Array.from(selectedNodeIds);
+    if (selectedCodes.length === 0) {
+      showToast('Select at least one node to export.', 'warning');
       return;
     }
 
     setIsExporting(true);
     try {
-      showToast('Exporting selected nodes...', 'info', 2000);
+      showToast(`Exporting selected nodes as ${format.toUpperCase()}...`, 'info', 2000);
 
-      const [metaDefinitionEntries, metaExerciseEntries, metaQuestEntries, domainRelations] = await Promise.all([
-        Promise.all(
-          Array.from(selectedDefinitionCodes).map(async (code) => {
-            const metaId = codeToNumericIdMap.get(code);
-            if (!metaId) {
-              throw new Error(`Missing metadata for definition "${code}".`);
-            }
-            const meta = await getMetaDefinition(metaId);
-            return [code, meta] as const;
-          })
-        ),
-        Promise.all(
-          Array.from(selectedExerciseCodes).map(async (code) => {
-            const metaId = codeToNumericIdMap.get(code);
-            if (!metaId) {
-              throw new Error(`Missing metadata for exercise "${code}".`);
-            }
-            const meta = await getMetaExercise(metaId);
-            return [code, meta] as const;
-          })
-        ),
-        Promise.all(
-          Array.from(selectedQuestCodes).map(async (code) => {
-            const questId = currentStructuralGraphData.quests?.[code]?.id;
-            if (!questId) {
-              throw new Error(`Missing metadata for quest "${code}".`);
-            }
-            const metaQuest = await getQuest(questId);
-            return [code, metaQuest] as const;
-          })
-        ),
-        getDomainRelations(currentDomainId),
-      ]);
+      const { exportData, exportedNodeCount, orderedExportedCodes } = await buildExportDataForCodes(selectedCodes);
 
-      const includedDefinitionCodes = new Set(metaDefinitionEntries.map(([code]) => code));
-      const includedExerciseCodes = new Set(metaExerciseEntries.map(([code]) => code));
-      const allowedPrerequisiteCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
-
-      const exportData: DomainExportData = {};
-
-      if (metaDefinitionEntries.length > 0) {
-        const metaDefinitions: NonNullable<DomainExportData['metaDefinitions']> = {};
-        metaDefinitionEntries.forEach(([code, meta]) => {
-          const { prerequisites, prerequisiteWeights } = prunePrerequisites(
-            meta.prerequisites,
-            meta.prerequisiteWeights,
-            allowedPrerequisiteCodes,
-          );
-          const rawVersions: Array<Partial<DefinitionVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
-            ? meta.versions
-            : [{ prompt: `Define ${meta.name || meta.code}`, type: 'open_ended' }];
-          metaDefinitions[code] = {
-            code: meta.code,
-            name: meta.name,
-            prerequisites,
-            prerequisiteWeights,
-            xPosition: meta.xPosition,
-            yPosition: meta.yPosition,
-            versions: rawVersions.map(version => ({
-              prompt: (version.prompt || '').trim() || `Define ${meta.name || meta.code}`,
-              type: (version.type || '').trim() || 'open_ended',
-              description: version.description || undefined,
-              notes: version.notes || undefined,
-              references: Array.isArray(version.references) ? version.references : [],
-              promptImagePath: version.promptImagePath || undefined,
-              descriptionImagePath: version.descriptionImagePath || undefined,
-            })),
-          };
-        });
-        exportData.metaDefinitions = metaDefinitions;
-      }
-
-      if (metaExerciseEntries.length > 0) {
-        const metaExercises: NonNullable<DomainExportData['metaExercises']> = {};
-        metaExerciseEntries.forEach(([code, meta]) => {
-          const { prerequisites, prerequisiteWeights } = prunePrerequisites(
-            meta.prerequisites,
-            meta.prerequisiteWeights,
-            allowedPrerequisiteCodes,
-          );
-          const rawVersions: Array<Partial<ExerciseVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
-            ? meta.versions
-            : [{ statement: `Solve: ${meta.name || meta.code}`, difficulty: 3 }];
-          metaExercises[code] = {
-            code: meta.code,
-            name: meta.name,
-            prerequisites,
-            prerequisiteWeights,
-            xPosition: meta.xPosition,
-            yPosition: meta.yPosition,
-            versions: rawVersions.map(version => ({
-              statement: (version.statement || '').trim() || `Solve: ${meta.name || meta.code}`,
-              description: version.description || undefined,
-              hints: version.hints || undefined,
-              verifiable: version.verifiable,
-              result: version.result || undefined,
-              difficulty: typeof version.difficulty === 'number' ? version.difficulty : 3,
-              notes: version.notes || undefined,
-              statementImagePath: version.statementImagePath || undefined,
-              descriptionImagePath: version.descriptionImagePath || undefined,
-            })),
-          };
-        });
-        exportData.metaExercises = metaExercises;
-      }
-
-      if (selectedSourceCodes.size > 0) {
-        const sources: NonNullable<DomainExportData['sources']> = {};
-        Array.from(selectedSourceCodes).forEach(code => {
-          const source = currentStructuralGraphData.sources?.[code];
-          if (!source) return;
-          sources[code] = {
-            code: source.code,
-            title: source.title,
-            contentMd: source.contentMd,
-            bibtexKey: source.bibtexKey ?? null,
-            filePath: source.filePath ?? null,
-            xPosition: source.xPosition,
-            yPosition: source.yPosition,
-          };
-        });
-        if (Object.keys(sources).length > 0) {
-          exportData.sources = sources;
-        }
-      }
-
-      if (metaQuestEntries.length > 0) {
-        const metaQuests: NonNullable<DomainExportData['metaQuests']> = {};
-        metaQuestEntries.forEach(([code, metaQuest]) => {
-          const rawVersions: Array<Partial<QuestVersionDTO>> = Array.isArray(metaQuest.versions) && metaQuest.versions.length > 0
-            ? metaQuest.versions
-            : [{ title: metaQuest.name || metaQuest.code }];
-          metaQuests[code] = {
-            code: metaQuest.code,
-            name: metaQuest.name,
-            kind: metaQuest.kind,
-            schedule: metaQuest.schedule,
-            xPosition: metaQuest.xPosition,
-            yPosition: metaQuest.yPosition,
-            versions: rawVersions.map(version => ({
-              title: (version.title || '').trim() || metaQuest.name || metaQuest.code,
-              descriptionMd: version.descriptionMd || undefined,
-              taskList: version.taskList,
-              imagePath: version.imagePath || undefined,
-            })),
-          };
-        });
-        exportData.metaQuests = metaQuests;
-      }
-
-      const selectedCodeByTypedId = new Map<string, string>();
-      includedDefinitionCodes.forEach(code => {
-        const id = codeToNumericIdMap.get(code);
-        if (id) selectedCodeByTypedId.set(`meta_definition:${id}`, code);
-      });
-      includedExerciseCodes.forEach(code => {
-        const id = codeToNumericIdMap.get(code);
-        if (id) selectedCodeByTypedId.set(`meta_exercise:${id}`, code);
-      });
-      Array.from(selectedSourceCodes).forEach(code => {
-        const id = currentStructuralGraphData.sources?.[code]?.id;
-        if (id) selectedCodeByTypedId.set(`source:${id}`, code);
-      });
-      Array.from(selectedQuestCodes).forEach(code => {
-        const id = currentStructuralGraphData.quests?.[code]?.id;
-        if (id) selectedCodeByTypedId.set(`meta_quest:${id}`, code);
-      });
-
-      const relations = domainRelations.reduce<NonNullable<DomainExportData['relations']>>((acc, relation) => {
-        const fromCode = selectedCodeByTypedId.get(`${relation.fromType}:${relation.fromId}`);
-        const toCode = selectedCodeByTypedId.get(`${relation.toType}:${relation.toId}`);
-        if (!fromCode || !toCode) return acc;
-        acc.push({
-          fromType: relation.fromType,
-          fromCode,
-          toType: relation.toType,
-          toCode,
-          relationType: relation.relationType,
-          contextKey: relation.contextKey,
-        });
-        return acc;
-      }, []);
-      if (relations.length > 0) {
-        exportData.relations = relations;
-      }
-
-      const selectedGroupCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
-      if (selectedGroupCodes.size > 0 && domainGroups.length > 0) {
-        const groups = domainGroups.reduce<NonNullable<DomainExportData['groups']>>((acc, group) => {
-          const seeds = (group.seeds || [])
-            .filter(seed => selectedGroupCodes.has(seed.nodeCode))
-            .map(seed => ({
-              nodeType: seed.nodeType,
-              code: seed.nodeCode,
-            }));
-          if (seeds.length === 0) return acc;
-          const members = (group.members || [])
-            .filter(member => selectedGroupCodes.has(member.nodeCode))
-            .map(member => ({
-              nodeType: member.nodeType,
-              code: member.nodeCode,
-            }));
-          acc.push({
-            name: group.name,
-            isExact: group.isExact,
-            xPosition: group.xPosition,
-            yPosition: group.yPosition,
-            seeds,
-            members: members.length > 0 ? members : undefined,
-          });
-          return acc;
-        }, []);
-        if (groups.length > 0) {
-          exportData.groups = groups;
-        }
-      }
-
-      const exportedNodeCount =
-        Object.keys(exportData.metaDefinitions || {}).length +
-        Object.keys(exportData.metaExercises || {}).length +
-        Object.keys(exportData.sources || {}).length +
-        Object.keys(exportData.metaQuests || {}).length;
-      if (exportedNodeCount === 0) {
-        throw new Error('No exportable nodes were found in the current selection.');
-      }
-
-      const orderedExportedCodes = selectedCodes.filter(code => (
-        includedDefinitionCodes.has(code) ||
-        includedExerciseCodes.has(code) ||
-        selectedSourceCodes.has(code) ||
-        selectedQuestCodes.has(code)
-      ));
       const nodeNameByCode = new Map(stableGraph.nodes.map(node => [node.id, node.name || node.id]));
       const filenameParts = orderedExportedCodes
         .slice(0, 2)
@@ -5117,8 +5196,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const filenameBase = filenameParts.length > 0 ? filenameParts.join('_') : fallbackBase;
       const filename = `${filenameBase}_${formatDownloadTimestamp()}`;
 
-      downloadJsonFile(exportData, filename);
-      showToast(`${exportedNodeCount} selected node${exportedNodeCount === 1 ? '' : 's'} exported successfully!`, 'success');
+      if (format === 'yaml') {
+        downloadYamlFile(exportData, filename);
+      } else {
+        downloadJsonFile(exportData, filename);
+      }
+      showToast(
+        `${exportedNodeCount} selected node${exportedNodeCount === 1 ? '' : 's'} exported as ${format.toUpperCase()} successfully!`,
+        'success',
+      );
     } catch (error) {
       console.error('Selected export error:', error);
       showToast(error instanceof Error ? error.message : 'Failed to export selected nodes', 'error');
@@ -5129,11 +5215,57 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentDomainId,
     currentDomainName,
     selectedNodeIds,
-    currentStructuralGraphData,
-    codeToNumericIdMap,
-    domainGroups,
+    buildExportDataForCodes,
     stableGraph.nodes,
   ]);
+
+  const handleCopyNodeYamlToClipboard = useCallback(async (windowId: string, nodeCode: string, nodeLabel: string) => {
+    setCopyingWindowId(windowId);
+    try {
+      const { exportData } = await buildExportDataForCodes([nodeCode]);
+      const yamlContent = serializeDomainExportData(exportData, 'yaml');
+      await copyTextToClipboard(yamlContent);
+      showToast(`Copied "${nodeLabel}" as YAML.`, 'success');
+    } catch (error) {
+      console.error('Copy YAML error:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to copy node as YAML', 'error');
+    } finally {
+      setCopyingWindowId(prev => (prev === windowId ? null : prev));
+    }
+  }, [buildExportDataForCodes]);
+
+  const getWindowCopyTarget = useCallback((windowState: any): { code: string; label: string } | null => {
+    if (!windowState || typeof windowState !== 'object') {
+      return null;
+    }
+    if (windowState.type === 'detail') {
+      const code = windowState.contentProps?.nodeData?.id;
+      const label = windowState.contentProps?.nodeData?.name || windowState.title || code;
+      if (typeof code === 'string' && code.trim()) {
+        return { code: code.trim(), label: String(label || code).trim() || code };
+      }
+      return null;
+    }
+    if (windowState.type === 'source') {
+      const source = windowState.contentProps?.sourceData || windowState.contentProps?.nodeData;
+      const code = source?.code;
+      const label = source?.title || windowState.title || code;
+      if (typeof code === 'string' && code.trim()) {
+        return { code: code.trim(), label: String(label || code).trim() || code };
+      }
+      return null;
+    }
+    if (windowState.type === 'quest') {
+      const quest = windowState.contentProps?.questData || windowState.contentProps?.nodeData;
+      const code = quest?.code;
+      const label = quest?.name || quest?.versions?.[0]?.title || windowState.title || code;
+      if (typeof code === 'string' && code.trim()) {
+        return { code: code.trim(), label: String(label || code).trim() || code };
+      }
+      return null;
+    }
+    return null;
+  }, []);
 
   const handleToolbarBackup = useCallback(async () => {
     if (!currentDomainId || !currentDomainName) {
@@ -6305,11 +6437,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onNightModeChange={handleNightModeChange}
           onImportJson={handleToolbarImport}
           onExportJson={() => void handleOptionsExportJson()}
+          onExportYaml={() => void handleOptionsExportYaml()}
           onBackupDomain={() => void handleToolbarBackup()}
           canImportJson={canImport}
           canExportJson={canExport && !isExporting}
+          canExportYaml={canExport && !isExporting}
           canBackupDomain={canBackup && !isBackingUp}
           isExportingJson={isExporting}
+          isExportingYaml={isExporting}
           isBackingUpDomain={isBackingUp}
         />
 
@@ -6891,19 +7026,25 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	          </div>
 
 	          {/* Render draggable windows */}
-	          {ui.state.windows.map(window => (
-            <DraggableWindow
-              key={window.id}
-              id={window.id}
-              title={window.title}
-              initialPosition={window.position}
-              initialSize={window.size}
-              onClose={() => ui.closeWindow(window.id)}
-              onFocus={() => ui.focusWindow(window.id)}
-              zIndex={window.zIndex}
-              isMinimized={window.isMinimized}
-              onMinimize={() => ui.minimizeWindow(window.id)}
-            >
+	          {ui.state.windows.map(window => {
+            const copyTarget = isFrenzyEnabled ? null : getWindowCopyTarget(window);
+            const isCopyingYaml = copyingWindowId === window.id;
+            const handleWindowCopyYaml = copyTarget
+              ? () => void handleCopyNodeYamlToClipboard(window.id, copyTarget.code, copyTarget.label)
+              : undefined;
+            return (
+              <DraggableWindow
+                key={window.id}
+                id={window.id}
+                title={window.title}
+                initialPosition={window.position}
+                initialSize={window.size}
+                onClose={() => ui.closeWindow(window.id)}
+                onFocus={() => ui.focusWindow(window.id)}
+                zIndex={window.zIndex}
+                isMinimized={window.isMinimized}
+                onMinimize={() => ui.minimizeWindow(window.id)}
+              >
               {window.type === 'detail' && (
                 <DetailWindowContent
                   nodeData={window.contentProps.nodeData}
@@ -6939,6 +7080,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       return { ...prev, quests: nextQuests, relations: nextRelations };
                     });
                   }}
+                  onCopyYaml={handleWindowCopyYaml}
+                  isCopyingYaml={isCopyingYaml}
                 />
               )}
               {window.type === 'review' && (
@@ -7000,6 +7143,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                       return { ...prev, quests: nextQuests, relations: nextRelations };
                     });
                   }}
+                  onCopyYaml={handleWindowCopyYaml}
+                  isCopyingYaml={isCopyingYaml}
                 />
               )}
               {window.type === 'quest' && (
@@ -7016,6 +7161,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	                    removeAuxNodeFromGraph('quest', code);
 	                  }}
                   onRelevantLinksUpdated={refreshDomainRelations}
+                  onCopyYaml={handleWindowCopyYaml}
+                  isCopyingYaml={isCopyingYaml}
                 />
               )}
               {window.type === 'survey' && (
@@ -7029,8 +7176,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	                  onStatsUpdated={(count) => setSurveyDueCount(count)}
 	                />
 	              )}
-            </DraggableWindow>
-          ))}
+              </DraggableWindow>
+            );
+          })}
         </div>
       </div>
   );

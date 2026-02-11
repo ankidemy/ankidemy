@@ -75,11 +75,14 @@ interface TopControlsProps {
   onNightModeChange?: (enabled: boolean) => void;
   onImportJson?: () => void;
   onExportJson?: () => void;
+  onExportYaml?: () => void;
   onBackupDomain?: () => void;
   canImportJson?: boolean;
   canExportJson?: boolean;
+  canExportYaml?: boolean;
   canBackupDomain?: boolean;
   isExportingJson?: boolean;
+  isExportingYaml?: boolean;
   isBackingUpDomain?: boolean;
 }
 
@@ -107,11 +110,14 @@ const TopControls: React.FC<TopControlsProps> = ({
   onNightModeChange,
   onImportJson,
   onExportJson,
+  onExportYaml,
   onBackupDomain,
   canImportJson = false,
   canExportJson = false,
+  canExportYaml = false,
   canBackupDomain = false,
   isExportingJson = false,
+  isExportingYaml = false,
   isBackingUpDomain = false,
 }) => {
   const srs = useSRS();
@@ -392,7 +398,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   }, [showReviewQueue, dueReviews, isEnrolled, currentDomainId, currentSrsDomainId, loadDueReviews]);
 
   const canChangeOptions = !!(isEnrolled && onUpdateDomainSettings);
-  const canShowIoActions = !!(onImportJson || onExportJson || onBackupDomain);
+  const canShowIoActions = !!(onImportJson || onExportJson || onExportYaml || onBackupDomain);
   const canOpenOptions = canChangeOptions || !!onNightModeChange || canShowIoActions;
 
   const handleOptionImportJson = useCallback(() => {
@@ -406,6 +412,12 @@ const TopControls: React.FC<TopControlsProps> = ({
     setShowOptions(false);
     onExportJson();
   }, [canExportJson, onExportJson]);
+
+  const handleOptionExportYaml = useCallback(() => {
+    if (!canExportYaml || !onExportYaml) return;
+    setShowOptions(false);
+    onExportYaml();
+  }, [canExportYaml, onExportYaml]);
 
   const handleOptionBackupDomain = useCallback(() => {
     if (!canBackupDomain || !onBackupDomain) return;
@@ -859,6 +871,20 @@ const TopControls: React.FC<TopControlsProps> = ({
                           <Download size={13} className="mr-2" />
                         )}
                         Export JSON
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-start text-xs"
+                        onClick={handleOptionExportYaml}
+                        disabled={!canExportYaml || isExportingYaml}
+                      >
+                        {isExportingYaml ? (
+                          <RefreshCw size={13} className="mr-2 animate-spin" />
+                        ) : (
+                          <Download size={13} className="mr-2" />
+                        )}
+                        Export YAML
                       </Button>
                       <Button
                         variant="outline"
