@@ -3,7 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from "@/app/components/core/button";
-import { Book, BarChart, Plus, Play, Users, AlertTriangle, List, Wrench, RefreshCw, Upload, Download, Archive } from 'lucide-react';
+import { Book, BarChart, Plus, Play, Users, AlertTriangle, List, Wrench, RefreshCw, Upload, Download, Archive, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { AppMode } from '../utils/types';
 import { useSRS } from '@/contexts/SRSContext';
@@ -144,6 +144,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [optionsDraftSecondIntervalDays, setOptionsDraftSecondIntervalDays] = useState<number>(DEFAULT_SRS_OPTIONS.secondIntervalDays);
   const [optionsDraftLapseIntervalDays, setOptionsDraftLapseIntervalDays] = useState<number>(DEFAULT_SRS_OPTIONS.lapseIntervalDays);
   const [optionsDraftMinEasinessFactor, setOptionsDraftMinEasinessFactor] = useState<number>(DEFAULT_SRS_OPTIONS.minEasinessFactor);
+  const [showExportFormatOptions, setShowExportFormatOptions] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
 
   const dueReviews = srs.state.dueReviews;
@@ -223,6 +224,12 @@ const TopControls: React.FC<TopControlsProps> = ({
   useEffect(() => {
     setShowOptions(false);
   }, [currentDomainId]);
+
+  useEffect(() => {
+    if (!showOptions) {
+      setShowExportFormatOptions(false);
+    }
+  }, [showOptions]);
 
   useEffect(() => {
     const handleCanvasClick = () => {
@@ -844,66 +851,6 @@ const TopControls: React.FC<TopControlsProps> = ({
                   />
                 </label>
 
-                {canShowIoActions && (
-                  <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                    <div className="mb-2 text-xs font-medium text-gray-700">Import / Export</div>
-                    <div className="grid grid-cols-1 gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 justify-start text-xs"
-                        onClick={handleOptionImportJson}
-                        disabled={!canImportJson}
-                      >
-                        <Upload size={13} className="mr-2" />
-                        Import JSON
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 justify-start text-xs"
-                        onClick={handleOptionExportJson}
-                        disabled={!canExportJson || isExportingJson}
-                      >
-                        {isExportingJson ? (
-                          <RefreshCw size={13} className="mr-2 animate-spin" />
-                        ) : (
-                          <Download size={13} className="mr-2" />
-                        )}
-                        Export JSON
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 justify-start text-xs"
-                        onClick={handleOptionExportYaml}
-                        disabled={!canExportYaml || isExportingYaml}
-                      >
-                        {isExportingYaml ? (
-                          <RefreshCw size={13} className="mr-2 animate-spin" />
-                        ) : (
-                          <Download size={13} className="mr-2" />
-                        )}
-                        Export YAML
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 justify-start text-xs"
-                        onClick={handleOptionBackupDomain}
-                        disabled={!canBackupDomain || isBackingUpDomain}
-                      >
-                        {isBackingUpDomain ? (
-                          <RefreshCw size={13} className="mr-2 animate-spin" />
-                        ) : (
-                          <Archive size={13} className="mr-2" />
-                        )}
-                        Backup Domain
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
                 {!canChangeOptions && (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                     Enroll in this domain to edit review options.
@@ -924,6 +871,91 @@ const TopControls: React.FC<TopControlsProps> = ({
                     className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
                   />
                 </label>
+
+                {canShowIoActions && (
+                  <details className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                    <summary className="cursor-pointer select-none text-xs font-medium text-gray-700">
+                      Import / Export
+                    </summary>
+                    <div className="mt-2 grid grid-cols-1 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-start text-xs"
+                        onClick={handleOptionImportJson}
+                        disabled={!canImportJson}
+                      >
+                        <Upload size={13} className="mr-2" />
+                        Import
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-between text-xs"
+                        onClick={() => setShowExportFormatOptions((prev) => !prev)}
+                        disabled={(!canExportJson && !canExportYaml) || isExportingJson || isExportingYaml}
+                      >
+                        <span className="inline-flex items-center">
+                          <Download size={13} className="mr-2" />
+                          Export
+                        </span>
+                        <ChevronDown
+                          size={13}
+                          className={`transition-transform ${showExportFormatOptions ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+
+                      {showExportFormatOptions && (
+                        <div className="ml-4 grid grid-cols-1 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 justify-start text-xs"
+                            onClick={handleOptionExportJson}
+                            disabled={!canExportJson || isExportingJson}
+                          >
+                            {isExportingJson ? (
+                              <RefreshCw size={13} className="mr-2 animate-spin" />
+                            ) : (
+                              <Download size={13} className="mr-2" />
+                            )}
+                            Export JSON
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 justify-start text-xs"
+                            onClick={handleOptionExportYaml}
+                            disabled={!canExportYaml || isExportingYaml}
+                          >
+                            {isExportingYaml ? (
+                              <RefreshCw size={13} className="mr-2 animate-spin" />
+                            ) : (
+                              <Download size={13} className="mr-2" />
+                            )}
+                            Export YAML
+                          </Button>
+                        </div>
+                      )}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 justify-start text-xs"
+                        onClick={handleOptionBackupDomain}
+                        disabled={!canBackupDomain || isBackingUpDomain}
+                      >
+                        {isBackingUpDomain ? (
+                          <RefreshCw size={13} className="mr-2 animate-spin" />
+                        ) : (
+                          <Archive size={13} className="mr-2" />
+                        )}
+                        Backup Domain
+                      </Button>
+                    </div>
+                  </details>
+                )}
                 <details className="rounded-md border border-gray-200 bg-gray-50 p-2" open={canChangeOptions ? undefined : false}>
                   <summary className="cursor-pointer select-none text-xs font-medium text-gray-700">
                     SRS tuning (advanced)

@@ -24,6 +24,7 @@ interface ImportDialogProps {
 
 type ImportData = DomainExportData;
 type RawImportObject = Record<string, any>;
+type ImportTextFormat = 'auto' | 'json' | 'yaml';
 
 interface ValidationResult {
   isValid: boolean;
@@ -850,6 +851,13 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [importAsNewNodes, setImportAsNewNodes] = useState(false);
   const [isZipFile, setIsZipFile] = useState(false);
+  const [isPasteMode, setIsPasteMode] = useState(false);
+  const [isPasteAreaExpanded, setIsPasteAreaExpanded] = useState(false);
+  const [isPasteContentLocked, setIsPasteContentLocked] = useState(false);
+  const [hasReviewedPastedContent, setHasReviewedPastedContent] = useState(false);
+  const [pasteNeedsReview, setPasteNeedsReview] = useState(false);
+  const [pastedContent, setPastedContent] = useState('');
+  const [pasteFormat, setPasteFormat] = useState<ImportTextFormat>('auto');
   const [showTooltip, setShowTooltip] = useState(false);
   const [isLoadingExistingDomainData, setIsLoadingExistingDomainData] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -871,6 +879,13 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       setIsValidating(false);
       setIsImporting(false);
       setIsZipFile(false);
+      setIsPasteMode(false);
+      setIsPasteAreaExpanded(false);
+      setIsPasteContentLocked(false);
+      setHasReviewedPastedContent(false);
+      setPasteNeedsReview(false);
+      setPastedContent('');
+      setPasteFormat('auto');
       setShowTooltip(false);
       setExistingDomainData(null);
       setExistingDomainDataError(null);
@@ -1148,6 +1163,43 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     };
   }, [importPreparation.errors, validation]);
 
+  const clearParsedImportState = () => {
+    setImportData(null);
+    setRawImportData(null);
+    setValidation(null);
+    setIsZipFile(false);
+  };
+
+  const parseImportObject = (text: string, format: ImportTextFormat, sourceLabel: string): RawImportObject => {
+    const content = text.trim();
+    if (!content) {
+      throw new Error(`${sourceLabel} is empty`);
+    }
+
+    const parseJson = () => JSON.parse(content);
+    const parseYaml = () => loadYaml(content);
+
+    let parsed: unknown;
+
+    if (format === 'json') {
+      parsed = parseJson();
+    } else if (format === 'yaml') {
+      parsed = parseYaml();
+    } else {
+      // Auto-detect: try JSON first, then YAML fallback.
+      try {
+        parsed = parseJson();
+      } catch {
+        parsed = parseYaml();
+      }
+    }
+
+    if (!isPlainObject(parsed)) {
+      throw new Error(`Invalid ${sourceLabel}: expected an object at the root`);
+    }
+    return parsed;
+  };
+
   const parseFileToImportObject = (text: string, filename: string): RawImportObject => {
     const lower = filename.toLowerCase();
     const isYaml = lower.endsWith('.yaml') || lower.endsWith('.yml');
@@ -1157,24 +1209,22 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       throw new Error('Unsupported file extension. Use .json, .yaml, .yml, or .zip');
     }
 
-    const parsed = isYaml ? loadYaml(text) : JSON.parse(text);
-    if (!isPlainObject(parsed)) {
-      throw new Error(`Invalid ${isYaml ? 'YAML' : 'JSON'} file: expected an object at the root`);
-    }
-    return parsed;
+    return parseImportObject(text, isYaml ? 'yaml' : 'json', 'file content');
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       setSelectedFile(null);
-      setImportData(null);
-      setRawImportData(null);
-      setValidation(null);
-      setIsZipFile(false);
+      clearParsedImportState();
       return;
     }
 
+    setIsPasteMode(false);
+    setIsPasteAreaExpanded(false);
+    setIsPasteContentLocked(false);
+    setHasReviewedPastedContent(false);
+    setPasteNeedsReview(false);
     setSelectedFile(file);
     const isZip = file.name.toLowerCase().endsWith('.zip');
     setIsZipFile(isZip);
@@ -1232,13 +1282,101 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
     }
   };
 
+  const handleSwitchToPasteMode = () => {
+    setIsPasteMode(true);
+    setIsPasteAreaExpanded(true);
+    setIsPasteContentLocked(false);
+    setHasReviewedPastedContent(false);
+    setPasteNeedsReview(false);
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    clearParsedImportState();
+  };
+
+  const handleSwitchToFileMode = () => {
+    setIsPasteMode(false);
+    setIsPasteAreaExpanded(false);
+    setIsPasteContentLocked(false);
+    setHasReviewedPastedContent(false);
+    setPasteNeedsReview(false);
+    setPastedContent('');
+    setPasteFormat('auto');
+    clearParsedImportState();
+  };
+
+  const handlePastedContentChange = (nextValue: string) => {
+    if (isPasteContentLocked) return;
+    setPastedContent(nextValue);
+    if (hasReviewedPastedContent) {
+      setHasReviewedPastedContent(false);
+      setPasteNeedsReview(true);
+      clearParsedImportState();
+    }
+  };
+
+  const handleReviewPastedContent = () => {
+    if (isPasteContentLocked) return;
+    setIsValidating(true);
+    try {
+      const raw = parseImportObject(pastedContent, pasteFormat, 'pasted content');
+      const standardized: ImportData = standardizeImportData(raw);
+      setSelectedFile(null);
+      setIsZipFile(false);
+      setRawImportData(raw);
+      setImportData(standardized);
+      setValidation(validateImportData(standardized));
+      setHasReviewedPastedContent(true);
+      setPasteNeedsReview(false);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown error';
+      setValidation({
+        isValid: false,
+        errors: [detail],
+        definitionCount: 0,
+        metaDefinitionCount: 0,
+        exerciseCount: 0,
+        metaExerciseCount: 0,
+        sourceCount: 0,
+        questCount: 0,
+        relationCount: 0,
+        versionCount: 0,
+        definitionVersionCount: 0,
+        groupCount: 0,
+      });
+      setImportData(null);
+      setRawImportData(null);
+      setHasReviewedPastedContent(false);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   const handleImport = async () => {
-    if ((!isZipFile && (!importData || !resolvedValidation?.isValid)) || !selectedFile) return;
+    if (isPasteMode) {
+      if (!importData || !resolvedValidation?.isValid || !hasReviewedPastedContent || pasteNeedsReview) {
+        return;
+      }
+    } else if ((!isZipFile && (!importData || !resolvedValidation?.isValid)) || !selectedFile) {
+      return;
+    }
 
     setIsImporting(true);
 
     try {
-      if (isZipFile) {
+      if (isPasteMode) {
+        // Freeze and collapse paste editor at import time to avoid repeated re-analysis while editing.
+        setIsPasteContentLocked(true);
+        setIsPasteAreaExpanded(false);
+        const strategy = importAsNewNodes ? 'rename' : 'update';
+        localStorage.setItem(STORAGE_KEY, strategy);
+        const payload = importPreparation.payload || importData;
+        await importToDomain(domainId, payload as ImportData, { onDuplicate: strategy });
+      } else if (isZipFile) {
+        if (!selectedFile) {
+          throw new Error('No ZIP file selected');
+        }
         await importDomainBackup(domainId, selectedFile);
       } else {
         const strategy = importAsNewNodes ? 'rename' : 'update';
@@ -1251,6 +1389,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       onSuccess?.();
       onClose();
     } catch (error) {
+      if (isPasteMode) {
+        setIsPasteContentLocked(false);
+      }
       console.error('Import failed:', error);
       showToast(
         error instanceof Error ? error.message : 'Failed to import data',
@@ -1279,27 +1420,129 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         </div>
 
         <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select JSON, YAML, or ZIP File *
-            </label>
-            <div className="flex items-center gap-2">
-              <Input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,.yaml,.yml,.zip"
-                onChange={handleFileChange}
-                disabled={isImporting}
-                className="flex-1"
-              />
-              {isValidating && (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
+          {!isPasteMode ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select JSON, YAML, or ZIP File *
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,.yaml,.yml,.zip"
+                  onChange={handleFileChange}
+                  disabled={isImporting}
+                  className="flex-1"
+                />
+                {isValidating && (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
+                )}
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <p className="text-xs text-gray-500">
+                  Import JSON/YAML node data or a full ZIP backup
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSwitchToPasteMode}
+                  disabled={isImporting}
+                  className="text-xs text-blue-700 hover:text-blue-800 underline"
+                >
+                  Paste content instead
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Paste JSON or YAML Content *
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSwitchToFileMode}
+                  disabled={isImporting}
+                  className="text-xs text-blue-700 hover:text-blue-800 underline"
+                >
+                  Upload file instead
+                </button>
+              </div>
+
+              {!isPasteAreaExpanded ? (
+                <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                  <p className="text-xs text-gray-600">
+                    Pasted content is collapsed.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsPasteAreaExpanded(true)}
+                    disabled={isImporting}
+                  >
+                    Show Pasted Content
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <textarea
+                    value={pastedContent}
+                    onChange={(event) => handlePastedContentChange(event.target.value)}
+                    readOnly={isPasteContentLocked || isImporting}
+                    placeholder="Paste full JSON or YAML content here..."
+                    className="w-full min-h-[220px] rounded border border-gray-300 px-3 py-2 text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={pasteFormat}
+                      disabled={isImporting || isPasteContentLocked}
+                      onChange={(event) => {
+                        const next = event.target.value as ImportTextFormat;
+                        setPasteFormat(next);
+                        if (hasReviewedPastedContent) {
+                          setHasReviewedPastedContent(false);
+                          setPasteNeedsReview(true);
+                          clearParsedImportState();
+                        }
+                      }}
+                      className="h-9 rounded border border-gray-300 bg-white px-2 text-sm text-gray-700"
+                    >
+                      <option value="auto">Auto detect</option>
+                      <option value="json">JSON</option>
+                      <option value="yaml">YAML</option>
+                    </select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleReviewPastedContent}
+                      disabled={isValidating || isImporting || isPasteContentLocked || !pastedContent.trim()}
+                    >
+                      Review Pasted Content
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsPasteAreaExpanded(false)}
+                      disabled={isImporting}
+                    >
+                      Collapse
+                    </Button>
+                    {isValidating && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Parsing and overwrite analysis run only when you click "Review Pasted Content".
+                  </p>
+                  {pasteNeedsReview && (
+                    <p className="text-xs text-amber-700">
+                      Pasted content changed. Click "Review Pasted Content" again before importing.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Import JSON/YAML node data or a full ZIP backup
-            </p>
-          </div>
+          )}
 
           {resolvedValidation && (
             <div className={`p-4 rounded-md ${resolvedValidation.isValid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
@@ -1459,7 +1702,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
             disabled={
               !resolvedValidation?.isValid
               || isImporting
-              || !selectedFile
+              || (isPasteMode
+                ? (!hasReviewedPastedContent || pasteNeedsReview)
+                : !selectedFile)
               || (!importAsNewNodes && isLoadingExistingDomainData)
             }
             className="min-w-[100px]"
