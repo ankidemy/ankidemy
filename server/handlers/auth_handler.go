@@ -6,9 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"myapp/server/dao"
-	"myapp/server/middleware"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/middleware"
+	"ankidemy/server/models"
 )
 
 // RegisterRequest represents the registration request data

@@ -9,8 +9,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
-	"myapp/server/services"
+	"ankidemy/server/dao"
+	"ankidemy/server/services"
 )
 
 type UserDomainSettingsHandler struct {

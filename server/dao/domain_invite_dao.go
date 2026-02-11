@@ -1,7 +1,7 @@
 package dao
 
 import (
-	"myapp/server/models"
+	"ankidemy/server/models"
 	"strings"
 	"time"
 

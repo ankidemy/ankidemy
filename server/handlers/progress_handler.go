@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 )
 
 // ProgressHandler handles progress-related HTTP requests

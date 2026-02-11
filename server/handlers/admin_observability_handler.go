@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
+	"ankidemy/server/dao"
 )
 
 type AdminObservabilityHandler struct {

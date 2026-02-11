@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 )
 
 type DomainNetworkHandler struct {

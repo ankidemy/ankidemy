@@ -5,7 +5,7 @@ package dao
 import (
 	"errors"
 	"fmt"
-	"myapp/server/models"
+	"ankidemy/server/models"
 	"strconv"
 	"strings"
 

@@ -9,7 +9,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 var DB *gorm.DB

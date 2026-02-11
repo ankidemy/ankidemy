@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"gorm.io/gorm"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 // NodeRelationDAO handles typed relations between nodes.

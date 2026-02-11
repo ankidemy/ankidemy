@@ -2,7 +2,7 @@ package dao
 
 import (
 	"gorm.io/gorm"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 // SourceDAO handles CRUD for sources.

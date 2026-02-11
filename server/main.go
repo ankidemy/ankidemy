@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"myapp/server/dao"
-	"myapp/server/handlers"
-	"myapp/server/middleware"
-	"myapp/server/models"
-	"myapp/server/services"
+	"ankidemy/server/dao"
+	"ankidemy/server/handlers"
+	"ankidemy/server/middleware"
+	"ankidemy/server/models"
+	"ankidemy/server/services"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"

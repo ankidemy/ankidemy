@@ -13,8 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"mime/multipart"
-	"myapp/server/dao"
-	"myapp/server/services"
+	"ankidemy/server/dao"
+	"ankidemy/server/services"
 )
 
 type MediaHandler struct {

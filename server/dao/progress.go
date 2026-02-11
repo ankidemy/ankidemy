@@ -2,7 +2,7 @@ package dao
 
 import (
 	"math"
-	"myapp/server/models"
+	"ankidemy/server/models"
 	"time"
 
 	"gorm.io/gorm"

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
-	"myapp/server/middleware"
-	"myapp/server/models"
-	"myapp/server/services"
+	"ankidemy/server/dao"
+	"ankidemy/server/middleware"
+	"ankidemy/server/models"
+	"ankidemy/server/services"
 )
 
 type DomainAccessHandler struct {

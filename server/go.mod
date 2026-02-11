@@ -1,4 +1,4 @@
-module myapp/server
+module ankidemy/server
 
 go 1.25
 

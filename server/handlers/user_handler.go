@@ -5,9 +5,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"myapp/server/dao"
-	"myapp/server/middleware"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/middleware"
+	"ankidemy/server/models"
 )
 
 // UserHandler handles user-related HTTP requests

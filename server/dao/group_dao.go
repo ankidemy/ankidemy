@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 // GroupDAO handles operations related to node groups.

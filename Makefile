@@ -36,7 +36,7 @@ clean:
 # Remove project images
 purge:
 	$(DOCKER_COMPOSE) down
-	docker rmi $$(docker images -q myapp-* 2>/dev/null) 2>/dev/null || true
+	docker rmi $$(docker images -q ankidemy-* 2>/dev/null) 2>/dev/null || true
 	@echo "Removed all project containers and images."
 
 # Complete system reset

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 )
 
 type ExternalPrerequisiteHandler struct {

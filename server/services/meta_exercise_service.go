@@ -4,8 +4,8 @@ import (
 	"errors"
 	"gorm.io/gorm"
 	"math/rand"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 	"sort"
 	"time"
 )

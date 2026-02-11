@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 // SpacedRepetitionService implements the SM-2 algorithm

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 )
 
 type SurveyQueueItem struct {

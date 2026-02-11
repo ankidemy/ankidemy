@@ -2,7 +2,7 @@ package dao
 
 import (
     "errors"
-    "myapp/server/models"
+    "ankidemy/server/models"
     "gorm.io/gorm"
 )
 

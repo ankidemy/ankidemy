@@ -4,7 +4,7 @@
 services:
   # Database Service - Production configuration
   db:
-    container_name: myapp-db-prod
+    container_name: ankidemy-db-prod
     restart: always
     environment:
       - PGDATA=/var/lib/postgresql/data
@@ -27,8 +27,8 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    image: myapp-server:production
-    container_name: myapp-server-prod
+    image: ankidemy-server:production
+    container_name: ankidemy-server-prod
     restart: always
     volumes:
       - media_data:/app/media
@@ -60,8 +60,8 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
-    image: myapp-client:production
-    container_name: myapp-client-prod
+    image: ankidemy-client:production
+    container_name: ankidemy-client-prod
     restart: always
     environment:
       - NODE_ENV=production

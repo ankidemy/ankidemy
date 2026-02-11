@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 
 	"github.com/gin-gonic/gin"
 )

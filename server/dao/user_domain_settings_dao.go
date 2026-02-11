@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"gorm.io/gorm"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 type UserDomainSettingsDAO struct {

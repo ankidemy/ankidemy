@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 	"gorm.io/gorm"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 // MetaExerciseDAO handles DB operations for meta exercises and versions

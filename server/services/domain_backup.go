@@ -9,7 +9,7 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 type DomainBackup struct {

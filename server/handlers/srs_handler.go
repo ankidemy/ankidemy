@@ -8,10 +8,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"myapp/server/dao"
-	"myapp/server/middleware"
-	"myapp/server/models"
-	"myapp/server/services"
+	"ankidemy/server/dao"
+	"ankidemy/server/middleware"
+	"ankidemy/server/models"
+	"ankidemy/server/services"
 )
 
 // SRSHandler handles SRS-related HTTP requests

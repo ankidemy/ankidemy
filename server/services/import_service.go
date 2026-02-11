@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 )
 
 // ImportService handles domain import and export operations

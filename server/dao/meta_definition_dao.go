@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 	"gorm.io/gorm"
-	"myapp/server/models"
+	"ankidemy/server/models"
 )
 
 // MetaDefinitionDAO handles DB operations for meta definitions and versions

@@ -2,7 +2,7 @@ package dao
 
 import (
 	"errors"
-	"myapp/server/models"
+	"ankidemy/server/models"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"

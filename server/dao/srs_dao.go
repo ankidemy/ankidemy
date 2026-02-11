@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gorm.io/gorm"
-	"myapp/server/models"
+	"ankidemy/server/models"
 	"time"
 )
 

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"myapp/server/dao"
-	"myapp/server/models"
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 )
 
 // SRSService is the main service for spaced repetition functionality
