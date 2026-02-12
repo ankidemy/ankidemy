@@ -201,6 +201,14 @@ import type {
 // MAIN COMPONENT
 // ============================================================================
 const NEW_NODE_CUE_DURATION_MS = 3000;
+const BOX_SELECTION_MIN_DRAG_PX = 6;
+
+type BoxSelectionDraft = {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+};
 
 const sanitizeFilenamePart = (value: string): string => {
   return value
@@ -329,6 +337,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   const [selectionTool, setSelectionTool] = useState<'none' | 'add' | 'remove'>('none');
+  const [isBoxSelectionMode, setIsBoxSelectionMode] = useState(false);
+  const [boxSelectionDraft, setBoxSelectionDraft] = useState<BoxSelectionDraft | null>(null);
   const [infoFilters, setInfoFilters] = useState<Array<'general' | 'versions' | 'links' | 'groups' | 'status'>>([]);
   const [expandedInfoNodes, setExpandedInfoNodes] = useState<Set<string>>(new Set());
   const [infoVersionCounts, setInfoVersionCounts] = useState<Map<string, number>>(new Map());
@@ -663,6 +673,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const frenzyDragLinkThrottleRef = useRef<number>(0);
   const frenzyNoteRef = useRef<HTMLDivElement>(null);
   const toolbarTransientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const boxSelectionPointerIdRef = useRef<number | null>(null);
+  const boxSelectionStartRef = useRef<{ x: number; y: number } | null>(null);
   const [frenzyNotePosition, setFrenzyNotePosition] = useState<{ x: number; y: number }>({ x: 240, y: 80 });
   const [isDraggingFrenzyNote, setIsDraggingFrenzyNote] = useState(false);
   const frenzyNoteDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
@@ -879,6 +891,51 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setSelectionTool(prev => (prev === next ? 'none' : next));
   }, []);
 
+  const boxSelectionApplyMode = useMemo<'replace' | 'add' | 'remove'>(() => {
+    if (selectionTool === 'remove') return 'remove';
+    if (selectionTool === 'add') return 'add';
+    return isFrenzyEditMode ? 'add' : 'replace';
+  }, [selectionTool, isFrenzyEditMode]);
+
+  const toggleBoxSelectionMode = useCallback(() => {
+    setIsBoxSelectionMode(prev => !prev);
+  }, []);
+
+  const applyBoxSelectionToNodes = useCallback((bounds: { left: number; top: number; right: number; bottom: number }) => {
+    const graph = graphRef.current;
+    if (!graph || typeof graph.graph2ScreenCoords !== 'function') return;
+
+    const hitNodeIds: string[] = [];
+    renderGraphNodes.forEach(node => {
+      if (node.type === 'group') return;
+      if (!isNodeVisibleInGraph(node)) return;
+      if (typeof node.x !== 'number' || typeof node.y !== 'number') return;
+
+      const screen = graph.graph2ScreenCoords(node.x, node.y);
+      if (!screen || !Number.isFinite(screen.x) || !Number.isFinite(screen.y)) return;
+      if (screen.x < bounds.left || screen.x > bounds.right) return;
+      if (screen.y < bounds.top || screen.y > bounds.bottom) return;
+      hitNodeIds.push(node.id);
+    });
+
+    const uniqueIds = Array.from(new Set(hitNodeIds));
+    setSelectedNodeIds(prev => {
+      if (boxSelectionApplyMode === 'remove') {
+        if (uniqueIds.length === 0 || prev.size === 0) return prev;
+        const next = new Set(prev);
+        uniqueIds.forEach(id => next.delete(id));
+        return next;
+      }
+      if (boxSelectionApplyMode === 'add') {
+        if (uniqueIds.length === 0) return prev;
+        const next = new Set(prev);
+        uniqueIds.forEach(id => next.add(id));
+        return next;
+      }
+      return new Set(uniqueIds);
+    });
+  }, [boxSelectionApplyMode, isNodeVisibleInGraph, renderGraphNodes]);
+
   const handleAddParentsToSelection = useCallback(() => {
     if (selectedNodeIds.size === 0) {
       showToast('Select at least one node.', 'warning');
@@ -990,6 +1047,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setSelectionTool('none');
     }
   }, [isFrenzyEditMode]);
+
+  useEffect(() => {
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setIsBoxSelectionMode(false);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   useEffect(() => {
     setInfoVersionCounts(new Map());
@@ -5513,6 +5579,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     () => getToolInstruction({ isFrenzyEditMode, frenzyTool, pendingLinkSourceId }),
     [isFrenzyEditMode, frenzyTool, pendingLinkSourceId],
   );
+  const boxSelectionInstruction = useMemo(() => {
+    if (!isBoxSelectionMode) return null;
+    if (boxSelectionApplyMode === 'remove') return 'Drag a box to remove nodes from selection.';
+    if (boxSelectionApplyMode === 'add') return 'Drag a box to add nodes to selection.';
+    return 'Drag a box to select multiple nodes.';
+  }, [boxSelectionApplyMode, isBoxSelectionMode]);
   const groupActionContent = useMemo(() => {
     if (toolbarGroupAction === 'create') {
       return (
@@ -5549,7 +5621,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     handleDeleteGroupConfirm,
     selectedToolbarGroup,
   ]);
-  const toolbarInstruction = toolbarTransientMessage ?? toolInstruction ?? undefined;
+  const toolbarInstruction = toolbarTransientMessage ?? boxSelectionInstruction ?? toolInstruction ?? undefined;
   const toolbarInstructionContent = groupActionContent ?? (toolbarInstruction ? <span>{toolbarInstruction}</span> : undefined);
 
   const labelDisplayLabel = useMemo(
@@ -5674,7 +5746,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           title: 'Select',
           rows: [
             [
-              toolboxButton('Box Select', <Maximize size={10} />, { enabled: false }),
+              toolboxButton('Box Select', <Maximize size={10} />, {
+                onClick: toggleBoxSelectionMode,
+                variant: isBoxSelectionMode ? 'secondary' : 'outline',
+              }),
               toolboxButton('Multi Select', <List size={10} />, { enabled: false, variant: 'ghost' }),
             ],
             [
@@ -5754,7 +5829,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
-              toolboxButton('Box Select', <Maximize size={10} />, { enabled: false, variant: 'ghost' }),
+              toolboxButton('Box Select', <Maximize size={10} />, {
+                onClick: toggleBoxSelectionMode,
+                variant: isBoxSelectionMode ? 'secondary' : 'ghost',
+              }),
               toolboxButton('Select group', <Users size={10} />, {
                 onClick: handleSelectGroupMembers,
                 enabled: canSelectGroupMembers,
@@ -6012,6 +6090,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     selectedNodeIds.size,
     selectionTool,
     toggleSelectionTool,
+    isBoxSelectionMode,
+    toggleBoxSelectionMode,
     canEditGroupSelection,
     toggleGroupCollapse,
   ]);
@@ -6218,6 +6298,101 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.quests,
     currentStructuralGraphData.sources,
 	  ]);
+
+  const clearBoxSelectionDraft = useCallback(() => {
+    boxSelectionPointerIdRef.current = null;
+    boxSelectionStartRef.current = null;
+    setBoxSelectionDraft(null);
+  }, []);
+
+  const getBoxSelectionPoint = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    return { x, y };
+  }, []);
+
+  const handleBoxSelectionPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isBoxSelectionMode || event.button !== 0) return;
+    const point = getBoxSelectionPoint(event);
+    boxSelectionPointerIdRef.current = event.pointerId;
+    boxSelectionStartRef.current = point;
+    setBoxSelectionDraft({
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+    });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }, [getBoxSelectionPoint, isBoxSelectionMode]);
+
+  const handleBoxSelectionPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isBoxSelectionMode) return;
+    if (boxSelectionPointerIdRef.current !== event.pointerId) return;
+    const point = getBoxSelectionPoint(event);
+    setBoxSelectionDraft(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        endX: point.x,
+        endY: point.y,
+      };
+    });
+    event.preventDefault();
+    event.stopPropagation();
+  }, [getBoxSelectionPoint, isBoxSelectionMode]);
+
+  const handleBoxSelectionPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isBoxSelectionMode) return;
+    if (boxSelectionPointerIdRef.current !== event.pointerId) return;
+
+    const start = boxSelectionStartRef.current;
+    const end = getBoxSelectionPoint(event);
+    if (start) {
+      const delta = Math.hypot(end.x - start.x, end.y - start.y);
+      if (delta >= BOX_SELECTION_MIN_DRAG_PX) {
+        applyBoxSelectionToNodes({
+          left: Math.min(start.x, end.x),
+          top: Math.min(start.y, end.y),
+          right: Math.max(start.x, end.x),
+          bottom: Math.max(start.y, end.y),
+        });
+      }
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    clearBoxSelectionDraft();
+    event.preventDefault();
+    event.stopPropagation();
+  }, [applyBoxSelectionToNodes, clearBoxSelectionDraft, getBoxSelectionPoint, isBoxSelectionMode]);
+
+  const handleBoxSelectionPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (boxSelectionPointerIdRef.current !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    clearBoxSelectionDraft();
+    event.preventDefault();
+    event.stopPropagation();
+  }, [clearBoxSelectionDraft]);
+
+  useEffect(() => {
+    if (isBoxSelectionMode) return;
+    clearBoxSelectionDraft();
+  }, [clearBoxSelectionDraft, isBoxSelectionMode]);
+
+  const boxSelectionBounds = useMemo(() => {
+    if (!boxSelectionDraft) return null;
+    const left = Math.min(boxSelectionDraft.startX, boxSelectionDraft.endX);
+    const top = Math.min(boxSelectionDraft.startY, boxSelectionDraft.endY);
+    const width = Math.abs(boxSelectionDraft.endX - boxSelectionDraft.startX);
+    const height = Math.abs(boxSelectionDraft.endY - boxSelectionDraft.startY);
+    return { left, top, width, height };
+  }, [boxSelectionDraft]);
 
 	  const handleGraphBackgroundClick = useCallback((event?: MouseEvent) => {
     if (typeof window !== 'undefined') {
@@ -6589,6 +6764,28 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 <Button onClick={refreshGraphAndSRSData} variant="ghost" size="sm" className="mt-3">
                   <RefreshCw size={14} className="mr-1.5" /> Refresh
                 </Button>
+              </div>
+            )}
+
+            {isBoxSelectionMode && !isProcessingData && !isRefreshing && stableGraph.nodes.length > 0 && (
+              <div
+                className="absolute inset-0 z-[5] cursor-crosshair touch-none"
+                onPointerDown={handleBoxSelectionPointerDown}
+                onPointerMove={handleBoxSelectionPointerMove}
+                onPointerUp={handleBoxSelectionPointerUp}
+                onPointerCancel={handleBoxSelectionPointerCancel}
+              >
+                {boxSelectionBounds && (
+                  <div
+                    className="pointer-events-none absolute border border-sky-500 bg-sky-400/15"
+                    style={{
+                      left: boxSelectionBounds.left,
+                      top: boxSelectionBounds.top,
+                      width: Math.max(1, boxSelectionBounds.width),
+                      height: Math.max(1, boxSelectionBounds.height),
+                    }}
+                  />
+                )}
               </div>
             )}
             
