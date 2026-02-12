@@ -103,8 +103,8 @@ import {
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
 import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 import { useSRS } from '../../../contexts/SRSContext';
-import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, updateNodeStatus } from '@/lib/srs-api';
-import { NodeStatus, NodePrerequisite } from '../../../types/srs';
+import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, getDomainProgress, updateNodeStatus } from '@/lib/srs-api';
+import { NodeProgress, NodeStatus, NodePrerequisite } from '../../../types/srs';
 
 import {
   GraphNode,
@@ -210,6 +210,12 @@ type BoxSelectionDraft = {
   endY: number;
 };
 
+type FlaggableTarget = {
+  id: number;
+  type: 'definition' | 'exercise';
+  code: string;
+};
+
 const sanitizeFilenamePart = (value: string): string => {
   return value
     .trim()
@@ -223,6 +229,16 @@ const sanitizeFilenamePart = (value: string): string => {
 const formatDownloadTimestamp = (date = new Date()): string => {
   const pad = (input: number) => String(input).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+};
+
+const progressMapKey = (nodeType: 'definition' | 'exercise', nodeId: number): string => `${nodeType}_${nodeId}`;
+
+const buildStatusMap = (rows: NodeProgress[]): Map<string, NodeStatus> => {
+  const map = new Map<string, NodeStatus>();
+  rows.forEach(row => {
+    map.set(progressMapKey(row.nodeType, row.nodeId), row.status);
+  });
+  return map;
 };
 
 const prunePrerequisites = (
@@ -743,6 +759,50 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     () => buildFullAdjacency(baseGraphStructure),
     [baseGraphStructure],
   );
+
+  const recursivePrereqCountByCode = useMemo(() => {
+    const prereqByCode = new Map<string, string[]>();
+    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
+      prereqByCode.set(def.code, (def.prerequisites || []).filter(Boolean));
+    });
+    Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
+      prereqByCode.set(ex.code, (ex.prerequisites || []).filter(Boolean));
+    });
+
+    const memo = new Map<string, Set<string>>();
+    const visiting = new Set<string>();
+
+    const collectAncestors = (code: string): Set<string> => {
+      const cached = memo.get(code);
+      if (cached) return cached;
+      if (visiting.has(code)) return new Set<string>();
+
+      visiting.add(code);
+      const result = new Set<string>();
+      const prereqs = prereqByCode.get(code) || [];
+
+      prereqs.forEach(prereqCode => {
+        if (!prereqCode || prereqCode === code) return;
+        result.add(prereqCode);
+        const nested = collectAncestors(prereqCode);
+        nested.forEach(parentCode => result.add(parentCode));
+      });
+
+      visiting.delete(code);
+      memo.set(code, result);
+      return result;
+    };
+
+    prereqByCode.forEach((_, code) => {
+      collectAncestors(code);
+    });
+
+    const countMap = new Map<string, number>();
+    memo.forEach((ancestorSet, code) => {
+      countMap.set(code, ancestorSet.size);
+    });
+    return countMap;
+  }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises]);
 
   const groupedGraphStructure = useMemo(
     () => buildGroupedGraphStructure({
@@ -4656,7 +4716,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const flaggableSelection = useMemo(() => {
     if (selectedNodeIds.size === 0) return [];
-    const targets: Array<{ id: number; type: 'definition' | 'exercise'; code: string }> = [];
+    const targets: FlaggableTarget[] = [];
     selectedNodeIds.forEach(code => {
       const nodeType = getNodeTypeByCode(code);
       if (nodeType !== 'definition' && nodeType !== 'exercise') return;
@@ -4672,18 +4732,85 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Select at least one definition or exercise.', 'warning');
       return;
     }
+    if (!Number.isFinite(numericDomainId)) {
+      showToast('Invalid domain context for status updates.', 'error');
+      return;
+    }
+
+    const getDepthCount = (code: string) => recursivePrereqCountByCode.get(code) ?? 0;
+    const orderedTargets = [...flaggableSelection];
+    if (status === 'grasped') {
+      orderedTargets.sort((left, right) => {
+        const depthDelta = getDepthCount(right.code) - getDepthCount(left.code);
+        if (depthDelta !== 0) return depthDelta;
+        return left.code.localeCompare(right.code);
+      });
+    } else if (status === 'tackling') {
+      orderedTargets.sort((left, right) => {
+        const depthDelta = getDepthCount(left.code) - getDepthCount(right.code);
+        if (depthDelta !== 0) return depthDelta;
+        return left.code.localeCompare(right.code);
+      });
+    }
+
+    const loadStatusMap = async (): Promise<Map<string, NodeStatus>> => {
+      const rows = await getDomainProgress(numericDomainId);
+      return buildStatusMap(rows);
+    };
+
     try {
-      showToolbarTransient(`Flagging ${flaggableSelection.length} node${flaggableSelection.length > 1 ? 's' : ''}...`, 1200);
-      await Promise.all(
-        flaggableSelection.map(target => updateNodeStatus(target.id, target.type, status))
-      );
+      showToolbarTransient(`Flagging ${orderedTargets.length} node${orderedTargets.length > 1 ? 's' : ''}...`, 1200);
+
+      let statusMap = await loadStatusMap();
+      const pendingTargets = orderedTargets.filter(target => (
+        statusMap.get(progressMapKey(target.type, target.id)) !== status
+      ));
+      let skippedCount = orderedTargets.length - pendingTargets.length;
+      let updatedCount = 0;
+
+      if (pendingTargets.length === 0) {
+        showToolbarTransient(`All selected nodes are already ${label.toLowerCase()}.`, 2000);
+        return;
+      }
+
+      const requiresPropagationRecheck = status === 'grasped' || status === 'tackling';
+      for (let index = 0; index < pendingTargets.length; index++) {
+        const target = pendingTargets[index];
+        const key = progressMapKey(target.type, target.id);
+        if (statusMap.get(key) === status) {
+          skippedCount++;
+          continue;
+        }
+
+        await updateNodeStatus(target.id, target.type, status);
+        updatedCount++;
+
+        const hasRemaining = index < pendingTargets.length - 1;
+        if (requiresPropagationRecheck && hasRemaining) {
+          statusMap = await loadStatusMap();
+        }
+      }
+
       await srs.refreshDomainData();
-      showToolbarTransient(`Marked ${flaggableSelection.length} as ${label}.`, 2000);
+      if (skippedCount > 0) {
+        showToolbarTransient(
+          `Marked ${updatedCount} as ${label}. Skipped ${skippedCount} already updated.`,
+          2600,
+        );
+        return;
+      }
+      showToolbarTransient(`Marked ${updatedCount} as ${label}.`, 2000);
     } catch (error) {
       console.error('Failed to update node status:', error);
       showToast('Failed to update node status.', 'error');
     }
-  }, [flaggableSelection, srs, showToolbarTransient]);
+  }, [
+    flaggableSelection,
+    numericDomainId,
+    recursivePrereqCountByCode,
+    srs,
+    showToolbarTransient,
+  ]);
 
   const selectableGroupCodes = useMemo(() => {
     if (selectedNodeIds.size === 0) return [];

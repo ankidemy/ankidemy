@@ -3,9 +3,12 @@ package dao
 import (
 	"errors"
 	"fmt"
-	"gorm.io/gorm"
-	"ankidemy/server/models"
+	"sort"
 	"time"
+
+	"ankidemy/server/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // SRSDao handles all SRS-related database operations
@@ -144,6 +147,23 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	for _, prereq := range prereqMap {
 		prerequisites = append(prerequisites, prereq)
 	}
+	sort.Slice(prerequisites, func(i, j int) bool {
+		left := prerequisites[i]
+		right := prerequisites[j]
+		if left.NodeType != right.NodeType {
+			return left.NodeType < right.NodeType
+		}
+		if left.NodeID != right.NodeID {
+			return left.NodeID < right.NodeID
+		}
+		if left.PrerequisiteType != right.PrerequisiteType {
+			return left.PrerequisiteType < right.PrerequisiteType
+		}
+		if left.PrerequisiteID != right.PrerequisiteID {
+			return left.PrerequisiteID < right.PrerequisiteID
+		}
+		return left.ID < right.ID
+	})
 
 	if stage != "" {
 		logDAOStage(
@@ -228,7 +248,42 @@ func (d *SRSDao) GetUserProgressByNodeIDs(userID uint, nodeType string, nodeIDs 
 
 // CreateOrUpdateProgress creates or updates user progress
 func (d *SRSDao) CreateOrUpdateProgress(progress *models.UserNodeProgress) error {
-	return d.db.Save(progress).Error
+	now := time.Now().UTC()
+	if progress.CreatedAt.IsZero() {
+		progress.CreatedAt = now
+	}
+	progress.UpdatedAt = now
+
+	return d.db.Clauses(
+		clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "node_id"},
+				{Name: "node_type"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"status":               progress.Status,
+				"easiness_factor":      progress.EasinessFactor,
+				"interval_days":        progress.IntervalDays,
+				"repetitions":          progress.Repetitions,
+				"last_review":          progress.LastReview,
+				"next_review":          progress.NextReview,
+				"block_negative_until": progress.BlockNegativeUntil,
+				"accumulated_credit":   progress.AccumulatedCredit,
+				"credit_postponed":     progress.CreditPostponed,
+				"total_reviews":        progress.TotalReviews,
+				"successful_reviews":   progress.SuccessfulReviews,
+				"updated_at":           now,
+			}),
+		},
+		clause.Returning{
+			Columns: []clause.Column{
+				{Name: "id"},
+				{Name: "created_at"},
+				{Name: "updated_at"},
+			},
+		},
+	).Create(progress).Error
 }
 
 // GetDomainProgress gets all progress for a user in a domain

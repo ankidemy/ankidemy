@@ -8,13 +8,14 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"gorm.io/gorm"
 )
 
 // SRSService is the main service for spaced repetition functionality
@@ -70,6 +71,52 @@ func toGraphType(t string) string {
 		return "meta_definition"
 	}
 	return t
+}
+
+func isRetryableStatusUpdateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sqlstate 40p01") ||
+		strings.Contains(msg, "deadlock detected") ||
+		strings.Contains(msg, "sqlstate 40001") ||
+		strings.Contains(msg, "could not serialize access")
+}
+
+func sortPrerequisitesForDeterministicTraversal(rows []models.NodePrerequisite, dependents bool) {
+	sort.Slice(rows, func(i, j int) bool {
+		left := rows[i]
+		right := rows[j]
+		if dependents {
+			if left.NodeType != right.NodeType {
+				return left.NodeType < right.NodeType
+			}
+			if left.NodeID != right.NodeID {
+				return left.NodeID < right.NodeID
+			}
+			if left.PrerequisiteType != right.PrerequisiteType {
+				return left.PrerequisiteType < right.PrerequisiteType
+			}
+			if left.PrerequisiteID != right.PrerequisiteID {
+				return left.PrerequisiteID < right.PrerequisiteID
+			}
+			return left.ID < right.ID
+		}
+		if left.PrerequisiteType != right.PrerequisiteType {
+			return left.PrerequisiteType < right.PrerequisiteType
+		}
+		if left.PrerequisiteID != right.PrerequisiteID {
+			return left.PrerequisiteID < right.PrerequisiteID
+		}
+		if left.NodeType != right.NodeType {
+			return left.NodeType < right.NodeType
+		}
+		if left.NodeID != right.NodeID {
+			return left.NodeID < right.NodeID
+		}
+		return left.ID < right.ID
+	})
 }
 
 // SubmitReview processes an explicit review and handles credit propagation
@@ -396,6 +443,30 @@ func (s *SRSService) applyCredits(
 
 // UpdateNodeStatus updates a node's status and handles propagation
 func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string, status string) error {
+	const maxAttempts = 4
+	const baseBackoff = 20 * time.Millisecond
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := s.updateNodeStatusOnce(userID, nodeID, nodeType, status)
+		if err == nil {
+			return nil
+		}
+
+		if !isRetryableStatusUpdateError(err) || attempt == maxAttempts {
+			return err
+		}
+
+		jitter := time.Duration(rand.Intn(25)) * time.Millisecond
+		backoff := time.Duration(attempt*attempt)*baseBackoff + jitter
+		log.Printf("[SRS] transient status update failure, retrying attempt=%d/%d user=%d node=%d type=%s status=%s backoff=%s err=%v",
+			attempt, maxAttempts, userID, nodeID, nodeType, status, backoff, err)
+		time.Sleep(backoff)
+	}
+
+	return nil
+}
+
+func (s *SRSService) updateNodeStatusOnce(userID uint, nodeID uint, nodeType string, status string) error {
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -494,6 +565,12 @@ func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, node
 
 		prereqMap[nodeKey] = append(prereqMap[nodeKey], prereq)
 		dependentMap[prereqKey] = append(dependentMap[prereqKey], prereq)
+	}
+	for key := range prereqMap {
+		sortPrerequisitesForDeterministicTraversal(prereqMap[key], false)
+	}
+	for key := range dependentMap {
+		sortPrerequisitesForDeterministicTraversal(dependentMap[key], true)
 	}
 
 	switch status {
