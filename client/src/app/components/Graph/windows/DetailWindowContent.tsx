@@ -49,10 +49,13 @@ import {
 import { showToast } from '@/app/components/core/ToastNotification';
 import { getAppTimeZone } from '@/lib/app-preferences';
 import { getNextQuestCode as getNextQuestCodeFromUtils, getNextDotCode, getNextExerciseCode } from '../utils/codeGeneration';
+import { dispatchReviewItemContentUpdated } from '../utils/reviewSyncEvents';
 
 interface DetailWindowContentProps {
   nodeData: GraphNode;
   windowId: string;
+  targetVersionId?: number;
+  targetVersionToken?: number;
   graphData?: any;
   onNavigateToNode?: (nodeId: string) => void;
   codeToNumericIdMap?: Map<string, number>;
@@ -108,6 +111,8 @@ const buildReminderDateTime = (dateValue: string, timeValue: string) => {
 export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   nodeData: initialNodeData,
   windowId,
+  targetVersionId,
+  targetVersionToken,
   graphData,
   onNavigateToNode: _onNavigateToNode,
   codeToNumericIdMap = new Map(),
@@ -174,6 +179,27 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const [reminderTitle, setReminderTitle] = useState('');
   const [reminderDraft, setReminderDraft] = useState(() => getDefaultReminderDraft());
 
+  const notifyReviewItemContentUpdated = useCallback((overrides?: {
+    nodeType?: 'definition' | 'exercise';
+    metaId?: number;
+    versionId?: number;
+  }) => {
+    const resolvedNodeType = overrides?.nodeType
+      ?? (currentNode.type === 'definition' || currentNode.type === 'exercise' ? currentNode.type : undefined);
+    if (!resolvedNodeType) return;
+
+    const resolvedMetaId = overrides?.metaId
+      ?? metaDetails?.id
+      ?? codeToNumericIdMap.get(currentNode.id);
+    if (!resolvedMetaId) return;
+
+    dispatchReviewItemContentUpdated({
+      nodeType: resolvedNodeType,
+      metaId: resolvedMetaId,
+      versionId: overrides?.versionId ?? currentVersion?.id,
+    });
+  }, [codeToNumericIdMap, currentNode.id, currentNode.type, currentVersion?.id, metaDetails?.id]);
+
   const handleToggleGroupExact = useCallback(async (group: GroupData, nextExact: boolean) => {
     if (!onUpdateGroup) return;
     const members = groupMembersById.get(group.id) ?? new Set<string>();
@@ -228,7 +254,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   }, [currentNode.id, groupMembersById, onUpdateGroup]);
 
   // Load node details
-  const loadNodeDetails = useCallback(async (node: GraphNode) => {
+  const loadNodeDetails = useCallback(async (node: GraphNode, preferredVersionId?: number) => {
     setIsLoading(true);
     try {
       let details;
@@ -239,7 +265,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const meta = await getMetaDefinition(mid);
         setMetaDetails(meta);
         const ver = await getNextMetaDefinitionVersion(mid);
-        const fallbackVersion = ver ?? meta.versions?.[0] ?? null;
+        const preferredVersion = typeof preferredVersionId === 'number'
+          ? meta.versions?.find(v => v.id === preferredVersionId)
+          : undefined;
+        const fallbackVersion = preferredVersion ?? ver ?? meta.versions?.[0] ?? null;
         if (!fallbackVersion) {
           throw new Error('No definition versions available');
         }
@@ -264,7 +293,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const meta = await getMetaExercise(mid);
         setMetaDetails(meta);
         const ver = await getNextMetaExerciseVersion(mid);
-        const fallbackVersion = ver ?? meta.versions?.[0] ?? null;
+        const preferredVersion = typeof preferredVersionId === 'number'
+          ? meta.versions?.find(v => v.id === preferredVersionId)
+          : undefined;
+        const fallbackVersion = preferredVersion ?? ver ?? meta.versions?.[0] ?? null;
         if (!fallbackVersion) {
           throw new Error('No exercise versions available');
         }
@@ -304,8 +336,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
   // Initialize with first node
   useEffect(() => {
-    loadNodeDetails(currentNode);
-  }, [loadNodeDetails, currentNode]);
+    loadNodeDetails(currentNode, targetVersionId);
+  }, [loadNodeDetails, currentNode, targetVersionId, targetVersionToken]);
   useEffect(() => {
     setActiveTab('details');
     setShowStatusPicker(false);
@@ -652,6 +684,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
       // Update local state with new data
       setNodeDetails({ ...updatedNode, type: currentNode.type } as Definition | Exercise);
+      notifyReviewItemContentUpdated();
       
       // Update current node name if it changed
       if (formName !== currentNode.name) {
@@ -670,7 +703,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       console.error("Error updating node:", error);
       showToast(error instanceof Error ? error.message : "Failed to update node.", "error");
     }
-  }, [nodeDetails, canEdit, currentNode, selectedDefinitionIndex, windowId, ui, onUpdateNodeData, onRefresh, metaDetails]);
+  }, [nodeDetails, canEdit, currentNode, selectedDefinitionIndex, windowId, ui, onUpdateNodeData, onRefresh, metaDetails, notifyReviewItemContentUpdated]);
 
   // Helper functions for descriptions
 
@@ -975,6 +1008,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const fresh = await getMetaDefinition(meta.id);
         setMetaDetails(fresh);
         setSelectedDefinitionIndex(Math.min(versionIndex, Math.max(0, (fresh.versions?.length || 1) - 1)));
+        notifyReviewItemContentUpdated({
+          nodeType: 'definition',
+          metaId: meta.id,
+          versionId,
+        });
       } else {
         const meta = metaDetails as MetaExercise | null;
         const versionId = meta?.versions?.[versionIndex]?.id;
@@ -983,6 +1021,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         const fresh = await getMetaExercise(meta.id);
         setMetaDetails(fresh);
         setSelectedVersionIndex(Math.min(versionIndex, Math.max(0, (fresh.versions?.length || 1) - 1)));
+        notifyReviewItemContentUpdated({
+          nodeType: 'exercise',
+          metaId: meta.id,
+          versionId,
+        });
       }
       showToast('Version deleted.', 'success');
     } catch (error) {
@@ -990,7 +1033,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     } finally {
       setIsVersionUpdating(false);
     }
-  }, [canEdit, currentNode.type, isVersionUpdating, metaDetails, versionCount, versionIndex]);
+  }, [canEdit, currentNode.type, isVersionUpdating, metaDetails, versionCount, versionIndex, notifyReviewItemContentUpdated]);
 
   const hasPendingEditChanges = isEditMode
     && (currentNode.type === 'definition' || currentNode.type === 'exercise')
@@ -1120,6 +1163,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       } else {
         setSelectedVersionIndex(i => Math.min(i, Math.max(0, nextVersions.length - 1)));
       }
+      notifyReviewItemContentUpdated({
+        nodeType: currentNode.type === 'definition' ? 'definition' : 'exercise',
+        metaId: meta.id,
+        versionId: version.id,
+      });
 
       showToast('Version detached into a new node.', 'success');
       if (!onInsertNode) {
@@ -1143,6 +1191,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     existingCodes,
     onInsertNode,
     onRefresh,
+    notifyReviewItemContentUpdated,
   ]);
 
   if (isLoading) {
@@ -1428,6 +1477,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       } as Definition);
                     }
                   }
+                  notifyReviewItemContentUpdated({
+                    nodeType: 'definition',
+                    metaId: metaDetails.id,
+                    versionId: id,
+                  });
                   showToast('Version updated', 'success');
                 }}
                 onUpdateMeta={async (payload) => {
@@ -1447,6 +1501,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
                   // If code changed, force a full graph refresh to rebuild code-indexed maps and links
                   if (updated.code !== prevCode) {
+                    notifyReviewItemContentUpdated({
+                      nodeType: 'definition',
+                      metaId: metaDetails.id,
+                    });
                     showToast('Concept code updated. Refreshing graph…', 'success');
                     onRefresh?.();
                     return;
@@ -1467,6 +1525,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     type: 'definition',
                   } as any);
 
+                  notifyReviewItemContentUpdated({
+                    nodeType: 'definition',
+                    metaId: metaDetails.id,
+                  });
                   showToast('Concept pool updated', 'success');
                 }}
                 onBack={() => {
@@ -1493,6 +1555,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                       setNodeDetails({ ...(updated as any), id: updated.id, code: fresh.code, name: fresh.name, type: 'exercise' } as Exercise);
                     }
                   }
+                  notifyReviewItemContentUpdated({
+                    nodeType: 'exercise',
+                    metaId: metaDetails.id,
+                    versionId: id,
+                  });
                   showToast('Version updated','success');
                 }}
                 onUpdateMeta={async (payload) => {
@@ -1513,6 +1580,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
 
                   // If code changed, force a full graph refresh to rebuild code-indexed maps and links
                   if (updated.code !== prevCode) {
+                    notifyReviewItemContentUpdated({
+                      nodeType: 'exercise',
+                      metaId: metaDetails.id,
+                    });
                     showToast('Exercise code updated. Refreshing graph…', 'success');
                     onRefresh?.();
                     return;
@@ -1537,6 +1608,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                     id: fresh.id,
                     type: 'exercise',
                   } as any);
+
+                  notifyReviewItemContentUpdated({
+                    nodeType: 'exercise',
+                    metaId: metaDetails.id,
+                  });
                 }}
                 onBack={() => {
                   setIsEditMode(false);

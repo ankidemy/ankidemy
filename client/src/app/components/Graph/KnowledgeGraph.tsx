@@ -1567,7 +1567,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     nodeOnClick: GraphNode,
 	    _isRefresh: boolean = false,
 	    context: 'click' | 'study' | 'navigation' = 'click',
-	    event?: MouseEvent
+	    event?: MouseEvent,
+      options?: { targetVersionId?: number }
 	  ) => {
 	    if (!nodeOnClick?.id) return;
 	    if (isFrenzyEditMode) return;
@@ -1622,7 +1623,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-	    ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position);
+	    ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position, {
+        targetVersionId: options?.targetVersionId,
+      });
 	  }, [ui, isFrenzyEditMode, router, getDetailWindowPlacement, currentStructuralGraphData, selectionTool]);
   const handleNodeClickRef = useRef(handleNodeClick);
 
@@ -2145,10 +2148,20 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [hasAccess, domainData, ui]);
 
   // Navigation helpers
-		  const navigateToNodeById = useCallback((nodeId: string, context: 'navigation' | 'study' = 'navigation') => {
-		    const questData = currentStructuralGraphData.quests?.[nodeId];
-		    if (questData) {
-		      if (isFrenzyEditMode) {
+  const navigateToNodeById = useCallback((
+    nodeId: string,
+    contextOrOptions: 'navigation' | 'study' | { context?: 'navigation' | 'study'; targetVersionId?: number } = 'navigation'
+  ) => {
+    const context = typeof contextOrOptions === 'string'
+      ? contextOrOptions
+      : (contextOrOptions.context ?? 'navigation');
+    const targetVersionId = typeof contextOrOptions === 'string'
+      ? undefined
+      : contextOrOptions.targetVersionId;
+
+    const questData = currentStructuralGraphData.quests?.[nodeId];
+    if (questData) {
+      if (isFrenzyEditMode) {
 		        const anchor = (typeof questData.xPosition === 'number' && typeof questData.yPosition === 'number')
 		          ? { x: questData.xPosition, y: questData.yPosition }
 		          : undefined;
@@ -2173,11 +2186,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	        showToast("Switching to Practice Mode to view exercise...", "info", 1500);
         changeMode('practice');
         setTimeout(() => {
-          handleNodeClick(targetNode, false, context);
+          handleNodeClick(targetNode, false, context, undefined, { targetVersionId });
         }, 300);
         return;
       }
-      handleNodeClick(targetNode, false, context);
+      handleNodeClick(targetNode, false, context, undefined, { targetVersionId });
     } else if (mode === 'study' && currentStructuralGraphData.exercises?.[nodeId]) {
       showToast("Switching to Practice Mode to view exercise...", "info", 1500);
       changeMode('practice');
@@ -2185,7 +2198,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         // Use optional access to satisfy strict builds when exercises may be undefined
         const exData = currentStructuralGraphData.exercises?.[nodeId];
         if (exData) { 
-          handleNodeClick({ id: exData.code, name: exData.name, type: 'exercise' } as GraphNode, false, context); 
+          handleNodeClick(
+            { id: exData.code, name: exData.name, type: 'exercise' } as GraphNode,
+            false,
+            context,
+            undefined,
+            { targetVersionId }
+          ); 
         } else { 
           showToast(`Could not navigate to exercise ${nodeId}.`, "error"); 
 	        }
@@ -2193,7 +2212,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    } else {
 		      showToast(`Node ${nodeId} not found in the current view.`, "warning");
 		    }
-		  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui, isFrenzyEditMode]);
+  }, [stableGraph.nodes, handleNodeClick, mode, currentStructuralGraphData, changeMode, ui, isFrenzyEditMode]);
 
   // Available definitions for modals (as prerequisite candidates)
   const availableDefinitionsForModals = useMemo(() => {
@@ -7373,6 +7392,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 <DetailWindowContent
                   nodeData={window.contentProps.nodeData}
                   windowId={window.id}
+                  targetVersionId={window.contentProps.targetVersionId}
+                  targetVersionToken={window.contentProps.targetVersionToken}
                   graphData={currentStructuralGraphData}
                   onNavigateToNode={navigateToNodeById}
                   codeToNumericIdMap={codeToNumericIdMap}
@@ -7411,7 +7432,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               {window.type === 'review' && (
                 <ReviewWindowContent
                   domainId={parseInt(subjectMatterId, 10)}
-                  onNavigateToNode={navigateToNodeById}
+                  onNavigateToNode={(nodeCode, options) => navigateToNodeById(nodeCode, options)}
                   windowId={window.id}
                   reviewMode={isFrenzyEnabled ? 'frenzy' : 'normal'}
                   appMode={mode}

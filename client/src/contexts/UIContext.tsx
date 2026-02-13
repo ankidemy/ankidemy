@@ -204,7 +204,12 @@ const uiReducer = (state: UIState, action: UIAction): UIState => {
 // Context
 interface UIContextType {
   state: UIState;
-  openDetailWindow: (nodeId: string, nodeData: any, position?: { x: number; y: number }) => void;
+  openDetailWindow: (
+    nodeId: string,
+    nodeData: any,
+    position?: { x: number; y: number },
+    options?: { targetVersionId?: number }
+  ) => void;
   openSourceWindow: (sourceId: string, sourceData: any, position?: { x: number; y: number }) => void;
   openQuestWindow: (questId: string, questData: any, position?: { x: number; y: number }) => void;
   openSurveyWindow: () => void;
@@ -231,11 +236,34 @@ const UIContext = createContext<UIContextType | undefined>(undefined);
 export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(uiReducer, initialState);
 
-  const openDetailWindow = useCallback((nodeId: string, nodeData: any, position?: { x: number; y: number }) => {
+  const openDetailWindow = useCallback((
+    nodeId: string,
+    nodeData: any,
+    position?: { x: number; y: number },
+    options?: { targetVersionId?: number }
+  ) => {
     const windowId = `detail-${nodeId}`;
     const existingWindow = state.windows.find(w => w.id === windowId);
+    const targetVersionId = options?.targetVersionId;
     
     if (existingWindow) {
+      if (typeof targetVersionId === 'number') {
+        dispatch({
+          type: 'UPDATE_WINDOW',
+          payload: {
+            id: windowId,
+            updates: {
+              title: nodeData.name,
+              contentProps: {
+                ...(existingWindow.contentProps || {}),
+                nodeData,
+                targetVersionId,
+                targetVersionToken: Date.now(),
+              },
+            },
+          },
+        });
+      }
       dispatch({ type: 'FOCUS_WINDOW', payload: { id: windowId } });
       return;
     }
@@ -252,7 +280,12 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         id: windowId,
         type: 'detail',
         title: nodeData.name,
-        contentProps: { nodeData },
+        contentProps: {
+          nodeData,
+          ...(typeof targetVersionId === 'number'
+            ? { targetVersionId, targetVersionToken: Date.now() }
+            : {}),
+        },
         position: defaultPosition,
         size: { width: 545, height: 600 },
       },

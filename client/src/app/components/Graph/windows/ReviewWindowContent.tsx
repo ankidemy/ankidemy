@@ -14,10 +14,11 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import { getMetaDefinition, getMetaExercise, getNextMetaExerciseVersion, getNextMetaDefinitionVersion, recordMetaExerciseOutcome, DefinitionVersion, ExerciseVersion, MetaDefinition, MetaExercise } from '@/lib/api';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 import { getReviewQueue } from '@/lib/srs-api';
+import { REVIEW_ITEM_CONTENT_UPDATED_EVENT, type ReviewItemContentUpdatedDetail } from '../utils/reviewSyncEvents';
 
 interface ReviewWindowContentProps {
   domainId: number;
-  onNavigateToNode?: (nodeCode: string) => void;
+  onNavigateToNode?: (nodeCode: string, options?: { targetVersionId?: number }) => void;
   windowId: string;
   reviewMode?: 'normal' | 'frenzy';
   appMode: 'study' | 'practice';
@@ -90,6 +91,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   const [userAnswer, setUserAnswer] = useState<string>("");
   const [answerPreview, setAnswerPreview] = useState<boolean>(false);
   const [frenzyRound, setFrenzyRound] = useState(1);
+  const [refreshSignal, setRefreshSignal] = useState(0);
   
   // FIX 1: Add refresh mechanism to update item details when nodes are edited
   const currentItemIdRef = useRef<string | null>(null);
@@ -160,39 +162,130 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     return () => clearTimeout(timer);
   }, [defaultExercisesPerDefinition, exercisesPerDefinition, onUpdateDomainSettings, srs.state.currentSession]);
 
-  // FIX 1: Listen for data changes and refresh current item if needed
-  useEffect(() => {
-    if (isFrenzyMode) return;
-    if (!currentReviewItem) return;
+  const refreshCurrentItem = useCallback(async () => {
+    if (!currentReviewItem || !itemDetails?.id) return;
     const currentReviewItemKey = currentReviewItem.exerciseMetaId
       ? `${currentReviewItem.nodeType}_${currentReviewItem.nodeId}_ex_${currentReviewItem.exerciseMetaId}`
       : `${currentReviewItem.nodeType}_${currentReviewItem.nodeId}`;
     if (currentItemIdRef.current !== currentReviewItemKey) return;
-    if (!itemDetails?.id) return;
 
-    const refreshCurrentItem = async () => {
-      try {
-        if (currentReviewItem.nodeType === 'definition' && !currentExerciseMeta) {
-          const meta = await getMetaDefinition(currentReviewItem.nodeId);
-          const updated = meta.versions?.find(version => version.id === itemDetails.id);
-          if (updated) {
-            setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
-          }
+    try {
+      if (currentReviewItem.nodeType === 'definition' && !currentExerciseMeta) {
+        const meta = await getMetaDefinition(currentReviewItem.nodeId);
+        const updated = meta.versions?.find(version => version.id === itemDetails.id);
+        if (updated) {
+          setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
         } else {
-          const metaId = currentExerciseMeta?.id ?? currentReviewItem.nodeId;
-          const meta = await getMetaExercise(metaId);
-          const updated = meta.versions?.find(version => version.id === itemDetails.id);
-          if (updated) {
-            setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
+          const fallback = await getNextMetaDefinitionVersion(currentReviewItem.nodeId) ?? meta.versions?.[0];
+          if (fallback) {
+            const switchedVersion = fallback.id !== itemDetails.id;
+            setItemDetails((prev: any) => (prev?.id === fallback.id ? prev : fallback));
+            if (switchedVersion) {
+              showToast('Reviewed version was deleted. Switched to an available version.', 'info', 1800);
+            }
           }
         }
-      } catch (error) {
-        console.error("Error refreshing current item:", error);
+        setCurrentReviewItem((prev) => {
+          if (!prev || prev.nodeType !== 'definition' || prev.nodeId !== currentReviewItem.nodeId) {
+            return prev;
+          }
+          const nextCode = meta.code || prev.nodeCode;
+          const nextName = meta.name || prev.nodeName;
+          if (prev.nodeCode === nextCode && prev.nodeName === nextName) {
+            return prev;
+          }
+          return {
+            ...prev,
+            nodeCode: nextCode,
+            nodeName: nextName,
+          };
+        });
+        return;
       }
+
+      const metaId = currentExerciseMeta?.id ?? currentReviewItem.nodeId;
+      const meta = await getMetaExercise(metaId);
+      const updated = meta.versions?.find(version => version.id === itemDetails.id);
+      if (updated) {
+        setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
+      } else {
+        const fallback = await getNextMetaExerciseVersion(metaId) ?? meta.versions?.[0];
+        if (fallback) {
+          const switchedVersion = fallback.id !== itemDetails.id;
+          setItemDetails((prev: any) => (prev?.id === fallback.id ? prev : fallback));
+          if (switchedVersion) {
+            showToast('Reviewed version was deleted. Switched to an available version.', 'info', 1800);
+          }
+        }
+      }
+      if (currentExerciseMeta) {
+        setCurrentExerciseMeta((prev) => {
+          if (!prev || prev.id !== metaId) return prev;
+          const nextCode = meta.code || prev.code;
+          const nextName = meta.name || prev.name;
+          if (prev.code === nextCode && prev.name === nextName) {
+            return prev;
+          }
+          return {
+            ...prev,
+            code: nextCode,
+            name: nextName,
+          };
+        });
+      } else {
+        setCurrentReviewItem((prev) => {
+          if (!prev || prev.nodeType !== 'exercise' || prev.nodeId !== metaId) {
+            return prev;
+          }
+          const nextCode = meta.code || prev.nodeCode;
+          const nextName = meta.name || prev.nodeName;
+          if (prev.nodeCode === nextCode && prev.nodeName === nextName) {
+            return prev;
+          }
+          return {
+            ...prev,
+            nodeCode: nextCode,
+            nodeName: nextName,
+          };
+        });
+      }
+    } catch (error) {
+      console.error("Error refreshing current item:", error);
+    }
+  }, [currentReviewItem, currentExerciseMeta, itemDetails?.id]);
+
+  // Keep review content in sync while reviewing in normal mode.
+  useEffect(() => {
+    if (isFrenzyMode) return;
+    void refreshCurrentItem();
+  }, [isFrenzyMode, refreshCurrentItem, srs.state.lastUpdated]);
+
+  // Refresh current item when a detail window edit updates its version/meta data.
+  useEffect(() => {
+    const handleReviewItemContentUpdated = (event: Event) => {
+      if (!currentReviewItem) return;
+      const detail = (event as CustomEvent<ReviewItemContentUpdatedDetail>).detail;
+      if (!detail) return;
+
+      const activeNodeType = currentExerciseMeta ? 'exercise' : currentReviewItem.nodeType;
+      const activeMetaId = currentExerciseMeta?.id ?? currentReviewItem.nodeId;
+      if (detail.nodeType !== activeNodeType || detail.metaId !== activeMetaId) return;
+      if (typeof detail.versionId === 'number' && typeof itemDetails?.id === 'number' && detail.versionId !== itemDetails.id) {
+        return;
+      }
+      setRefreshSignal((value) => value + 1);
     };
 
-    refreshCurrentItem();
-  }, [srs.state.lastUpdated, currentReviewItem, itemDetails?.id, isFrenzyMode, currentExerciseMeta]);
+    window.addEventListener(REVIEW_ITEM_CONTENT_UPDATED_EVENT, handleReviewItemContentUpdated as EventListener);
+    return () => {
+      window.removeEventListener(REVIEW_ITEM_CONTENT_UPDATED_EVENT, handleReviewItemContentUpdated as EventListener);
+    };
+  }, [currentExerciseMeta, currentReviewItem, itemDetails?.id]);
+
+  useEffect(() => {
+    if (refreshSignal === 0) return;
+    void refreshCurrentItem();
+  }, [refreshSignal, refreshCurrentItem]);
 
   // Separate cleanup effect with stable dependencies
   useEffect(() => {
@@ -629,6 +722,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     try {
       let details;
+      let navigateNodeCode = review.nodeCode;
       const exerciseMetaId = review.exerciseMetaId ?? (review.nodeType === 'exercise' ? review.nodeId : undefined);
       if (exerciseMetaId) {
         const meta = {
@@ -637,6 +731,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
           name: review.exerciseMetaName ?? review.nodeName,
         };
         setCurrentExerciseMeta(meta);
+        navigateNodeCode = meta.code;
         details = isFrenzyMode
           ? await getFrenzyExerciseVersion(exerciseMetaId)
           : await getNextMetaExerciseVersion(exerciseMetaId);
@@ -666,8 +761,9 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       setItemDetails(details);
       
       if (autoNavigateToNodes && onNavigateToNode && review.nodeCode) {
+        const targetVersionId = typeof details?.id === 'number' ? details.id : undefined;
         setTimeout(() => {
-          onNavigateToNode(review.nodeCode);
+          onNavigateToNode(navigateNodeCode, { targetVersionId });
         }, 100);
       }
     } catch (error) {
@@ -832,10 +928,12 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   // Navigate to current item in graph
   const handleNavigateToCurrentItem = useCallback(() => {
     if (currentReviewItem && onNavigateToNode) {
-      onNavigateToNode(currentReviewItem.nodeCode);
+      const targetNodeCode = currentExerciseMeta?.code || currentReviewItem.nodeCode;
+      const targetVersionId = typeof itemDetails?.id === 'number' ? itemDetails.id : undefined;
+      onNavigateToNode(targetNodeCode, { targetVersionId });
       showToast("Navigated to node in graph", "info", 1500);
     }
-  }, [currentReviewItem, onNavigateToNode]);
+  }, [currentExerciseMeta?.code, currentReviewItem, itemDetails?.id, onNavigateToNode]);
 
   const recordExerciseOutcome = useCallback(async (metaId: number, versionId: number, success: boolean) => {
     try {
