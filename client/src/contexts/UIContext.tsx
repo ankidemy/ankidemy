@@ -208,7 +208,12 @@ interface UIContextType {
     nodeId: string,
     nodeData: any,
     position?: { x: number; y: number },
-    options?: { targetVersionId?: number }
+    options?: {
+      targetVersionId?: number;
+      windowId?: string;
+      replaceContentIfExists?: boolean;
+      keepMinimizedIfExists?: boolean;
+    }
   ) => void;
   openSourceWindow: (sourceId: string, sourceData: any, position?: { x: number; y: number }) => void;
   openQuestWindow: (questId: string, questData: any, position?: { x: number; y: number }) => void;
@@ -240,14 +245,20 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     nodeId: string,
     nodeData: any,
     position?: { x: number; y: number },
-    options?: { targetVersionId?: number }
+    options?: {
+      targetVersionId?: number;
+      windowId?: string;
+      replaceContentIfExists?: boolean;
+      keepMinimizedIfExists?: boolean;
+    }
   ) => {
-    const windowId = `detail-${nodeId}`;
+    const windowId = options?.windowId || `detail-${nodeId}`;
     const existingWindow = state.windows.find(w => w.id === windowId);
     const targetVersionId = options?.targetVersionId;
+    const replaceContentIfExists = Boolean(options?.replaceContentIfExists) || typeof targetVersionId === 'number';
     
     if (existingWindow) {
-      if (typeof targetVersionId === 'number') {
+      if (replaceContentIfExists) {
         dispatch({
           type: 'UPDATE_WINDOW',
           payload: {
@@ -264,7 +275,10 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           },
         });
       }
-      dispatch({ type: 'FOCUS_WINDOW', payload: { id: windowId } });
+      const shouldKeepMinimized = Boolean(options?.keepMinimizedIfExists) && existingWindow.isMinimized;
+      if (!shouldKeepMinimized) {
+        dispatch({ type: 'FOCUS_WINDOW', payload: { id: windowId } });
+      }
       return;
     }
 
@@ -282,7 +296,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         title: nodeData.name,
         contentProps: {
           nodeData,
-          ...(typeof targetVersionId === 'number'
+          ...((typeof targetVersionId === 'number' || options?.replaceContentIfExists)
             ? { targetVersionId, targetVersionToken: Date.now() }
             : {}),
         },

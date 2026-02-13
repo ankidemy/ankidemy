@@ -1,7 +1,7 @@
 // client/src/app/components/Graph/windows/DetailWindowContent.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import { ArrowLeft, Edit, Eye, ChevronDown, ChevronUp, BarChart3, Save, SlidersHorizontal, Copy, RefreshCw } from 'lucide-react';
@@ -334,10 +334,31 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     }
   }, [graphData, codeToNumericIdMap]);
 
+  // When an external navigator (e.g. review auto-navigate) reuses this window,
+  // sync the local node state so this single window can show the new target node.
+  useLayoutEffect(() => {
+    if (typeof targetVersionToken !== 'number') return;
+    setNodeHistory([]);
+    setCurrentNode(initialNodeData);
+    setIsEditMode(false);
+    setActiveTab('details');
+    setShowDefinition(true);
+    setShowSolution(false);
+    setShowHints(false);
+    setUserAnswer('');
+    setAnswerFeedback(null);
+    setExerciseAttemptCompleted(false);
+  }, [targetVersionToken, initialNodeData]);
+
   // Initialize with first node
   useEffect(() => {
     loadNodeDetails(currentNode, targetVersionId);
-  }, [loadNodeDetails, currentNode, targetVersionId, targetVersionToken]);
+  }, [
+    loadNodeDetails,
+    currentNode,
+    targetVersionId,
+    targetVersionToken,
+  ]);
   useEffect(() => {
     setActiveTab('details');
     setShowStatusPicker(false);

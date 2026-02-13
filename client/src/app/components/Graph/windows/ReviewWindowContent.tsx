@@ -18,7 +18,7 @@ import { REVIEW_ITEM_CONTENT_UPDATED_EVENT, type ReviewItemContentUpdatedDetail 
 
 interface ReviewWindowContentProps {
   domainId: number;
-  onNavigateToNode?: (nodeCode: string, options?: { targetVersionId?: number }) => void;
+  onNavigateToNode?: (nodeCode: string, options?: { targetVersionId?: number; autoNavigate?: boolean }) => void;
   windowId: string;
   reviewMode?: 'normal' | 'frenzy';
   appMode: 'study' | 'practice';
@@ -763,7 +763,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       if (autoNavigateToNodes && onNavigateToNode && review.nodeCode) {
         const targetVersionId = typeof details?.id === 'number' ? details.id : undefined;
         setTimeout(() => {
-          onNavigateToNode(navigateNodeCode, { targetVersionId });
+          onNavigateToNode(navigateNodeCode, { targetVersionId, autoNavigate: true });
         }, 100);
       }
     } catch (error) {

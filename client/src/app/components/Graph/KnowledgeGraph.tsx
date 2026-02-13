@@ -202,6 +202,7 @@ import type {
 // ============================================================================
 const NEW_NODE_CUE_DURATION_MS = 3000;
 const BOX_SELECTION_MIN_DRAG_PX = 6;
+const AUTO_NAV_DETAIL_WINDOW_ID = 'detail-review-autonavigate';
 
 type BoxSelectionDraft = {
   startX: number;
@@ -1568,7 +1569,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    _isRefresh: boolean = false,
 	    context: 'click' | 'study' | 'navigation' = 'click',
 	    event?: MouseEvent,
-      options?: { targetVersionId?: number }
+      options?: { targetVersionId?: number; autoNavigate?: boolean }
 	  ) => {
 	    if (!nodeOnClick?.id) return;
 	    if (isFrenzyEditMode) return;
@@ -1608,20 +1609,39 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       return;
     }
 
-    setSelectedNodeIds(new Set([nodeOnClick.id]));
+	    setSelectedNodeIds(new Set([nodeOnClick.id]));
 
-    const position = getDetailWindowPlacement(nodeOnClick, ui.state.windows.length);
+	    const position = getDetailWindowPlacement(nodeOnClick, ui.state.windows.length);
 
     if (nodeOnClick.type === 'source') {
       const sourceData = currentStructuralGraphData.sources?.[nodeOnClick.id] || nodeOnClick;
       ui.openSourceWindow(nodeOnClick.id, sourceData, position);
       return;
     }
-    if (nodeOnClick.type === 'quest') {
-      const questData = currentStructuralGraphData.quests?.[nodeOnClick.id] || nodeOnClick;
-      ui.openQuestWindow(nodeOnClick.id, questData, position);
-      return;
-    }
+	    if (nodeOnClick.type === 'quest') {
+	      const questData = currentStructuralGraphData.quests?.[nodeOnClick.id] || nodeOnClick;
+	      ui.openQuestWindow(nodeOnClick.id, questData, position);
+	      return;
+	    }
+
+      if (options?.autoNavigate) {
+        const centerX = typeof nodeOnClick.x === 'number' ? nodeOnClick.x : nodeOnClick.xPosition;
+        const centerY = typeof nodeOnClick.y === 'number' ? nodeOnClick.y : nodeOnClick.yPosition;
+        if (typeof centerX === 'number' && typeof centerY === 'number' && typeof graphRef.current?.centerAt === 'function') {
+          try {
+            graphRef.current.centerAt(centerX, centerY, 350);
+          } catch (error) {
+            console.warn('Failed to center graph on auto-navigate target:', error);
+          }
+        }
+        ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position, {
+          targetVersionId: options?.targetVersionId,
+          windowId: AUTO_NAV_DETAIL_WINDOW_ID,
+          replaceContentIfExists: true,
+          keepMinimizedIfExists: true,
+        });
+        return;
+      }
 
 	    ui.openDetailWindow(nodeOnClick.id, nodeOnClick, position, {
         targetVersionId: options?.targetVersionId,
@@ -2150,7 +2170,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Navigation helpers
   const navigateToNodeById = useCallback((
     nodeId: string,
-    contextOrOptions: 'navigation' | 'study' | { context?: 'navigation' | 'study'; targetVersionId?: number } = 'navigation'
+    contextOrOptions: 'navigation' | 'study' | {
+      context?: 'navigation' | 'study';
+      targetVersionId?: number;
+      autoNavigate?: boolean;
+    } = 'navigation'
   ) => {
     const context = typeof contextOrOptions === 'string'
       ? contextOrOptions
@@ -2158,6 +2182,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const targetVersionId = typeof contextOrOptions === 'string'
       ? undefined
       : contextOrOptions.targetVersionId;
+    const autoNavigate = typeof contextOrOptions === 'string'
+      ? false
+      : Boolean(contextOrOptions.autoNavigate);
 
     const questData = currentStructuralGraphData.quests?.[nodeId];
     if (questData) {
@@ -2183,14 +2210,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    const targetNode = stableGraph.nodes.find(n => n.id === nodeId);
 	    if (targetNode) {
 	      if (mode === 'study' && targetNode.type === 'exercise') {
-	        showToast("Switching to Practice Mode to view exercise...", "info", 1500);
+        showToast("Switching to Practice Mode to view exercise...", "info", 1500);
         changeMode('practice');
         setTimeout(() => {
-          handleNodeClick(targetNode, false, context, undefined, { targetVersionId });
+          handleNodeClick(targetNode, false, context, undefined, { targetVersionId, autoNavigate });
         }, 300);
         return;
       }
-      handleNodeClick(targetNode, false, context, undefined, { targetVersionId });
+      handleNodeClick(targetNode, false, context, undefined, { targetVersionId, autoNavigate });
     } else if (mode === 'study' && currentStructuralGraphData.exercises?.[nodeId]) {
       showToast("Switching to Practice Mode to view exercise...", "info", 1500);
       changeMode('practice');
@@ -2199,11 +2226,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         const exData = currentStructuralGraphData.exercises?.[nodeId];
         if (exData) { 
           handleNodeClick(
-            { id: exData.code, name: exData.name, type: 'exercise' } as GraphNode,
+            {
+              id: exData.code,
+              name: exData.name,
+              type: 'exercise',
+              xPosition: exData.xPosition,
+              yPosition: exData.yPosition,
+            } as GraphNode,
             false,
             context,
             undefined,
-            { targetVersionId }
+            { targetVersionId, autoNavigate }
           ); 
         } else { 
           showToast(`Could not navigate to exercise ${nodeId}.`, "error"); 
