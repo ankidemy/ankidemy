@@ -163,6 +163,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   }, [defaultExercisesPerDefinition, exercisesPerDefinition, onUpdateDomainSettings, srs.state.currentSession]);
 
   const refreshCurrentItem = useCallback(async () => {
+    if (isLoadingItem) return;
     if (!currentReviewItem || !itemDetails?.id) return;
     const currentReviewItemKey = currentReviewItem.exerciseMetaId
       ? `${currentReviewItem.nodeType}_${currentReviewItem.nodeId}_ex_${currentReviewItem.exerciseMetaId}`
@@ -176,7 +177,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         if (updated) {
           setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
         } else {
-          const fallback = await getNextMetaDefinitionVersion(currentReviewItem.nodeId) ?? meta.versions?.[0];
+          const fallback = meta.versions?.[0];
           if (fallback) {
             const switchedVersion = fallback.id !== itemDetails.id;
             setItemDetails((prev: any) => (prev?.id === fallback.id ? prev : fallback));
@@ -209,7 +210,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       if (updated) {
         setItemDetails((prev: any) => (prev?.id === itemDetails.id ? { ...prev, ...updated } : prev));
       } else {
-        const fallback = await getNextMetaExerciseVersion(metaId) ?? meta.versions?.[0];
+        const fallback = meta.versions?.[0];
         if (fallback) {
           const switchedVersion = fallback.id !== itemDetails.id;
           setItemDetails((prev: any) => (prev?.id === fallback.id ? prev : fallback));
@@ -252,7 +253,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     } catch (error) {
       console.error("Error refreshing current item:", error);
     }
-  }, [currentReviewItem, currentExerciseMeta, itemDetails?.id]);
+  }, [currentReviewItem, currentExerciseMeta, itemDetails?.id, isLoadingItem]);
 
   // Keep review content in sync while reviewing in normal mode.
   useEffect(() => {
@@ -714,6 +715,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     setShowAnswer(false);
     setUserAnswer("");
     setAnswerPreview(false);
+    setItemDetails(null);
     setCurrentExerciseMeta(null);
     setCurrentReviewItem(review);
     currentItemIdRef.current = getQueueItemKey(review);
