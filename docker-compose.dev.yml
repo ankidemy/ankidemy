@@ -23,6 +23,7 @@ services:
     working_dir: /app
     volumes:
       - ./server:/app:cached
+      - media_data:/app/media
       - server_go_mod_cache:/go/pkg/mod
       - server_go_build_cache:/root/.cache/go-build
       - server_apk_cache:/etc/apk/cache
