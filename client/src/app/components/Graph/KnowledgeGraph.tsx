@@ -15,7 +15,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X, Copy } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Move, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X, Copy } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { APP_PREFERENCES_UPDATED_EVENT, getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
 import {
@@ -360,7 +360,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
-  const [selectionTool, setSelectionTool] = useState<'none' | 'add' | 'remove'>('none');
+  const [selectionTool, setSelectionTool] = useState<'none' | 'add' | 'remove' | 'move'>('none');
   const [isBoxSelectionMode, setIsBoxSelectionMode] = useState(false);
   const [boxSelectionDraft, setBoxSelectionDraft] = useState<BoxSelectionDraft | null>(null);
   const [infoFilters, setInfoFilters] = useState<Array<'general' | 'versions' | 'links' | 'groups' | 'status'>>([]);
@@ -966,13 +966,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setSelectedNodeIds(new Set());
   }, []);
 
-  const toggleSelectionTool = useCallback((next: 'add' | 'remove') => {
+  const toggleSelectionTool = useCallback((next: 'add' | 'remove' | 'move') => {
     setSelectionTool(prev => (prev === next ? 'none' : next));
   }, []);
 
   const boxSelectionApplyMode = useMemo<'replace' | 'add' | 'remove'>(() => {
     if (selectionTool === 'remove') return 'remove';
-    if (selectionTool === 'add') return 'add';
+    if (selectionTool === 'add' || selectionTool === 'move') return 'add';
     return isFrenzyEditMode ? 'add' : 'replace';
   }, [selectionTool, isFrenzyEditMode]);
 
@@ -1606,7 +1606,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     const isModifierClick = !!event && (event.ctrlKey || event.metaKey);
     const shouldRemove = context === 'click' && selectionTool === 'remove';
-    const shouldAdd = context === 'click' && (selectionTool === 'add' || isModifierClick);
+    const shouldAdd = context === 'click' && (selectionTool === 'add' || selectionTool === 'move' || isModifierClick);
 
     if (shouldRemove) {
       setSelectedNodeIds(prev => {
@@ -2843,56 +2843,77 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const handleNodeDragEnd = useCallback((node: GraphNode) => {
     if (!node?.id || typeof node.x !== 'number' || typeof node.y !== 'number') return;
 
-    const groupId = node.groupId ?? parseGroupNodeId(node.id);
-    if (groupId) {
-      const previous = positionManagerRef.current.getPosition(node.id);
-      const prevX = previous?.x ?? (node.xPosition ?? node.x);
-      const prevY = previous?.y ?? (node.yPosition ?? node.y);
-      const dx = node.x - prevX;
-      const dy = node.y - prevY;
-      const members = groupMembersById.get(groupId);
+    const previous = positionManagerRef.current.getPosition(node.id);
+    const prevX = previous?.x ?? (typeof node.xPosition === 'number' ? node.xPosition : node.x);
+    const prevY = previous?.y ?? (typeof node.yPosition === 'number' ? node.yPosition : node.y);
+    const dx = node.x - prevX;
+    const dy = node.y - prevY;
+    const movedByDrag = dx !== 0 || dy !== 0;
 
-      if (members && (dx !== 0 || dy !== 0)) {
-        const stableNodes = stableGraphRef.current?.nodes ?? [];
-        const stableNodeMap = new Map(stableNodes.map(member => [member.id, member]));
+    const stableNodes = stableGraphRef.current?.nodes ?? [];
+    const stableNodeMap = new Map(stableNodes.map(member => [member.id, member]));
+    const movedNodeIds = new Set<string>();
 
-        const getStoredPosition = (memberId: string) => {
-          const saved = positionManagerRef.current.getPosition(memberId);
-          if (saved) return saved;
-          const def = currentStructuralGraphData.definitions?.[memberId];
-          if (def && typeof def.xPosition === 'number' && typeof def.yPosition === 'number') {
-            return { x: def.xPosition, y: def.yPosition };
-          }
-          const ex = currentStructuralGraphData.exercises?.[memberId];
-          if (ex && typeof ex.xPosition === 'number' && typeof ex.yPosition === 'number') {
-            return { x: ex.xPosition, y: ex.yPosition };
-          }
-          return null;
-        };
-
-        members.forEach(memberId => {
-          const memberNode = stableNodeMap.get(memberId);
-          let baseX = memberNode ? (typeof memberNode.x === 'number' ? memberNode.x : memberNode.xPosition) : undefined;
-          let baseY = memberNode ? (typeof memberNode.y === 'number' ? memberNode.y : memberNode.yPosition) : undefined;
-
-          if (typeof baseX !== 'number' || typeof baseY !== 'number') {
-            const stored = getStoredPosition(memberId);
-            if (!stored) return;
-            baseX = stored.x;
-            baseY = stored.y;
-          }
-
-          const nextX = baseX + dx;
-          const nextY = baseY + dy;
-          if (memberNode) {
-            memberNode.x = nextX;
-            memberNode.y = nextY;
-            memberNode.fx = nextX;
-            memberNode.fy = nextY;
-          }
-          positionManagerRef.current.fixPosition(memberId, nextX, nextY);
-        });
+    const getStoredPosition = (nodeId: string) => {
+      const saved = positionManagerRef.current.getPosition(nodeId);
+      if (saved) return saved;
+      const def = currentStructuralGraphData.definitions?.[nodeId];
+      if (def && typeof def.xPosition === 'number' && typeof def.yPosition === 'number') {
+        return { x: def.xPosition, y: def.yPosition };
       }
+      const ex = currentStructuralGraphData.exercises?.[nodeId];
+      if (ex && typeof ex.xPosition === 'number' && typeof ex.yPosition === 'number') {
+        return { x: ex.xPosition, y: ex.yPosition };
+      }
+      const source = currentStructuralGraphData.sources?.[nodeId];
+      if (source && typeof source.xPosition === 'number' && typeof source.yPosition === 'number') {
+        return { x: source.xPosition, y: source.yPosition };
+      }
+      const quest = currentStructuralGraphData.quests?.[nodeId];
+      if (quest && typeof quest.xPosition === 'number' && typeof quest.yPosition === 'number') {
+        return { x: quest.xPosition, y: quest.yPosition };
+      }
+      return null;
+    };
+
+    const applyDeltaToNode = (nodeId: string) => {
+      if (nodeId === node.id || movedNodeIds.has(nodeId)) return;
+      const targetNode = stableNodeMap.get(nodeId);
+      let baseX = targetNode ? (typeof targetNode.x === 'number' ? targetNode.x : targetNode.xPosition) : undefined;
+      let baseY = targetNode ? (typeof targetNode.y === 'number' ? targetNode.y : targetNode.yPosition) : undefined;
+
+      if (typeof baseX !== 'number' || typeof baseY !== 'number') {
+        const stored = getStoredPosition(nodeId);
+        if (!stored) return;
+        baseX = stored.x;
+        baseY = stored.y;
+      }
+
+      const nextX = baseX + dx;
+      const nextY = baseY + dy;
+      if (targetNode) {
+        targetNode.x = nextX;
+        targetNode.y = nextY;
+        targetNode.fx = nextX;
+        targetNode.fy = nextY;
+      }
+      positionManagerRef.current.fixPosition(nodeId, nextX, nextY);
+      movedNodeIds.add(nodeId);
+    };
+
+    const groupId = node.groupId ?? parseGroupNodeId(node.id);
+    if (groupId && movedByDrag) {
+      const members = groupMembersById.get(groupId);
+      members?.forEach(memberId => applyDeltaToNode(memberId));
+    }
+
+    if (
+      selectionTool === 'move'
+      && movedByDrag
+      && selectedNodeIds.size > 1
+      && selectedNodeIds.has(node.id)
+    ) {
+      selectedNodeIds.forEach(selectedId => applyDeltaToNode(selectedId));
     }
 
     positionManagerRef.current.fixPosition(node.id, node.x, node.y);
@@ -2900,7 +2921,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     (node as any).fx = node.x;
     (node as any).fy = node.y;
     void maybeCreateFrenzyDragLink(node);
-  }, [currentStructuralGraphData, groupMembersById, maybeCreateFrenzyDragLink]);
+  }, [currentStructuralGraphData, groupMembersById, maybeCreateFrenzyDragLink, selectedNodeIds, selectionTool]);
 
 	  const openFrenzyNote = useCallback(async (
 	    node: GraphNode,
@@ -5806,6 +5827,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (boxSelectionApplyMode === 'add') return 'Drag a box to add nodes to selection.';
     return 'Drag a box to select multiple nodes.';
   }, [boxSelectionApplyMode, isBoxSelectionMode]);
+  const moveSelectionInstruction = useMemo(() => {
+    if (selectionTool !== 'move') return null;
+    if (selectedNodeIds.size > 1) return 'Drag a selected node to move the whole selection.';
+    return 'Move mode: add nodes to selection, then drag one to move all.';
+  }, [selectionTool, selectedNodeIds.size]);
   const groupActionContent = useMemo(() => {
     if (toolbarGroupAction === 'create') {
       return (
@@ -5842,7 +5868,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     handleDeleteGroupConfirm,
     selectedToolbarGroup,
   ]);
-  const toolbarInstruction = toolbarTransientMessage ?? boxSelectionInstruction ?? toolInstruction ?? undefined;
+  const toolbarInstruction = toolbarTransientMessage ?? boxSelectionInstruction ?? moveSelectionInstruction ?? toolInstruction ?? undefined;
   const toolbarInstructionContent = groupActionContent ?? (toolbarInstruction ? <span>{toolbarInstruction}</span> : undefined);
 
   const labelDisplayLabel = useMemo(
@@ -6038,6 +6064,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
             ],
             [
+              toolboxButton('Move', <Move size={10} />, {
+                onClick: () => toggleSelectionTool('move'),
+                variant: selectionTool === 'move' ? 'secondary' : 'outline',
+              }),
               toolboxButton('Parents', <ArrowUp size={10} />, {
                 onClick: handleAddParentsToSelection,
                 enabled: selectedNodeIds.size > 0,
