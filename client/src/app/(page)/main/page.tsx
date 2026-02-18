@@ -1,11 +1,11 @@
 // src/app/(page)/main/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck, Wrench } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
@@ -13,6 +13,15 @@ import DomainForm from "@/app/components/Domain/DomainForm";
 import { showToast } from '@/app/components/core/ToastNotification';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAppDarkMode } from '@/lib/use-app-dark-mode';
+import { APP_PREFERENCES_UPDATED_EVENT } from '@/lib/app-preferences';
+import ExplorerFontSizeOptionsSection from '@/app/components/core/ExplorerFontSizeOptionsSection';
+import {
+  adjustExplorerFontSizeStep,
+  ExplorerFontSizeCategory,
+  ExplorerFontSizeSteps,
+  explorerFontSizeCssVariables,
+  getExplorerFontSizeSteps,
+} from '@/lib/explorer-font-sizes';
 
 import {
   Domain,
@@ -54,12 +63,19 @@ export default function MainPage() {
   const [copyDescription, setCopyDescription] = useState('');
   const [copyPrivacy, setCopyPrivacy] = useState<'public' | 'private'>('private');
   const [copying, setCopying] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [fontSizeSteps, setFontSizeSteps] = useState<ExplorerFontSizeSteps>(() => getExplorerFontSizeSteps());
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
 
   // NEW: Create/Import dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
 
   const router = useRouter();
+  const explorerFontStyle = useMemo(
+    () => explorerFontSizeCssVariables(fontSizeSteps) as React.CSSProperties,
+    [fontSizeSteps]
+  );
 
   // Close menu by clicking anywhere inside the page container; elements that should keep it open stop propagation.
   // Note: Using React bubbling avoids conflicts with native document listeners.
@@ -164,10 +180,38 @@ export default function MainPage() {
     }
   }, [activeTab, myDomains, sharedDomains, enrolledNonOwned, communityDomains]);
 
+  useEffect(() => {
+    const syncFontSizes = () => {
+      setFontSizeSteps(getExplorerFontSizeSteps());
+    };
+    window.addEventListener(APP_PREFERENCES_UPDATED_EVENT, syncFontSizes);
+    return () => {
+      window.removeEventListener(APP_PREFERENCES_UPDATED_EVENT, syncFontSizes);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showOptionsMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target as Node)) {
+        setShowOptionsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showOptionsMenu]);
+
   // Handle tab change
   const handleTabChange = (tab: 'my' | 'shared' | 'enrolled' | 'community') => {
     setActiveTab(tab);
   };
+
+  const handleAdjustFontSize = useCallback((category: ExplorerFontSizeCategory, delta: -1 | 1) => {
+    const next = adjustExplorerFontSizeStep(category, delta);
+    setFontSizeSteps(next);
+  }, []);
 
   // Handle enrollment
   const handleEnrollment = async (domain: Domain) => {
@@ -372,7 +416,7 @@ export default function MainPage() {
   };
 
   return (
-    <div className={isDarkMode ? 'kg-night-mode dark' : ''}>
+    <div className={`${isDarkMode ? 'kg-night-mode dark' : ''} kg-font-root`} style={explorerFontStyle}>
       {/* Use Navbar's built-in hamburger dropdown (no slide-over sidebar) */}
       <Navbar 
         // Do not pass onMenuClick so the Navbar shows its dropdown
@@ -452,33 +496,58 @@ export default function MainPage() {
             </button>
           </div>
 
-          {/* NEW: Create Domain and Import Buttons */}
-          {currentUser && (
-            <div className="flex items-center gap-3 mb-6">
-              <Button
-                className="flex items-center"
-                onClick={() => setShowCreateDialog(true)}
-              >
-                <Plus size={16} className="mr-1" />
-                Create Domain
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => setShowImportDialog(true)}
-                className="flex items-center"
-              >
-                <Upload size={16} className="mr-1" />
-                Import
-              </Button>
-              <div className="ml-auto">
-                <Link href="/main/domains/archived">
-                  <Button variant="outline" className="flex items-center">
-                    Archived Domains
+          {/* Domain + Explorer actions */}
+          <div className="flex items-center gap-3 mb-6">
+            {currentUser && (
+              <>
+                <Button
+                  className="flex items-center"
+                  onClick={() => setShowCreateDialog(true)}
+                >
+                  <Plus size={16} className="mr-1" />
+                  Create Domain
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowImportDialog(true)}
+                  className="flex items-center"
+                >
+                  <Upload size={16} className="mr-1" />
+                  Import
+                </Button>
+              </>
+            )}
+            <div className="ml-auto">
+              <div className="flex items-center gap-2">
+                <div className="relative" ref={optionsMenuRef}>
+                  <Button
+                    variant="outline"
+                    className="flex items-center"
+                    onClick={() => setShowOptionsMenu((prev) => !prev)}
+                  >
+                    Options
+                    <Wrench size={14} className="ml-1" />
                   </Button>
-                </Link>
+                  {showOptionsMenu && (
+                    <div className="kg-font-ui absolute right-0 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-3 text-sm">
+                      <div className="font-semibold text-gray-800 mb-2">Options</div>
+                      <ExplorerFontSizeOptionsSection
+                        steps={fontSizeSteps}
+                        onAdjust={handleAdjustFontSize}
+                      />
+                    </div>
+                  )}
+                </div>
+                {currentUser && (
+                  <Link href="/main/domains/archived">
+                    <Button variant="outline" className="flex items-center">
+                      Archived Domains
+                    </Button>
+                  </Link>
+                )}
               </div>
             </div>
-          )}
+          </div>
           
           {/* Error Message */}
           {error && (
@@ -548,7 +617,7 @@ export default function MainPage() {
                         <MoreVertical size={18} />
                       </button>
                       {menuOpenId === domain.id && (
-                        <div className="absolute right-0 mt-2 w-44 bg-white border rounded-md shadow-lg" onClick={(e) => e.stopPropagation()}>
+                        <div className="kg-font-ui absolute right-0 mt-2 w-44 bg-white border rounded-md shadow-lg" onClick={(e) => e.stopPropagation()}>
                           {isOwned && (
                             <button
                               className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
@@ -581,7 +650,7 @@ export default function MainPage() {
                     <div className="flex items-start justify-between gap-2 pr-8">
                       <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
                       {domainDueCounts[domain.id] > 0 && (
-                        <span className={`mt-1 inline-flex items-center rounded-full text-xs font-semibold px-2 py-0.5 ${
+                        <span className={`kg-font-tag mt-1 inline-flex items-center rounded-full text-xs font-semibold px-2 py-0.5 ${
                           isDarkMode ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700'
                         }`}>
                           {domainDueCounts[domain.id]} due
@@ -592,7 +661,7 @@ export default function MainPage() {
                     
                     <div className="flex justify-between items-center relative">
                       <div className="flex items-center space-x-2">
-                        <span className={`text-sm px-2 py-1 rounded-full flex items-center ${statusInfo.className}`}>
+                        <span className={`kg-font-tag text-sm px-2 py-1 rounded-full flex items-center ${statusInfo.className}`}>
                           {statusInfo.icon}
                           <span className="ml-1">{statusInfo.label}</span>
                         </span>

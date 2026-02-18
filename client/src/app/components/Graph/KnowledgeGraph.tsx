@@ -17,7 +17,7 @@ import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
 import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X, Copy } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
-import { getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
+import { APP_PREFERENCES_UPDATED_EVENT, getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
 import {
   buildQuestSchedulePayload,
   coalesceTimezone,
@@ -101,6 +101,7 @@ import {
   serializeDomainExportData,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
+import { ExplorerFontSizeSteps, explorerFontSizeCssVariables, getExplorerFontSizeSteps } from '@/lib/explorer-font-sizes';
 import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 import { useSRS } from '../../../contexts/SRSContext';
 import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, getDomainProgress, updateNodeStatus } from '@/lib/srs-api';
@@ -350,6 +351,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [toolbarGroupId, setToolbarGroupId] = useState<number | null>(null);
   const [toolbarGroupAction, setToolbarGroupAction] = useState<'create' | 'delete' | null>(null);
   const [toolbarGroupNameDraft, setToolbarGroupNameDraft] = useState('');
+  const [explorerFontSizeSteps, setExplorerFontSizeSteps] = useState<ExplorerFontSizeSteps>(() => getExplorerFontSizeSteps());
 
   // Multi-selection state
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
@@ -595,6 +597,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setExpandedCycleIds(new Set());
     }
   }, [dagModeEnabled]);
+
+  useEffect(() => {
+    const syncFontSizes = () => {
+      setExplorerFontSizeSteps(getExplorerFontSizeSteps());
+    };
+    window.addEventListener(APP_PREFERENCES_UPDATED_EVENT, syncFontSizes);
+    return () => {
+      window.removeEventListener(APP_PREFERENCES_UPDATED_EVENT, syncFontSizes);
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -6693,6 +6705,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       timestamp: animation.timestamp || Date.now()
     }));
   }, [srs.state.creditFlowAnimations]);
+  const explorerFontStyle = useMemo(
+    () => explorerFontSizeCssVariables(explorerFontSizeSteps) as React.CSSProperties,
+    [explorerFontSizeSteps]
+  );
 
   // Clear animations handled by GraphLifecycle
 
@@ -6751,8 +6767,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     hasAccess,
   ]);
 
-  return (
-      <div className={`knowledge-graph-shell h-full flex flex-col overflow-hidden ${isNightMode ? 'bg-slate-950 kg-night-mode dark' : 'bg-gray-100'}`}>
+	  return (
+	      <div
+	        className={`knowledge-graph-shell kg-font-root h-full flex flex-col overflow-hidden ${isNightMode ? 'bg-slate-950 kg-night-mode dark' : 'bg-gray-100'}`}
+	        style={explorerFontStyle}
+	      >
         {/* Modals */}
         <NodeCreationModal
           type={nodeCreationType}
@@ -6876,10 +6895,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               onExpandedSectionsChange={handleToolbarExpandedChange}
               onPositionCommit={handleToolbarPositionCommit}
               toggles={toolbarToggles}
-              instructionContent={toolbarInstructionContent}
-              centered={toolbarCentered}
-              topOffset={12}
-            />
+	              instructionContent={toolbarInstructionContent}
+	              centered={toolbarCentered}
+	              topOffset={12}
+	              className="kg-font-toolbar"
+	            />
             {isRefreshing ? (
               <div className="flex items-center justify-center h-full text-gray-500">
                 Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
@@ -7049,12 +7069,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               </>
             )}
 
-            {frenzyNote && (
-              <div
-                ref={frenzyNoteRef}
-                className="frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
-                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
-              >
+	            {frenzyNote && (
+	              <div
+	                ref={frenzyNoteRef}
+	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
+	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
+	              >
                 <div className="frenzy-note-theme-header px-3 pt-3 pb-2 border-b border-yellow-300 bg-yellow-100/95">
                   <div
                     className="flex items-start justify-between gap-2 cursor-move select-none"
@@ -7388,7 +7408,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	            {frenzyQuestNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
+	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
 	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
 	              >
 	                <div className="min-h-0 flex-1 overflow-hidden">

@@ -7,6 +7,12 @@ export type AppNotificationPreferences = {
 export type AppGeneralPreferences = {
   timezone?: string;
   knowledgeGraphNightMode?: boolean;
+  explorerFontSizeSteps?: {
+    tags?: number;
+    markdown?: number;
+    ui?: number;
+    toolbar?: number;
+  };
 };
 
 export type AppPreferences = {

@@ -427,3 +427,79 @@
 .kg-night-mode .frenzy-note-theme .shadow-2xl {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2) !important;
 }
+
+/* Explorer-wide font sizing controls */
+.kg-font-root {
+  --kg-font-scale-tags: 1;
+  --kg-font-scale-markdown: 1;
+  --kg-font-scale-ui: 1;
+  --kg-font-scale-toolbar: 1;
+}
+
+.kg-font-root .kg-font-tag {
+  font-size: calc(0.75rem * var(--kg-font-scale-tags)) !important;
+  line-height: calc(1rem * var(--kg-font-scale-tags));
+}
+
+.kg-font-root textarea,
+.kg-font-root .kg-font-markdown-input {
+  font-size: calc(0.875rem * var(--kg-font-scale-markdown)) !important;
+  line-height: calc(1.35rem * var(--kg-font-scale-markdown));
+}
+
+.kg-font-root .kg-font-markdown {
+  font-size: calc(0.875rem * var(--kg-font-scale-markdown));
+  line-height: calc(1.4rem * var(--kg-font-scale-markdown));
+}
+
+.kg-font-root .kg-font-ui .text-xs {
+  font-size: calc(0.75rem * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui .text-sm {
+  font-size: calc(0.875rem * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui .text-base {
+  font-size: calc(1rem * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui [class*="text-[10px]"] {
+  font-size: calc(10px * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui [class*="text-[11px]"] {
+  font-size: calc(11px * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui [class*="text-[12px]"] {
+  font-size: calc(12px * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui [class*="text-[13px]"] {
+  font-size: calc(13px * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-ui [class*="text-[14px]"] {
+  font-size: calc(14px * var(--kg-font-scale-ui)) !important;
+}
+
+.kg-font-root .kg-font-toolbar [class*="text-[8px]"] {
+  font-size: calc(8px * var(--kg-font-scale-toolbar)) !important;
+}
+
+.kg-font-root .kg-font-toolbar [class*="text-[9px]"] {
+  font-size: calc(9px * var(--kg-font-scale-toolbar)) !important;
+}
+
+.kg-font-root .kg-font-toolbar [class*="text-[10px]"] {
+  font-size: calc(10px * var(--kg-font-scale-toolbar)) !important;
+}
+
+.kg-font-root .kg-font-toolbar .text-xs {
+  font-size: calc(0.75rem * var(--kg-font-scale-toolbar)) !important;
+}
+
+.kg-font-root .kg-font-toolbar .text-sm {
+  font-size: calc(0.875rem * var(--kg-font-scale-toolbar)) !important;
+}

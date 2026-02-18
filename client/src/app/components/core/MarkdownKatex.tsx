@@ -135,7 +135,7 @@ export function normalizeDisplayMathBlocks(text: string): string {
 export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "", prose = false }) => {
   const processedChildren = normalizeDisplayMathBlocks(children);
   return (
-    <div className={`${prose ? "prose prose-sm" : ""} ${className}`.trim()}>
+    <div className={`kg-font-markdown ${prose ? "prose prose-sm" : ""} ${className}`.trim()}>
       <ReactMarkdown
         // Security: do not allow raw HTML from user input
         skipHtml

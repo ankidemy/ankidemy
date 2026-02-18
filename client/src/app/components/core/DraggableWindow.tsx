@@ -219,7 +219,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       <div
         ref={windowRef}
         data-window-id={id}
-        className="fixed bg-white border border-gray-300 rounded-t-md shadow-lg overflow-hidden"
+        className="kg-font-ui fixed bg-white border border-gray-300 rounded-t-md shadow-lg overflow-hidden"
         style={{
           left: position.x,
           bottom: 0,
@@ -251,7 +251,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       ref={windowRef}
       data-window-id={id}
       className={cn(
-        "fixed bg-white border border-gray-300 rounded-lg shadow-2xl overflow-hidden flex flex-col",
+        "kg-font-ui fixed bg-white border border-gray-300 rounded-lg shadow-2xl overflow-hidden flex flex-col",
         isDragging && "cursor-move",
         className
       )}

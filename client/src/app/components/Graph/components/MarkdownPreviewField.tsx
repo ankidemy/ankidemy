@@ -38,7 +38,7 @@ const MarkdownPreviewField: React.FC<MarkdownPreviewFieldProps> = ({
   required,
   helperText,
   labelClassName = "block text-sm font-medium text-gray-700",
-  textareaClassName = "w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400",
+  textareaClassName = "kg-font-markdown-input w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400",
   previewClassName = "p-3 border rounded-md bg-gray-50 text-sm",
   buttonClassName = "h-6 text-xs px-1",
   emptyPreviewText = "Nothing to preview",

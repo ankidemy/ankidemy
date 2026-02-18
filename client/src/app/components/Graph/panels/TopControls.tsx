@@ -13,6 +13,14 @@ import { getQuest, getSurveyQueue, postSurveyEvent, SurveyQueueItem } from '@/li
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 import type { MetaQuestDTO } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
+import { APP_PREFERENCES_UPDATED_EVENT } from '@/lib/app-preferences';
+import ExplorerFontSizeOptionsSection from '@/app/components/core/ExplorerFontSizeOptionsSection';
+import {
+  adjustExplorerFontSizeStep,
+  ExplorerFontSizeCategory,
+  ExplorerFontSizeSteps,
+  getExplorerFontSizeSteps,
+} from '@/lib/explorer-font-sizes';
 
 const SRS_INTERVAL_MULTIPLIER_MIN = 0.25;
 const SRS_INTERVAL_MULTIPLIER_MAX = 4;
@@ -145,6 +153,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   const [optionsDraftLapseIntervalDays, setOptionsDraftLapseIntervalDays] = useState<number>(DEFAULT_SRS_OPTIONS.lapseIntervalDays);
   const [optionsDraftMinEasinessFactor, setOptionsDraftMinEasinessFactor] = useState<number>(DEFAULT_SRS_OPTIONS.minEasinessFactor);
   const [showExportFormatOptions, setShowExportFormatOptions] = useState(false);
+  const [fontSizeSteps, setFontSizeSteps] = useState<ExplorerFontSizeSteps>(() => getExplorerFontSizeSteps());
   const optionsRef = useRef<HTMLDivElement>(null);
 
   const dueReviews = srs.state.dueReviews;
@@ -328,6 +337,16 @@ const TopControls: React.FC<TopControlsProps> = ({
     setOptionsError(null);
   }, [showOptions, domainSettings]);
 
+  useEffect(() => {
+    const syncFontSizes = () => {
+      setFontSizeSteps(getExplorerFontSizeSteps());
+    };
+    window.addEventListener(APP_PREFERENCES_UPDATED_EVENT, syncFontSizes);
+    return () => {
+      window.removeEventListener(APP_PREFERENCES_UPDATED_EVENT, syncFontSizes);
+    };
+  }, []);
+
   const refreshSurveyQueue = useCallback(async () => {
     if (!currentDomainId) return;
     setSurveyLoading(true);
@@ -406,7 +425,12 @@ const TopControls: React.FC<TopControlsProps> = ({
 
   const canChangeOptions = !!(isEnrolled && onUpdateDomainSettings);
   const canShowIoActions = !!(onImportJson || onExportJson || onExportYaml || onBackupDomain);
-  const canOpenOptions = canChangeOptions || !!onNightModeChange || canShowIoActions;
+  const canOpenOptions = true;
+
+  const handleAdjustFontSize = useCallback((category: ExplorerFontSizeCategory, delta: -1 | 1) => {
+    const next = adjustExplorerFontSizeStep(category, delta);
+    setFontSizeSteps(next);
+  }, []);
 
   const handleOptionImportJson = useCallback(() => {
     if (!canImportJson || !onImportJson) return;
@@ -524,7 +548,7 @@ const TopControls: React.FC<TopControlsProps> = ({
     'Loading...';
 
   return (
-    <div className="bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
+    <div className="kg-font-ui bg-white border-b p-3 flex justify-between items-center shadow-sm flex-shrink-0">
       {/* Left: Logo link + Domain Selector */}
       <div className="flex items-center flex-shrink-0 mr-4 space-x-3">
         <Link href="/main" className="text-orange-500 hover:text-orange-600 font-bold text-xl leading-none">
@@ -607,7 +631,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             <List size={14} className="mr-1" />
             Queue
             {dueCount > 0 && (
-              <span className={`ml-2 rounded-full text-[11px] font-semibold px-2 py-0.5 ${isNightMode ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700'}`}>
+              <span className={`kg-font-tag ml-2 rounded-full text-[11px] font-semibold px-2 py-0.5 ${isNightMode ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700'}`}>
                 {dueCount}
               </span>
             )}
@@ -691,7 +715,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             <List size={14} className="mr-1" />
             Survey
             {surveyDueCount > 0 && (
-              <span className={`ml-2 rounded-full text-[11px] font-semibold px-2 py-0.5 ${isNightMode ? 'bg-amber-500 text-white' : 'bg-amber-100 text-amber-700'}`}>
+              <span className={`kg-font-tag ml-2 rounded-full text-[11px] font-semibold px-2 py-0.5 ${isNightMode ? 'bg-amber-500 text-white' : 'bg-amber-100 text-amber-700'}`}>
                 {surveyDueCount}
               </span>
             )}
@@ -856,6 +880,11 @@ const TopControls: React.FC<TopControlsProps> = ({
                     Enroll in this domain to edit review options.
                   </div>
                 )}
+
+                <ExplorerFontSizeOptionsSection
+                  steps={fontSizeSteps}
+                  onAdjust={handleAdjustFontSize}
+                />
 
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-gray-600">Exercises per definition</span>
