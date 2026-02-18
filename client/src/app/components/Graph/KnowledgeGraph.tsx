@@ -15,7 +15,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X, Copy } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
 import {
@@ -609,6 +609,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [positionsChanged, setPositionsChanged] = useState(false);
   const [isSavingPositions, setIsSavingPositions] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isCopyingSelectionYaml, setIsCopyingSelectionYaml] = useState(false);
   const [copyingWindowId, setCopyingWindowId] = useState<string | null>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -5464,6 +5465,30 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     stableGraph.nodes,
   ]);
 
+  const handleToolbarCopySelectedYaml = useCallback(async () => {
+    const selectedCodes = Array.from(selectedNodeIds);
+    if (selectedCodes.length === 0) {
+      showToast('Select at least one node to copy.', 'warning');
+      return;
+    }
+
+    setIsCopyingSelectionYaml(true);
+    try {
+      const { exportData, exportedNodeCount } = await buildExportDataForCodes(selectedCodes);
+      const yamlContent = serializeDomainExportData(exportData, 'yaml');
+      await copyTextToClipboard(yamlContent);
+      showToast(
+        `Copied ${exportedNodeCount} selected node${exportedNodeCount === 1 ? '' : 's'} as YAML.`,
+        'success',
+      );
+    } catch (error) {
+      console.error('Selected copy YAML error:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to copy selected nodes as YAML', 'error');
+    } finally {
+      setIsCopyingSelectionYaml(false);
+    }
+  }, [selectedNodeIds, buildExportDataForCodes]);
+
   const handleCopyNodeYamlToClipboard = useCallback(async (windowId: string, nodeCode: string, nodeLabel: string) => {
     setCopyingWindowId(windowId);
     try {
@@ -6190,10 +6215,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               }),
               toolboxButton('Export', isExporting ? <RefreshCw size={10} className="animate-spin" /> : <Download size={10} />, {
                 onClick: () => void handleToolbarExport(),
-                enabled: canExport && !isExporting,
+                enabled: canExport && !isExporting && !isCopyingSelectionYaml,
               }),
             ],
             [
+              toolboxButton('Copy', isCopyingSelectionYaml ? <RefreshCw size={10} className="animate-spin" /> : <Copy size={10} />, {
+                onClick: () => void handleToolbarCopySelectedYaml(),
+                enabled: canExport && selectedNodeIds.size > 0 && !isCopyingSelectionYaml && !isExporting,
+                variant: 'ghost',
+              }),
               toolboxButton('Share', <Users size={10} />, {
                 onClick: handleToolbarShare,
                 enabled: canShare,
@@ -6258,8 +6288,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     isSavingPositions,
     handleToolbarImport,
     handleToolbarExport,
+    handleToolbarCopySelectedYaml,
     handleToolbarShare,
     isExporting,
+    isCopyingSelectionYaml,
     canImport,
     canExport,
     canShare,
