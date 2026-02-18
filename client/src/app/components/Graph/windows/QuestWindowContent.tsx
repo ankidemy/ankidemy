@@ -1567,7 +1567,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
             <span className="text-[11px] text-gray-500">{kindLabel}</span>
           )}
           {dueLabel && (
-            <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+            <span className={`kg-font-tag px-1.5 py-0.5 rounded text-[11px] font-semibold ${
               quest?.nextDueAt && new Date(quest.nextDueAt) <= new Date() ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'
             }`}>
               {dueLabel}
@@ -1791,8 +1791,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
               )}
               {relevantLinks.map((link, idx) => (
                 <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
-                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.relationType}</span>
-                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.toType}</span>
+                  <span className="kg-font-tag px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.relationType}</span>
+                  <span className="kg-font-tag px-2 py-0.5 rounded bg-gray-100 text-gray-700">{link.toType}</span>
                   <span className="text-gray-800">{link.toCode}</span>
                   <Button
                     size="sm"

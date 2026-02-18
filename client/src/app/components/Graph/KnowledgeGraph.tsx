@@ -101,7 +101,12 @@ import {
   serializeDomainExportData,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
-import { ExplorerFontSizeSteps, explorerFontSizeCssVariables, getExplorerFontSizeSteps } from '@/lib/explorer-font-sizes';
+import {
+  ExplorerFontSizeSteps,
+  explorerFontSizeCssVariables,
+  explorerFontSizeStepToScale,
+  getExplorerFontSizeSteps,
+} from '@/lib/explorer-font-sizes';
 import { playSurveyQueueNotificationSound, primeSurveyQueueNotificationSound } from '@/lib/survey-notification-sound';
 import { useSRS } from '../../../contexts/SRSContext';
 import { createPrerequisite, deletePrerequisite, getDomainPrerequisites, getDomainProgress, updateNodeStatus } from '@/lib/srs-api';
@@ -6709,6 +6714,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     () => explorerFontSizeCssVariables(explorerFontSizeSteps) as React.CSSProperties,
     [explorerFontSizeSteps]
   );
+  const nodeTagFontScale = useMemo(
+    () => explorerFontSizeStepToScale(explorerFontSizeSteps.tags),
+    [explorerFontSizeSteps.tags]
+  );
 
   // Clear animations handled by GraphLifecycle
 
@@ -6948,9 +6957,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 height={graphSize.height}
 	                selectedNodeIds={selectedNodeIds}
 	                newlyCreatedNodeId={newlyCreatedNodeId}
-	                labelDisplayMode={labelDisplayMode}
-	                labelBackgroundMode={labelBackgroundMode}
-	                onNodeClick={handleGraphNodeClick}
+                labelDisplayMode={labelDisplayMode}
+                labelBackgroundMode={labelBackgroundMode}
+                nodeTagFontScale={nodeTagFontScale}
+                onNodeClick={handleGraphNodeClick}
 	                onNodeHover={handleNodeHover}
 	                onNodeDrag={handleGraphNodeDrag}
 	                onNodeDragEnd={handleNodeDragEnd}

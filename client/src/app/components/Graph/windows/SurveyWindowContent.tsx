@@ -174,7 +174,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
                 <div className="text-sm font-semibold text-gray-900">
                   {selectedVersion?.title || item.questName || item.questCode}
                 </div>
-                <span className={`text-[10px] uppercase px-2 py-0.5 rounded ${
+                <span className={`kg-font-tag text-[10px] uppercase px-2 py-0.5 rounded ${
                   item.questKind === 'habit'
                     ? 'bg-emerald-100 text-emerald-700'
                     : item.questKind === 'daily'
@@ -196,7 +196,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
                   <span>{item.isOverdue ? 'Overdue' : 'Due'}: {new Date(item.nextDueAt).toLocaleString()}</span>
                 )}
                 {item.visibility && (
-                  <span className="uppercase text-[10px] bg-gray-100 px-2 py-0.5 rounded">{item.visibility}</span>
+                  <span className="kg-font-tag uppercase text-[10px] bg-gray-100 px-2 py-0.5 rounded">{item.visibility}</span>
                 )}
               </div>
 

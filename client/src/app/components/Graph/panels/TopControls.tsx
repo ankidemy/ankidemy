@@ -570,7 +570,7 @@ const TopControls: React.FC<TopControlsProps> = ({
         {/* Enrollment status indicator */}
         {!isEnrolled && (
           <div className="flex items-center space-x-2 mr-4">
-            <div className="flex items-center px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs">
+            <div className="kg-font-tag flex items-center px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs">
               <AlertTriangle size={12} className="mr-1" />
               Limited Access
             </div>

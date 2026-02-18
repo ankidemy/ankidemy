@@ -632,7 +632,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
                     <div className="text-xs text-gray-500">{domainLabel}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-[11px] px-2 py-0.5 rounded ${statusClass}`}>{statusLabel}</span>
+                    <span className={`kg-font-tag text-[11px] px-2 py-0.5 rounded ${statusClass}`}>{statusLabel}</span>
                     <Button size="sm" variant="outline" onClick={() => handleRemoveExternal(link.id)} disabled={!canEdit || externalLoading}>
                       Remove
                     </Button>

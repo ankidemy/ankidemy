@@ -23,6 +23,7 @@ const SELECTED_HIGHLIGHT_COLOR = '139, 92, 246';
 const HOVER_HIGHLIGHT_COLOR = '14, 165, 233';
 const NODE_CONTENT_SIZE_RATIO = 1.3;
 const NODE_CONTENT_VERTICAL_OFFSET_RATIO = 0.06;
+const LABEL_SIZE_BASE_SCALE = 1;
 
 export type LabelDisplayMode = 'off' | 'codes' | 'names';
 export type LabelBackgroundMode = 'off' | 'behind_links' | 'behind_text';
@@ -40,6 +41,7 @@ interface GraphContainerProps {
   newlyCreatedNodeId: string | null;
   labelDisplayMode: LabelDisplayMode;
   labelBackgroundMode?: LabelBackgroundMode;
+  nodeTagFontScale?: number;
   onNodeClick: (node: GraphNode, event?: MouseEvent) => void;
   onNodeHover: (node: GraphNode | null) => void;
   onNodeDrag?: (node: GraphNode) => void;
@@ -72,6 +74,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
   newlyCreatedNodeId,
   labelDisplayMode,
   labelBackgroundMode = 'behind_links',
+  nodeTagFontScale = 1,
   onNodeClick,
   onNodeHover,
   onNodeDrag,
@@ -211,13 +214,17 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     scheduleRafRefresh,
   ]);
 
+  useEffect(() => {
+    scheduleRafRefresh();
+  }, [nodeTagFontScale, scheduleRafRefresh]);
+
   // Pre-warm label cache to avoid first-hover flicker
   // We derive a coarse key from label mode + node set identity (length + edge ids)
   const prewarmKey = useMemo(() => {
     const first = graphNodes[0]?.id || '';
     const last = graphNodes[graphNodes.length - 1]?.id || '';
-    return `${labelDisplayMode}|${graphNodes.length}|${first}|${last}`;
-  }, [graphNodes, labelDisplayMode]);
+    return `${labelDisplayMode}|${graphNodes.length}|${first}|${last}|${nodeTagFontScale.toFixed(3)}`;
+  }, [graphNodes, labelDisplayMode, nodeTagFontScale]);
 
   if (prewarmKeyRef.current !== prewarmKey) {
     prewarmKeyRef.current = prewarmKey;
@@ -596,7 +603,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
         if (cachedLabel) {
           const { image, width, height } = cachedLabel;
-          const scale = 1 / Math.sqrt(globalScale);
+          const scale = (1 / Math.sqrt(globalScale)) * (nodeTagFontScale / LABEL_SIZE_BASE_SCALE);
           const labelWidth = width * scale;
           const labelHeight = height * scale;
           const labelOffset = nodeSize + 6 / globalScale;
@@ -633,7 +640,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         }
       }
     }
-  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundMode, scheduleRafRefresh, getNodeBaseSize, graphTheme, isNightMode]);
+  }, [selectedNodeIds, newlyCreatedNodeId, highlightNodes, labelDisplayMode, labelBackgroundMode, scheduleRafRefresh, getNodeBaseSize, graphTheme, isNightMode, nodeTagFontScale]);
 
   const nodePointerAreaPaint = useCallback((node: any, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const x = typeof node.x === 'number' && Number.isFinite(node.x) ? node.x : 0;
@@ -1092,6 +1099,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     prevProps.newlyCreatedNodeId === nextProps.newlyCreatedNodeId &&
     prevProps.labelDisplayMode === nextProps.labelDisplayMode &&
     prevProps.labelBackgroundMode === nextProps.labelBackgroundMode &&
+    prevProps.nodeTagFontScale === nextProps.nodeTagFontScale &&
     prevProps.filteredNodeType === nextProps.filteredNodeType &&
     prevProps.mode === nextProps.mode &&
     prevProps.width === nextProps.width &&

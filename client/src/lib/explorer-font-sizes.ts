@@ -65,17 +65,17 @@ export const adjustExplorerFontSizeStep = (
   return updateExplorerFontSizeSteps({ [category]: nextValue });
 };
 
-const stepToScale = (step: number): number => {
+export const explorerFontSizeStepToScale = (step: number): number => {
   const normalized = clampStep(step);
   const scale = 1 + normalized * FONT_SCALE_STEP;
   return Math.max(0.5, Math.min(2, scale));
 };
 
 export const explorerFontSizeCssVariables = (steps: ExplorerFontSizeSteps): Record<string, string> => ({
-  '--kg-font-scale-tags': `${stepToScale(steps.tags)}`,
-  '--kg-font-scale-markdown': `${stepToScale(steps.markdown)}`,
-  '--kg-font-scale-ui': `${stepToScale(steps.ui)}`,
-  '--kg-font-scale-toolbar': `${stepToScale(steps.toolbar)}`,
+  '--kg-font-scale-tags': `${explorerFontSizeStepToScale(steps.tags)}`,
+  '--kg-font-scale-markdown': `${explorerFontSizeStepToScale(steps.markdown)}`,
+  '--kg-font-scale-ui': `${explorerFontSizeStepToScale(steps.ui)}`,
+  '--kg-font-scale-toolbar': `${explorerFontSizeStepToScale(steps.toolbar)}`,
 });
 
 export const formatExplorerFontSizeStep = (step: number): string => {

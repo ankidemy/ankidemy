@@ -1402,7 +1402,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               <button
                 type="button"
                 onClick={() => setShowStatusPicker(true)}
-                className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 rounded px-2 py-0.5"
+                className="kg-font-tag flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 rounded px-2 py-0.5"
                 title="Change status"
               >
                 <span
@@ -1423,7 +1423,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
             )}
             {nodeProgress?.nextReview && (
               <span
-                className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${nodeProgress.isDue ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}
+                className={`kg-font-tag px-1.5 py-0.5 rounded text-[11px] font-semibold ${nodeProgress.isDue ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}
               >
                 {formatNextReview(nodeProgress.nextReview)}
               </span>

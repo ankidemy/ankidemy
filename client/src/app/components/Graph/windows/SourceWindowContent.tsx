@@ -742,7 +742,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               )}
               {relevantLinks.map((link, idx) => (
                 <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
-                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                  <span className="kg-font-tag px-2 py-0.5 rounded bg-gray-100 text-gray-700">
                     {link.toType === 'meta_definition' ? 'Definition' : 'Exercise'}
                   </span>
                   <span className="text-gray-800">{link.toCode}</span>

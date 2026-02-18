@@ -209,7 +209,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             
             {/* Enhanced metadata display */}
             <div className="flex items-center space-x-2 text-xs text-gray-500 mt-1">
-              <span className={`capitalize px-2 py-0.5 rounded text-xs font-medium ${
+              <span className={`kg-font-tag capitalize px-2 py-0.5 rounded text-xs font-medium ${
                 node.type === 'definition'
                   ? 'bg-blue-100 text-blue-700'
                   : node.type === 'exercise'
@@ -231,7 +231,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
               )}
               
               {nodeProgress?.isDue && (
-                <span className="text-red-600 font-medium bg-red-100 px-2 py-0.5 rounded animate-pulse">
+                <span className="kg-font-tag text-red-600 font-medium bg-red-100 px-2 py-0.5 rounded animate-pulse">
                   Due
                 </span>
               )}
