@@ -134,6 +134,8 @@ export function normalizeDisplayMathBlocks(text: string): string {
  */
 export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "", prose = false }) => {
   const processedChildren = normalizeDisplayMathBlocks(children);
+  const mergeClassNames = (...classes: Array<string | undefined>) =>
+    classes.filter(Boolean).join(" ");
   return (
     <div className={`kg-font-markdown ${prose ? "prose prose-sm" : ""} ${className}`.trim()}>
       <ReactMarkdown
@@ -145,6 +147,16 @@ export const MarkdownKatex: React.FC<CommonProps> = ({ children, className = "",
         components={{
           // Keep paragraphs and lists compact for our cards
           p: ({ node: _node, ...props }) => <p {...props} />,
+          // Tailwind preflight removes default list markers, so restore them explicitly.
+          ul: ({ node: _node, className, ...props }) => (
+            <ul className={mergeClassNames("list-disc pl-6 my-1 whitespace-normal", className)} {...props} />
+          ),
+          ol: ({ node: _node, className, ...props }) => (
+            <ol className={mergeClassNames("list-decimal pl-6 my-1 whitespace-normal", className)} {...props} />
+          ),
+          li: ({ node: _node, className, ...props }) => (
+            <li className={mergeClassNames("whitespace-normal", className)} {...props} />
+          ),
           // Never emit <pre> from code; block styling handled by <pre> below.
           code: ({ className, children, ...props }: React.ComponentProps<"code"> & ExtraProps) => (
             <code className={className} {...props}>{String(children).replace(/\n$/, "")}</code>
