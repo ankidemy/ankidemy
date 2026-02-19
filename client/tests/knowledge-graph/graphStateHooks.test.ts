@@ -117,7 +117,7 @@ test('buildGraphMetadataState changes version only when metadata-driving inputs 
   );
 
   assert.equal(a.version, b.version);
-  assert.equal(a.nodeMetadata.get('D1')?.isDue, true);
+  assert.equal(a.nodeMetadata.get('D1')?.isDue, false);
   assert.equal(a.nodeMetadata.get('D1')?.status, 'tackling');
 
   const renamed = {

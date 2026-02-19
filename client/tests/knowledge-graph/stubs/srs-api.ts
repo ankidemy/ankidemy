@@ -9,7 +9,7 @@ export const calculateDaysUntilReview = (nextReview?: string | null): number | n
 export const getStatusColor = (status: string): string => {
   if (status === 'learned') return '#10b981';
   if (status === 'grasped') return '#3b82f6';
-  if (status === 'tackling') return '#f59e0b';
+  if (status === 'tackling') return '#ef4444';
   return '#9ca3af';
 };
 

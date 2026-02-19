@@ -394,7 +394,7 @@ export { getVisualGraph };
 export const getStatusColor = (status: NodeStatus): string => {
   const colors = {
     fresh: '#94A3B8',      // Slate 400 - not started (muted)
-    tackling: '#F97316',   // Orange 500 - difficult (intense)
+    tackling: '#EF4444',   // Red 500 - currently tackling
     grasped: '#22C55E',    // Green 500 - understood (intense)
     learned: '#93C5FD',    // Blue 300 - mastered (muted)
   };
