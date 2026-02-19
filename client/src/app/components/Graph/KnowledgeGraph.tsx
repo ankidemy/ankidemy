@@ -209,6 +209,9 @@ import type {
 const NEW_NODE_CUE_DURATION_MS = 3000;
 const BOX_SELECTION_MIN_DRAG_PX = 6;
 const AUTO_NAV_DETAIL_WINDOW_ID = 'detail-review-autonavigate';
+const FRENZY_NOTE_MIN_WIDTH = 320;
+const FRENZY_NOTE_MIN_HEIGHT = 240;
+const FRENZY_NOTE_VIEWPORT_MARGIN_PX = 8;
 
 type BoxSelectionDraft = {
   startX: number;
@@ -711,8 +714,19 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const boxSelectionPointerIdRef = useRef<number | null>(null);
   const boxSelectionStartRef = useRef<{ x: number; y: number } | null>(null);
   const [frenzyNotePosition, setFrenzyNotePosition] = useState<{ x: number; y: number }>({ x: 240, y: 80 });
+  const [frenzyNoteSize, setFrenzyNoteSize] = useState<{ width: number; height: number } | null>(null);
   const [isDraggingFrenzyNote, setIsDraggingFrenzyNote] = useState(false);
+  const [isResizingFrenzyNote, setIsResizingFrenzyNote] = useState(false);
+  const [frenzyResizeDirection, setFrenzyResizeDirection] = useState('');
   const frenzyNoteDragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const frenzyNoteResizeStartRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    initialX: number;
+    initialY: number;
+  } | null>(null);
   const frenzyPromptImageInputRef = useRef<HTMLInputElement | null>(null);
   const frenzyContentImageInputRef = useRef<HTMLInputElement | null>(null);
   const frenzySolutionImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1775,8 +1789,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (!rect) return null;
 
     const noteRect = frenzyNoteRef.current?.getBoundingClientRect();
-    const noteWidth = noteRect?.width ?? 320;
-    const noteHeight = noteRect?.height ?? 320;
+    const noteWidth = noteRect?.width ?? frenzyNoteSize?.width ?? 420;
+    const noteHeight = noteRect?.height ?? frenzyNoteSize?.height ?? 320;
     const margin = 16;
 
     let anchorX = rect.width / 2;
@@ -1798,7 +1812,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const y = Math.min(Math.max(anchorY - noteHeight / 2, margin), maxY);
 
     return { x, y };
-  }, []);
+  }, [frenzyNoteSize]);
 
   const computeSpawnPositionWithAdaptiveNoise = useCallback((
     basePosition: { x: number; y: number },
@@ -4540,11 +4554,15 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setFrenzyQuestDurationModeDraft('forever');
       setFrenzyQuestDurationCountDraft(10);
       setFrenzyQuestUntilDateDraft('');
-      setFrenzyQuestAutoSaveStatus('idle');
-      frenzyQuestLastAutoSavedRef.current = '';
-	    }
-	    setIsDraggingFrenzyNote(false);
-	  }, [frenzyNote, frenzyQuestNote, saveFrenzyNote]);
+	      setFrenzyQuestAutoSaveStatus('idle');
+	      frenzyQuestLastAutoSavedRef.current = '';
+		    }
+		    setIsDraggingFrenzyNote(false);
+    setIsResizingFrenzyNote(false);
+    setFrenzyResizeDirection('');
+    frenzyNoteDragOffsetRef.current = null;
+    frenzyNoteResizeStartRef.current = null;
+		  }, [frenzyNote, frenzyQuestNote, saveFrenzyNote]);
 
 	  useEffect(() => {
 	    const handleEsc = (event: KeyboardEvent) => {
@@ -6701,6 +6719,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const handleFrenzyNoteMouseDown = useCallback((event: React.MouseEvent) => {
     if (!frenzyNote && !frenzyQuestNote) return;
+    if (isResizingFrenzyNote) return;
+    if ((event.target as HTMLElement).closest('[data-frenzy-resize-handle]')) return;
     if ((event.target as HTMLElement).closest('button, textarea, input')) return;
     setIsDraggingFrenzyNote(true);
     frenzyNoteDragOffsetRef.current = {
@@ -6708,7 +6728,29 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       y: event.clientY - frenzyNotePosition.y,
     };
     event.preventDefault();
-  }, [frenzyNote, frenzyQuestNote, frenzyNotePosition]);
+  }, [frenzyNote, frenzyQuestNote, frenzyNotePosition, isResizingFrenzyNote]);
+
+  const startFrenzyResize = useCallback((direction: string) => (event: React.MouseEvent) => {
+    if (!isFrenzyEditMode) return;
+    const noteElement = frenzyNoteRef.current;
+    if (!noteElement) return;
+
+    const rect = noteElement.getBoundingClientRect();
+    setIsDraggingFrenzyNote(false);
+    frenzyNoteDragOffsetRef.current = null;
+    setIsResizingFrenzyNote(true);
+    setFrenzyResizeDirection(direction);
+    frenzyNoteResizeStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      width: rect.width,
+      height: rect.height,
+      initialX: frenzyNotePosition.x,
+      initialY: frenzyNotePosition.y,
+    };
+    event.preventDefault();
+    event.stopPropagation();
+  }, [frenzyNotePosition, isFrenzyEditMode]);
 
   useEffect(() => {
     if (!isDraggingFrenzyNote) return;
@@ -6731,6 +6773,134 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       window.removeEventListener('mouseup', handleUp);
     };
   }, [isDraggingFrenzyNote]);
+
+  const handleFrenzyResizeMove = useCallback((event: MouseEvent) => {
+    const start = frenzyNoteResizeStartRef.current;
+    if (!start || !frenzyResizeDirection) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+
+    let nextWidth = start.width;
+    let nextHeight = start.height;
+    let nextX = start.initialX;
+    let nextY = start.initialY;
+
+    if (frenzyResizeDirection.includes('right')) {
+      nextWidth = start.width + deltaX;
+    }
+    if (frenzyResizeDirection.includes('left')) {
+      nextWidth = start.width - deltaX;
+    }
+    if (frenzyResizeDirection.includes('bottom')) {
+      nextHeight = start.height + deltaY;
+    }
+    if (frenzyResizeDirection.includes('top')) {
+      nextHeight = start.height - deltaY;
+    }
+
+    const maxWidth = Math.max(
+      FRENZY_NOTE_MIN_WIDTH,
+      window.innerWidth - FRENZY_NOTE_VIEWPORT_MARGIN_PX * 2
+    );
+    const maxHeight = Math.max(
+      FRENZY_NOTE_MIN_HEIGHT,
+      window.innerHeight - FRENZY_NOTE_VIEWPORT_MARGIN_PX * 2
+    );
+
+    nextWidth = Math.min(maxWidth, Math.max(FRENZY_NOTE_MIN_WIDTH, nextWidth));
+    nextHeight = Math.min(maxHeight, Math.max(FRENZY_NOTE_MIN_HEIGHT, nextHeight));
+
+    if (frenzyResizeDirection.includes('left')) {
+      nextX = start.initialX + (start.width - nextWidth);
+    }
+    if (frenzyResizeDirection.includes('top')) {
+      nextY = start.initialY + (start.height - nextHeight);
+    }
+
+    const minX = FRENZY_NOTE_VIEWPORT_MARGIN_PX;
+    const minY = FRENZY_NOTE_VIEWPORT_MARGIN_PX;
+    const maxX = Math.max(minX, window.innerWidth - nextWidth - FRENZY_NOTE_VIEWPORT_MARGIN_PX);
+    const maxY = Math.max(minY, window.innerHeight - nextHeight - FRENZY_NOTE_VIEWPORT_MARGIN_PX);
+
+    nextX = Math.min(Math.max(nextX, minX), maxX);
+    nextY = Math.min(Math.max(nextY, minY), maxY);
+
+    setFrenzyNoteSize({
+      width: Math.round(nextWidth),
+      height: Math.round(nextHeight),
+    });
+    setFrenzyNotePosition({
+      x: Math.round(nextX),
+      y: Math.round(nextY),
+    });
+  }, [frenzyResizeDirection]);
+
+  const stopFrenzyResize = useCallback(() => {
+    setIsResizingFrenzyNote(false);
+    setFrenzyResizeDirection('');
+    frenzyNoteResizeStartRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!isResizingFrenzyNote) return;
+
+    window.addEventListener('mousemove', handleFrenzyResizeMove);
+    window.addEventListener('mouseup', stopFrenzyResize);
+    return () => {
+      window.removeEventListener('mousemove', handleFrenzyResizeMove);
+      window.removeEventListener('mouseup', stopFrenzyResize);
+    };
+  }, [isResizingFrenzyNote, handleFrenzyResizeMove, stopFrenzyResize]);
+
+  const renderFrenzyResizeHandles = useCallback(() => {
+    if (!isFrenzyEditMode) return null;
+
+    return (
+      <div className="absolute inset-0 pointer-events-none">
+        <div
+          data-frenzy-resize-handle
+          className="absolute top-0 left-0 right-0 h-1 cursor-ns-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('top')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute bottom-0 left-0 right-0 h-1 cursor-ns-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('bottom')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute top-0 bottom-0 left-0 w-1 cursor-ew-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('left')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute top-0 bottom-0 right-0 w-1 cursor-ew-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('right')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute top-0 left-0 w-3 h-3 cursor-nw-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('top-left')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('top-right')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('bottom-left')}
+        />
+        <div
+          data-frenzy-resize-handle
+          className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize pointer-events-auto"
+          onMouseDown={startFrenzyResize('bottom-right')}
+        />
+      </div>
+    );
+  }, [isFrenzyEditMode, startFrenzyResize]);
 
   // Enhanced credit flow animations
   const enhancedCreditFlowAnimations = useMemo(() => {
@@ -7112,8 +7282,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	            {frenzyNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
-	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
+	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] min-w-[320px] min-h-[240px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
+	                style={{
+                    left: frenzyNotePosition.x,
+                    top: frenzyNotePosition.y,
+                    width: frenzyNoteSize?.width,
+                    height: frenzyNoteSize?.height,
+                  }}
 	              >
                 <div className="frenzy-note-theme-header px-3 pt-3 pb-2 border-b border-yellow-300 bg-yellow-100/95">
                   <div
@@ -7270,12 +7445,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                               e.currentTarget.select();
                             }
                           }}
-                          onBlur={() => saveFrenzyNote()}
-                          rows={3}
-                          className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
-                            frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
-                          }`}
-                        />
+	                          onBlur={() => saveFrenzyNote()}
+	                          rows={3}
+	                          className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
+	                            frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
+	                          }`}
+	                        />
                       )}
                       <div className="mt-2 flex items-center justify-between gap-2">
                         {frenzyNotePromptImagePath ? (
@@ -7337,13 +7512,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                             e.currentTarget.select();
                           }
                         }}
-                        onBlur={() => saveFrenzyNote()}
-                        rows={6}
-                        placeholder={frenzyNote.defaultContent}
-                        className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
-                          frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent ? 'text-gray-500' : 'text-gray-800'
-                        }`}
-                      />
+	                        onBlur={() => saveFrenzyNote()}
+	                        rows={6}
+	                        placeholder={frenzyNote.defaultContent}
+	                        className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
+	                          frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent ? 'text-gray-500' : 'text-gray-800'
+	                        }`}
+	                      />
                     )}
                     {frenzyNote.nodeType !== 'source' && (
                       <div className="mt-2 flex items-center justify-between gap-2">
@@ -7397,12 +7572,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                               value={frenzyNoteSolutionDraft}
                               onChange={(e) => setFrenzyNoteSolutionDraft(e.target.value)}
                               onPaste={(e) => handleFrenzyPaste(e, 'solution')}
-                              onBlur={() => saveFrenzyNote()}
-                              rows={4}
-                              placeholder="Solution or explanation..."
-                              className="w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-                            />
-                          )}
+	                              onBlur={() => saveFrenzyNote()}
+	                              rows={4}
+	                              placeholder="Solution or explanation..."
+	                              className="w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
+	                            />
+	                          )}
                           <div className="mt-2 flex items-center justify-between gap-2">
                             {frenzyNoteSolutionImagePath ? (
                               <ZoomableImage src={frenzyNoteSolutionImagePath} alt="Solution image" maxHeightClass="max-h-24" className="max-w-[180px]" />
@@ -7441,15 +7616,21 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     {isSavingFrenzyNote && (
                       <span className="text-xs text-gray-600">Saving...</span>
                     )}
-                  </div>
-                </div>
-              </div>
-            )}
+	                  </div>
+	                </div>
+                {renderFrenzyResizeHandles()}
+	              </div>
+	            )}
 	            {frenzyQuestNote && (
 	              <div
 	                ref={frenzyNoteRef}
-	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
-	                style={{ left: frenzyNotePosition.x, top: frenzyNotePosition.y }}
+	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] min-w-[320px] min-h-[240px] max-w-[calc(100vw-1rem)] h-[80vh] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
+	                style={{
+                    left: frenzyNotePosition.x,
+                    top: frenzyNotePosition.y,
+                    width: frenzyNoteSize?.width,
+                    height: frenzyNoteSize?.height,
+                  }}
 	              >
 	                <div className="min-h-0 flex-1 overflow-hidden">
 	                  <QuestWindowContent
@@ -7489,6 +7670,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	                    onHeaderMouseDown={handleFrenzyNoteMouseDown}
 	                  />
 	                </div>
+                {renderFrenzyResizeHandles()}
 	              </div>
 	            )}
 	          </div>

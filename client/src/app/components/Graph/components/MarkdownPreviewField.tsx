@@ -82,6 +82,7 @@ const MarkdownPreviewField: React.FC<MarkdownPreviewFieldProps> = ({
           disabled={disabled}
           required={required}
           className={textareaClassName}
+          style={{ resize: 'vertical' }}
         />
       )}
       {helperText && <p className="text-xs text-gray-500 mt-1">{helperText}</p>}
