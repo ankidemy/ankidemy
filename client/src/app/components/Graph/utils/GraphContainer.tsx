@@ -24,6 +24,10 @@ const HOVER_HIGHLIGHT_COLOR = '14, 165, 233';
 const NODE_CONTENT_SIZE_RATIO = 1.3;
 const NODE_CONTENT_VERTICAL_OFFSET_RATIO = 0.06;
 const LABEL_SIZE_BASE_SCALE = 1;
+const LABEL_FADE_START_SCALE = 0.5;
+const LABEL_FADE_END_SCALE = 0.3;
+
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 export type LabelDisplayMode = 'off' | 'codes' | 'names';
 export type LabelBackgroundMode = 'off' | 'behind_links' | 'behind_text';
@@ -583,8 +587,17 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     }
 
     // Label rendering with caching
-    const labelThreshold = 0.5;
-    const shouldShowLabel = (labelDisplayMode !== 'off' && globalScale > labelThreshold) || isSelected || isHighlighted || isNewlyCreated;
+    const isLabelForcedVisible = isSelected || isHighlighted || isNewlyCreated;
+    const baseLabelOpacity =
+      labelDisplayMode === 'off'
+        ? 0
+        : globalScale >= LABEL_FADE_START_SCALE
+          ? 1
+          : globalScale <= LABEL_FADE_END_SCALE
+            ? 0
+            : (globalScale - LABEL_FADE_END_SCALE) / (LABEL_FADE_START_SCALE - LABEL_FADE_END_SCALE);
+    const labelOpacity = isLabelForcedVisible ? 1 : clamp01(baseLabelOpacity);
+    const shouldShowLabel = (labelDisplayMode !== 'off' && labelOpacity > 0) || isLabelForcedVisible;
 
     if (shouldShowLabel) {
       let labelText = '';
@@ -607,6 +620,9 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
           const labelWidth = width * scale;
           const labelHeight = height * scale;
           const labelOffset = nodeSize + 6 / globalScale;
+
+          ctx.save();
+          ctx.globalAlpha = labelOpacity;
 
           if (labelBackgroundMode !== 'off') {
             const bg = labelRendererRef.current.getLabelBackground(width, height);
@@ -633,6 +649,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
             labelWidth,
             labelHeight
           );
+          ctx.restore();
         } else {
           // Request render; on completion schedule a single RAF-based refresh
           labelRendererRef.current.render(labelText, scheduleRafRefresh);
