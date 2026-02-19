@@ -441,6 +441,28 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     type === 'definition' || type === 'exercise';
   const srsNodeType = isSrsNodeType(currentNode.type) ? currentNode.type : null;
   const nodeProgress = numericId && srsNodeType ? srs.getNodeProgress(numericId, srsNodeType) : null;
+  const rawNextReviewLabel = useMemo(() => {
+    if (!nodeProgress?.nextReview) return null;
+    return formatNextReview(nodeProgress.nextReview);
+  }, [nodeProgress?.nextReview]);
+  const isDueFromQueue = useMemo(() => {
+    if (!numericId || !srsNodeType) return false;
+    return (srs.state.dueReviews || []).some(review =>
+      review.nodeId === numericId && review.nodeType === srsNodeType && review.isDue,
+    );
+  }, [numericId, srs.state.dueReviews, srsNodeType]);
+  const nextReviewTagLabel = useMemo(() => {
+    if (rawNextReviewLabel === 'Due now' || rawNextReviewLabel === 'Due today') return 'Due';
+    if (rawNextReviewLabel === 'Due tomorrow') return 'Due tomorrow';
+    if (rawNextReviewLabel) return rawNextReviewLabel;
+    if (isDueFromQueue) return 'Due';
+    return null;
+  }, [isDueFromQueue, rawNextReviewLabel]);
+  const nextReviewTagClassName = useMemo(() => {
+    if (nextReviewTagLabel === 'Due') return 'kg-due-tag-now';
+    if (nextReviewTagLabel === 'Due tomorrow') return 'kg-due-tag-tomorrow';
+    return 'bg-gray-100 text-gray-600';
+  }, [nextReviewTagLabel]);
 
   // Review handlers
   const handleReviewDefinition = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
@@ -1421,11 +1443,11 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 Set status
               </Button>
             )}
-            {nodeProgress?.nextReview && (
+            {nextReviewTagLabel && (
               <span
-                className={`kg-font-tag px-1.5 py-0.5 rounded text-[11px] font-semibold ${nodeProgress.isDue ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}
+                className={`kg-font-tag px-1.5 py-0.5 rounded text-[11px] font-semibold ${nextReviewTagClassName}`}
               >
-                {formatNextReview(nodeProgress.nextReview)}
+                {nextReviewTagLabel}
               </span>
             )}
             {versionCount > 0 && (

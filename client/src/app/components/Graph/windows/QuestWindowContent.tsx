@@ -240,6 +240,16 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (!quest?.nextDueAt) return null;
     return formatNextReview(quest.nextDueAt);
   }, [quest?.nextDueAt]);
+  const dueTag = useMemo(() => {
+    if (!dueLabel) return null;
+    if (dueLabel === 'Due now' || dueLabel === 'Due today') {
+      return { label: 'Due', className: 'kg-due-tag-now' };
+    }
+    if (dueLabel === 'Due tomorrow') {
+      return { label: 'Due tomorrow', className: 'kg-due-tag-tomorrow' };
+    }
+    return { label: dueLabel, className: 'bg-gray-100 text-gray-600' };
+  }, [dueLabel]);
 
   const headerVisibility = useMemo<QuestVisibility>(() => {
     if (isEditMode) return visibilityDraft;
@@ -1566,11 +1576,11 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
           ) : (
             <span className="text-[11px] text-gray-500">{kindLabel}</span>
           )}
-          {dueLabel && (
+          {dueTag && (
             <span className={`kg-font-tag px-1.5 py-0.5 rounded text-[11px] font-semibold ${
-              quest?.nextDueAt && new Date(quest.nextDueAt) <= new Date() ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'
+              dueTag.className
             }`}>
-              {dueLabel}
+              {dueTag.label}
             </span>
           )}
           {versions.length > 0 && (

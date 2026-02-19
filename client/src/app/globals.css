@@ -298,6 +298,35 @@
   color: #fb923c !important;
 }
 
+/* Keep orange chips readable in night mode when both bg/text are orange variants. */
+.kg-night-mode .bg-orange-100.text-orange-800,
+.kg-night-mode .bg-orange-100.text-orange-700,
+.kg-night-mode .bg-orange-100.text-orange-600,
+.kg-night-mode .bg-orange-100.text-orange-500 {
+  color: #ffffff !important;
+}
+
+/* Due badge palette used in draggable window headers. */
+.kg-due-tag-now {
+  background-color: #ffedd5;
+  color: #c2410c;
+}
+
+.kg-due-tag-tomorrow {
+  background-color: #fef3c7;
+  color: #a16207;
+}
+
+.kg-night-mode .kg-due-tag-now {
+  background-color: #ea580c !important;
+  color: #ffffff !important;
+}
+
+.kg-night-mode .kg-due-tag-tomorrow {
+  background-color: #a16207 !important;
+  color: #fef3c7 !important;
+}
+
 .kg-night-mode .text-purple-800,
 .kg-night-mode .text-purple-700,
 .kg-night-mode .text-purple-600 {
