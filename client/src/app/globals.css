@@ -189,6 +189,10 @@
   background-color: #450a0a !important;
 }
 
+.kg-night-mode .bg-orange-50 {
+  background-color: #7c2d12 !important;
+}
+
 .kg-night-mode .bg-orange-100 {
   background-color: #ea580c !important;
 }
@@ -306,6 +310,13 @@
   color: #ffffff !important;
 }
 
+.kg-night-mode .bg-orange-50.text-orange-800,
+.kg-night-mode .bg-orange-50.text-orange-700,
+.kg-night-mode .bg-orange-50.text-orange-600,
+.kg-night-mode .bg-orange-50.text-orange-500 {
+  color: #ffffff !important;
+}
+
 /* Due badge palette used in draggable window headers. */
 .kg-due-tag-now {
   background-color: #ffedd5;
@@ -342,6 +353,7 @@
 
 .kg-night-mode .hover\:bg-blue-100:hover,
 .kg-night-mode .hover\:bg-blue-50:hover,
+.kg-night-mode .hover\:bg-orange-100:hover,
 .kg-night-mode .hover\:bg-yellow-100:hover,
 .kg-night-mode .hover\:bg-yellow-50:hover,
 .kg-night-mode .hover\:bg-gray-200:hover {

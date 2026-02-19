@@ -90,6 +90,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
   // User answer state for non-verifiable exercises
   const [userAnswer, setUserAnswer] = useState<string>("");
   const [answerPreview, setAnswerPreview] = useState<boolean>(false);
+  const [showAnswerSection, setShowAnswerSection] = useState<boolean>(false);
   const [frenzyRound, setFrenzyRound] = useState(1);
   const [refreshSignal, setRefreshSignal] = useState(0);
   
@@ -715,6 +716,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     setShowAnswer(false);
     setUserAnswer("");
     setAnswerPreview(false);
+    setShowAnswerSection(false);
     setItemDetails(null);
     setCurrentExerciseMeta(null);
     setCurrentReviewItem(review);
@@ -1213,6 +1215,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       setSessionStats({ total: 0, completed: 0, correct: 0 });
       setStartTime(null);
       setShowAnswer(false);
+      setShowAnswerSection(false);
       setItemDetails(null);
       setCurrentExerciseMeta(null);
       currentItemIdRef.current = null;
@@ -1240,6 +1243,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     }
 
     const displayType = currentExerciseMeta ? 'exercise' : currentReviewItem.nodeType;
+    const hasUserAnswer = userAnswer.trim().length > 0;
 
     return (
       <div className="space-y-4">
@@ -1352,66 +1356,84 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
               <div className="mt-2">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-medium text-gray-700">Your Answer</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs px-1"
-                    onClick={() => setAnswerPreview(v => !v)}
-                  >
-                    {answerPreview ? 'Edit' : 'Preview'}
-                  </Button>
-                </div>
-                {answerPreview ? (
-                  <div className="bg-gray-50 border border-gray-200 rounded p-2 text-sm">
-                    {userAnswer?.trim() ? (
-                      <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
-                    ) : (
-                      <span className="text-gray-400 italic">Nothing to preview</span>
+                  <div className="flex items-center gap-1">
+                    {showAnswerSection && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs px-1"
+                        onClick={() => setAnswerPreview(v => !v)}
+                      >
+                        {answerPreview ? 'Edit' : 'Preview'}
+                      </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs px-1"
+                      onClick={() => {
+                        setShowAnswerSection(v => {
+                          const next = !v;
+                          if (!next) setAnswerPreview(false);
+                          return next;
+                        });
+                      }}
+                    >
+                      {showAnswerSection ? 'Hide' : 'Show'}
+                    </Button>
                   </div>
-                ) : (
-                  <textarea
-                    className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
-                    placeholder="Enter your answer..."
-                    value={userAnswer}
-                    onChange={(e) => setUserAnswer(e.target.value)}
-                  />
+                </div>
+                {showAnswerSection && (
+                  answerPreview ? (
+                    <div className="bg-gray-50 border border-gray-200 rounded p-2 text-sm">
+                      {hasUserAnswer ? (
+                        <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
+                      ) : (
+                        <span className="text-gray-400 italic">Nothing to preview</span>
+                      )}
+                    </div>
+                  ) : (
+                    <textarea
+                      className="w-full border border-gray-300 rounded p-2 h-20 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
+                      placeholder="Enter your answer..."
+                      value={userAnswer}
+                      onChange={(e) => setUserAnswer(e.target.value)}
+                    />
+                  )
                 )}
               </div>
             )}
 
             {/* Non-verifiable: after reveal show side-by-side compare */}
             {itemDetails?.verifiable === false && showAnswer && (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-sm font-medium text-gray-700">Your Answer</p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs px-1"
-                      onClick={() => setAnswerPreview(v => !v)}
-                    >
-                      {answerPreview ? 'Edit' : 'Preview'}
-                    </Button>
-                  </div>
-                  {answerPreview ? (
-                    <div className="p-3 bg-gray-50 rounded-md border text-sm whitespace-pre-wrap">
-                      {userAnswer?.trim() ? (
-                        <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
-                      ) : (
-                        <span className="text-gray-400 italic">No answer provided</span>
-                      )}
+              <div className={`mt-3 grid grid-cols-1 ${hasUserAnswer ? 'md:grid-cols-2' : ''} gap-3`}>
+                {hasUserAnswer && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium text-gray-700">Your Answer</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs px-1"
+                        onClick={() => setAnswerPreview(v => !v)}
+                      >
+                        {answerPreview ? 'Edit' : 'Preview'}
+                      </Button>
                     </div>
-                  ) : (
-                    <textarea
-                      className="w-full border border-gray-300 rounded p-2 h-40 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
-                      placeholder="Edit your answer..."
-                      value={userAnswer}
-                      onChange={(e) => setUserAnswer(e.target.value)}
-                    />
-                  )}
-                </div>
+                    {answerPreview ? (
+                      <div className="p-3 bg-gray-50 rounded-md border text-sm whitespace-pre-wrap">
+                        <MarkdownKatex className="whitespace-pre-wrap">{userAnswer}</MarkdownKatex>
+                      </div>
+                    ) : (
+                      <textarea
+                        className="w-full border border-gray-300 rounded p-2 h-40 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 resize-y"
+                        placeholder="Edit your answer..."
+                        value={userAnswer}
+                        onChange={(e) => setUserAnswer(e.target.value)}
+                      />
+                    )}
+                  </div>
+                )}
                 <div>
                   <p className="text-sm font-medium text-gray-700 mb-1">Solution</p>
                   <MarkdownKatex className="p-3 bg-green-50 rounded-md border border-green-200 text-sm whitespace-pre-wrap">
