@@ -14,6 +14,7 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import { getMetaDefinition, getMetaExercise, getNextMetaExerciseVersion, getNextMetaDefinitionVersion, recordMetaExerciseOutcome, DefinitionVersion, ExerciseVersion, MetaDefinition, MetaExercise } from '@/lib/api';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 import { getReviewQueue } from '@/lib/srs-api';
+import { SRS_NODE_STATUS_CHANGED_EVENT, type SRSNodeStatusChangedDetail } from '@/lib/srs-status-events';
 import { REVIEW_ITEM_CONTENT_UPDATED_EVENT, type ReviewItemContentUpdatedDetail } from '../utils/reviewSyncEvents';
 
 interface ReviewWindowContentProps {
@@ -808,6 +809,102 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
     });
     return Array.isArray(response?.queue) ? response.queue : [];
   }, [domainId, exercisesPerDefinition, sessionType]);
+
+  const reconcileQueueAfterStatusChange = useCallback(async (changedNode?: SRSNodeStatusChangedDetail) => {
+    if (!srs.state.currentSession || isFrenzyMode) return;
+
+    const applyQueueUpdate = async (nextQueue: ReviewQueueItem[]) => {
+      const previousQueue = reviewQueueRef.current;
+      const sameLength = previousQueue.length === nextQueue.length;
+      const sameOrder = sameLength && previousQueue.every((item, index) => {
+        const nextItem = nextQueue[index];
+        return !!nextItem && getQueueItemKey(item) === getQueueItemKey(nextItem);
+      });
+      if (sameOrder) return false;
+
+      reviewQueueRef.current = nextQueue;
+      setReviewQueue(nextQueue);
+      setSessionStats((prev) => ({
+        ...prev,
+        total: prev.completed + nextQueue.length,
+      }));
+
+      if (nextQueue.length === 0) {
+        setCurrentReviewItem(null);
+        setShowAnswer(false);
+        setShowAnswerSection(false);
+        setAnswerPreview(false);
+        setUserAnswer("");
+        setItemDetails(null);
+        setCurrentExerciseMeta(null);
+        setStartTime(null);
+        currentItemIdRef.current = null;
+        ui.setReviewState(false, null, false);
+        return true;
+      }
+
+      const nextItem = nextQueue[0];
+      const currentKey = currentReviewItem ? getQueueItemKey(currentReviewItem) : null;
+      const nextKey = getQueueItemKey(nextItem);
+      if (currentKey !== nextKey) {
+        setShowAnswer(false);
+        setShowAnswerSection(false);
+        setAnswerPreview(false);
+        setUserAnswer("");
+        setStartTime(Date.now());
+        await loadReviewItem(nextItem);
+      } else {
+        setCurrentReviewItem(nextItem);
+      }
+
+      return true;
+    };
+
+    const existingQueue = reviewQueueRef.current;
+    if (existingQueue.length === 0) return;
+
+    let queueChanged = false;
+    if (changedNode && changedNode.status !== 'grasped') {
+      const optimisticQueue = existingQueue.filter((item) => {
+        if (changedNode.nodeType === 'definition') {
+          return !(item.nodeType === 'definition' && item.nodeId === changedNode.nodeId);
+        }
+        const isExerciseItem = item.nodeType === 'exercise' && item.nodeId === changedNode.nodeId;
+        const isDefinitionExerciseItem = item.exerciseMetaId === changedNode.nodeId;
+        return !isExerciseItem && !isDefinitionExerciseItem;
+      });
+      queueChanged = await applyQueueUpdate(optimisticQueue);
+    }
+
+    try {
+      const latestQueue = await fetchReviewQueue('normal');
+      const allowedKeys = new Set(latestQueue.map((item) => getQueueItemKey(item)));
+      const filteredQueue = reviewQueueRef.current.filter((item) => allowedKeys.has(getQueueItemKey(item)));
+      const reconciled = await applyQueueUpdate(filteredQueue);
+      queueChanged = queueChanged || reconciled;
+      if (queueChanged) {
+        showToast("Review queue updated after status change.", "info", 1500);
+      }
+    } catch (error) {
+      console.warn('Failed to reconcile review queue after status change:', error);
+    }
+  }, [currentReviewItem, fetchReviewQueue, getQueueItemKey, isFrenzyMode, loadReviewItem, srs.state.currentSession, ui]);
+
+  useEffect(() => {
+    if (isFrenzyMode) return;
+
+    const handleNodeStatusChanged = (event: Event) => {
+      if (!srs.state.currentSession) return;
+      const detail = (event as CustomEvent<SRSNodeStatusChangedDetail>).detail;
+      if (!detail) return;
+      void reconcileQueueAfterStatusChange(detail);
+    };
+
+    window.addEventListener(SRS_NODE_STATUS_CHANGED_EVENT, handleNodeStatusChanged as EventListener);
+    return () => {
+      window.removeEventListener(SRS_NODE_STATUS_CHANGED_EVENT, handleNodeStatusChanged as EventListener);
+    };
+  }, [isFrenzyMode, reconcileQueueAfterStatusChange, srs.state.currentSession]);
 
   const startFrenzyRound = useCallback(async (round: number) => {
     frenzyCreditsRef.current = new Map();

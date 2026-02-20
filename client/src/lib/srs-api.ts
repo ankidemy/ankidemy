@@ -21,6 +21,7 @@ import {
 // FIX: Import required functions from api.ts
 import { getVisualGraph } from './api';
 import { observedFetch, type RequestObservabilityMeta } from './http-observability';
+import { dispatchSRSNodeStatusChanged } from './srs-status-events';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
 
@@ -161,7 +162,8 @@ export const updateNodeStatus = async (
     },
     body: JSON.stringify({ nodeId, nodeType, status }),
   });
-  return handleSRSResponse(response);
+  await handleSRSResponse(response);
+  dispatchSRSNodeStatusChanged({ nodeId, nodeType, status });
 };
 
 // =============================================================================
