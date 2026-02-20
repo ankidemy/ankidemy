@@ -8,12 +8,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
-	"gorm.io/gorm"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"gorm.io/gorm"
 )
 
 // ImportService handles domain import and export operations
@@ -180,13 +181,13 @@ type ImportMetaDefinitionNode struct {
 
 // ImportSourceNode represents a source node in import/export.
 type ImportSourceNode struct {
-	Code       string  `json:"code"`
-	Title      string  `json:"title"`
-	ContentMd  string  `json:"contentMd,omitempty"`
-	BibtexKey  *string `json:"bibtexKey,omitempty"`
-	FilePath   *string `json:"filePath,omitempty"`
-	XPosition  float64 `json:"xPosition,omitempty"`
-	YPosition  float64 `json:"yPosition,omitempty"`
+	Code      string  `json:"code"`
+	Title     string  `json:"title"`
+	ContentMd string  `json:"contentMd,omitempty"`
+	BibtexKey *string `json:"bibtexKey,omitempty"`
+	FilePath  *string `json:"filePath,omitempty"`
+	XPosition float64 `json:"xPosition,omitempty"`
+	YPosition float64 `json:"yPosition,omitempty"`
 }
 
 // ImportQuestVersion represents a single quest version in a meta quest.
@@ -199,13 +200,13 @@ type ImportQuestVersion struct {
 
 // ImportMetaQuestNode represents a quest definition with versions.
 type ImportMetaQuestNode struct {
-	Code       string               `json:"code"`
-	Name       string               `json:"name,omitempty"`
-	Kind       string               `json:"kind"`
-	Schedule   json.RawMessage      `json:"schedule"`
-	XPosition  float64              `json:"xPosition,omitempty"`
-	YPosition  float64              `json:"yPosition,omitempty"`
-	Versions   []ImportQuestVersion `json:"versions"`
+	Code      string               `json:"code"`
+	Name      string               `json:"name,omitempty"`
+	Kind      string               `json:"kind"`
+	Schedule  json.RawMessage      `json:"schedule"`
+	XPosition float64              `json:"xPosition,omitempty"`
+	YPosition float64              `json:"yPosition,omitempty"`
+	Versions  []ImportQuestVersion `json:"versions"`
 }
 
 // ImportRelation represents a typed relation between nodes.
@@ -288,6 +289,37 @@ func normalizeImportCode(code string, key string) string {
 	return strings.TrimSpace(key)
 }
 
+func sortedMapKeys[T any](items map[string]T) []string {
+	keys := make([]string, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func normalizeImportCodeWithKeyFallback(code string, key string, usedCodes map[string]struct{}) string {
+	normalized := normalizeImportCode(code, key)
+	if normalized == "" {
+		return ""
+	}
+
+	if _, exists := usedCodes[normalized]; !exists {
+		usedCodes[normalized] = struct{}{}
+		return normalized
+	}
+
+	normalizedKey := strings.TrimSpace(key)
+	if normalizedKey != "" && normalizedKey != normalized {
+		if _, exists := usedCodes[normalizedKey]; !exists {
+			usedCodes[normalizedKey] = struct{}{}
+			return normalizedKey
+		}
+	}
+
+	return normalized
+}
+
 func ensureMetaDefinitionVersions(name string, versions []ImportMetaDefinitionVersion) []ImportMetaDefinitionVersion {
 	if len(versions) == 0 {
 		return []ImportMetaDefinitionVersion{
@@ -336,30 +368,36 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 		return
 	}
 
-	for key, md := range data.MetaDefinitions {
-		md.Code = normalizeImportCode(md.Code, key)
+	usedCodes := make(map[string]struct{})
+
+	for _, key := range sortedMapKeys(data.MetaDefinitions) {
+		md := data.MetaDefinitions[key]
+		md.Code = normalizeImportCodeWithKeyFallback(md.Code, key, usedCodes)
 		md.Name = normalizeImportName(md.Name, md.Code)
 		md.Versions = ensureMetaDefinitionVersions(md.Name, md.Versions)
 		data.MetaDefinitions[key] = md
 	}
 
-	for key, def := range data.Definitions {
-		def.Code = normalizeImportCode(def.Code, key)
+	for _, key := range sortedMapKeys(data.Definitions) {
+		def := data.Definitions[key]
+		def.Code = normalizeImportCodeWithKeyFallback(def.Code, key, usedCodes)
 		def.Name = normalizeImportName(def.Name, def.Code)
 		def.Description = normalizeDescriptionArray(def.Description)
 		def.Notes = normalizeOptionalText(def.Notes)
 		data.Definitions[key] = def
 	}
 
-	for key, me := range data.MetaExercises {
-		me.Code = normalizeImportCode(me.Code, key)
+	for _, key := range sortedMapKeys(data.MetaExercises) {
+		me := data.MetaExercises[key]
+		me.Code = normalizeImportCodeWithKeyFallback(me.Code, key, usedCodes)
 		me.Name = normalizeImportName(me.Name, me.Code)
 		me.Versions = ensureMetaExerciseVersions(me.Name, me.Versions)
 		data.MetaExercises[key] = me
 	}
 
-	for key, ex := range data.Exercises {
-		ex.Code = normalizeImportCode(ex.Code, key)
+	for _, key := range sortedMapKeys(data.Exercises) {
+		ex := data.Exercises[key]
+		ex.Code = normalizeImportCodeWithKeyFallback(ex.Code, key, usedCodes)
 		ex.Name = normalizeImportName(ex.Name, ex.Code)
 		ex.Statement = normalizeImportText(ex.Statement)
 		if ex.Statement == "" {
@@ -371,8 +409,9 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 		data.Exercises[key] = ex
 	}
 
-	for key, src := range data.Sources {
-		src.Code = normalizeImportCode(src.Code, key)
+	for _, key := range sortedMapKeys(data.Sources) {
+		src := data.Sources[key]
+		src.Code = normalizeImportCodeWithKeyFallback(src.Code, key, usedCodes)
 		src.Title = normalizeImportText(src.Title)
 		if src.Title == "" {
 			src.Title = src.Code
@@ -381,8 +420,9 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 		data.Sources[key] = src
 	}
 
-	for key, mq := range data.MetaQuests {
-		mq.Code = normalizeImportCode(mq.Code, key)
+	for _, key := range sortedMapKeys(data.MetaQuests) {
+		mq := data.MetaQuests[key]
+		mq.Code = normalizeImportCodeWithKeyFallback(mq.Code, key, usedCodes)
 		mq.Name = normalizeImportName(mq.Name, mq.Code)
 		mq.Kind = normalizeOptionalText(mq.Kind)
 		if mq.Kind == "" {
