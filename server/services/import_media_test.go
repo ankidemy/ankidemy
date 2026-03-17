@@ -67,3 +67,63 @@ func TestRewriteImportMediaPathsRewritesQuestImages(t *testing.T) {
 		t.Fatalf("expected nil image path to stay nil, got %q", *v2.ImagePath)
 	}
 }
+
+func TestCollectBackupMediaPathsIncludesUserStateQuestImages(t *testing.T) {
+	backup := &DomainBackup{
+		Data: ImportData{
+			MetaDefinitions: map[string]ImportMetaDefinitionNode{
+				"D1": {
+					Code: "D1",
+					Versions: []ImportMetaDefinitionVersion{
+						{PromptImagePath: "/media/domain.png"},
+					},
+				},
+			},
+		},
+		UserState: &DomainUserStateBackup{
+			PrivateQuests: map[string]ImportMetaQuestNode{
+				"Q1": {
+					Code: "Q1",
+					Versions: []ImportQuestVersion{
+						{Title: "v1", ImagePath: strPtr("/media/private.png")},
+						{Title: "v2", ImagePath: strPtr("/media/private.png")},
+					},
+				},
+			},
+		},
+	}
+
+	paths := CollectBackupMediaPaths(backup)
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 unique media paths, got %d: %#v", len(paths), paths)
+	}
+}
+
+func TestRewriteBackupMediaPathsRewritesUserStateQuestImages(t *testing.T) {
+	taskList := json.RawMessage(`{"items":[]}`)
+	backup := &DomainBackup{
+		Data: ImportData{},
+		UserState: &DomainUserStateBackup{
+			PrivateQuests: map[string]ImportMetaQuestNode{
+				"Q1": {
+					Code: "Q1",
+					Versions: []ImportQuestVersion{
+						{Title: "v1", TaskList: taskList, ImagePath: strPtr("/media/private.png")},
+					},
+				},
+			},
+		},
+	}
+
+	err := RewriteBackupMediaPaths(backup, func(path string) (string, error) {
+		return "/restored" + path, nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected rewrite error: %v", err)
+	}
+
+	version := backup.UserState.PrivateQuests["Q1"].Versions[0]
+	if version.ImagePath == nil || *version.ImagePath != "/restored/media/private.png" {
+		t.Fatalf("unexpected rewritten private quest path: %#v", version.ImagePath)
+	}
+}

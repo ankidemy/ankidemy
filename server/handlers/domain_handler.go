@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"ankidemy/server/models"
 	"ankidemy/server/services"
 	"github.com/gin-gonic/gin"
+	"mime/multipart"
 )
 
 // DomainHandler handles domain-related HTTP requests
@@ -433,182 +435,96 @@ func (h *DomainHandler) ExportBackup(c *gin.Context) {
 
 // ImportBackup imports a full domain backup from a zip archive.
 func (h *DomainHandler) ImportBackup(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	domain, err := h.domainDAO.FindByID(uint(id))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainEditAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to import this backup"})
 		return
 	}
 
+	const multipartOverheadAllowance int64 = 1 << 20
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, services.BackupArchiveMaxCompressedSize+multipartOverheadAllowance)
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
+		if isBackupImportTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Backup archive exceeds the upload size limit"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
 		return
 	}
-	file, err := fileHeader.Open()
+	if fileHeader.Size > services.BackupArchiveMaxCompressedSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Backup archive exceeds the upload size limit"})
+		return
+	}
+
+	archivePath, err := copyUploadedBackupToTemp(fileHeader, services.BackupArchiveMaxCompressedSize)
 	if err != nil {
+		if isBackupImportTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Backup archive exceeds the upload size limit"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read uploaded file"})
 		return
 	}
-	defer file.Close()
+	defer os.Remove(archivePath)
 
-	raw, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read backup archive"})
-		return
-	}
-	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	archive, err := zip.OpenReader(archivePath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup archive"})
 		return
 	}
+	defer archive.Close()
 
-	filesByName := make(map[string]*zip.File, len(zr.File))
-	var backupJSON []byte
-	var domainJSON []byte
-	for _, zf := range zr.File {
-		filesByName[zf.Name] = zf
-		switch zf.Name {
-		case "backup.json":
-			backupJSON, _ = readZipFile(zf)
-		case "domain.json":
-			domainJSON, _ = readZipFile(zf)
-		}
-	}
-
-	var backup *services.DomainBackup
-	var importData *services.ImportData
-	if len(backupJSON) > 0 {
-		var parsed services.DomainBackup
-		if err := json.Unmarshal(backupJSON, &parsed); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse backup.json"})
-			return
-		}
-		backup = &parsed
-		importData = &parsed.Data
-	} else if len(domainJSON) > 0 {
-		var parsed services.ImportData
-		if err := json.Unmarshal(domainJSON, &parsed); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse domain.json"})
-			return
-		}
-		importData = &parsed
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Backup archive is missing backup.json"})
+	validated, err := services.ValidateBackupArchive(&archive.Reader)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	visibility := "public"
-	if domain.Privacy != "public" {
-		visibility = "private"
-	}
-	domainFolder := services.BuildDomainFolder(domain.ID, domain.Name)
-	mediaDir := services.BuildMediaDir(domain.OwnerID, visibility, domainFolder)
-	mediaMap := make(map[string]string)
-	usedNames := make(map[string]bool)
-
-	resolveMedia := func(oldPath string) (string, error) {
-		trimmed := strings.TrimSpace(oldPath)
-		if trimmed == "" {
-			return trimmed, nil
-		}
-		if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
-			return trimmed, nil
-		}
-		if mapped, ok := mediaMap[trimmed]; ok {
-			return mapped, nil
-		}
-		filePath, err := services.MediaURLToPath(trimmed)
-		if err != nil || filePath == "" {
-			return trimmed, nil
-		}
-		zipKey := strings.TrimPrefix(filepath.ToSlash(filePath), "/")
-		zf, ok := filesByName[zipKey]
-		if !ok {
-			return trimmed, nil
-		}
-		ext := filepath.Ext(filePath)
-		if ext == "" {
-			ext = ".img"
-		}
-		filename := randomFilename(16) + ext
-		for usedNames[filename] {
-			filename = randomFilename(16) + ext
-		}
-		usedNames[filename] = true
-
-		if err := os.MkdirAll(mediaDir, 0o755); err != nil {
-			return "", err
-		}
-		destPath := filepath.Join(mediaDir, filename)
-		rc, err := zf.Open()
-		if err != nil {
-			return "", err
-		}
-		defer rc.Close()
-		out, err := os.Create(destPath)
-		if err != nil {
-			return "", err
-		}
-		if _, err := io.Copy(out, rc); err != nil {
-			_ = out.Close()
-			return "", err
-		}
-		if err := out.Close(); err != nil {
-			return "", err
-		}
-
-		newPath := services.BuildMediaURL(domain.OwnerID, visibility, domainFolder, filename)
-		mediaMap[trimmed] = newPath
-		return newPath, nil
+	preparedMedia, err := prepareBackupMediaImport(validated, access.Domain)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to restore media files: " + err.Error()})
+		return
 	}
 
-	if err := services.RewriteImportMediaPaths(importData, resolveMedia); err != nil {
+	cleanupPreparedMedia := true
+	defer func() {
+		if cleanupPreparedMedia {
+			preparedMedia.Cleanup()
+		}
+	}()
+
+	if err := preparedMedia.Promote(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore media files"})
 		return
 	}
 
-	if err := h.importService.ImportToDomain(domain.ID, importData, services.DuplicateStrategyUpdate); err != nil {
+	importData := validated.ImportData
+	if validated.Backup != nil {
+		importData = &validated.Backup.Data
+	}
+
+	if err := h.importService.ImportToDomain(access.Domain.ID, importData, services.DuplicateStrategyUpdate); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import backup: " + err.Error()})
 		return
 	}
 
-	if backup != nil && backup.UserState != nil {
-		if err := h.importService.ImportUserState(domain.ID, userID, backup.UserState); err != nil {
+	if validated.Backup != nil && validated.Backup.UserState != nil {
+		if err := h.importService.ImportUserState(access.Domain.ID, access.UserID, validated.Backup.UserState); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import user state: " + err.Error()})
 			return
 		}
-	} else if backup != nil && backup.SRS != nil && backup.SRS.Username != "" {
+	} else if validated.Backup != nil && validated.Backup.SRS != nil && validated.Backup.SRS.Username != "" {
 		userDAO := dao.NewUserDAO(h.domainDAO.DB())
-		currentUser, err := userDAO.FindUserByID(userID)
-		if err == nil && currentUser.Username == backup.SRS.Username {
-			if err := h.importService.ImportDomainSRSProgress(domain.ID, userID, backup.SRS.Progress); err != nil {
+		currentUser, err := userDAO.FindUserByID(access.UserID)
+		if err == nil && currentUser.Username == validated.Backup.SRS.Username {
+			if err := h.importService.ImportDomainSRSProgress(access.Domain.ID, access.UserID, validated.Backup.SRS.Progress); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import SRS progress: " + err.Error()})
 				return
 			}
 		}
 	}
 
+	cleanupPreparedMedia = false
 	c.JSON(http.StatusOK, gin.H{"message": "Backup imported successfully"})
 }
 
@@ -921,15 +837,6 @@ func (h *DomainHandler) GetMyArchivedDomains(c *gin.Context) {
 	c.JSON(http.StatusOK, domains)
 }
 
-func readZipFile(zf *zip.File) ([]byte, error) {
-	rc, err := zf.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	return io.ReadAll(rc)
-}
-
 func randomFilename(length int) string {
 	if length <= 0 {
 		length = 16
@@ -959,6 +866,206 @@ func sanitizeFilename(input string) string {
 		return "domain"
 	}
 	return out
+}
+
+type preparedBackupMediaImport struct {
+	stageDir string
+	mediaDir string
+	files    []preparedBackupMediaFile
+}
+
+type preparedBackupMediaFile struct {
+	stagedPath string
+	finalPath  string
+}
+
+func prepareBackupMediaImport(validated *services.ValidatedBackupArchive, domain *models.Domain) (*preparedBackupMediaImport, error) {
+	prepared := &preparedBackupMediaImport{}
+	if validated == nil || domain == nil {
+		return prepared, nil
+	}
+
+	visibility := "public"
+	if domain.Privacy != "public" {
+		visibility = "private"
+	}
+	domainFolder := services.BuildDomainFolder(domain.ID, domain.Name)
+	prepared.mediaDir = services.BuildMediaDir(domain.OwnerID, visibility, domainFolder)
+	mediaMap := make(map[string]string)
+	usedNames := make(map[string]bool)
+
+	rewrite := func(oldPath string) (string, error) {
+		trimmed := strings.TrimSpace(oldPath)
+		if trimmed == "" || strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+			return trimmed, nil
+		}
+		if mapped, ok := mediaMap[trimmed]; ok {
+			return mapped, nil
+		}
+
+		sourcePath, err := services.MediaURLToPath(trimmed)
+		if err != nil || sourcePath == "" {
+			return trimmed, nil
+		}
+		archiveKey := strings.TrimPrefix(filepath.ToSlash(sourcePath), "/")
+		zf, ok := validated.FilesByName[archiveKey]
+		if !ok {
+			return "", fmt.Errorf("backup archive is missing media file %q", archiveKey)
+		}
+
+		filename, stagedPath, err := extractBackupMediaEntry(prepared, zf, archiveKey, usedNames)
+		if err != nil {
+			return "", err
+		}
+
+		finalPath := filepath.Join(prepared.mediaDir, filename)
+		prepared.files = append(prepared.files, preparedBackupMediaFile{
+			stagedPath: stagedPath,
+			finalPath:  finalPath,
+		})
+
+		newPath := services.BuildMediaURL(domain.OwnerID, visibility, domainFolder, filename)
+		mediaMap[trimmed] = newPath
+		return newPath, nil
+	}
+
+	if validated.Backup != nil {
+		if err := services.RewriteBackupMediaPaths(validated.Backup, rewrite); err != nil {
+			prepared.Cleanup()
+			return nil, err
+		}
+		return prepared, nil
+	}
+
+	if err := services.RewriteImportMediaPaths(validated.ImportData, rewrite); err != nil {
+		prepared.Cleanup()
+		return nil, err
+	}
+	return prepared, nil
+}
+
+func extractBackupMediaEntry(prepared *preparedBackupMediaImport, entry *zip.File, archiveKey string, usedNames map[string]bool) (string, string, error) {
+	if prepared.stageDir == "" {
+		prepared.stageDir = filepath.Join(prepared.mediaDir, ".import-"+randomFilename(8))
+		if err := os.MkdirAll(prepared.stageDir, 0o755); err != nil {
+			return "", "", err
+		}
+	}
+
+	reader, err := entry.Open()
+	if err != nil {
+		return "", "", err
+	}
+	defer reader.Close()
+
+	contentType, sample, err := services.DetectContentTypeFromReader(reader)
+	if err != nil {
+		return "", "", err
+	}
+	if !services.IsImageContentType(contentType) {
+		return "", "", fmt.Errorf("backup media %q is not an image", archiveKey)
+	}
+
+	ext := strings.ToLower(filepath.Ext(archiveKey))
+	if ext == "" {
+		if extensions, err := mime.ExtensionsByType(contentType); err == nil && len(extensions) > 0 {
+			ext = extensions[0]
+		}
+	}
+	if ext == "" {
+		ext = ".img"
+	}
+
+	filename := randomFilename(16) + ext
+	for usedNames[filename] {
+		filename = randomFilename(16) + ext
+	}
+	usedNames[filename] = true
+
+	stagedPath := filepath.Join(prepared.stageDir, filename)
+	out, err := os.OpenFile(stagedPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", "", err
+	}
+	if len(sample) > 0 {
+		if _, err := out.Write(sample); err != nil {
+			_ = out.Close()
+			return "", "", err
+		}
+	}
+	if _, err := io.Copy(out, reader); err != nil {
+		_ = out.Close()
+		return "", "", err
+	}
+	if err := out.Close(); err != nil {
+		return "", "", err
+	}
+
+	return filename, stagedPath, nil
+}
+
+func (p *preparedBackupMediaImport) Promote() error {
+	if p == nil || len(p.files) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(p.mediaDir, 0o755); err != nil {
+		return err
+	}
+	for _, file := range p.files {
+		if err := os.Rename(file.stagedPath, file.finalPath); err != nil {
+			return err
+		}
+	}
+	if p.stageDir != "" {
+		return os.RemoveAll(p.stageDir)
+	}
+	return nil
+}
+
+func (p *preparedBackupMediaImport) Cleanup() {
+	if p == nil {
+		return
+	}
+	for _, file := range p.files {
+		_ = os.Remove(file.stagedPath)
+		_ = os.Remove(file.finalPath)
+	}
+	if p.stageDir != "" {
+		_ = os.RemoveAll(p.stageDir)
+	}
+}
+
+func copyUploadedBackupToTemp(fileHeader *multipart.FileHeader, maxSize int64) (string, error) {
+	file, err := fileHeader.Open()
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	tempFile, err := os.CreateTemp("", "ankidemy-backup-*.zip")
+	if err != nil {
+		return "", err
+	}
+	defer tempFile.Close()
+
+	written, err := io.Copy(tempFile, io.LimitReader(file, maxSize+1))
+	if err != nil {
+		_ = os.Remove(tempFile.Name())
+		return "", err
+	}
+	if written > maxSize {
+		_ = os.Remove(tempFile.Name())
+		return "", fmt.Errorf("request body too large")
+	}
+	return tempFile.Name(), nil
+}
+
+func isBackupImportTooLarge(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "request body too large") || strings.Contains(message, "multipart: message too large")
 }
 
 // RestoreDomain unarchives a soft-deleted domain

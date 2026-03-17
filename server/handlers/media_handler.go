@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -11,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"mime/multipart"
 	"ankidemy/server/dao"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
+	"mime/multipart"
 )
 
 type MediaHandler struct {
@@ -82,7 +83,7 @@ func (h *MediaHandler) UploadImage(c *gin.Context) {
 	}
 
 	contentType, err := sniffContentType(file)
-	if err != nil || !strings.HasPrefix(contentType, "image/") {
+	if err != nil || !services.IsImageContentType(contentType) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only image uploads are supported"})
 		return
 	}
@@ -176,7 +177,14 @@ func (h *MediaHandler) GetImage(c *gin.Context) {
 	}
 
 	filePath := filepath.Join(services.MediaRoot, userIDParam, visibility, domainFolder, filename)
-	c.File(filePath)
+	if err := serveMediaFile(c, filePath, filename); err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read media"})
+		return
+	}
 }
 
 func validFieldForNode(nodeType, field string) bool {
@@ -213,9 +221,8 @@ func sniffContentType(file *multipart.FileHeader) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	buf := make([]byte, 512)
-	n, _ := f.Read(buf)
-	return http.DetectContentType(buf[:n]), nil
+	contentType, _, err := services.DetectContentTypeFromReader(f)
+	return contentType, err
 }
 
 func isSafeSegment(segment string) bool {
@@ -232,4 +239,43 @@ func parseDomainID(folder string) (uint, error) {
 		return 0, err
 	}
 	return uint(id), nil
+}
+
+func serveMediaFile(c *gin.Context, filePath, filename string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	contentType, _, err := services.DetectContentTypeFromReader(file)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Type", contentType)
+	disposition := fmt.Sprintf("inline; filename=%q", sanitizeMediaFilename(filename))
+	if !services.IsImageContentType(contentType) {
+		disposition = fmt.Sprintf("attachment; filename=%q", sanitizeMediaFilename(filename))
+	}
+	c.Header("Content-Disposition", disposition)
+	http.ServeContent(c.Writer, c.Request, filename, info.ModTime(), file)
+	return nil
+}
+
+func sanitizeMediaFilename(filename string) string {
+	clean := strings.TrimSpace(filepath.Base(filename))
+	if clean == "." || clean == "" || clean == string(filepath.Separator) {
+		return "download"
+	}
+	return clean
 }
