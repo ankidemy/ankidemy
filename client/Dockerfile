@@ -13,6 +13,9 @@ FROM node:20-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d
 
 WORKDIR /app
 
+ARG NEXT_PUBLIC_API_URL=http://localhost:8765
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Copy dependencies
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
