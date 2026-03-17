@@ -105,7 +105,7 @@ func main() {
 	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO, importService, permissionDAO, notificationReadModelService) // Added ImportService
 	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO, metaDefinitionDAO, permissionDAO)
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO, permissionDAO)
-	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO)
+	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO, permissionDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO, sourceDAO, metaQuestDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
 	srsHandler := handlers.NewSRSHandler(db, permissionDAO, notificationReadModelService, queryCache)
@@ -402,7 +402,7 @@ func main() {
 				srs.DELETE("/prerequisites/:prerequisiteId", srsHandler.DeletePrerequisite)
 
 				// Test/Debug endpoints
-				srs.POST("/test/credit-propagation", srsHandler.TestCreditPropagation)
+				srs.POST("/test/credit-propagation", middleware.AdminRequired(), srsHandler.TestCreditPropagation)
 			}
 
 			// Survey routes

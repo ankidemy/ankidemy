@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	//"time"
@@ -13,13 +14,39 @@ import (
 	"gorm.io/gorm"
 )
 
+type srsServiceStore interface {
+	SubmitReview(userID uint, request *models.ReviewRequest) (*models.ReviewResponse, error)
+	GetDueReviews(userID uint, domainID uint, nodeType string, requestID string) ([]models.NodeProgress, error)
+	GetDueReviewsCompact(userID uint, domainID uint, nodeType string, requestID string) ([]models.DueReviewCompact, error)
+	GetReviewQueue(userID uint, domainID uint, sessionType string, mode string, exercisesPerDefinition int, requestID string) ([]models.ReviewQueueItem, error)
+	UpdateNodeStatus(userID uint, nodeID uint, nodeType string, status string) error
+	InvalidateDomainReviewCaches(domainID uint)
+}
+
+type srsDAOStore interface {
+	GetReviewHistory(userID uint, nodeID *uint, nodeType *string, limit int) ([]models.ReviewHistory, error)
+	GetDomainProgress(userID uint, domainID uint) ([]models.NodeProgress, error)
+	GetDomainStats(userID uint, domainID uint, requestID string) (*models.DomainProgressSummary, error)
+	CreateSession(session *models.StudySession) error
+	GetSession(sessionID uint) (*models.StudySession, error)
+	EndSession(sessionID uint) error
+	GetUserSessions(userID uint, limit int) ([]models.StudySession, error)
+	CreatePrerequisite(prerequisite *models.NodePrerequisite) error
+	GetPrerequisitesByDomain(domainID uint) ([]models.NodePrerequisite, error)
+}
+
+type notificationSummaryReader interface {
+	GetSummary(userID uint, requestID string) (*models.NotificationSummary, error)
+}
+
 // SRSHandler handles SRS-related HTTP requests
 type SRSHandler struct {
 	db                    *gorm.DB
-	srsService            *services.SRSService
-	srsDao                *dao.SRSDao
-	permissionDAO         *dao.DomainPermissionDAO
-	notificationReadModel *services.NotificationReadModelService
+	domainDAO             domainFinder
+	srsService            srsServiceStore
+	srsDao                srsDAOStore
+	permissionDAO         domainPermissionLookup
+	notificationReadModel notificationSummaryReader
 	nodeAccessResolver    nodeAccessResolver
 }
 
@@ -32,11 +59,83 @@ func NewSRSHandler(
 ) *SRSHandler {
 	return &SRSHandler{
 		db:                    db,
+		domainDAO:             dao.NewDomainDAO(db),
 		srsService:            services.NewSRSService(db, notificationReadModel, queryCache),
 		srsDao:                dao.NewSRSDao(db),
 		permissionDAO:         permissionDAO,
 		notificationReadModel: notificationReadModel,
 		nodeAccessResolver:    newDBNodeAccessResolver(db),
+	}
+}
+
+func (h *SRSHandler) requireDomainAccessByID(c *gin.Context, domainID uint, accessLevel domainAccessLevel) (*domainAccessContext, bool) {
+	domain, err := h.domainDAO.FindByID(domainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return nil, false
+	}
+
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return nil, false
+	}
+
+	var allowed bool
+	switch accessLevel {
+	case domainAccessLevelView:
+		allowed, err = canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	case domainAccessLevelEdit:
+		allowed, err = canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	default:
+		err = errors.New("unsupported access level")
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return nil, false
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return nil, false
+	}
+
+	return &domainAccessContext{
+		Domain:  domain,
+		UserID:  userID,
+		IsAdmin: isAdmin,
+	}, true
+}
+
+func (h *SRSHandler) resolveReviewNodeDomainID(nodeType string, nodeID uint) (uint, error) {
+	switch nodeType {
+	case "definition":
+		resolved, err := h.nodeAccessResolver.ResolveNodeAccess("meta_definition", nodeID)
+		if err == nil {
+			return resolved.DomainID, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, err
+		}
+		resolved, err = h.nodeAccessResolver.ResolveNodeAccess("definition", nodeID)
+		if err != nil {
+			return 0, err
+		}
+		return resolved.DomainID, nil
+	case "exercise":
+		resolved, err := h.nodeAccessResolver.ResolveNodeAccess("meta_exercise", nodeID)
+		if err == nil {
+			return resolved.DomainID, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, err
+		}
+		resolved, err = h.nodeAccessResolver.ResolveNodeAccess("exercise", nodeID)
+		if err != nil {
+			return 0, err
+		}
+		return resolved.DomainID, nil
+	default:
+		return 0, errors.New("invalid node type")
 	}
 }
 
@@ -52,8 +151,7 @@ func (h *SRSHandler) getMetaDomainInfo(nodeType string, nodeID uint) (uint, uint
 
 // SubmitReview handles review submission
 func (h *SRSHandler) SubmitReview(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	if _, _, ok := getUserContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -83,7 +181,18 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 	if request.NodeType == "meta_definition" {
 		request.NodeType = "definition"
 	}
-	response, err := h.srsService.SubmitReview(userID.(uint), &request)
+
+	domainID, err := h.resolveReviewNodeDomainID(request.NodeType, request.NodeID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	access, ok := h.requireDomainAccessByID(c, domainID, domainAccessLevelEdit)
+	if !ok {
+		return
+	}
+
+	response, err := h.srsService.SubmitReview(access.UserID, &request)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -94,15 +203,8 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 
 // GetDueReviews gets nodes due for review
 func (h *SRSHandler) GetDueReviews(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
 	}
 
@@ -135,7 +237,7 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 
 	requestID := middleware.GetRequestID(c)
 	if view == "compact" {
-		dueNodes, err := h.srsService.GetDueReviewsCompact(userID.(uint), uint(domainID), nodeType, requestID)
+		dueNodes, err := h.srsService.GetDueReviewsCompact(access.UserID, access.Domain.ID, nodeType, requestID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -144,7 +246,7 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 		return
 	}
 
-	dueNodes, err := h.srsService.GetDueReviews(userID.(uint), uint(domainID), nodeType, requestID)
+	dueNodes, err := h.srsService.GetDueReviews(access.UserID, access.Domain.ID, nodeType, requestID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -154,15 +256,8 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 
 // GetReviewQueue gets a practice review queue with exercise selections
 func (h *SRSHandler) GetReviewQueue(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
 	}
 
@@ -194,7 +289,7 @@ func (h *SRSHandler) GetReviewQueue(c *gin.Context) {
 		exCount = 1
 	}
 
-	queue, err := h.srsService.GetReviewQueue(userID.(uint), uint(domainID), sessionType, mode, exCount, middleware.GetRequestID(c))
+	queue, err := h.srsService.GetReviewQueue(access.UserID, access.Domain.ID, sessionType, mode, exCount, middleware.GetRequestID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -246,19 +341,12 @@ func (h *SRSHandler) GetReviewHistory(c *gin.Context) {
 
 // GetDomainProgress gets progress for all nodes in a domain
 func (h *SRSHandler) GetDomainProgress(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
 	}
 
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	progress, err := h.srsDao.GetDomainProgress(userID.(uint), uint(domainID))
+	progress, err := h.srsDao.GetDomainProgress(access.UserID, access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve domain progress"})
 		return
@@ -269,19 +357,12 @@ func (h *SRSHandler) GetDomainProgress(c *gin.Context) {
 
 // GetDomainStats gets statistics for a domain
 func (h *SRSHandler) GetDomainStats(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
 	}
 
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	stats, err := h.srsDao.GetDomainStats(userID.(uint), uint(domainID), middleware.GetRequestID(c))
+	stats, err := h.srsDao.GetDomainStats(access.UserID, access.Domain.ID, middleware.GetRequestID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve domain statistics"})
 		return
@@ -312,8 +393,7 @@ func (h *SRSHandler) GetNotificationSummary(c *gin.Context) {
 
 // UpdateNodeStatus updates the status of a node
 func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	if _, _, ok := getUserContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -354,7 +434,17 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 		nodeType = "definition"
 	}
 
-	err := h.srsService.UpdateNodeStatus(userID.(uint), request.NodeID, nodeType, request.Status)
+	domainID, err := h.resolveReviewNodeDomainID(nodeType, request.NodeID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	access, ok := h.requireDomainAccessByID(c, domainID, domainAccessLevelEdit)
+	if !ok {
+		return
+	}
+
+	err = h.srsService.UpdateNodeStatus(access.UserID, request.NodeID, nodeType, request.Status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -367,12 +457,6 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 
 // StartSession starts a new study session
 func (h *SRSHandler) StartSession(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-
 	var request models.SessionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -394,8 +478,13 @@ func (h *SRSHandler) StartSession(c *gin.Context) {
 		return
 	}
 
+	access, ok := h.requireDomainAccessByID(c, request.DomainID, domainAccessLevelView)
+	if !ok {
+		return
+	}
+
 	session := &models.StudySession{
-		UserID:            userID.(uint),
+		UserID:            access.UserID,
 		DomainID:          request.DomainID,
 		SessionType:       request.SessionType,
 		TotalReviews:      0,
@@ -609,7 +698,7 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 
 // GetPrerequisites gets prerequisites for a domain
 func (h *SRSHandler) GetPrerequisites(c *gin.Context) {
-	access, ok := requireDomainViewAccess(c, dao.NewDomainDAO(h.db), h.permissionDAO, "domainId")
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
 	if !ok {
 		return
 	}
@@ -740,6 +829,10 @@ func (h *SRSHandler) TestCreditPropagation(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if _, ok := h.requireDomainAccessByID(c, request.DomainID, domainAccessLevelView); !ok {
 		return
 	}
 

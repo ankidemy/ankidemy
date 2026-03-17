@@ -5,27 +5,81 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
 )
+
+type progressStore interface {
+	GetUserDomainProgress(userID uint) ([]models.UserDomainProgress, error)
+	GetUserDefinitionProgress(userID, domainID uint) ([]models.UserDefinitionProgress, error)
+	GetUserExerciseProgress(userID, domainID uint) ([]models.UserExerciseProgress, error)
+	TrackDefinitionReview(userID, definitionID uint, result models.ReviewResult, timeTaken int) error
+	UpdateDomainProgress(userID, domainID uint) error
+	TrackExerciseAttempt(userID, exerciseID uint, correct bool, timeTaken int) error
+	GetDefinitionsForReview(userID, domainID uint, limit int) ([]models.Definition, error)
+	EndStudySession(sessionID uint) error
+	GetStudySessions(userID uint) ([]models.StudySession, error)
+	GetSessionDetails(sessionID uint) (*models.StudySession, []models.SessionDefinition, []models.SessionExercise, error)
+}
+
+type definitionFinder interface {
+	FindByID(id uint) (*models.Definition, error)
+}
+
+type exerciseStore interface {
+	FindByID(id uint) (*models.Exercise, error)
+	VerifyExerciseAnswer(exerciseID uint, answer string) (bool, error)
+}
 
 // ProgressHandler handles progress-related HTTP requests
 type ProgressHandler struct {
-	progressDAO   *dao.ProgressDAO
-	domainDAO     *dao.DomainDAO
-	definitionDAO *dao.DefinitionDAO
-	exerciseDAO   *dao.ExerciseDAO
+	progressDAO   progressStore
+	domainDAO     domainFinder
+	definitionDAO definitionFinder
+	exerciseDAO   exerciseStore
+	permissionDAO domainPermissionLookup
 }
 
 // NewProgressHandler creates a new ProgressHandler
-func NewProgressHandler(progressDAO *dao.ProgressDAO, domainDAO *dao.DomainDAO, definitionDAO *dao.DefinitionDAO, exerciseDAO *dao.ExerciseDAO) *ProgressHandler {
+func NewProgressHandler(progressDAO *dao.ProgressDAO, domainDAO *dao.DomainDAO, definitionDAO *dao.DefinitionDAO, exerciseDAO *dao.ExerciseDAO, permissionDAO *dao.DomainPermissionDAO) *ProgressHandler {
 	return &ProgressHandler{
 		progressDAO:   progressDAO,
 		domainDAO:     domainDAO,
 		definitionDAO: definitionDAO,
 		exerciseDAO:   exerciseDAO,
+		permissionDAO: permissionDAO,
 	}
+}
+
+func (h *ProgressHandler) requireDomainViewAccessByID(c *gin.Context, domainID uint) (*domainAccessContext, bool) {
+	domain, err := h.domainDAO.FindByID(domainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return nil, false
+	}
+
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return nil, false
+	}
+
+	allowed, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return nil, false
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return nil, false
+	}
+
+	return &domainAccessContext{
+		Domain:  domain,
+		UserID:  userID,
+		IsAdmin: isAdmin,
+	}, true
 }
 
 // GetDomainProgress returns a user's progress for all domains
@@ -47,33 +101,12 @@ func (h *ProgressHandler) GetDomainProgress(c *gin.Context) {
 
 // GetDefinitionProgress returns a user's progress for definitions in a domain
 func (h *ProgressHandler) GetDefinitionProgress(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
 	}
 
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	// Check domain access
-	domain, err := h.domainDAO.FindByID(uint(domainID))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-
-	// Check if the user is enrolled in the domain or is the owner
-	// In a real app, we'd check this properly
-	if domain.OwnerID != userID.(uint) {
-		// Check if enrolled
-		// For now, we'll just allow it
-	}
-
-	progress, err := h.progressDAO.GetUserDefinitionProgress(userID.(uint), uint(domainID))
+	progress, err := h.progressDAO.GetUserDefinitionProgress(access.UserID, access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve definition progress"})
 		return
@@ -84,33 +117,12 @@ func (h *ProgressHandler) GetDefinitionProgress(c *gin.Context) {
 
 // GetExerciseProgress returns a user's progress for exercises in a domain
 func (h *ProgressHandler) GetExerciseProgress(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
 	}
 
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	// Check domain access
-	domain, err := h.domainDAO.FindByID(uint(domainID))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-
-	// Check if the user is enrolled in the domain or is the owner
-	// In a real app, we'd check this properly
-	if domain.OwnerID != userID.(uint) {
-		// Check if enrolled
-		// For now, we'll just allow it
-	}
-
-	progress, err := h.progressDAO.GetUserExerciseProgress(userID.(uint), uint(domainID))
+	progress, err := h.progressDAO.GetUserExerciseProgress(access.UserID, access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve exercise progress"})
 		return
@@ -121,8 +133,8 @@ func (h *ProgressHandler) GetExerciseProgress(c *gin.Context) {
 
 // ReviewDefinition submits a review for a definition
 func (h *ProgressHandler) ReviewDefinition(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, _, ok := getUserContext(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -140,22 +152,12 @@ func (h *ProgressHandler) ReviewDefinition(c *gin.Context) {
 		return
 	}
 
-	// Check domain access
-	domain, err := h.domainDAO.FindByID(definition.DomainID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+	if _, ok := h.requireDomainViewAccessByID(c, definition.DomainID); !ok {
 		return
 	}
 
-	// Check if the user is enrolled in the domain or is the owner
-	// In a real app, we'd check this properly
-	if domain.OwnerID != userID.(uint) {
-		// Check if enrolled
-		// For now, we'll just allow it
-	}
-
 	// Bind the review request
-  var req models.DefinitionReviewRequest
+	var req models.DefinitionReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -168,13 +170,13 @@ func (h *ProgressHandler) ReviewDefinition(c *gin.Context) {
 	}
 
 	// Track the review
-	if err := h.progressDAO.TrackDefinitionReview(userID.(uint), uint(defID), req.Result, req.TimeTaken); err != nil {
+	if err := h.progressDAO.TrackDefinitionReview(userID, uint(defID), req.Result, req.TimeTaken); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to track definition review"})
 		return
 	}
 
 	// Update domain progress
-	if err := h.progressDAO.UpdateDomainProgress(userID.(uint), definition.DomainID); err != nil {
+	if err := h.progressDAO.UpdateDomainProgress(userID, definition.DomainID); err != nil {
 		// Log the error, but don't fail the request
 		// log.Printf("Failed to update domain progress: %v", err)
 	}
@@ -184,8 +186,8 @@ func (h *ProgressHandler) ReviewDefinition(c *gin.Context) {
 
 // AttemptExercise submits an attempt for an exercise
 func (h *ProgressHandler) AttemptExercise(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, _, ok := getUserContext(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -203,18 +205,8 @@ func (h *ProgressHandler) AttemptExercise(c *gin.Context) {
 		return
 	}
 
-	// Check domain access
-	domain, err := h.domainDAO.FindByID(exercise.DomainID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+	if _, ok := h.requireDomainViewAccessByID(c, exercise.DomainID); !ok {
 		return
-	}
-
-	// Check if the user is enrolled in the domain or is the owner
-	// In a real app, we'd check this properly
-	if domain.OwnerID != userID.(uint) {
-		// Check if enrolled
-		// For now, we'll just allow it
 	}
 
 	// Bind the attempt request
@@ -239,13 +231,13 @@ func (h *ProgressHandler) AttemptExercise(c *gin.Context) {
 	}
 
 	// Track the attempt
-	if err := h.progressDAO.TrackExerciseAttempt(userID.(uint), uint(exID), correct, req.TimeTaken); err != nil {
+	if err := h.progressDAO.TrackExerciseAttempt(userID, uint(exID), correct, req.TimeTaken); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to track exercise attempt"})
 		return
 	}
 
 	// Update domain progress
-	if err := h.progressDAO.UpdateDomainProgress(userID.(uint), exercise.DomainID); err != nil {
+	if err := h.progressDAO.UpdateDomainProgress(userID, exercise.DomainID); err != nil {
 		// Log the error, but don't fail the request
 		// log.Printf("Failed to update domain progress: %v", err)
 	}
@@ -258,30 +250,9 @@ func (h *ProgressHandler) AttemptExercise(c *gin.Context) {
 
 // GetDefinitionsForReview returns definitions due for review
 func (h *ProgressHandler) GetDefinitionsForReview(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "domainId")
+	if !ok {
 		return
-	}
-
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	// Check domain access
-	domain, err := h.domainDAO.FindByID(uint(domainID))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-
-	// Check if the user is enrolled in the domain or is the owner
-	// In a real app, we'd check this properly
-	if domain.OwnerID != userID.(uint) {
-		// Check if enrolled
-		// For now, we'll just allow it
 	}
 
 	// Get the definitions due for review
@@ -294,7 +265,7 @@ func (h *ProgressHandler) GetDefinitionsForReview(c *gin.Context) {
 		}
 	}
 
-	definitions, err := h.progressDAO.GetDefinitionsForReview(userID.(uint), uint(domainID), limit)
+	definitions, err := h.progressDAO.GetDefinitionsForReview(access.UserID, access.Domain.ID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve definitions for review"})
 		return
@@ -318,17 +289,17 @@ func (h *ProgressHandler) GetDefinitionsForReview(c *gin.Context) {
 			CreatedAt:   def.CreatedAt,
 			UpdatedAt:   def.UpdatedAt,
 		}
-		
+
 		// Add references if loaded
 		references := make([]string, 0, len(def.References))
 		for _, ref := range def.References {
 			references = append(references, ref.Reference)
 		}
 		response.References = references
-		
+
 		// For legacy compatibility, we'll leave prerequisites empty
 		response.Prerequisites = []string{}
-		
+
 		responses = append(responses, response)
 	}
 
@@ -337,8 +308,8 @@ func (h *ProgressHandler) GetDefinitionsForReview(c *gin.Context) {
 
 // StartSession starts a new study session
 func (h *ProgressHandler) StartSession(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	userID, _, ok := getUserContext(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -350,23 +321,13 @@ func (h *ProgressHandler) StartSession(c *gin.Context) {
 		return
 	}
 
-	// Check domain access
-	domain, err := h.domainDAO.FindByID(req.DomainID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+	if _, ok := h.requireDomainViewAccessByID(c, req.DomainID); !ok {
 		return
-	}
-
-	// Check if the user is enrolled in the domain or is the owner
-	// In a real app, we'd check this properly
-	if domain.OwnerID != userID.(uint) {
-		// Check if enrolled
-		// For now, we'll just allow it
 	}
 
 	// Create a new session
 	session := models.StudySession{
-		UserID:    userID.(uint),
+		UserID:    userID,
 		DomainID:  req.DomainID,
 		StartTime: time.Now(),
 	}
@@ -467,7 +428,7 @@ func (h *ProgressHandler) GetSessionDetails(c *gin.Context) {
 
 	// Calculate session duration and handle EndTime for response
 	var duration int
-  var responseEndTime time.Time // Use a zero value if session.EndTime is nil
+	var responseEndTime time.Time // Use a zero value if session.EndTime is nil
 
 	if session.EndTime != nil { // Check if the pointer is not nil
 		responseEndTime = *session.EndTime // Dereference the pointer
@@ -492,22 +453,22 @@ func (h *ProgressHandler) GetSessionDetails(c *gin.Context) {
 	// Create response
 	response := models.SessionDetailsResponse{
 		Session: models.StudySessionResponse{
-			ID:                     session.ID,
-			StartTime:              session.StartTime,
-			EndTime:                responseEndTime,
-			Duration:               duration,
-			DomainID:               session.DomainID,
-			DomainName:             domain.Name,
-			DefinitionsReviewCount: len(defs),
+			ID:                      session.ID,
+			StartTime:               session.StartTime,
+			EndTime:                 responseEndTime,
+			Duration:                duration,
+			DomainID:                session.DomainID,
+			DomainName:              domain.Name,
+			DefinitionsReviewCount:  len(defs),
 			ExercisesCompletedCount: len(exs),
 			CorrectExercisesCount:   correctExercisesCount,
 		},
 		Definitions: make([]struct {
-			ID          uint   `json:"id"`
-			Code        string `json:"code"`
-			Name        string `json:"name"`
+			ID           uint   `json:"id"`
+			Code         string `json:"code"`
+			Name         string `json:"name"`
 			ReviewResult string `json:"reviewResult"`
-			TimeTaken   int    `json:"timeTaken"`
+			TimeTaken    int    `json:"timeTaken"`
 		}, len(defs)),
 		Exercises: make([]struct {
 			ID        uint   `json:"id"`
@@ -524,17 +485,17 @@ func (h *ProgressHandler) GetSessionDetails(c *gin.Context) {
 		definition, err := h.definitionDAO.FindByID(def.DefinitionID)
 		if err == nil {
 			response.Definitions[i] = struct {
-				ID          uint   `json:"id"`
-				Code        string `json:"code"`
-				Name        string `json:"name"`
+				ID           uint   `json:"id"`
+				Code         string `json:"code"`
+				Name         string `json:"name"`
 				ReviewResult string `json:"reviewResult"`
-				TimeTaken   int    `json:"timeTaken"`
+				TimeTaken    int    `json:"timeTaken"`
 			}{
-				ID:          definition.ID,
-				Code:        definition.Code,
-				Name:        definition.Name,
+				ID:           definition.ID,
+				Code:         definition.Code,
+				Name:         definition.Name,
 				ReviewResult: def.ReviewResult,
-				TimeTaken:   def.TimeTaken,
+				TimeTaken:    def.TimeTaken,
 			}
 		}
 	}
