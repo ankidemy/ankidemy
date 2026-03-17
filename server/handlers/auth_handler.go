@@ -1,32 +1,42 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"ankidemy/server/dao"
 	"ankidemy/server/middleware"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 )
 
 // RegisterRequest represents the registration request data
 type RegisterRequest struct {
-    Username  string `json:"username" binding:"required"`
-    Email     string `json:"email" binding:"required,email"`
-    Password  string `json:"password" binding:"required,min=8"` // Now password will be bound
-    FirstName string `json:"firstName"`
-    LastName  string `json:"lastName"`
+	Username  string `json:"username" binding:"required"`
+	Email     string `json:"email" binding:"required,email"`
+	Password  string `json:"password" binding:"required,min=8"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
+type authUserStore interface {
+	AuthenticateUserByIdentifier(identifier, password string) (*models.User, error)
+	FindUserByEmail(email string) (*models.User, error)
+	FindUserByUsername(username string) (*models.User, error)
+	FindUserByID(id uint) (*models.User, error)
+	CreateUser(user *models.User) error
 }
 
 // AuthHandler handles authentication-related requests
 type AuthHandler struct {
-	userDAO *dao.UserDAO
+	userDAO authUserStore
 }
 
 // NewAuthHandler creates a new AuthHandler
-func NewAuthHandler(userDAO *dao.UserDAO) *AuthHandler {
+func NewAuthHandler(userDAO authUserStore) *AuthHandler {
 	return &AuthHandler{userDAO: userDAO}
 }
 
@@ -39,8 +49,8 @@ type LoginRequest struct {
 
 // LoginResponse represents the login response
 type LoginResponse struct {
-	Token    string       `json:"token"`
-	User     models.User `json:"user"`
+	Token     string      `json:"token"`
+	User      models.User `json:"user"`
 	ExpiresAt time.Time   `json:"expiresAt"`
 }
 
@@ -74,77 +84,71 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Return response
 	c.JSON(http.StatusOK, LoginResponse{
-		Token:    token,
-		User:     *user,
+		Token:     token,
+		User:      *user,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	})
 }
 
 // Register handles user registration
 func (h *AuthHandler) Register(c *gin.Context) {
-    var req RegisterRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	var req RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    // Check if email already exists
-    existingUser, err := h.userDAO.FindUserByEmail(req.Email)
-    // If no error and user exists = conflict
-    if err == nil && existingUser != nil {
-        c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
-        return
-    }
-    // If error but not "not found" error = server error
-    if err != nil && err.Error() != "user not found" {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking email"})
-        return
-    }
+	existingUser, err := h.userDAO.FindUserByEmail(req.Email)
+	if err == nil && existingUser != nil {
+		respondRegistrationConflict(c)
+		return
+	}
+	if err != nil && !isUserNotFoundError(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking email"})
+		return
+	}
 
-    // Check if username already exists
-    existingUser, err = h.userDAO.FindUserByUsername(req.Username)
-    // If no error and user exists = conflict
-    if err == nil && existingUser != nil {
-        c.JSON(http.StatusConflict, gin.H{"error": "Username already in use"})
-        return
-    }
-    // If error but not "not found" error = server error
-    if err != nil && err.Error() != "user not found" {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking username"})
-        return
-    }
+	existingUser, err = h.userDAO.FindUserByUsername(req.Username)
+	if err == nil && existingUser != nil {
+		respondRegistrationConflict(c)
+		return
+	}
+	if err != nil && !isUserNotFoundError(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking username"})
+		return
+	}
 
-    // Create user from request data
-    user := models.User{
-        Username:  req.Username,
-        Email:     req.Email,
-        Password:  req.Password,
-        FirstName: req.FirstName,
-        LastName:  req.LastName,
-        Level:     "user",
-        IsActive:  true,
-        IsAdmin:   false,
-    }
+	user := models.User{
+		Username:  req.Username,
+		Email:     req.Email,
+		Password:  req.Password,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Level:     "user",
+		IsActive:  true,
+		IsAdmin:   false,
+	}
 
-    // Create user
-    if err := h.userDAO.CreateUser(&user); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
-        return
-    }
+	if err := h.userDAO.CreateUser(&user); err != nil {
+		if isRegistrationConflictError(err) {
+			respondRegistrationConflict(c)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		return
+	}
 
-    // Generate token
-    token, err := middleware.GenerateToken(user.ID, user.IsAdmin)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-        return
-    }
+	token, err := middleware.GenerateToken(user.ID, user.IsAdmin)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
 
-    // Return response
-    c.JSON(http.StatusCreated, LoginResponse{
-        Token:     token,
-        User:      user,
-        ExpiresAt: time.Now().Add(24 * time.Hour),
-    })
+	c.JSON(http.StatusCreated, LoginResponse{
+		Token:     token,
+		User:      user,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	})
 }
 
 // RefreshToken handles token refresh
@@ -183,13 +187,32 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 		// Return response
 		c.JSON(http.StatusOK, LoginResponse{
-			Token:    newToken,
-			User:     *user,
+			Token:     newToken,
+			User:      *user,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 		})
 	} else {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
 	}
+}
+
+func respondRegistrationConflict(c *gin.Context) {
+	c.JSON(http.StatusConflict, gin.H{"error": "Registration could not be completed"})
+}
+
+func isUserNotFoundError(err error) bool {
+	return err != nil && strings.EqualFold(strings.TrimSpace(err.Error()), "user not found")
+}
+
+func isRegistrationConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "duplicate key value") || strings.Contains(message, "unique constraint")
 }
 
 // RegisterRoutes registers the auth routes

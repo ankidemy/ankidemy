@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"ankidemy/server/dao"
 	"ankidemy/server/handlers"
@@ -107,7 +108,7 @@ func main() {
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO, permissionDAO)
 	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO, permissionDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO, sourceDAO, metaQuestDAO)
-	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO)
+	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO, domainDAO, permissionDAO)
 	srsHandler := handlers.NewSRSHandler(db, permissionDAO, notificationReadModelService, queryCache)
 	metaExerciseHandler := handlers.NewMetaExerciseHandler(metaExerciseDAO, domainDAO, metaSvc, permissionDAO)
 	metaDefinitionHandler := handlers.NewMetaDefinitionHandler(metaDefinitionDAO, domainDAO, metaDefSvc, permissionDAO)
@@ -125,6 +126,7 @@ func main() {
 	// Initialize router
 	router := gin.Default()
 	router.Use(middleware.RequestObservability())
+	abuseLimiter := middleware.NewAbuseLimiter()
 
 	// Configure CORS for direct client-server communication
 	config := cors.DefaultConfig()
@@ -167,9 +169,21 @@ func main() {
 		// Auth routes (no auth required)
 		auth := api.Group("/auth")
 		{
-			auth.POST("/login", authHandler.Login)
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/refresh", authHandler.RefreshToken)
+			auth.POST("/login", middleware.AbuseThrottle(abuseLimiter, middleware.RateLimitPolicy{
+				Scope:       "auth.login",
+				MaxRequests: 10,
+				Window:      time.Minute,
+			}), authHandler.Login)
+			auth.POST("/register", middleware.AbuseThrottle(abuseLimiter, middleware.RateLimitPolicy{
+				Scope:       "auth.register",
+				MaxRequests: 5,
+				Window:      10 * time.Minute,
+			}), authHandler.Register)
+			auth.POST("/refresh", middleware.AbuseThrottle(abuseLimiter, middleware.RateLimitPolicy{
+				Scope:       "auth.refresh",
+				MaxRequests: 20,
+				Window:      time.Minute,
+			}), authHandler.RefreshToken)
 		}
 
 		// Public domain routes
@@ -303,7 +317,11 @@ func main() {
 				exercises.PUT("/:id", exerciseHandler.UpdateExercise)
 				exercises.DELETE("/:id", exerciseHandler.DeleteExercise)
 				exercises.GET("/code/:code", exerciseHandler.GetExerciseByCode)
-				exercises.POST("/:id/verify", exerciseHandler.VerifyAnswer)
+				exercises.POST("/:id/verify", middleware.AbuseThrottle(abuseLimiter, middleware.RateLimitPolicy{
+					Scope:       "exercise.verify",
+					MaxRequests: 30,
+					Window:      time.Minute,
+				}), exerciseHandler.VerifyAnswer)
 			}
 
 			// Meta-exercise routes
@@ -410,7 +428,11 @@ func main() {
 			{
 				survey.GET("/domains/:id/queue", surveyHandler.GetQueue)
 				survey.GET("/domains/:id/stats", surveyHandler.GetStats)
-				survey.POST("/events", surveyHandler.PostEvent)
+				survey.POST("/events", middleware.AbuseThrottle(abuseLimiter, middleware.RateLimitPolicy{
+					Scope:       "survey.events",
+					MaxRequests: 60,
+					Window:      time.Minute,
+				}), surveyHandler.PostEvent)
 			}
 
 			// Media routes
