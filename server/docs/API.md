@@ -1,4 +1,3 @@
-```markdown
 # API Documentation for Front-End Team
 
 ## Overview
@@ -53,7 +52,8 @@ The API uses JWT (JSON Web Token) for authentication.
   ```
 - **Error Responses**:
   - `400 Bad Request`: Invalid input data
-  - `409 Conflict`: Email or username already in use
+  - `409 Conflict`: Registration could not be completed
+  - `429 Too Many Requests`: Registration throttle window exceeded
 
 #### Log in (Updated)
 
@@ -87,6 +87,7 @@ The API uses JWT (JSON Web Token) for authentication.
 - **Error Responses**:
   - `400 Bad Request`: Invalid input format
   - `401 Unauthorized`: Invalid credentials (wrong identifier or password)
+  - `429 Too Many Requests`: Login throttle window exceeded
 
 #### Refresh Token
 
@@ -119,6 +120,7 @@ The API uses JWT (JSON Web Token) for authentication.
 - **Error Responses**:
   - `400 Bad Request`: Invalid input format
   - `401 Unauthorized`: Invalid token
+  - `429 Too Many Requests`: Refresh throttle window exceeded
 
 ### Using Authentication
 
@@ -127,6 +129,16 @@ For protected endpoints, include the JWT token in the `Authorization` header:
 ```
 Authorization: Bearer your_jwt_token
 ```
+
+## Security Release Notes
+
+- Abuse throttling now applies to `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh`, `POST /api/exercises/:id/verify`, and `POST /api/survey/events`. Throttled requests return `429 Too Many Requests`.
+- The current limiter is in-memory and is intended for the current single-instance beta deployment. If the API is horizontally scaled, replace it with a shared rate-limit store.
+- Legacy `/api/progress/*` and `/api/sessions/*` routes remain supported for backward compatibility, but they are considered legacy and now enforce the same domain-access checks before reads or writes.
+- `GET /api/meta-definitions/:id/next-version` and `GET /api/meta-exercises/:id/next-version` now require domain view access before any suggest-version side effects are recorded.
+- `POST /api/domains/:id/import-backup` now requires domain edit permission. Imports are rejected unless the uploaded zip stays within bounded archive limits and every restored media file passes image validation.
+- Media responses always set `X-Content-Type-Options: nosniff`. Non-image files are served as attachments instead of inline content.
+- `POST /api/srs/test/credit-propagation` is a retained debug endpoint and is now admin-only.
 
 ## User Endpoints
 
@@ -920,6 +932,10 @@ Exercises represent practice problems related to definitions.
 - **URL**: `/exercises/:id/verify`
 - **Method**: `POST`
 - **Auth Required**: Yes
+- **Notes**:
+  - Requires view access to the owning domain.
+  - Uses abuse throttling and may return `429 Too Many Requests`.
+  - For authenticated callers without domain access, the API returns the same `404 Exercise not found` response used for missing exercises.
 - **URL Parameters**: `id` - Exercise ID
 - **Request Body**:
   ```json
@@ -937,6 +953,7 @@ Exercises represent practice problems related to definitions.
 - **Error Responses**:
   - `400 Bad Request`: This exercise is not automatically verifiable
   - `404 Not Found`: Exercise not found
+  - `429 Too Many Requests`: Verify-answer throttle window exceeded
 
 ## Meta-Exercise Endpoints
 
@@ -1239,6 +1256,9 @@ Returns the next appropriate version for a user to practice, using SRS algorithm
 - **URL**: `/api/meta-exercises/:id/next-version`
 - **Method**: `GET`
 - **Auth Required**: Yes
+- **Notes**:
+  - Requires view access to the meta-exercise's domain.
+  - Access is checked before the server records the presentation in per-version seen counters.
 - **URL Parameters**: `id` - Meta-Exercise ID
 - **Response**: `200 OK`
   ```json
@@ -1264,6 +1284,7 @@ Returns the next appropriate version for a user to practice, using SRS algorithm
 - **Error Responses**:
   - `400 Bad Request`: Invalid ID
   - `401 Unauthorized`: Not authenticated
+  - `403 Forbidden`: Caller cannot view the owning domain
   - `404 Not Found`: Meta-exercise not found or no suitable version available
 
 ## Advanced SRS (Spaced Repetition System) Endpoints
@@ -1656,9 +1677,10 @@ Nodes (definitions and exercises) can have the following statuses:
 
 #### Test Credit Propagation
 
-- **URL**: `/srs/test/credit-propagation`
+- **URL**: `/api/srs/test/credit-propagation`
 - **Method**: `POST`
 - **Auth Required**: Yes
+- **Admin Required**: Yes
 - **Description**: Test credit propagation for a specific node (debugging)
 - **Request Body**:
   ```json
@@ -1686,6 +1708,11 @@ Nodes (definitions and exercises) can have the following statuses:
 ## Legacy Progress Tracking Endpoints
 
 The legacy system provides simpler progress tracking with basic spaced repetition.
+
+Legacy route status:
+- These routes remain supported for older clients.
+- New integrations should prefer `/api/srs/*`.
+- All legacy read and write operations now validate domain access before they load review queues, create sessions, or persist review progress.
 
 ### Get Domain Progress (Legacy)
 
@@ -2167,4 +2194,3 @@ Reset policy:
 ### Review Types
 - **Explicit**: Direct user review with quality rating
 - **Implicit**: Automatic reviews through credit propagation
-```

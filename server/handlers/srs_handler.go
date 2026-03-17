@@ -147,6 +147,21 @@ func (h *SRSHandler) getMetaDomainInfo(nodeType string, nodeID uint) (uint, uint
 	return resolved.DomainID, resolved.OwnerID, nil
 }
 
+func (h *SRSHandler) resolvePrerequisitePair(nodeType string, nodeID uint, prerequisiteType string, prerequisiteID uint) (*resolvedNodeAccess, *resolvedNodeAccess, error) {
+	node, err := h.nodeAccessResolver.ResolveNodeAccess(nodeType, nodeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	prerequisite, err := h.nodeAccessResolver.ResolveNodeAccess(prerequisiteType, prerequisiteID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if node.DomainID != prerequisite.DomainID {
+		return nil, nil, errors.New("cross-domain prerequisite")
+	}
+	return node, prerequisite, nil
+}
+
 // === Review Endpoints ===
 
 // SubmitReview handles review submission
@@ -594,8 +609,7 @@ func (h *SRSHandler) GetUserSessions(c *gin.Context) {
 
 // CreatePrerequisite creates a prerequisite relationship
 func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	if _, _, ok := getUserContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -628,18 +642,22 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-	domainID, ownerID, err := h.getMetaDomainInfo(request.NodeType, request.NodeID)
+	node, prerequisiteNode, err := h.resolvePrerequisitePair(request.NodeType, request.NodeID, request.PrerequisiteType, request.PrerequisiteID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+			return
+		}
+		if err.Error() == "cross-domain prerequisite" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisites must stay within one domain"})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userID.(uint) != ownerID && (!adminExists || !isAdmin.(bool)) {
-		role, exists, pErr := h.permissionDAO.GetRole(domainID, userID.(uint))
-		if pErr != nil || !exists || role != "editor" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-			return
-		}
+	access, ok := h.requireDomainAccessByID(c, node.DomainID, domainAccessLevelEdit)
+	if !ok {
+		return
 	}
 
 	// Validate weight
@@ -651,6 +669,10 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 	// Prevent self-prerequisite
 	if request.NodeID == request.PrerequisiteID && request.NodeType == request.PrerequisiteType {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Node cannot be a prerequisite of itself"})
+		return
+	}
+	if prerequisiteNode.NodeID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid prerequisite node"})
 		return
 	}
 
@@ -673,12 +695,12 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		}
 		existing.Weight = request.Weight
 		existing.IsManual = request.IsManual
-		h.srsService.InvalidateDomainReviewCaches(domainID)
+		h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
 		c.JSON(http.StatusOK, existing)
 		return
 	}
 
-	prerequisite := &models.NodePrerequisite{
+	record := &models.NodePrerequisite{
 		NodeID:           request.NodeID,
 		NodeType:         request.NodeType,
 		PrerequisiteID:   request.PrerequisiteID,
@@ -687,13 +709,13 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		IsManual:         request.IsManual,
 	}
 
-	if err := h.srsDao.CreatePrerequisite(prerequisite); err != nil {
+	if err := h.srsDao.CreatePrerequisite(record); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	h.srsService.InvalidateDomainReviewCaches(domainID)
-	c.JSON(http.StatusCreated, prerequisite)
+	h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
+	c.JSON(http.StatusCreated, record)
 }
 
 // GetPrerequisites gets prerequisites for a domain
@@ -714,8 +736,7 @@ func (h *SRSHandler) GetPrerequisites(c *gin.Context) {
 
 // UpdatePrerequisite updates weight/isManual for a prerequisite
 func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	if _, _, ok := getUserContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -729,18 +750,22 @@ func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Prerequisite not found"})
 		return
 	}
-	domainID, ownerID, err := h.getMetaDomainInfo(existing.NodeType, existing.NodeID)
+	node, _, err := h.resolvePrerequisitePair(existing.NodeType, existing.NodeID, existing.PrerequisiteType, existing.PrerequisiteID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
-		return
-	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userID.(uint) != ownerID && (!adminExists || !isAdmin.(bool)) {
-		role, exists, pErr := h.permissionDAO.GetRole(domainID, userID.(uint))
-		if pErr != nil || !exists || role != "editor" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Malformed prerequisite"})
 			return
 		}
+		if err.Error() == "cross-domain prerequisite" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Malformed prerequisite"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate prerequisite"})
+		return
+	}
+	access, ok := h.requireDomainAccessByID(c, node.DomainID, domainAccessLevelEdit)
+	if !ok {
+		return
 	}
 	var req struct {
 		Weight   *float64 `json:"weight"`
@@ -770,14 +795,13 @@ func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update prerequisite"})
 		return
 	}
-	h.srsService.InvalidateDomainReviewCaches(domainID)
+	h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
 	c.JSON(http.StatusOK, gin.H{"message": "Prerequisite updated"})
 }
 
 // DeletePrerequisite deletes a prerequisite relationship
 func (h *SRSHandler) DeletePrerequisite(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
+	if _, _, ok := getUserContext(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
 		return
 	}
@@ -793,18 +817,22 @@ func (h *SRSHandler) DeletePrerequisite(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Prerequisite not found"})
 		return
 	}
-	domainID, ownerID, err := h.getMetaDomainInfo(existing.NodeType, existing.NodeID)
+	node, _, err := h.resolvePrerequisitePair(existing.NodeType, existing.NodeID, existing.PrerequisiteType, existing.PrerequisiteID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
-		return
-	}
-	isAdmin, adminExists := c.Get("isAdmin")
-	if userID.(uint) != ownerID && (!adminExists || !isAdmin.(bool)) {
-		role, exists, pErr := h.permissionDAO.GetRole(domainID, userID.(uint))
-		if pErr != nil || !exists || role != "editor" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Malformed prerequisite"})
 			return
 		}
+		if err.Error() == "cross-domain prerequisite" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Malformed prerequisite"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate prerequisite"})
+		return
+	}
+	access, ok := h.requireDomainAccessByID(c, node.DomainID, domainAccessLevelEdit)
+	if !ok {
+		return
 	}
 
 	if err := h.db.Delete(&models.NodePrerequisite{}, prerequisiteID).Error; err != nil {
@@ -812,7 +840,7 @@ func (h *SRSHandler) DeletePrerequisite(c *gin.Context) {
 		return
 	}
 
-	h.srsService.InvalidateDomainReviewCaches(domainID)
+	h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
 	c.JSON(http.StatusOK, gin.H{"message": "Prerequisite deleted successfully"})
 }
 

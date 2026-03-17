@@ -5,24 +5,30 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
 )
 
 type DomainNetworkHandler struct {
-	dao *dao.DomainNetworkDAO
+	dao           *dao.DomainNetworkDAO
+	domainDAO     *dao.DomainDAO
+	permissionDAO *dao.DomainPermissionDAO
 }
 
-func NewDomainNetworkHandler(d *dao.DomainNetworkDAO) *DomainNetworkHandler {
-	return &DomainNetworkHandler{dao: d}
+func NewDomainNetworkHandler(d *dao.DomainNetworkDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO) *DomainNetworkHandler {
+	return &DomainNetworkHandler{
+		dao:           d,
+		domainDAO:     domainDAO,
+		permissionDAO: permissionDAO,
+	}
 }
 
 // GET /api/network/links?domainIds=1,2,3
 func (h *DomainNetworkHandler) GetLinks(c *gin.Context) {
-	_, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
@@ -44,6 +50,33 @@ func (h *DomainNetworkHandler) GetLinks(c *gin.Context) {
 		return
 	}
 
+	filtered := make([]uint, 0, len(ids))
+	seenIDs := make(map[uint]struct{}, len(ids))
+	domains, err := h.domainDAO.GetByIDs(ids)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	for _, domain := range domains {
+		canView, err := canViewDomain(&domain, userID, isAdmin, h.permissionDAO)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+			return
+		}
+		if !canView {
+			continue
+		}
+		if _, exists := seenIDs[domain.ID]; exists {
+			continue
+		}
+		seenIDs[domain.ID] = struct{}{}
+		filtered = append(filtered, domain.ID)
+	}
+	if len(filtered) == 0 {
+		c.JSON(http.StatusOK, []models.DomainLink{})
+		return
+	}
+
 	type row struct {
 		DomainID         uint `gorm:"column:domain_id"`
 		ExternalDomainID uint `gorm:"column:external_domain_id"`
@@ -55,7 +88,7 @@ func (h *DomainNetworkHandler) GetLinks(c *gin.Context) {
 		JOIN domains d ON d.domain_uid = ep.external_domain_uid
 		WHERE ep.domain_id IN ? AND d.id IN ? AND ep.domain_id <> d.id
 	`
-	if err := h.dao.DB().Raw(query, ids, ids).Scan(&rows).Error; err != nil {
+	if err := h.dao.DB().Raw(query, filtered, filtered).Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch links"})
 		return
 	}

@@ -89,6 +89,15 @@ func (h *SourceHandler) CreateSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
 		return
 	}
+	allowed, err := canCreateVisibilityScopedNode(access.Domain, visibility, access.UserID, access.IsAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
 
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
@@ -211,12 +220,35 @@ func (h *SourceHandler) UpdateSource(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Source not found"})
 		return
 	}
-	userID, _, ok := getUserContext(c)
+	domain, err := h.domainDAO.FindByID(source.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	if source.OwnerID != userID {
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+	allowed, err := canMutateVisibilityScopedNode(domain, &resolvedNodeAccess{
+		DomainID:   source.DomainID,
+		OwnerID:    source.OwnerID,
+		Visibility: source.Visibility,
+	}, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+		return
+	}
+	if !allowed {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -277,6 +309,15 @@ func (h *SourceHandler) UpdateSource(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
 			return
 		}
+		allowed, err := canCreateVisibilityScopedNode(domain, visibility, userID, isAdmin, h.permissionDAO)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 		source.Visibility = visibility
 	}
 
@@ -329,12 +370,23 @@ func (h *SourceHandler) DeleteSource(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-
-	allow := source.OwnerID == userID
-	if !allow && source.Visibility == "domain" {
-		if userID == domain.OwnerID || isAdmin {
-			allow = true
-		}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+	allow, err := canMutateVisibilityScopedNode(domain, &resolvedNodeAccess{
+		DomainID:   source.DomainID,
+		OwnerID:    source.OwnerID,
+		Visibility: source.Visibility,
+	}, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+		return
 	}
 	if !allow {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})

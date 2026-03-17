@@ -87,6 +87,10 @@ func (h *ExerciseHandler) CreateExercise(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid metaExerciseId"})
 		return
 	}
+	if meta.DomainID != access.Domain.ID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metaExerciseId must belong to the route domain"})
+		return
+	}
 	exercise := &models.Exercise{
 		Code:                 meta.Code,
 		Name:                 meta.Name,
@@ -398,6 +402,12 @@ func (h *ExerciseHandler) GetExerciseByCode(c *gin.Context) {
 
 // VerifyAnswer verifies an exercise answer
 func (h *ExerciseHandler) VerifyAnswer(c *gin.Context) {
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid exercise ID"})
@@ -407,6 +417,21 @@ func (h *ExerciseHandler) VerifyAnswer(c *gin.Context) {
 	// Get the exercise
 	exercise, err := h.exerciseDAO.FindByID(uint(id))
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Exercise not found"})
+		return
+	}
+
+	domain, err := h.domainDAO.FindByID(exercise.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Exercise not found"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Exercise not found"})
 		return
 	}

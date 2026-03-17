@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
 )
 
 type SurveyHandler struct {
@@ -63,7 +63,7 @@ func (h *SurveyHandler) GetQueue(c *gin.Context) {
 
 // POST /api/survey/events
 func (h *SurveyHandler) PostEvent(c *gin.Context) {
-	userID, _, ok := getUserContext(c)
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -78,9 +78,34 @@ func (h *SurveyHandler) PostEvent(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
 	if meta.Visibility == "private" && meta.OwnerID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
+	}
+	if req.QuestVersionID != nil {
+		version, err := h.metaQuestDAO.FindVersionByID(*req.QuestVersionID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid questVersionId"})
+			return
+		}
+		if version.MetaQuestID != meta.ID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "questVersionId does not belong to the requested quest"})
+			return
+		}
 	}
 
 	if err := h.service.ApplyEvent(userID, &req); err != nil {

@@ -1,22 +1,25 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type RelationHandler struct {
-	relationDAO    *dao.NodeRelationDAO
-	domainDAO      *dao.DomainDAO
-	permissionDAO  *dao.DomainPermissionDAO
-	metaDefDAO     *dao.MetaDefinitionDAO
-	metaExDAO      *dao.MetaExerciseDAO
-	sourceDAO      *dao.SourceDAO
-	metaQuestDAO   *dao.MetaQuestDAO
+	relationDAO   *dao.NodeRelationDAO
+	domainDAO     *dao.DomainDAO
+	permissionDAO *dao.DomainPermissionDAO
+	metaDefDAO    *dao.MetaDefinitionDAO
+	metaExDAO     *dao.MetaExerciseDAO
+	sourceDAO     *dao.SourceDAO
+	metaQuestDAO  *dao.MetaQuestDAO
+	nodeResolver  nodeAccessResolver
 }
 
 func NewRelationHandler(relationDAO *dao.NodeRelationDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, metaDefDAO *dao.MetaDefinitionDAO, metaExDAO *dao.MetaExerciseDAO, sourceDAO *dao.SourceDAO, metaQuestDAO *dao.MetaQuestDAO) *RelationHandler {
@@ -28,6 +31,7 @@ func NewRelationHandler(relationDAO *dao.NodeRelationDAO, domainDAO *dao.DomainD
 		metaExDAO:     metaExDAO,
 		sourceDAO:     sourceDAO,
 		metaQuestDAO:  metaQuestDAO,
+		nodeResolver:  newDBNodeAccessResolver(domainDAO.DB()),
 	}
 }
 
@@ -112,7 +116,27 @@ func (h *RelationHandler) CreateRelation(c *gin.Context) {
 		return
 	}
 
-	if !h.canCreateRelation(domain, userID, req.FromType, req.FromID) {
+	fromNode, err := h.resolveRelationNode(req.FromType, req.FromID)
+	if err != nil {
+		h.renderRelationNodeError(c, err)
+		return
+	}
+	toNode, err := h.resolveRelationNode(req.ToType, req.ToID)
+	if err != nil {
+		h.renderRelationNodeError(c, err)
+		return
+	}
+	if fromNode.DomainID != domain.ID || toNode.DomainID != domain.ID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Both relation nodes must belong to the route domain"})
+		return
+	}
+
+	allowed, err := h.canCreateRelation(domain, userID, isAdmin, fromNode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !allowed {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
@@ -198,24 +222,33 @@ func (h *RelationHandler) buildVisibleNodeSet(domainID uint, userID uint) map[st
 	return visible
 }
 
-func (h *RelationHandler) canCreateRelation(domain *models.Domain, userID uint, fromType string, fromID uint) bool {
-	switch fromType {
+func (h *RelationHandler) canCreateRelation(domain *models.Domain, userID uint, isAdmin bool, fromNode *resolvedNodeAccess) (bool, error) {
+	switch fromNode.NodeType {
 	case "meta_definition", "meta_exercise":
-		role, _, _ := h.permissionDAO.GetRole(domain.ID, userID)
-		return userID == domain.OwnerID || role == "editor"
-	case "source":
-		source, err := h.sourceDAO.FindByID(fromID)
-		if err != nil {
-			return false
-		}
-		return source.OwnerID == userID
-	case "meta_quest":
-		meta, _, err := h.metaQuestDAO.FindByID(fromID)
-		if err != nil {
-			return false
-		}
-		return meta.OwnerID == userID
+		return canEditDomain(domain, userID, isAdmin, h.permissionDAO)
+	case "source", "meta_quest":
+		return canMutateVisibilityScopedNode(domain, fromNode, userID, isAdmin, h.permissionDAO)
 	default:
-		return false
+		return false, nil
+	}
+}
+
+func (h *RelationHandler) resolveRelationNode(nodeType string, nodeID uint) (*resolvedNodeAccess, error) {
+	switch nodeType {
+	case "source", "meta_definition", "meta_exercise", "meta_quest":
+		return h.nodeResolver.ResolveNodeAccess(nodeType, nodeID)
+	default:
+		return nil, errors.New("unsupported node type")
+	}
+}
+
+func (h *RelationHandler) renderRelationNodeError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Relation nodes must exist"})
+	case err != nil && err.Error() == "unsupported node type":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported node type"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate relation nodes"})
 	}
 }

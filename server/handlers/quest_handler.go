@@ -110,6 +110,15 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
 		return
 	}
+	allowed, err := canCreateVisibilityScopedNode(access.Domain, visibility, access.UserID, access.IsAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
 
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
@@ -281,13 +290,8 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
-	userID, _, ok := getUserContext(c)
+	access, ok := h.requireQuestMutationAccess(c, meta)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	if meta.OwnerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
@@ -340,6 +344,15 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
 			return
 		}
+		allowed, err := canCreateVisibilityScopedNode(access.Domain, visibility, access.UserID, access.IsAdmin, h.permissionDAO)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
 		meta.Visibility = visibility
 	}
 	if req.XPosition != nil {
@@ -359,7 +372,7 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 	}
 
 	if req.Active != nil {
-		state, err := h.metaQuestDAO.EnsureUserState(userID, meta.ID)
+		state, err := h.metaQuestDAO.EnsureUserState(access.UserID, meta.ID)
 		if err == nil {
 			state.Active = *req.Active
 			if !state.Active {
@@ -369,9 +382,9 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 		}
 	}
 
-	state, _ := h.metaQuestDAO.EnsureUserState(userID, meta.ID)
+	state, _ := h.metaQuestDAO.EnsureUserState(access.UserID, meta.ID)
 	if h.surveyService != nil {
-		if updated, err := h.surveyService.EnsureQuestNextDue(userID, meta, state); err == nil && updated != nil {
+		if updated, err := h.surveyService.EnsureQuestNextDue(access.UserID, meta, state); err == nil && updated != nil {
 			state = updated
 		}
 	}
@@ -406,25 +419,7 @@ func (h *QuestHandler) DeleteQuest(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
-	domain, err := h.domainDAO.FindByID(meta.DomainID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	allow := meta.OwnerID == userID
-	if !allow && meta.Visibility == "domain" {
-		if userID == domain.OwnerID || isAdmin {
-			allow = true
-		}
-	}
-	if !allow {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+	if _, ok := h.requireQuestMutationAccess(c, meta); !ok {
 		return
 	}
 
@@ -447,13 +442,7 @@ func (h *QuestHandler) AddVersion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
-	userID, _, ok := getUserContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	if meta.OwnerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+	if _, ok := h.requireQuestMutationAccess(c, meta); !ok {
 		return
 	}
 
@@ -511,13 +500,7 @@ func (h *QuestHandler) UpdateVersion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
-	userID, _, ok := getUserContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	if meta.OwnerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+	if _, ok := h.requireQuestMutationAccess(c, meta); !ok {
 		return
 	}
 
@@ -572,13 +555,7 @@ func (h *QuestHandler) DeleteVersion(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
-	userID, _, ok := getUserContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	if meta.OwnerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+	if _, ok := h.requireQuestMutationAccess(c, meta); !ok {
 		return
 	}
 
@@ -606,13 +583,8 @@ func (h *QuestHandler) UpdateRelevantLinks(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
 	}
-	userID, _, ok := getUserContext(c)
+	access, ok := h.requireQuestMutationAccess(c, meta)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	if meta.OwnerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
@@ -650,7 +622,7 @@ func (h *QuestHandler) UpdateRelevantLinks(c *gin.Context) {
 			ToID:         entry.NodeID,
 			RelationType: item.RelationType,
 			ContextKey:   "",
-			CreatedBy:    userID,
+			CreatedBy:    access.UserID,
 		}
 		relations = append(relations, relation)
 	}
@@ -661,4 +633,46 @@ func (h *QuestHandler) UpdateRelevantLinks(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Relations updated"})
+}
+
+func (h *QuestHandler) requireQuestMutationAccess(c *gin.Context, meta *models.MetaQuest) (*domainAccessContext, bool) {
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return nil, false
+	}
+	userID, isAdmin, ok := getUserContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return nil, false
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return nil, false
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return nil, false
+	}
+	allowed, err := canMutateVisibilityScopedNode(domain, &resolvedNodeAccess{
+		NodeType:   "meta_quest",
+		NodeID:     meta.ID,
+		DomainID:   meta.DomainID,
+		OwnerID:    meta.OwnerID,
+		Visibility: meta.Visibility,
+	}, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid visibility"})
+		return nil, false
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return nil, false
+	}
+	return &domainAccessContext{
+		Domain:  domain,
+		UserID:  userID,
+		IsAdmin: isAdmin,
+	}, true
 }

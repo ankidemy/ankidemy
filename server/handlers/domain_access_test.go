@@ -113,6 +113,7 @@ func TestResolveNodeAccessWithLookupSupportsConfiguredNodeTypes(t *testing.T) {
 		{nodeType: "meta_definition", nodeID: 3, domainID: 13, ownerID: 23},
 		{nodeType: "meta_exercise", nodeID: 4, domainID: 14, ownerID: 24},
 		{nodeType: "source", nodeID: 5, domainID: 15, ownerID: 25, visibility: "private"},
+		{nodeType: "meta_quest", nodeID: 6, domainID: 16, ownerID: 26, visibility: "domain"},
 		{nodeType: "quest", nodeID: 6, domainID: 16, ownerID: 26, visibility: "domain"},
 	}
 
@@ -217,6 +218,74 @@ func TestCanMutateVisibilityScopedNode(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			allowed, err := canMutateVisibilityScopedNode(domain, tc.node, tc.userID, tc.isAdmin, tc.permission)
+			if tc.expectErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if allowed != tc.wantAllowed {
+				t.Fatalf("expected allowed=%t, got %t", tc.wantAllowed, allowed)
+			}
+		})
+	}
+}
+
+func TestCanCreateVisibilityScopedNode(t *testing.T) {
+	domain := &models.Domain{ID: 7, OwnerID: 50, Privacy: "private"}
+
+	tests := []struct {
+		name        string
+		visibility  string
+		userID      uint
+		isAdmin     bool
+		permission  fakePermissionLookup
+		wantAllowed bool
+		expectErr   bool
+	}{
+		{
+			name:        "private viewer creation allowed",
+			visibility:  "private",
+			userID:      9,
+			permission:  fakePermissionLookup{role: "viewer", exists: true},
+			wantAllowed: true,
+		},
+		{
+			name:        "domain viewer creation denied",
+			visibility:  "domain",
+			userID:      9,
+			permission:  fakePermissionLookup{role: "viewer", exists: true},
+			wantAllowed: false,
+		},
+		{
+			name:        "domain editor creation allowed",
+			visibility:  "domain",
+			userID:      9,
+			permission:  fakePermissionLookup{role: "editor", exists: true},
+			wantAllowed: true,
+		},
+		{
+			name:        "admin bypass",
+			visibility:  "domain",
+			userID:      99,
+			isAdmin:     true,
+			wantAllowed: true,
+		},
+		{
+			name:       "invalid visibility",
+			visibility: "public",
+			userID:     9,
+			expectErr:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			allowed, err := canCreateVisibilityScopedNode(domain, tc.visibility, tc.userID, tc.isAdmin, tc.permission)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatal("expected error")

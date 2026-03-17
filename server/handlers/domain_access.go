@@ -151,6 +151,7 @@ func (r *dbNodeAccessResolver) ResolveNodeAccess(nodeType string, nodeID uint) (
 		"meta_definition": r.loadMetaDefinition,
 		"meta_exercise":   r.loadMetaExercise,
 		"source":          r.loadSource,
+		"meta_quest":      r.loadQuest,
 		"quest":           r.loadQuest,
 	})
 }
@@ -240,5 +241,17 @@ func canMutateVisibilityScopedNode(domain *models.Domain, node *resolvedNodeAcce
 		return canEditDomain(domain, userID, isAdmin, permissionDAO)
 	default:
 		return false, fmt.Errorf("unsupported node visibility: %s", node.Visibility)
+	}
+}
+
+func canCreateVisibilityScopedNode(domain *models.Domain, visibility string, userID uint, isAdmin bool, permissionDAO domainPermissionLookup) (bool, error) {
+	trimmed := strings.TrimSpace(visibility)
+	switch trimmed {
+	case "", "private":
+		return true, nil
+	case "domain":
+		return canEditDomain(domain, userID, isAdmin, permissionDAO)
+	default:
+		return false, fmt.Errorf("unsupported node visibility: %s", visibility)
 	}
 }

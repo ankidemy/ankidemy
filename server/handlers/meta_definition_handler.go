@@ -351,12 +351,33 @@ func (h *MetaDefinitionHandler) GetNextVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	uid, ok := c.Get("userID")
+	userID, isAdmin, ok := getUserContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	v, err := h.service.SuggestVersion(uid.(uint), uint(id64))
+
+	meta, _, err := h.metaDAO.FindByID(uint(id64))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
+		return
+	}
+	domain, err := h.domainDAO.FindByID(meta.DomainID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
+		return
+	}
+	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+		return
+	}
+
+	v, err := h.service.SuggestVersion(userID, uint(id64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return

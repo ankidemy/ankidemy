@@ -1,12 +1,21 @@
 # API Endpoints Cheatsheet
 
+## Security-Critical Notes
+
+- `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh`, `POST /api/exercises/:id/verify`, and `POST /api/survey/events` are rate-limited and can return `429 Too Many Requests`.
+- The current limiter is in-memory and intended for the current single-instance beta deployment.
+- Legacy `/api/progress/*` and `/api/sessions/*` routes remain supported, but new clients should prefer `/api/srs/*`.
+- `POST /api/srs/test/credit-propagation` is admin-only.
+- `POST /api/domains/:id/import-backup` now requires edit permission and rejects oversized, malformed, or non-image-media backups.
+- Media responses always set `X-Content-Type-Options: nosniff`; non-image files are forced to download.
+
 ## Authentication
 
 | Endpoint             | Method | Auth Required | Description         | Key Request Fields         |
 | :-------------------| :----- | :------------ | :------------------ | :------------------------- |
-| `/api/auth/register` | `POST` | No            | Register new user   | `username`, `email`, `password` |
-| `/api/auth/login`    | `POST` | No            | Log in user         | `email`, `password`        |
-| `/api/auth/refresh`  | `POST` | No            | Refresh token       | `token`                    |
+| `/api/auth/register` | `POST` | No            | Register new user; conflicts use a generic `409` body and the route is throttled | `username`, `email`, `password` |
+| `/api/auth/login`    | `POST` | No            | Log in user; throttled | `identifier`, `password` |
+| `/api/auth/refresh`  | `POST` | No            | Refresh token; throttled | `token`                    |
 
 ## User Management
 
@@ -31,6 +40,7 @@
 | `/api/domains/:id/restore`        | `POST`   | Yes           | Restore archived domain              | -                             |
 | `/api/domains/:id/purge`          | `DELETE` | Yes           | Permanently delete domain + data     | -                             |
 | `/api/domains/:id/enroll`         | `POST`   | Yes           | Enroll in domain                     | -                             |
+| `/api/domains/:id/import-backup`  | `POST`   | Yes           | Import full backup; requires edit access and bounded zip/image validation | multipart upload |
 | `/api/domains/:id/comments`       | `GET`    | Yes           | Get domain comments                  | -                             |
 | `/api/domains/:id/comments`       | `POST`   | Yes           | Add domain comment                   | `content`                     |
 | `/api/domains/:id/comments/:commentId` | `DELETE` | Yes           | Delete domain comment                | -                             |
@@ -56,7 +66,7 @@
 | `/api/exercises/:id`          | `PUT`    | Yes           | Update exercise       | `code`, `name`, `statement`, etc.  |
 | `/api/exercises/:id`          | `DELETE` | Yes           | Delete exercise       | -                                  |
 | `/api/exercises/code/:code`   | `GET`    | Yes           | Get exercise by code  | Query: `domainId`                  |
-| `/api/exercises/:id/verify`   | `POST`   | Yes           | Verify exercise answer| `answer`                           |
+| `/api/exercises/:id/verify`   | `POST`   | Yes           | Verify exercise answer; requires domain view access, returns generic `404` when hidden, and is throttled | `answer` |
 
 ## Advanced SRS (Spaced Repetition System)
 
@@ -90,15 +100,26 @@
 | :----------------------------------- | :------- | :------------ | :------------------------ | :------------------------------------------------------ |
 | `/api/srs/prerequisites`             | `POST`   | Yes           | Create prerequisite       | `nodeId`, `nodeType`, `prerequisiteId`, `prerequisiteType`, `weight`, `isManual` |
 | `/api/srs/domains/:domainId/prerequisites` | `GET`    | Yes           | Get domain prerequisites  | -                                                       |
-| `/api/srs/prerequisites/:prerequisiteId` | `DELETE` | Yes           | Delete prerequisite       | -                                                       |
+| `/api/srs/prerequisites/:prerequisiteId` | `DELETE` | Yes           | Delete prerequisite; malformed legacy rows now fail closed | - |
 
 ### Test/Debug
 
 | Endpoint                             | Method | Auth Required | Description               | Key Request Fields                  |
 | :----------------------------------- | :----- | :------------ | :------------------------ | :---------------------------------- |
-| `/api/srs/test/credit-propagation`   | `POST` | Yes           | Test credit propagation   | `domainId`, `nodeId`, `nodeType`, `success` |
+| `/api/srs/test/credit-propagation`   | `POST` | Yes           | Admin-only credit propagation debug route | `domainId`, `nodeId`, `nodeType`, `success` |
+
+## Meta Version Helpers
+
+| Endpoint                              | Method | Auth Required | Description | Key Request Fields |
+| :------------------------------------ | :----- | :------------ | :---------- | :----------------- |
+| `/api/meta-definitions/:id/next-version` | `GET` | Yes | Suggest next definition version; requires domain view access before seen-count side effects | - |
+| `/api/meta-exercises/:id/next-version` | `GET` | Yes | Suggest next exercise version; requires domain view access before seen-count side effects | - |
 
 ## Legacy Progress Tracking
+
+Supported-but-legacy:
+- Keep these routes only for backward compatibility.
+- They now enforce the same domain-access checks as the hardened SRS routes before creating sessions or progress side effects.
 
 ### Progress Management (Legacy)
 
@@ -119,6 +140,19 @@
 | `/api/sessions/:id/end`| `PUT`  | Yes           | End study session     | -                          |
 | `/api/sessions`        | `GET`  | Yes           | Get all sessions      | -                          |
 | `/api/sessions/:id`    | `GET`  | Yes           | Get session details   | -                          |
+
+## Survey And Media
+
+| Endpoint                            | Method | Auth Required | Description | Key Request Fields |
+| :---------------------------------- | :----- | :------------ | :---------- | :----------------- |
+| `/api/survey/events`                | `POST` | Yes           | Record quest event; requires domain view access, validates `questVersionId`, and is throttled | `metaQuestId`, `eventType`, `questVersionId` |
+| `/api/media/:userId/:visibility/:domain/:filename` | `GET` | Yes | Serve media with `nosniff`; non-images download as attachments | - |
+
+## Domain Network
+
+| Endpoint              | Method | Auth Required | Description | Key Request Fields |
+| :-------------------- | :----- | :------------ | :---------- | :----------------- |
+| `/api/network/links`  | `GET`  | Yes           | Returns topology only for domains the caller can view | Query: `domainIds=1,2,3` |
 
 ## Knowledge Graph
 
