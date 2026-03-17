@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
 )
 
 type QuestHandler struct {
@@ -35,32 +35,12 @@ func NewQuestHandler(metaQuestDAO *dao.MetaQuestDAO, domainDAO *dao.DomainDAO, p
 
 // GET /api/domains/:id/quests?scope=visible
 func (h *QuestHandler) ListVisibleQuests(c *gin.Context) {
-	domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(domainID64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
-	quests, err := h.metaQuestDAO.ListVisible(uint(domainID64), userID)
+	quests, err := h.metaQuestDAO.ListVisible(access.Domain.ID, access.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load quests"})
 		return
@@ -68,7 +48,7 @@ func (h *QuestHandler) ListVisibleQuests(c *gin.Context) {
 
 	responses := make([]models.MetaQuestResponse, 0, len(quests))
 	for _, q := range quests {
-		state, _ := h.metaQuestDAO.EnsureUserState(userID, q.ID)
+		state, _ := h.metaQuestDAO.EnsureUserState(access.UserID, q.ID)
 		resp := models.MetaQuestResponse{
 			ID:         q.ID,
 			DomainID:   q.DomainID,
@@ -92,28 +72,8 @@ func (h *QuestHandler) ListVisibleQuests(c *gin.Context) {
 
 // POST /api/domains/:id/quests
 func (h *QuestHandler) CreateQuest(c *gin.Context) {
-	domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(domainID64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
@@ -153,9 +113,9 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
-		code = generateUniqueCode(h.codeRegistry, uint(domainID64), req.InitialVersion.Title, "quest")
+		code = generateUniqueCode(h.codeRegistry, access.Domain.ID, req.InitialVersion.Title, "quest")
 	} else {
-		exists, err := h.codeRegistry.CodeExists(uint(domainID64), code)
+		exists, err := h.codeRegistry.CodeExists(access.Domain.ID, code)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check code"})
 			return
@@ -167,8 +127,8 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 	}
 
 	meta := &models.MetaQuest{
-		DomainID:   uint(domainID64),
-		OwnerID:    userID,
+		DomainID:   access.Domain.ID,
+		OwnerID:    access.UserID,
 		Code:       code,
 		Name:       name,
 		Kind:       kind,
@@ -186,7 +146,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		version.TaskList = *req.InitialVersion.TaskList
 	}
 
-	if err := h.metaQuestDAO.Create(meta, version, userID); err != nil {
+	if err := h.metaQuestDAO.Create(meta, version, access.UserID); err != nil {
 		if errors.Is(err, dao.ErrCodeConflict) {
 			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", code)})
 			return
@@ -224,8 +184,8 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 	}
 	// Populate NextDueAt immediately for the creator.
 	if h.surveyService != nil {
-		if state, err := h.metaQuestDAO.EnsureUserState(userID, meta.ID); err == nil && state != nil {
-			if updated, err := h.surveyService.EnsureQuestNextDue(userID, meta, state); err == nil && updated != nil {
+		if state, err := h.metaQuestDAO.EnsureUserState(access.UserID, meta.ID); err == nil && state != nil {
+			if updated, err := h.surveyService.EnsureQuestNextDue(access.UserID, meta, state); err == nil && updated != nil {
 				resp.NextDueAt = updated.NextDueAt
 			}
 		}

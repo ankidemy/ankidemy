@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
 )
 
 // DefinitionHandler handles definition-related HTTP requests
@@ -35,35 +35,12 @@ func NewDefinitionHandler(definitionDAO *dao.DefinitionDAO, domainDAO *dao.Domai
 
 // GetDomainDefinitions returns all definitions for a domain
 func (h *DefinitionHandler) GetDomainDefinitions(c *gin.Context) {
-	domainID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	// Verify domain exists and check access
-	domain, err := h.domainDAO.FindByID(uint(domainID))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have access to this domain"})
 		return
 	}
 
-	definitions, err := h.definitionDAO.GetByDomainID(uint(domainID))
+	definitions, err := h.definitionDAO.GetByDomainID(access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve definitions"})
 		return
@@ -80,31 +57,8 @@ func (h *DefinitionHandler) GetDomainDefinitions(c *gin.Context) {
 
 // CreateDefinition creates a new definition
 func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
-	domainID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	// Verify domain exists and check access
-	domain, err := h.domainDAO.FindByID(uint(domainID))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainEditAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canEdit {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to add definitions to this domain"})
 		return
 	}
 
@@ -130,7 +84,7 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Meta definition not found"})
 			return
 		}
-		if metaDef.DomainID != uint(domainID) {
+		if metaDef.DomainID != access.Domain.ID {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Meta definition does not belong to this domain"})
 			return
 		}
@@ -141,7 +95,7 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		}
 		// Auto-create a meta_definition pool
 		// Check for cross-type code uniqueness (meta_definitions + meta_exercises in the same domain)
-		codeExists, err := h.definitionDAO.CheckCodeExistsInDomain(req.Code, uint(domainID))
+		codeExists, err := h.definitionDAO.CheckCodeExistsInDomain(req.Code, access.Domain.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
 			return
@@ -156,8 +110,8 @@ func (h *DefinitionHandler) CreateDefinition(c *gin.Context) {
 		metaDef := &models.MetaDefinition{
 			Code:      req.Code,
 			Name:      req.Name,
-			DomainID:  uint(domainID),
-			OwnerID:   userID,
+			DomainID:  access.Domain.ID,
+			OwnerID:   access.UserID,
 			XPosition: req.XPosition,
 			YPosition: req.YPosition,
 		}

@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	//"time"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"ankidemy/server/dao"
 	"ankidemy/server/middleware"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // SRSHandler handles SRS-related HTTP requests
@@ -21,6 +20,7 @@ type SRSHandler struct {
 	srsDao                *dao.SRSDao
 	permissionDAO         *dao.DomainPermissionDAO
 	notificationReadModel *services.NotificationReadModelService
+	nodeAccessResolver    nodeAccessResolver
 }
 
 // NewSRSHandler creates a new SRSHandler
@@ -36,26 +36,16 @@ func NewSRSHandler(
 		srsDao:                dao.NewSRSDao(db),
 		permissionDAO:         permissionDAO,
 		notificationReadModel: notificationReadModel,
+		nodeAccessResolver:    newDBNodeAccessResolver(db),
 	}
 }
 
 func (h *SRSHandler) getMetaDomainInfo(nodeType string, nodeID uint) (uint, uint, error) {
-	switch nodeType {
-	case "meta_definition":
-		var meta models.MetaDefinition
-		if err := h.db.Select("owner_id", "domain_id").First(&meta, nodeID).Error; err != nil {
-			return 0, 0, err
-		}
-		return meta.DomainID, meta.OwnerID, nil
-	case "meta_exercise":
-		var meta models.MetaExercise
-		if err := h.db.Select("owner_id", "domain_id").First(&meta, nodeID).Error; err != nil {
-			return 0, 0, err
-		}
-		return meta.DomainID, meta.OwnerID, nil
-	default:
-		return 0, 0, fmt.Errorf("unsupported node type: %s", nodeType)
+	resolved, err := h.nodeAccessResolver.ResolveNodeAccess(nodeType, nodeID)
+	if err != nil {
+		return 0, 0, err
 	}
+	return resolved.DomainID, resolved.OwnerID, nil
 }
 
 // === Review Endpoints ===
@@ -619,33 +609,12 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 
 // GetPrerequisites gets prerequisites for a domain
 func (h *SRSHandler) GetPrerequisites(c *gin.Context) {
-	domainID, err := strconv.ParseUint(c.Param("domainId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-
-	var domain models.Domain
-	if err := h.db.First(&domain, uint(domainID)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, dao.NewDomainDAO(h.db), h.permissionDAO, "domainId")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
-		return
-	}
-	canView, err := canViewDomain(&domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
-	prerequisites, err := h.srsDao.GetPrerequisitesByDomain(uint(domainID))
+	prerequisites, err := h.srsDao.GetPrerequisitesByDomain(access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve prerequisites"})
 		return

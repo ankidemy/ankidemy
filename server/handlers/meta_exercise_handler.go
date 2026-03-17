@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	"errors"
-	"fmt"
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"errors"
+	"fmt"
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,28 +25,8 @@ func NewMetaExerciseHandler(dbDao *dao.MetaExerciseDAO, domainDAO *dao.DomainDAO
 
 // POST /api/domains/:id/meta-exercises
 func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
-	domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(domainID64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainEditAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canEdit {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
@@ -63,7 +43,7 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
 	}
 
 	// Check for cross-type code uniqueness (definitions + meta-exercises in the same domain)
-	codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, uint(domainID64))
+	codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
 		return
@@ -74,7 +54,7 @@ func (h *MetaExerciseHandler) CreateMetaExercise(c *gin.Context) {
 		return
 	}
 
-	meta := &models.MetaExercise{Code: req.Code, Name: req.Name, DomainID: uint(domainID64), OwnerID: userID, XPosition: req.XPosition, YPosition: req.YPosition}
+	meta := &models.MetaExercise{Code: req.Code, Name: req.Name, DomainID: access.Domain.ID, OwnerID: access.UserID, XPosition: req.XPosition, YPosition: req.YPosition}
 	if err := h.metaDAO.Create(meta, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
 		if errors.Is(err, dao.ErrCodeConflict) {
 			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", req.Code)})
@@ -152,31 +132,11 @@ func (h *MetaExerciseHandler) GetMetaExercise(c *gin.Context) {
 
 // GET /api/domains/:id/meta-exercises
 func (h *MetaExerciseHandler) GetDomainMetaExercises(c *gin.Context) {
-	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(id64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
-	}
-	metas, err := h.metaDAO.GetByDomainID(uint(id64))
+	metas, err := h.metaDAO.GetByDomainID(access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed"})
 		return

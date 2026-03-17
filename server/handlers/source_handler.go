@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
 )
 
 type SourceHandler struct {
@@ -30,32 +30,12 @@ func NewSourceHandler(sourceDAO *dao.SourceDAO, domainDAO *dao.DomainDAO, permis
 
 // GET /api/domains/:id/sources?scope=visible
 func (h *SourceHandler) ListVisibleSources(c *gin.Context) {
-	domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(domainID64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
-	sources, err := h.sourceDAO.ListVisible(uint(domainID64), userID)
+	sources, err := h.sourceDAO.ListVisible(access.Domain.ID, access.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load sources"})
 		return
@@ -85,28 +65,8 @@ func (h *SourceHandler) ListVisibleSources(c *gin.Context) {
 
 // POST /api/domains/:id/sources
 func (h *SourceHandler) CreateSource(c *gin.Context) {
-	domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(domainID64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
@@ -132,9 +92,9 @@ func (h *SourceHandler) CreateSource(c *gin.Context) {
 
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
-		code = generateUniqueCode(h.codeRegistry, uint(domainID64), title, "source")
+		code = generateUniqueCode(h.codeRegistry, access.Domain.ID, title, "source")
 	} else {
-		exists, err := h.codeRegistry.CodeExists(uint(domainID64), code)
+		exists, err := h.codeRegistry.CodeExists(access.Domain.ID, code)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check code"})
 			return
@@ -146,8 +106,8 @@ func (h *SourceHandler) CreateSource(c *gin.Context) {
 	}
 
 	source := &models.Source{
-		DomainID:   uint(domainID64),
-		OwnerID:    userID,
+		DomainID:   access.Domain.ID,
+		OwnerID:    access.UserID,
 		Code:       code,
 		Title:      title,
 		ContentMd:  req.ContentMd,

@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	"errors"
-	"fmt"
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"errors"
+	"fmt"
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,28 +25,8 @@ func NewMetaDefinitionHandler(dbDao *dao.MetaDefinitionDAO, domainDAO *dao.Domai
 
 // POST /api/domains/:id/meta-definitions
 func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
-	domainID64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(domainID64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainEditAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	canEdit, err := canEditDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canEdit {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
 		return
 	}
 
@@ -63,7 +43,7 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 	}
 
 	// Check for cross-type code uniqueness (meta_definitions + meta_exercises in the same domain)
-	codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, uint(domainID64))
+	codeExists, err := h.metaDAO.CheckCodeExistsInDomain(req.Code, access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for duplicate code"})
 		return
@@ -77,8 +57,8 @@ func (h *MetaDefinitionHandler) CreateMetaDefinition(c *gin.Context) {
 	meta := &models.MetaDefinition{
 		Code:      req.Code,
 		Name:      req.Name,
-		DomainID:  uint(domainID64),
-		OwnerID:   userID,
+		DomainID:  access.Domain.ID,
+		OwnerID:   access.UserID,
 		XPosition: req.XPosition,
 		YPosition: req.YPosition,
 	}
@@ -155,31 +135,11 @@ func (h *MetaDefinitionHandler) GetMetaDefinition(c *gin.Context) {
 
 // GET /api/domains/:id/meta-definitions
 func (h *MetaDefinitionHandler) GetDomainMetaDefinitions(c *gin.Context) {
-	id64, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid domain ID"})
-		return
-	}
-	domain, err := h.domainDAO.FindByID(uint(id64))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
-		return
-	}
-	userID, isAdmin, ok := getUserContext(c)
+	access, ok := requireDomainViewAccess(c, h.domainDAO, h.permissionDAO, "id")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	canView, err := canViewDomain(domain, userID, isAdmin, h.permissionDAO)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check access"})
-		return
-	}
-	if !canView {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
-		return
-	}
-	metas, err := h.metaDAO.GetByDomainID(uint(id64))
+	metas, err := h.metaDAO.GetByDomainID(access.Domain.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed"})
 		return
