@@ -1532,11 +1532,11 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-gray-500">
-                    Parsing and overwrite analysis run only when you click "Review Pasted Content".
+                    Parsing and overwrite analysis run only when you click &quot;Review Pasted Content&quot;.
                   </p>
                   {pasteNeedsReview && (
                     <p className="text-xs text-amber-700">
-                      Pasted content changed. Click "Review Pasted Content" again before importing.
+                      Pasted content changed. Click &quot;Review Pasted Content&quot; again before importing.
                     </p>
                   )}
                 </div>

@@ -17,3 +17,5 @@ current_git_diff.txt
 media/
 
 server/server
+
+client/.tmp-tests

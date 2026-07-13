@@ -15,7 +15,7 @@ import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Move, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, Clock, X, Copy } from 'lucide-react';
+import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Move, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, X, Copy } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { APP_PREFERENCES_UPDATED_EVENT, getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
 import {
@@ -26,7 +26,6 @@ import {
   parseScheduleToDrafts,
   RepeatPreset,
   WeekdayCode,
-  weekdayLabels,
 } from './windows/questScheduleDrafts';
 import {
   getDefinitionByCode,
@@ -676,7 +675,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyQuestDurationCountDraft, setFrenzyQuestDurationCountDraft] = useState(10);
   const [frenzyQuestUntilDateDraft, setFrenzyQuestUntilDateDraft] = useState('');
   const [isSavingFrenzyQuestNote, setIsSavingFrenzyQuestNote] = useState(false);
-  const [frenzyQuestAutoSaveStatus, setFrenzyQuestAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [, setFrenzyQuestAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const frenzyQuestLastAutoSavedRef = useRef<string>('');
   const frenzyQuestDraftStateRef = useRef({
     code: '',
@@ -730,7 +729,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const frenzyPromptImageInputRef = useRef<HTMLInputElement | null>(null);
   const frenzyContentImageInputRef = useRef<HTMLInputElement | null>(null);
   const frenzySolutionImageInputRef = useRef<HTMLInputElement | null>(null);
-  const frenzyQuestTimeInputRef = useRef<HTMLInputElement | null>(null);
   const openFrenzyNoteRef = useRef<(node: GraphNode, metaIdOverride?: number, anchorGraph?: { x: number; y: number }) => void | Promise<void>>(async () => {});
 
   // Refs for stable callbacks
@@ -1929,7 +1927,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     const initialJitter = neighbors.size > 0 ? 32 : 24;
     return computeSpawnPositionWithAdaptiveNoise(spawn, { initialJitter });
-  }, [nodeCreationPosition, getGraphCenter, computeSpawnPositionWithAdaptiveNoise]);
+  }, [stableGraph.nodes, nodeCreationPosition, getGraphCenter, computeSpawnPositionWithAdaptiveNoise]);
 
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
@@ -2321,10 +2319,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     && frenzyNoteCodeDraft.trim() !== frenzyNote.nodeId
     && existingCodes.has(frenzyNoteCodeDraft.trim());
 
-  const frenzyQuestCodeConflict = !!frenzyQuestNote
-    && frenzyQuestCodeDraft.trim().length > 0
-    && frenzyQuestCodeDraft.trim() !== frenzyQuestNote.nodeId
-    && existingCodes.has(frenzyQuestCodeDraft.trim());
 
   const numericIdToCodeMap = useMemo(() => {
     const map = new Map<number, string>();

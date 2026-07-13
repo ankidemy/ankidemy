@@ -78,11 +78,8 @@ services:
       - client_node_modules:/app/node_modules
       - client_next_cache:/app/.next
       - client_npm_cache:/root/.npm
-    ports:
-      - "9229:9229"  # Node.js inspector port for Chrome DevTools
     environment:
       - NODE_ENV=development
-      - NODE_OPTIONS=--inspect=0.0.0.0:9229
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-true}
       - NEXT_TELEMETRY_DISABLED=1
       - NEXT_WEBPACK_USEPOLLING=1
