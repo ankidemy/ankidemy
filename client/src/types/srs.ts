@@ -4,7 +4,11 @@
 export type NodeStatus = 'fresh' | 'tackling' | 'grasped' | 'learned';
 export type ReviewQuality = 0 | 1 | 2 | 3 | 4 | 5;
 export type SessionType = 'definition' | 'exercise' | 'mixed';
+export type SessionMode = 'normal' | 'frenzy';
+export type SessionOrder = 'impact' | 'foundations';
 export type DueView = 'full' | 'compact';
+// Exercise solve state derived from solvedUntil/seenCount for UI coloring.
+export type ExerciseSolveState = 'unsolved' | 'tried' | 'solved';
 
 // Progress tracking for individual nodes
 export interface NodeProgress {
@@ -29,17 +33,19 @@ export interface NodeProgress {
   // Derived fields used in UI — optional
   isDue?: boolean;
   daysUntilReview?: number | null;
+  // Exercise-only solve tracking (solved while solvedUntil is in the future)
+  solvedUntil?: string | null;
+  seenCount?: number;
 }
 
 // Prerequisites relationship
 export interface NodePrerequisite {
   id: number;
   nodeId: number;
-  nodeType: 'definition' | 'exercise' | 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   prerequisiteId: number;
-  prerequisiteType: 'definition' | 'exercise' | 'meta_definition' | 'meta_exercise';
+  prerequisiteType: 'definition' | 'exercise';
   weight: number; // 0.01 to 1.0
-  isManual: boolean;
   createdAt: string;
 }
 
@@ -49,6 +55,7 @@ export interface StudySession {
   userId: number;
   domainId: number;
   sessionType: SessionType;
+  mode?: SessionMode;
   startTime: string;
   endTime?: string;
   totalReviews: number;
@@ -56,15 +63,14 @@ export interface StudySession {
   duration?: number; // in seconds
 }
 
-// Review submission
+// Review submission. Success is derived server-side (quality >= 3).
 export interface ReviewRequest {
   nodeId: number;
-  nodeType: 'meta_definition' | 'exercise';
-  success: boolean;
+  nodeType: 'definition' | 'exercise';
   quality: ReviewQuality;
   timeTaken: number; // in seconds
   sessionId?: number;
-  versionId?: number; // for meta-exercise and meta-definition reviews
+  versionId?: number; // concrete version shown during the review
 }
 
 // Credit flow for animations
@@ -75,9 +81,11 @@ export interface CreditUpdate {
   type: 'explicit' | 'implicit';
 }
 
-// Review response from API
+// Review response from API. counted=false means the node was not due and the
+// grade was recorded as practice only (no SRS state changes).
 export interface ReviewResponse {
   success: boolean;
+  counted: boolean;
   message: string;
   updatedNodes?: NodeProgress[];
   creditFlow?: CreditUpdate[];
@@ -170,3 +178,50 @@ export interface CreditFlowAnimation {
   timestamp: number;
 }
 
+
+// ==========================================================================
+// Server-driven session engine
+// ==========================================================================
+
+export interface SessionStartRequest {
+  domainId: number;
+  sessionType: SessionType;
+  mode?: SessionMode;
+  order?: SessionOrder;
+  exercisesPerDefinition?: number;
+}
+
+export interface SessionEngineItem {
+  done: boolean;
+  round: number;
+  completed: number;
+  correct: number;
+  remaining: number;
+  totalPlanned: number;
+  item?: ReviewQueueItem;
+  definitionVersion?: any;
+  exerciseVersion?: any;
+  lastReview?: ReviewResponse;
+}
+
+export interface SessionEngineState {
+  session: StudySession;
+  item: SessionEngineItem;
+}
+
+export interface SessionGradeRequest {
+  quality: ReviewQuality;
+  skip?: boolean;
+  timeTaken?: number;
+}
+
+export function exerciseSolveState(progress: Pick<NodeProgress, 'solvedUntil' | 'seenCount'> | null | undefined): ExerciseSolveState {
+  if (!progress) return 'unsolved';
+  if (progress.solvedUntil && new Date(progress.solvedUntil).getTime() > Date.now()) {
+    return 'solved';
+  }
+  if ((progress.seenCount ?? 0) > 0) {
+    return 'tried';
+  }
+  return 'unsolved';
+}

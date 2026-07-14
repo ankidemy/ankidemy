@@ -80,7 +80,7 @@ func BenchmarkBuildGraph(b *testing.B) {
 		{"10000n", 50, 200, 3},
 	}
 	for _, size := range sizes {
-		prereqs := layeredDAG(size.layers, size.width, size.fanout, "meta_definition")
+		prereqs := layeredDAG(size.layers, size.width, size.fanout, "definition")
 		c := NewCreditPropagationService()
 		b.Run(size.name, func(b *testing.B) {
 			b.ReportAllocs()
@@ -103,7 +103,7 @@ func BenchmarkPropagateCredit(b *testing.B) {
 		{"10000n", 50, 200, 3},
 	}
 	for _, size := range sizes {
-		prereqs := layeredDAG(size.layers, size.width, size.fanout, "meta_definition")
+		prereqs := layeredDAG(size.layers, size.width, size.fanout, "definition")
 		c := NewCreditPropagationService()
 		graph := c.BuildGraph(prereqs)
 		// Review a node in the last layer so propagation has depth to work with.
@@ -111,7 +111,7 @@ func BenchmarkPropagateCredit(b *testing.B) {
 		b.Run(size.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				credits := c.PropagateCredit(reviewed, "meta_definition", true, graph)
+				credits := c.PropagateCredit(reviewed, "definition", true, graph)
 				if len(credits) == 0 {
 					b.Fatal("no credits")
 				}

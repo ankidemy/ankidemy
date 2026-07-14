@@ -18,131 +18,19 @@ func NewExerciseDAO(db *gorm.DB) *ExerciseDAO {
 	return &ExerciseDAO{db: db}
 }
 
-// Create creates a new exercise with prerequisites managed via node_prerequisites
-func (d *ExerciseDAO) Create(exercise *models.Exercise, prerequisiteIDs []uint, weights map[uint]float64) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		// Create the exercise
-		if err := tx.Create(exercise).Error; err != nil {
-			return err
-		}
-		
-		// Add prerequisites to node_prerequisites table
-        if len(prerequisiteIDs) > 0 {
-            for _, prereqID := range prerequisiteIDs {
-				// Verify prerequisite exists (should be a definition)
-				var count int64
-				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
-					return err
-				}
-				if count == 0 {
-					continue // Skip invalid prerequisite
-				}
-				
-                // Determine weight (default 1.0, clamp 0.01-1.0)
-                w := 1.0
-                if weights != nil {
-                    if val, ok := weights[prereqID]; ok {
-                        if val < 0.01 {
-                            w = 0.01
-                        } else if val > 1.0 {
-                            w = 1.0
-                        } else {
-                            w = val
-                        }
-                    }
-                }
-
-                prerequisite := models.NodePrerequisite{
-                    NodeID:           exercise.ID,
-                    NodeType:         "exercise",
-                    PrerequisiteID:   prereqID,
-                    PrerequisiteType: "definition", // Exercises typically depend on definitions
-                    Weight:           w,
-                    IsManual:         false,
-                }
-				
-				if err := tx.Create(&prerequisite).Error; err != nil {
-					// Ignore duplicates
-					continue
-				}
-			}
-		}
-		
-		return nil
-	})
+// Create creates a new exercise version
+func (d *ExerciseDAO) Create(exercise *models.Exercise) error {
+	return d.db.Create(exercise).Error
 }
 
-// Update updates an existing exercise and its prerequisites
-func (d *ExerciseDAO) Update(exercise *models.Exercise, prerequisiteIDs []uint, weights map[uint]float64) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		// Update the exercise
-		if err := tx.Save(exercise).Error; err != nil {
-			return err
-		}
-		
-		// Update prerequisites (clear existing, add new ones)
-		if err := tx.Where("node_id = ? AND node_type = ?", exercise.ID, "exercise").
-			Delete(&models.NodePrerequisite{}).Error; err != nil {
-			return err
-		}
-		
-        if len(prerequisiteIDs) > 0 {
-            for _, prereqID := range prerequisiteIDs {
-				// Verify prerequisite exists (should be a definition)
-				var count int64
-				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
-					return err
-				}
-				if count == 0 {
-					continue // Skip invalid prerequisite
-				}
-				
-                // Determine weight (default 1.0, clamp 0.01-1.0)
-                w := 1.0
-                if weights != nil {
-                    if val, ok := weights[prereqID]; ok {
-                        if val < 0.01 {
-                            w = 0.01
-                        } else if val > 1.0 {
-                            w = 1.0
-                        } else {
-                            w = val
-                        }
-                    }
-                }
-
-                prerequisite := models.NodePrerequisite{
-                    NodeID:           exercise.ID,
-                    NodeType:         "exercise",
-                    PrerequisiteID:   prereqID,
-                    PrerequisiteType: "definition", // Exercises typically depend on definitions
-                    Weight:           w,
-                    IsManual:         false,
-                }
-				
-				if err := tx.Create(&prerequisite).Error; err != nil {
-					// Ignore duplicates
-					continue
-				}
-			}
-		}
-		
-		return nil
-	})
+// Update updates an existing exercise version
+func (d *ExerciseDAO) Update(exercise *models.Exercise) error {
+	return d.db.Save(exercise).Error
 }
 
-// Delete deletes an exercise and its prerequisites
+// Delete deletes an exercise version
 func (d *ExerciseDAO) Delete(id uint) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		// Delete prerequisites where this exercise is involved
-		if err := tx.Where("(node_id = ? AND node_type = ?) OR (prerequisite_id = ? AND prerequisite_type = ?)", 
-			id, "exercise", id, "exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
-			return err
-		}
-		
-		// Delete the exercise
-		return tx.Delete(&models.Exercise{}, id).Error
-	})
+	return d.db.Delete(&models.Exercise{}, id).Error
 }
 
 // FindByID finds an exercise by ID

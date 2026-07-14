@@ -29,7 +29,7 @@ func (d *MetaDefinitionDAO) Create(meta *models.MetaDefinition, prerequisiteIDs 
 		}
 
 		registry := NewCodeRegistryDAO(tx)
-		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "meta_definition", meta.ID); err != nil {
+		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "definition", meta.ID); err != nil {
 			return err
 		}
 
@@ -56,7 +56,7 @@ func (d *MetaDefinitionDAO) Create(meta *models.MetaDefinition, prerequisiteIDs 
 
 			p := &models.NodePrerequisite{
 				NodeID:           meta.ID,
-				NodeType:         "meta_definition",
+				NodeType:         "definition",
 				PrerequisiteID:   pid,
 				PrerequisiteType: prereqType,
 				Weight:           w,
@@ -74,7 +74,7 @@ func (d *MetaDefinitionDAO) Update(meta *models.MetaDefinition, prerequisiteIDs 
 			return err
 		}
 
-		if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+		if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
 
@@ -99,7 +99,7 @@ func (d *MetaDefinitionDAO) Update(meta *models.MetaDefinition, prerequisiteIDs 
 
 			p := &models.NodePrerequisite{
 				NodeID:           meta.ID,
-				NodeType:         "meta_definition",
+				NodeType:         "definition",
 				PrerequisiteID:   pid,
 				PrerequisiteType: prereqType,
 				Weight:           w,
@@ -111,12 +111,12 @@ func (d *MetaDefinitionDAO) Update(meta *models.MetaDefinition, prerequisiteIDs 
 }
 
 // determinePrerequisiteType checks which table contains the given ID and returns the type
-// For meta_definition nodes, only 'meta_definition' is allowed (concept→concept purity)
+// For meta_definition nodes, only 'definition' is allowed (concept→concept purity)
 func (d *MetaDefinitionDAO) determinePrerequisiteType(tx *gorm.DB, id uint) (string, error) {
 	// Check meta_definition first
 	var metaDefCnt int64
 	if err := tx.Model(&models.MetaDefinition{}).Where("id = ?", id).Count(&metaDefCnt).Error; err == nil && metaDefCnt > 0 {
-		return "meta_definition", nil
+		return "definition", nil
 	}
 
 	// Disallow legacy definitions explicitly to keep concept graph pure
@@ -148,7 +148,7 @@ func (d *MetaDefinitionDAO) UpdateFieldsAndCascade(meta *models.MetaDefinition, 
 		}
 		if cascadeCode {
 			registry := NewCodeRegistryDAO(tx)
-			if err := registry.UpdateCode(tx, meta.DomainID, "meta_definition", meta.ID, meta.Code); err != nil {
+			if err := registry.UpdateCode(tx, meta.DomainID, "definition", meta.ID, meta.Code); err != nil {
 				return err
 			}
 		}
@@ -323,22 +323,22 @@ func (d *MetaDefinitionDAO) DeleteVersion(versionID uint) error {
 				return err
 			}
 			// Cleanup SRS-related data for this definition pool.
-			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "meta_definition"}).Delete(&models.UserNodeProgress{}).Error; err != nil {
+			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "definition"}).Delete(&models.UserNodeProgress{}).Error; err != nil {
 				return err
 			}
-			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "meta_definition"}).Delete(&models.ReviewHistory{}).Error; err != nil {
+			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "definition"}).Delete(&models.ReviewHistory{}).Error; err != nil {
 				return err
 			}
-			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "meta_definition"}).Delete(&models.SessionReview{}).Error; err != nil {
+			if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"definition", "definition"}).Delete(&models.SessionReview{}).Error; err != nil {
 				return err
 			}
 			if err := tx.Where("meta_definition_id = ?", id).Delete(&models.UserMetaDefinitionStats{}).Error; err != nil {
 				return err
 			}
-			if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+			if err := tx.Where("node_id = ? AND node_type = ?", id, "definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
 				return err
 			}
-			if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
+			if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
 				return err
 		}
 
@@ -361,7 +361,7 @@ func (d *MetaDefinitionDAO) DeleteVersion(versionID uint) error {
 			return err
 		}
 		registry := NewCodeRegistryDAO(tx)
-		return registry.ReleaseCode(tx, meta.DomainID, "meta_definition", id)
+		return registry.ReleaseCode(tx, meta.DomainID, "definition", id)
 	})
 }
 
@@ -414,7 +414,7 @@ func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versi
 	if err := d.DB.Raw(`
         SELECT md.code FROM node_prerequisites np
         JOIN meta_definitions md ON md.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
+        WHERE np.node_id = ? AND np.node_type = 'definition' AND np.prerequisite_type = 'definition'
         ORDER BY md.code`, meta.ID).Scan(&metaDefCodes).Error; err != nil {
 		return models.MetaDefinitionResponse{}, err
 	}
@@ -428,7 +428,7 @@ func (d *MetaDefinitionDAO) ConvertToResponse(meta *models.MetaDefinition, versi
 	if err := d.DB.Raw(`
         SELECT md.code, np.weight FROM node_prerequisites np
         JOIN meta_definitions md ON md.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
+        WHERE np.node_id = ? AND np.node_type = 'definition' AND np.prerequisite_type = 'definition'
         ORDER BY md.code`, meta.ID).Scan(&metaDefRows).Error; err != nil {
 		return models.MetaDefinitionResponse{}, err
 	}

@@ -2,12 +2,12 @@ export interface ExternalPrerequisiteLink {
   id: number;
   domainId: number;
   nodeId: number;
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   externalDomainUid: string;
   externalDomainId?: number;
   externalDomainName?: string;
   externalNodeId: number;
-  externalNodeType: 'meta_definition' | 'meta_exercise';
+  externalNodeType: 'definition' | 'exercise';
   externalNodeCode?: string;
   externalNodeName?: string;
   xPosition?: number;
@@ -28,7 +28,7 @@ export interface Exercise {
 
 export interface GroupNodeRef {
   nodeId: number;
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   nodeCode: string;
   nodeName: string;
 }
@@ -146,9 +146,9 @@ export interface MetaQuestDTO {
 export interface NodeRelationDTO {
   id?: number;
   domainId?: number;
-  fromType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  fromType: 'definition' | 'exercise' | 'source' | 'meta_quest';
   fromId: number;
-  toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  toType: 'definition' | 'exercise' | 'source' | 'meta_quest';
   toId: number;
   relationType: string;
   contextKey?: string;

@@ -363,9 +363,36 @@ func ensureMetaExerciseVersions(name string, versions []ImportExerciseVersion) [
 	return versions
 }
 
+// canonicalImportNodeType maps historical node-type spellings from older
+// export/backup files onto the canonical vocabulary.
+func canonicalImportNodeType(t string) string {
+	switch t {
+	case "meta_definition":
+		return "definition"
+	case "meta_exercise":
+		return "exercise"
+	default:
+		return t
+	}
+}
+
 func (s *ImportService) NormalizeImportData(data *ImportData) {
 	if data == nil {
 		return
+	}
+
+	// Older files carry meta_* node types; canonicalize before validation.
+	for i := range data.Relations {
+		data.Relations[i].FromType = canonicalImportNodeType(data.Relations[i].FromType)
+		data.Relations[i].ToType = canonicalImportNodeType(data.Relations[i].ToType)
+	}
+	for gi := range data.Groups {
+		for si := range data.Groups[gi].Seeds {
+			data.Groups[gi].Seeds[si].NodeType = canonicalImportNodeType(data.Groups[gi].Seeds[si].NodeType)
+		}
+		for mi := range data.Groups[gi].Members {
+			data.Groups[gi].Members[mi].NodeType = canonicalImportNodeType(data.Groups[gi].Members[mi].NodeType)
+		}
 	}
 
 	usedCodes := make(map[string]struct{})
@@ -559,8 +586,8 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 	}
 
 	exported := map[string]map[string]bool{
-		"meta_definition": {},
-		"meta_exercise":   {},
+		"definition": {},
+		"exercise":   {},
 		"source":          {},
 		"meta_quest":      {},
 	}
@@ -663,7 +690,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			YPosition:           md.YPosition,
 			Versions:            vnodes,
 		}
-		exported["meta_definition"][md.Code] = true
+		exported["definition"][md.Code] = true
 	}
 
 	// Export meta-exercises (with all prerequisite types and weights)
@@ -709,7 +736,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			YPosition:           me.YPosition,
 			Versions:            vnodes,
 		}
-		exported["meta_exercise"][me.Code] = true
+		exported["exercise"][me.Code] = true
 	}
 
 	// Export sources (shareable only)
@@ -841,9 +868,9 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		seedsByGroup := make(map[uint][]ImportGroupNodeRef)
 		for _, s := range seeds {
 			ref := ImportGroupNodeRef{NodeType: s.NodeType}
-			if s.NodeType == "meta_definition" {
+			if s.NodeType == "definition" {
 				ref.Code = metaDefCodes[s.NodeID]
-			} else if s.NodeType == "meta_exercise" {
+			} else if s.NodeType == "exercise" {
 				ref.Code = metaExCodes[s.NodeID]
 			}
 			if ref.Code != "" {
@@ -853,9 +880,9 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		membersByGroup := make(map[uint][]ImportGroupNodeRef)
 		for _, m := range members {
 			ref := ImportGroupNodeRef{NodeType: m.NodeType}
-			if m.NodeType == "meta_definition" {
+			if m.NodeType == "definition" {
 				ref.Code = metaDefCodes[m.NodeID]
-			} else if m.NodeType == "meta_exercise" {
+			} else if m.NodeType == "exercise" {
 				ref.Code = metaExCodes[m.NodeID]
 			}
 			if ref.Code != "" {
@@ -1092,7 +1119,7 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 			return fmt.Errorf("group %s has no seeds", group.Name)
 		}
 		for _, seed := range group.Seeds {
-			if seed.NodeType != "meta_definition" && seed.NodeType != "meta_exercise" {
+			if seed.NodeType != "definition" && seed.NodeType != "exercise" {
 				return fmt.Errorf("group %s has invalid nodeType %s", group.Name, seed.NodeType)
 			}
 			if seed.Code == "" || !allCodes[seed.Code] {
@@ -1100,7 +1127,7 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 			}
 		}
 		for _, member := range group.Members {
-			if member.NodeType != "meta_definition" && member.NodeType != "meta_exercise" {
+			if member.NodeType != "definition" && member.NodeType != "exercise" {
 				return fmt.Errorf("group %s has invalid nodeType %s", group.Name, member.NodeType)
 			}
 			if member.Code == "" || !allCodes[member.Code] {
@@ -1491,7 +1518,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			newCodes = append(newCodes, models.DomainNodeCode{
 				DomainID: domain.ID,
 				Code:     md.Code,
-				NodeType: "meta_definition",
+				NodeType: "definition",
 				NodeID:   md.ID,
 			})
 		}
@@ -1630,16 +1657,16 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				}
 				defPrereqRows = append(defPrereqRows, models.NodePrerequisite{
 					NodeID:           md.ID,
-					NodeType:         "meta_definition",
+					NodeType:         "definition",
 					PrerequisiteID:   pid,
-					PrerequisiteType: "meta_definition",
+					PrerequisiteType: "definition",
 					Weight:           w,
 				})
 			}
 		}
 	}
 	if len(defPrereqClearIDs) > 0 {
-		if err := tx.Where("node_id IN ? AND node_type = ?", defPrereqClearIDs, "meta_definition").
+		if err := tx.Where("node_id IN ? AND node_type = ?", defPrereqClearIDs, "definition").
 			Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return fmt.Errorf("failed to clear metaDefinition prerequisites: %v", err)
 		}
@@ -1692,7 +1719,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			newCodes = append(newCodes, models.DomainNodeCode{
 				DomainID: domain.ID,
 				Code:     meta.Code,
-				NodeType: "meta_exercise",
+				NodeType: "exercise",
 				NodeID:   meta.ID,
 			})
 		}
@@ -1717,7 +1744,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			}
 		}
 		if len(exPrereqClearIDs) > 0 {
-			if err := tx.Where("node_id IN ? AND node_type = ?", exPrereqClearIDs, "meta_exercise").
+			if err := tx.Where("node_id IN ? AND node_type = ?", exPrereqClearIDs, "exercise").
 				Delete(&models.NodePrerequisite{}).Error; err != nil {
 				return fmt.Errorf("failed to clear metaExercise prerequisites: %v", err)
 			}
@@ -1754,16 +1781,15 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 				// 1. Try to find in imported meta-definitions (concepts) - preferred for graph
 				if metaDef, ok := metaDefs[resolvedMetaDefCode]; ok {
-					pair := prereqPair{nodeID: metas[assignedCode].ID, prereqID: metaDef.ID, prereqType: "meta_definition"}
+					pair := prereqPair{nodeID: metas[assignedCode].ID, prereqID: metaDef.ID, prereqType: "definition"}
 					if _, exists := pairSeen[pair]; !exists {
 						pairSeen[pair] = struct{}{}
 						exPrereqRows = append(exPrereqRows, models.NodePrerequisite{
 							NodeID:           pair.nodeID,
-							NodeType:         "meta_exercise",
+							NodeType:         "exercise",
 							PrerequisiteID:   pair.prereqID,
 							PrerequisiteType: pair.prereqType,
 							Weight:           clamp01(me.PrerequisiteWeights[pcode]),
-							IsManual:         true,
 						})
 					}
 					continue
@@ -1771,16 +1797,15 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 				// 2. Try to find in imported meta-exercises
 				if metaEx, ok := metas[resolvedMetaExCode]; ok {
-					pair := prereqPair{nodeID: metas[assignedCode].ID, prereqID: metaEx.ID, prereqType: "meta_exercise"}
+					pair := prereqPair{nodeID: metas[assignedCode].ID, prereqID: metaEx.ID, prereqType: "exercise"}
 					if _, exists := pairSeen[pair]; !exists {
 						pairSeen[pair] = struct{}{}
 						exPrereqRows = append(exPrereqRows, models.NodePrerequisite{
 							NodeID:           pair.nodeID,
-							NodeType:         "meta_exercise",
+							NodeType:         "exercise",
 							PrerequisiteID:   pair.prereqID,
 							PrerequisiteType: pair.prereqType,
 							Weight:           clamp01(me.PrerequisiteWeights[pcode]),
-							IsManual:         true,
 						})
 					}
 					continue
@@ -1883,33 +1908,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			YPosition:   exNode.YPosition,
 		}
 
-		// Collect prerequisite IDs
-		var prerequisiteIDs []uint
-		for _, prereqCode := range exNode.Prerequisites {
-			if prereqDef, exists := firstDefByCode[prereqCode]; exists {
-				prerequisiteIDs = append(prerequisiteIDs, prereqDef.ID)
-			} else {
-				log.Printf("Warning: Prerequisite %s not found for exercise %s", prereqCode, code)
-			}
-		}
-
-		// Build weights map by ID if provided
-		var idWeights map[uint]float64
-		if len(exNode.PrerequisiteWeights) > 0 {
-			idWeights = make(map[uint]float64, len(exNode.PrerequisiteWeights))
-			for pcode, w := range exNode.PrerequisiteWeights {
-				if prereqDef, ok := firstDefByCode[pcode]; ok {
-					if w < 0.01 {
-						w = 0.01
-					} else if w > 1.0 {
-						w = 1.0
-					}
-					idWeights[prereqDef.ID] = w
-				}
-			}
-		}
-		// Create exercise with prerequisites (and weights if provided)
-		if err := exerciseDAO.Create(exercise, prerequisiteIDs, idWeights); err != nil {
+		if err := exerciseDAO.Create(exercise); err != nil {
 			return fmt.Errorf("failed to create exercise %s: %v", code, err)
 		}
 
@@ -2045,9 +2044,9 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			fromCode := rel.FromCode
 			toCode := rel.ToCode
 			switch rel.FromType {
-			case "meta_definition":
+			case "definition":
 				fromCode = metaDefAssigned[fromCode]
-			case "meta_exercise":
+			case "exercise":
 				fromCode = metaAssigned[fromCode]
 			case "source":
 				fromCode = sourceAssigned[fromCode]
@@ -2055,9 +2054,9 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				fromCode = questAssigned[fromCode]
 			}
 			switch rel.ToType {
-			case "meta_definition":
+			case "definition":
 				toCode = metaDefAssigned[toCode]
-			case "meta_exercise":
+			case "exercise":
 				toCode = metaAssigned[toCode]
 			case "source":
 				toCode = sourceAssigned[toCode]
@@ -2067,11 +2066,11 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 			var fromID uint
 			switch rel.FromType {
-			case "meta_definition":
+			case "definition":
 				if md, ok := metaDefs[fromCode]; ok {
 					fromID = md.ID
 				}
-			case "meta_exercise":
+			case "exercise":
 				if me, ok := metas[fromCode]; ok {
 					fromID = me.ID
 				}
@@ -2086,11 +2085,11 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			}
 			var toID uint
 			switch rel.ToType {
-			case "meta_definition":
+			case "definition":
 				if md, ok := metaDefs[toCode]; ok {
 					toID = md.ID
 				}
-			case "meta_exercise":
+			case "exercise":
 				if me, ok := metas[toCode]; ok {
 					toID = me.ID
 				}
@@ -2130,23 +2129,23 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		resolved := make(map[string]models.NodeGroupSeed)
 		for _, ref := range refs {
 			switch ref.NodeType {
-			case "meta_definition":
+			case "definition":
 				code := metaDefAssigned[ref.Code]
 				if code == "" {
 					code = ref.Code
 				}
 				if md, ok := metaDefs[code]; ok {
-					key := buildGroupKey("meta_definition", md.ID)
-					resolved[key] = models.NodeGroupSeed{NodeID: md.ID, NodeType: "meta_definition"}
+					key := buildGroupKey("definition", md.ID)
+					resolved[key] = models.NodeGroupSeed{NodeID: md.ID, NodeType: "definition"}
 				}
-			case "meta_exercise":
+			case "exercise":
 				code := metaAssigned[ref.Code]
 				if code == "" {
 					code = ref.Code
 				}
 				if me, ok := metas[code]; ok {
-					key := buildGroupKey("meta_exercise", me.ID)
-					resolved[key] = models.NodeGroupSeed{NodeID: me.ID, NodeType: "meta_exercise"}
+					key := buildGroupKey("exercise", me.ID)
+					resolved[key] = models.NodeGroupSeed{NodeID: me.ID, NodeType: "exercise"}
 				}
 			}
 		}

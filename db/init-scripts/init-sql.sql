@@ -109,7 +109,6 @@ CREATE TABLE IF NOT EXISTS node_prerequisites (
     prerequisite_id INTEGER NOT NULL, -- prerequisite definition/exercise ID  
     prerequisite_type VARCHAR(20) NOT NULL CHECK (prerequisite_type IN ('definition', 'exercise')),
     weight DECIMAL(3,2) DEFAULT 1.0 CHECK (weight > 0 AND weight <= 1.0),
-    is_manual BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(node_id, node_type, prerequisite_id, prerequisite_type),
     CHECK (NOT (node_id = prerequisite_id AND node_type = prerequisite_type))
@@ -137,7 +136,7 @@ CREATE TABLE IF NOT EXISTS node_group_seeds (
     id SERIAL PRIMARY KEY,
     group_id INT NOT NULL,
     node_id INT NOT NULL,
-    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('meta_definition', 'meta_exercise')),
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('definition', 'exercise')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(group_id, node_id, node_type),
     FOREIGN KEY (group_id) REFERENCES node_groups(id) ON DELETE CASCADE
@@ -147,7 +146,7 @@ CREATE TABLE IF NOT EXISTS node_group_members (
     id SERIAL PRIMARY KEY,
     group_id INT NOT NULL,
     node_id INT NOT NULL,
-    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('meta_definition', 'meta_exercise')),
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('definition', 'exercise')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(group_id, node_id, node_type),
     FOREIGN KEY (group_id) REFERENCES node_groups(id) ON DELETE CASCADE
@@ -196,6 +195,8 @@ CREATE TABLE IF NOT EXISTS study_sessions (
     user_id INTEGER NOT NULL,
     domain_id INTEGER NOT NULL,
     session_type VARCHAR(20) CHECK (session_type IN ('definition', 'exercise', 'mixed')) NOT NULL,
+    mode VARCHAR(20) CHECK (mode IN ('normal', 'frenzy')) NOT NULL DEFAULT 'normal',
+    runtime_state JSONB,
     start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP,
     total_reviews INTEGER DEFAULT 0,
@@ -239,7 +240,7 @@ CREATE TABLE IF NOT EXISTS review_history (
 );
 
 -- ============================================================================
--- LEGACY TABLES (for backwards compatibility with old system)
+-- DOMAIN ENROLLMENT
 -- ============================================================================
 
 -- User domain enrollment
@@ -252,57 +253,6 @@ CREATE TABLE IF NOT EXISTS user_domain_progress (
     PRIMARY KEY (user_id, domain_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE
-);
-
--- User definition progress - legacy spaced repetition
-CREATE TABLE IF NOT EXISTS user_definition_progress (
-    user_id INT NOT NULL,
-    definition_id INT NOT NULL,
-    learned BOOLEAN DEFAULT FALSE,
-    last_review TIMESTAMP,
-    next_review TIMESTAMP,
-    easiness_factor NUMERIC(4,3) DEFAULT 2.5,
-    interval_days INT DEFAULT 0,
-    repetitions INT DEFAULT 0,
-    PRIMARY KEY (user_id, definition_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (definition_id) REFERENCES definitions(id) ON DELETE CASCADE
-);
-
--- User exercise progress - legacy
-CREATE TABLE IF NOT EXISTS user_exercise_progress (
-    user_id INT NOT NULL,
-    exercise_id INT NOT NULL,
-    completed BOOLEAN DEFAULT FALSE,
-    correct BOOLEAN DEFAULT FALSE,
-    attempts INT DEFAULT 0,
-    last_attempt TIMESTAMP,
-    PRIMARY KEY (user_id, exercise_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
-);
-
--- Session definitions reviewed (legacy table)
-CREATE TABLE IF NOT EXISTS session_definitions (
-    session_id INT NOT NULL,
-    definition_id INT NOT NULL,
-    review_result VARCHAR(20) CHECK (review_result IN ('again', 'hard', 'good', 'easy')),
-    time_taken INT, -- in seconds
-    PRIMARY KEY (session_id, definition_id),
-    FOREIGN KEY (session_id) REFERENCES study_sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (definition_id) REFERENCES definitions(id) ON DELETE CASCADE
-);
-
--- Session exercises completed (legacy table)
-CREATE TABLE IF NOT EXISTS session_exercises (
-    session_id INT NOT NULL,
-    exercise_id INT NOT NULL,
-    completed BOOLEAN DEFAULT FALSE,
-    correct BOOLEAN DEFAULT FALSE,
-    time_taken INT, -- in seconds
-    PRIMARY KEY (session_id, exercise_id),
-    FOREIGN KEY (session_id) REFERENCES study_sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
 );
 
 -- ============================================================================
@@ -395,9 +345,9 @@ CREATE TABLE IF NOT EXISTS quest_events (
 CREATE TABLE IF NOT EXISTS node_relations (
     id SERIAL PRIMARY KEY,
     domain_id INT NOT NULL,
-    from_type VARCHAR(20) NOT NULL CHECK (from_type IN ('meta_definition','meta_exercise','source','meta_quest')),
+    from_type VARCHAR(20) NOT NULL CHECK (from_type IN ('definition','exercise','source','meta_quest')),
     from_id INT NOT NULL,
-    to_type VARCHAR(20) NOT NULL CHECK (to_type IN ('meta_definition','meta_exercise','source','meta_quest')),
+    to_type VARCHAR(20) NOT NULL CHECK (to_type IN ('definition','exercise','source','meta_quest')),
     to_id INT NOT NULL,
     relation_type VARCHAR(50) NOT NULL,
     context_key TEXT NOT NULL DEFAULT '',
@@ -414,7 +364,7 @@ CREATE TABLE IF NOT EXISTS domain_node_codes (
     id SERIAL PRIMARY KEY,
     domain_id INT NOT NULL,
     code VARCHAR(80) NOT NULL,
-    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('meta_definition','meta_exercise','source','meta_quest')),
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('definition','exercise','source','meta_quest')),
     node_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(domain_id, code),

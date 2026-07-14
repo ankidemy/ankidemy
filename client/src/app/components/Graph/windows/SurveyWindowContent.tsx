@@ -43,10 +43,10 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
   const codeLookup = useMemo(() => {
     const map = new Map<string, string>();
     Object.values(graphData?.definitions || {}).forEach(def => {
-      if (def.id) map.set(`meta_definition:${def.id}`, def.code);
+      if (def.id) map.set(`definition:${def.id}`, def.code);
     });
     Object.values(graphData?.exercises || {}).forEach(ex => {
-      if (ex.id) map.set(`meta_exercise:${ex.id}`, ex.code);
+      if (ex.id) map.set(`exercise:${ex.id}`, ex.code);
     });
     Object.values(graphData?.sources || {}).forEach(src => {
       if (src.id) map.set(`source:${src.id}`, src.code);

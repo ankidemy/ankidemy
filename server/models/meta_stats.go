@@ -2,12 +2,16 @@ package models
 
 import "time"
 
-// UserMetaExerciseStats tracks per-user stats for a meta exercise (pool)
+// UserMetaExerciseStats tracks per-user stats for an exercise node (pool).
+// SolvedUntil implements solved-state expiry: the exercise counts as solved
+// only while SolvedUntil is in the future; afterwards it becomes eligible for
+// re-selection as if unsolved.
 type UserMetaExerciseStats struct {
     ID                   uint      `gorm:"primaryKey" json:"id"`
     UserID               uint      `gorm:"column:user_id;not null;index" json:"userId"`
     MetaExerciseID       uint      `gorm:"column:meta_exercise_id;not null;index" json:"metaExerciseId"`
     LastCorrectDifficulty int      `gorm:"column:last_correct_difficulty;default:1" json:"lastCorrectDifficulty"`
+    SolvedUntil          *time.Time `gorm:"column:solved_until" json:"solvedUntil,omitempty"`
     UpdatedAt            time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
     CreatedAt            time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 }

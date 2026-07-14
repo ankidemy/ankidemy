@@ -38,7 +38,7 @@ func (d *MetaExerciseDAO) Create(meta *models.MetaExercise, prerequisiteIDs []ui
 		}
 
 		registry := NewCodeRegistryDAO(tx)
-		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "meta_exercise", meta.ID); err != nil {
+		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "exercise", meta.ID); err != nil {
 			return err
 		}
 
@@ -63,7 +63,7 @@ func (d *MetaExerciseDAO) Create(meta *models.MetaExercise, prerequisiteIDs []ui
 					}
 				}
 			}
-			p := &models.NodePrerequisite{NodeID: meta.ID, NodeType: "meta_exercise", PrerequisiteID: pid, PrerequisiteType: "definition", Weight: w}
+			p := &models.NodePrerequisite{NodeID: meta.ID, NodeType: "exercise", PrerequisiteID: pid, PrerequisiteType: "definition", Weight: w}
 			_ = tx.Create(p).Error
 		}
 		return nil
@@ -76,7 +76,7 @@ func (d *MetaExerciseDAO) Update(meta *models.MetaExercise, prerequisiteIDs []ui
 		if err := tx.Save(meta).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
+		if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
 		for _, pid := range prerequisiteIDs {
@@ -99,7 +99,7 @@ func (d *MetaExerciseDAO) Update(meta *models.MetaExercise, prerequisiteIDs []ui
 					}
 				}
 			}
-			p := &models.NodePrerequisite{NodeID: meta.ID, NodeType: "meta_exercise", PrerequisiteID: pid, PrerequisiteType: "definition", Weight: w}
+			p := &models.NodePrerequisite{NodeID: meta.ID, NodeType: "exercise", PrerequisiteID: pid, PrerequisiteType: "definition", Weight: w}
 			_ = tx.Create(p).Error
 		}
 		return nil
@@ -120,7 +120,7 @@ func (d *MetaExerciseDAO) UpdateFieldsAndCascade(meta *models.MetaExercise, casc
 		}
 		if cascadeCode {
 			registry := NewCodeRegistryDAO(tx)
-			if err := registry.UpdateCode(tx, meta.DomainID, "meta_exercise", meta.ID, meta.Code); err != nil {
+			if err := registry.UpdateCode(tx, meta.DomainID, "exercise", meta.ID, meta.Code); err != nil {
 				return err
 			}
 		}
@@ -244,22 +244,22 @@ func (d *MetaExerciseDAO) Delete(id uint) error {
 			return err
 		}
 		// Cleanup SRS-related data for this exercise pool.
-		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "meta_exercise"}).Delete(&models.UserNodeProgress{}).Error; err != nil {
+		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "exercise"}).Delete(&models.UserNodeProgress{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "meta_exercise"}).Delete(&models.ReviewHistory{}).Error; err != nil {
+		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "exercise"}).Delete(&models.ReviewHistory{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "meta_exercise"}).Delete(&models.SessionReview{}).Error; err != nil {
+		if err := tx.Where("node_id = ? AND node_type IN ?", id, []string{"exercise", "exercise"}).Delete(&models.SessionReview{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("meta_exercise_id = ?", id).Delete(&models.UserMetaExerciseStats{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("node_id = ? AND node_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
+		if err := tx.Where("node_id = ? AND node_type = ?", id, "exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "meta_exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
+		if err := tx.Where("prerequisite_id = ? AND prerequisite_type = ?", id, "exercise").Delete(&models.NodePrerequisite{}).Error; err != nil {
 			return err
 		}
 		var versionIDs []uint
@@ -278,7 +278,7 @@ func (d *MetaExerciseDAO) Delete(id uint) error {
 			return err
 		}
 		registry := NewCodeRegistryDAO(tx)
-		return registry.ReleaseCode(tx, meta.DomainID, "meta_exercise", id)
+		return registry.ReleaseCode(tx, meta.DomainID, "exercise", id)
 	})
 }
 
@@ -327,7 +327,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	if err := d.db.Raw(`
         SELECT d.code FROM node_prerequisites np
         JOIN definitions d ON d.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
+        WHERE np.node_id = ? AND np.node_type = 'exercise' AND np.prerequisite_type = 'definition'
         ORDER BY d.code`, meta.ID).Scan(&defCodes).Error; err != nil {
 		return models.MetaExerciseResponse{}, err
 	}
@@ -336,7 +336,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	if err := d.db.Raw(`
         SELECT md.code FROM node_prerequisites np
         JOIN meta_definitions md ON md.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
+        WHERE np.node_id = ? AND np.node_type = 'exercise' AND np.prerequisite_type = 'definition'
         ORDER BY md.code`, meta.ID).Scan(&metaDefCodes).Error; err != nil {
 		return models.MetaExerciseResponse{}, err
 	}
@@ -345,7 +345,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	if err := d.db.Raw(`
         SELECT e.code FROM node_prerequisites np
         JOIN meta_exercises e ON e.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+        WHERE np.node_id = ? AND np.node_type = 'exercise' AND np.prerequisite_type = 'exercise'
         ORDER BY e.code`, meta.ID).Scan(&exCodes).Error; err != nil {
 		return models.MetaExerciseResponse{}, err
 	}
@@ -359,7 +359,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	if err := d.db.Raw(`
         SELECT d.code, np.weight FROM node_prerequisites np
         JOIN definitions d ON d.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
+        WHERE np.node_id = ? AND np.node_type = 'exercise' AND np.prerequisite_type = 'definition'
         ORDER BY d.code`, meta.ID).Scan(&defRows).Error; err != nil {
 		return models.MetaExerciseResponse{}, err
 	}
@@ -368,7 +368,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	if err := d.db.Raw(`
         SELECT md.code, np.weight FROM node_prerequisites np
         JOIN meta_definitions md ON md.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
+        WHERE np.node_id = ? AND np.node_type = 'exercise' AND np.prerequisite_type = 'definition'
         ORDER BY md.code`, meta.ID).Scan(&metaDefRows).Error; err != nil {
 		return models.MetaExerciseResponse{}, err
 	}
@@ -377,7 +377,7 @@ func (d *MetaExerciseDAO) ConvertToResponse(meta *models.MetaExercise, versions 
 	if err := d.db.Raw(`
         SELECT e.code, np.weight FROM node_prerequisites np
         JOIN meta_exercises e ON e.id = np.prerequisite_id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+        WHERE np.node_id = ? AND np.node_type = 'exercise' AND np.prerequisite_type = 'exercise'
         ORDER BY e.code`, meta.ID).Scan(&exRows).Error; err != nil {
 		return models.MetaExerciseResponse{}, err
 	}

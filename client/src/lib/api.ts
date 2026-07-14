@@ -160,12 +160,12 @@ export interface ExternalPrerequisiteLink {
   id: number;
   domainId: number;
   nodeId: number;
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   externalDomainUid: string;
   externalDomainId?: number;
   externalDomainName?: string;
   externalNodeId: number;
-  externalNodeType: 'meta_definition' | 'meta_exercise';
+  externalNodeType: 'definition' | 'exercise';
   externalNodeCode?: string;
   externalNodeName?: string;
   xPosition?: number;
@@ -356,9 +356,9 @@ export interface MetaQuestDTO {
 export interface NodeRelationDTO {
   id?: number;
   domainId?: number;
-  fromType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  fromType: 'definition' | 'exercise' | 'source' | 'meta_quest';
   fromId: number;
-  toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  toType: 'definition' | 'exercise' | 'source' | 'meta_quest';
   toId: number;
   relationType: string;
   contextKey?: string;
@@ -408,7 +408,7 @@ export interface VisualGraph {
 
 export interface GroupNodeRef {
   nodeId: number;
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   nodeCode: string;
   nodeName: string;
 }
@@ -427,7 +427,7 @@ export interface GroupData {
 
 export interface GroupNodeRefRequest {
   nodeId: number;
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
 }
 
 export interface GroupCreateRequest {
@@ -482,8 +482,8 @@ export interface GraphData {
     isExact: boolean;
     xPosition?: number;
     yPosition?: number;
-    seeds: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
-    members?: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
+    seeds: Array<{ nodeType: 'definition' | 'exercise'; code: string }>;
+    members?: Array<{ nodeType: 'definition' | 'exercise'; code: string }>;
   }>;
 }
 
@@ -601,8 +601,8 @@ export interface DomainExportData {
     isExact: boolean;
     xPosition?: number;
     yPosition?: number;
-    seeds: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
-    members?: Array<{ nodeType: 'meta_definition' | 'meta_exercise'; code: string }>;
+    seeds: Array<{ nodeType: 'definition' | 'exercise'; code: string }>;
+    members?: Array<{ nodeType: 'definition' | 'exercise'; code: string }>;
   }>;
 }
 
@@ -1185,10 +1185,10 @@ export const createExternalPrerequisite = async (
   domainId: number,
   payload: {
     nodeId: number;
-    nodeType: 'meta_definition' | 'meta_exercise';
+    nodeType: 'definition' | 'exercise';
     externalDomainUid: string;
     externalNodeId: number;
-    externalNodeType: 'meta_definition' | 'meta_exercise';
+    externalNodeType: 'definition' | 'exercise';
   }
 ): Promise<ExternalPrerequisiteLink> => {
   const response = await observedFetch(`${API_URL}/api/domains/${domainId}/external-prerequisites`, {
@@ -1215,7 +1215,7 @@ export const updateExternalPrerequisitePositions = async (
   positions: Array<{
     externalDomainUid: string;
     externalNodeId: number;
-    externalNodeType: 'meta_definition' | 'meta_exercise';
+    externalNodeType: 'definition' | 'exercise';
     xPosition: number;
     yPosition: number;
   }>

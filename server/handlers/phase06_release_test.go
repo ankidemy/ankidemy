@@ -285,7 +285,7 @@ func TestRelationCreateRejectsCrossDomainNodes(t *testing.T) {
 		nodeResolver:  newDBNodeAccessResolver(db),
 	}
 
-	body := fmt.Sprintf(`{"fromType":"meta_definition","fromId":%d,"toType":"meta_exercise","toId":%d,"relationType":"supports"}`, from.ID, to.ID)
+	body := fmt.Sprintf(`{"fromType":"definition","fromId":%d,"toType":"exercise","toId":%d,"relationType":"supports"}`, from.ID, to.ID)
 	c, recorder := testJSONContext(http.MethodPost, fmt.Sprintf("/api/domains/%d/relations", domainA.ID), body)
 	c.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", domainA.ID)}}
 	c.Set("userID", uint(11))
@@ -329,7 +329,7 @@ func TestSRSCreatePrerequisiteRejectsCrossDomainPair(t *testing.T) {
 		nodeAccessResolver: newDBNodeAccessResolver(db),
 	}
 
-	body := fmt.Sprintf(`{"nodeId":%d,"nodeType":"meta_definition","prerequisiteId":%d,"prerequisiteType":"meta_exercise","weight":0.5,"isManual":true}`, node.ID, prerequisite.ID)
+	body := fmt.Sprintf(`{"nodeId":%d,"nodeType":"definition","prerequisiteId":%d,"prerequisiteType":"exercise","weight":0.5}`, node.ID, prerequisite.ID)
 	c, recorder := testJSONContext(http.MethodPost, "/api/srs/prerequisites", body)
 	c.Set("userID", uint(11))
 
@@ -363,11 +363,10 @@ func TestSRSUpdatePrerequisiteRejectsMalformedLegacyRow(t *testing.T) {
 
 	prerequisite := &models.NodePrerequisite{
 		NodeID:           node.ID,
-		NodeType:         "meta_definition",
+		NodeType:         "definition",
 		PrerequisiteID:   999,
-		PrerequisiteType: "meta_exercise",
+		PrerequisiteType: "exercise",
 		Weight:           0.5,
-		IsManual:         true,
 	}
 	mustCreateModel(t, db, prerequisite)
 
@@ -411,11 +410,10 @@ func TestSRSDeletePrerequisiteRejectsMalformedLegacyRow(t *testing.T) {
 
 	prerequisite := &models.NodePrerequisite{
 		NodeID:           node.ID,
-		NodeType:         "meta_definition",
+		NodeType:         "definition",
 		PrerequisiteID:   999,
-		PrerequisiteType: "meta_exercise",
+		PrerequisiteType: "exercise",
 		Weight:           0.5,
-		IsManual:         true,
 	}
 	mustCreateModel(t, db, prerequisite)
 

@@ -33,14 +33,14 @@ export const parseExternalNodeId = (
   nodeId: string,
 ): {
   externalDomainUid: string;
-  externalNodeType: 'meta_definition' | 'meta_exercise';
+  externalNodeType: 'definition' | 'exercise';
   externalNodeId: number;
 } | null => {
   if (!nodeId.startsWith('ext:')) return null;
   const parts = nodeId.split(':');
   if (parts.length !== 4) return null;
   const [, domainUid, nodeType, nodeIdStr] = parts;
-  if (nodeType !== 'meta_definition' && nodeType !== 'meta_exercise') return null;
+  if (nodeType !== 'definition' && nodeType !== 'exercise') return null;
   const parsed = parseInt(nodeIdStr, 10);
   if (Number.isNaN(parsed)) return null;
   return {

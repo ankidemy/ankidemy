@@ -151,7 +151,7 @@ func (h *ExternalPrerequisiteHandler) ListByDomain(c *gin.Context) {
 		resp.ExternalDomainName = externalDomain.Name
 
 		switch link.ExternalNodeType {
-		case "meta_definition":
+		case "definition":
 			meta, _, err := h.metaDefinitionDAO.FindByID(link.ExternalNodeID)
 			if err != nil || meta.DomainID != externalDomain.ID {
 				resp.Status = externalStatusMissingNode
@@ -159,7 +159,7 @@ func (h *ExternalPrerequisiteHandler) ListByDomain(c *gin.Context) {
 				resp.ExternalNodeCode = meta.Code
 				resp.ExternalNodeName = meta.Name
 			}
-		case "meta_exercise":
+		case "exercise":
 			meta, _, err := h.metaExerciseDAO.FindByID(link.ExternalNodeID)
 			if err != nil || meta.DomainID != externalDomain.ID {
 				resp.Status = externalStatusMissingNode
@@ -223,7 +223,7 @@ func (h *ExternalPrerequisiteHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "External domain UID is required"})
 		return
 	}
-	if req.NodeType == "meta_definition" && req.ExternalNodeType != "meta_definition" {
+	if req.NodeType == "definition" && req.ExternalNodeType != "definition" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Concepts can only link to external concepts"})
 		return
 	}
@@ -424,17 +424,17 @@ func (h *ExternalPrerequisiteHandler) UpdatePositions(c *gin.Context) {
 }
 
 func isValidExternalNodeType(nodeType string) bool {
-	return nodeType == "meta_definition" || nodeType == "meta_exercise"
+	return nodeType == "definition" || nodeType == "exercise"
 }
 
 func (h *ExternalPrerequisiteHandler) validateNodeInDomain(domainID, nodeID uint, nodeType string) error {
 	switch nodeType {
-	case "meta_definition":
+	case "definition":
 		meta, _, err := h.metaDefinitionDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
 			return errors.New("Node not found in domain")
 		}
-	case "meta_exercise":
+	case "exercise":
 		meta, _, err := h.metaExerciseDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
 			return errors.New("Node not found in domain")
@@ -447,13 +447,13 @@ func (h *ExternalPrerequisiteHandler) validateNodeInDomain(domainID, nodeID uint
 
 func (h *ExternalPrerequisiteHandler) resolveExternalNode(domainID, nodeID uint, nodeType string) (string, string, error) {
 	switch nodeType {
-	case "meta_definition":
+	case "definition":
 		meta, _, err := h.metaDefinitionDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
 			return "", "", errors.New("External node not found")
 		}
 		return meta.Code, meta.Name, nil
-	case "meta_exercise":
+	case "exercise":
 		meta, _, err := h.metaExerciseDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
 			return "", "", errors.New("External node not found")

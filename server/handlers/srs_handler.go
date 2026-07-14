@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
-	//"time"
 
 	"ankidemy/server/dao"
 	"ankidemy/server/middleware"
@@ -21,6 +21,10 @@ type srsServiceStore interface {
 	GetReviewQueue(userID uint, domainID uint, sessionType string, mode string, exercisesPerDefinition int, requestID string) ([]models.ReviewQueueItem, error)
 	UpdateNodeStatus(userID uint, nodeID uint, nodeType string, status string) error
 	InvalidateDomainReviewCaches(domainID uint)
+	DeriveExerciseStatusesForDomain(domainID uint) error
+	StartEngineSession(userID uint, request *models.SessionRequest, requestID string) (*services.SessionEngineState, error)
+	GetEngineSessionItem(userID uint, sessionID uint) (*services.SessionEngineItem, error)
+	GradeEngineSession(userID uint, sessionID uint, grade *models.SessionGradeRequest, requestID string) (*services.SessionEngineItem, error)
 }
 
 type srsDAOStore interface {
@@ -107,36 +111,14 @@ func (h *SRSHandler) requireDomainAccessByID(c *gin.Context, domainID uint, acce
 }
 
 func (h *SRSHandler) resolveReviewNodeDomainID(nodeType string, nodeID uint) (uint, error) {
-	switch nodeType {
-	case "definition":
-		resolved, err := h.nodeAccessResolver.ResolveNodeAccess("meta_definition", nodeID)
-		if err == nil {
-			return resolved.DomainID, nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, err
-		}
-		resolved, err = h.nodeAccessResolver.ResolveNodeAccess("definition", nodeID)
-		if err != nil {
-			return 0, err
-		}
-		return resolved.DomainID, nil
-	case "exercise":
-		resolved, err := h.nodeAccessResolver.ResolveNodeAccess("meta_exercise", nodeID)
-		if err == nil {
-			return resolved.DomainID, nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, err
-		}
-		resolved, err = h.nodeAccessResolver.ResolveNodeAccess("exercise", nodeID)
-		if err != nil {
-			return 0, err
-		}
-		return resolved.DomainID, nil
-	default:
+	if !models.IsValidNodeType(nodeType) {
 		return 0, errors.New("invalid node type")
 	}
+	resolved, err := h.nodeAccessResolver.ResolveNodeAccess(nodeType, nodeID)
+	if err != nil {
+		return 0, err
+	}
+	return resolved.DomainID, nil
 }
 
 func (h *SRSHandler) getMetaDomainInfo(nodeType string, nodeID uint) (uint, uint, error) {
@@ -178,8 +160,8 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 	}
 
 	// Validate node type
-	if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" && request.NodeType != "meta_definition" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise', 'meta_exercise', or 'meta_definition'"})
+	if !models.IsValidNodeType(request.NodeType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition' or 'exercise'"})
 		return
 	}
 
@@ -187,14 +169,6 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 	if request.Quality < 0 || request.Quality > 5 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Quality must be between 0 and 5"})
 		return
-	}
-
-	// Normalize meta types to base types for SRS storage compatibility
-	if request.NodeType == "meta_exercise" {
-		request.NodeType = "exercise"
-	}
-	if request.NodeType == "meta_definition" {
-		request.NodeType = "definition"
 	}
 
 	domainID, err := h.resolveReviewNodeDomainID(request.NodeType, request.NodeID)
@@ -209,6 +183,10 @@ func (h *SRSHandler) SubmitReview(c *gin.Context) {
 
 	response, err := h.srsService.SubmitReview(access.UserID, &request)
 	if err != nil {
+		if errors.Is(err, services.ErrNodeNotReviewable) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Only nodes in 'grasped' status can be reviewed"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -228,8 +206,8 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 		nodeType = "mixed"
 	}
 
-	if nodeType != "definition" && nodeType != "exercise" && nodeType != "meta_exercise" && nodeType != "meta_definition" && nodeType != "mixed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Type must be 'definition', 'exercise', 'meta_exercise', 'meta_definition', or 'mixed'"})
+	if nodeType != "definition" && nodeType != "exercise" && nodeType != "mixed" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Type must be 'definition', 'exercise', or 'mixed'"})
 		return
 	}
 
@@ -240,14 +218,6 @@ func (h *SRSHandler) GetDueReviews(c *gin.Context) {
 	if view != "full" && view != "compact" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "View must be 'full' or 'compact'"})
 		return
-	}
-
-	// Normalize meta types to base types for due selection
-	if nodeType == "meta_exercise" {
-		nodeType = "exercise"
-	}
-	if nodeType == "meta_definition" {
-		nodeType = "definition"
 	}
 
 	requestID := middleware.GetRequestID(c)
@@ -434,22 +404,14 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 		return
 	}
 
-	// Validate node type
-	if request.NodeType != "definition" && request.NodeType != "exercise" && request.NodeType != "meta_exercise" && request.NodeType != "meta_definition" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition', 'exercise', 'meta_exercise', or 'meta_definition'"})
+	// Only definitions carry a user-set status; exercise status is derived
+	// from the nearest parent definition.
+	if request.NodeType != "definition" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Exercise status is derived from its parent definitions and cannot be set directly"})
 		return
 	}
 
-	// Normalize meta types to base types
-	nodeType := request.NodeType
-	if nodeType == "meta_exercise" {
-		nodeType = "exercise"
-	}
-	if nodeType == "meta_definition" {
-		nodeType = "definition"
-	}
-
-	domainID, err := h.resolveReviewNodeDomainID(nodeType, request.NodeID)
+	domainID, err := h.resolveReviewNodeDomainID(request.NodeType, request.NodeID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
@@ -459,8 +421,12 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 		return
 	}
 
-	err = h.srsService.UpdateNodeStatus(access.UserID, request.NodeID, nodeType, request.Status)
+	err = h.srsService.UpdateNodeStatus(access.UserID, request.NodeID, request.NodeType, request.Status)
 	if err != nil {
+		if errors.Is(err, services.ErrExerciseStatusDerived) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -470,7 +436,8 @@ func (h *SRSHandler) UpdateNodeStatus(c *gin.Context) {
 
 // === Session Endpoints ===
 
-// StartSession starts a new study session
+// StartSession starts a new server-driven study session and returns the
+// session together with its first item.
 func (h *SRSHandler) StartSession(c *gin.Context) {
 	var request models.SessionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -478,18 +445,16 @@ func (h *SRSHandler) StartSession(c *gin.Context) {
 		return
 	}
 
-	// Validate session type
-	validTypes := []string{"definition", "exercise", "mixed"}
-	isValidType := false
-	for _, sessionType := range validTypes {
-		if request.SessionType == sessionType {
-			isValidType = true
-			break
-		}
-	}
-
-	if !isValidType {
+	if request.SessionType != "definition" && request.SessionType != "exercise" && request.SessionType != "mixed" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session type. Must be one of: definition, exercise, mixed"})
+		return
+	}
+	if request.Mode != "" && request.Mode != "normal" && request.Mode != "frenzy" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid mode. Must be normal or frenzy"})
+		return
+	}
+	if request.Order != "" && request.Order != "impact" && request.Order != "foundations" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order. Must be impact or foundations"})
 		return
 	}
 
@@ -498,29 +463,76 @@ func (h *SRSHandler) StartSession(c *gin.Context) {
 		return
 	}
 
-	session := &models.StudySession{
-		UserID:            access.UserID,
-		DomainID:          request.DomainID,
-		SessionType:       request.SessionType,
-		TotalReviews:      0,
-		SuccessfulReviews: 0,
-	}
-
-	if err := h.srsDao.CreateSession(session); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+	state, err := h.srsService.StartEngineSession(access.UserID, &request, middleware.GetRequestID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start session"})
 		return
 	}
 
-	response := &models.SessionResponse{
-		ID:                session.ID,
-		DomainID:          session.DomainID,
-		SessionType:       session.SessionType,
-		StartTime:         session.StartTime,
-		TotalReviews:      session.TotalReviews,
-		SuccessfulReviews: session.SuccessfulReviews,
+	c.JSON(http.StatusCreated, state)
+}
+
+// GetSessionItem returns the current item of a running session.
+func (h *SRSHandler) GetSessionItem(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	sessionID, err := strconv.ParseUint(c.Param("sessionId"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
 	}
 
-	c.JSON(http.StatusCreated, response)
+	item, err := h.srsService.GetEngineSessionItem(userID.(uint), uint(sessionID))
+	if err != nil {
+		if errors.Is(err, services.ErrSessionNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, item)
+}
+
+// GradeSession grades the current item and returns the next one.
+func (h *SRSHandler) GradeSession(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	sessionID, err := strconv.ParseUint(c.Param("sessionId"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+
+	var grade models.SessionGradeRequest
+	if err := c.ShouldBindJSON(&grade); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if grade.Quality < 0 || grade.Quality > 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Quality must be between 0 and 5"})
+		return
+	}
+
+	item, err := h.srsService.GradeEngineSession(userID.(uint), uint(sessionID), &grade, middleware.GetRequestID(c))
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrSessionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
+		case errors.Is(err, services.ErrSessionFinished):
+			c.JSON(http.StatusConflict, gin.H{"error": "Session already finished"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, item)
 }
 
 // EndSession ends a study session
@@ -620,25 +632,20 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-	// Validate node types for graph prerequisites (dev: meta graph only)
-	// Disallow legacy 'definition'/'exercise' node types to prevent invisible links in UI.
-	if request.NodeType != "meta_exercise" && request.NodeType != "meta_definition" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'meta_definition' or 'meta_exercise'"})
+	// Validate node types for graph prerequisites
+	if !models.IsValidNodeType(request.NodeType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Node type must be 'definition' or 'exercise'"})
 		return
 	}
 
-	if request.PrerequisiteType != "meta_exercise" && request.PrerequisiteType != "meta_definition" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisite type must be 'meta_definition' or 'meta_exercise'"})
+	if !models.IsValidNodeType(request.PrerequisiteType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Prerequisite type must be 'definition' or 'exercise'"})
 		return
 	}
 
-	// Enforce valid prerequisite pairs for meta graph
-	if request.NodeType == "meta_definition" && request.PrerequisiteType != "meta_definition" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "meta_definition nodes can only have meta_definition prerequisites"})
-		return
-	}
-	if request.NodeType == "meta_exercise" && request.PrerequisiteType != "meta_definition" && request.PrerequisiteType != "meta_exercise" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "meta_exercise nodes can only have meta_definition or meta_exercise prerequisites"})
+	// Enforce valid prerequisite pairs
+	if request.NodeType == "definition" && request.PrerequisiteType != "definition" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "definition nodes can only have definition prerequisites"})
 		return
 	}
 
@@ -687,15 +694,14 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 	}
 
 	if tx.RowsAffected > 0 {
-		// Update weight / isManual
-		updates := map[string]interface{}{"weight": request.Weight, "is_manual": request.IsManual}
+		// Update weight
+		updates := map[string]interface{}{"weight": request.Weight}
 		if err := h.db.Model(&models.NodePrerequisite{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		existing.Weight = request.Weight
-		existing.IsManual = request.IsManual
-		h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
+		h.afterPrerequisiteMutation(access.Domain.ID)
 		c.JSON(http.StatusOK, existing)
 		return
 	}
@@ -706,7 +712,6 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		PrerequisiteID:   request.PrerequisiteID,
 		PrerequisiteType: request.PrerequisiteType,
 		Weight:           request.Weight,
-		IsManual:         request.IsManual,
 	}
 
 	if err := h.srsDao.CreatePrerequisite(record); err != nil {
@@ -714,8 +719,18 @@ func (h *SRSHandler) CreatePrerequisite(c *gin.Context) {
 		return
 	}
 
-	h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
+	h.afterPrerequisiteMutation(access.Domain.ID)
 	c.JSON(http.StatusCreated, record)
+}
+
+// afterPrerequisiteMutation invalidates review caches and recomputes derived
+// exercise statuses: edge changes can move an exercise's nearest parent
+// definition for every user in the domain.
+func (h *SRSHandler) afterPrerequisiteMutation(domainID uint) {
+	h.srsService.InvalidateDomainReviewCaches(domainID)
+	if err := h.srsService.DeriveExerciseStatusesForDomain(domainID); err != nil {
+		log.Printf("warning: failed to derive exercise statuses for domain %d: %v", domainID, err)
+	}
 }
 
 // GetPrerequisites gets prerequisites for a domain
@@ -768,8 +783,7 @@ func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Weight   *float64 `json:"weight"`
-		IsManual *bool    `json:"isManual"`
+		Weight *float64 `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -783,9 +797,6 @@ func (h *SRSHandler) UpdatePrerequisite(c *gin.Context) {
 			return
 		}
 		updates["weight"] = w
-	}
-	if req.IsManual != nil {
-		updates["is_manual"] = *req.IsManual
 	}
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
@@ -840,7 +851,7 @@ func (h *SRSHandler) DeletePrerequisite(c *gin.Context) {
 		return
 	}
 
-	h.srsService.InvalidateDomainReviewCaches(access.Domain.ID)
+	h.afterPrerequisiteMutation(access.Domain.ID)
 	c.JSON(http.StatusOK, gin.H{"message": "Prerequisite deleted successfully"})
 }
 

@@ -4,7 +4,6 @@
 import { 
   NodeProgress, 
   NodePrerequisite, 
-  StudySession, 
   ReviewRequest, 
   ReviewResponse,
   DomainStats,
@@ -14,7 +13,12 @@ import {
   DueView,
   NodeStatus,
   ReviewQueueItem,
-  NotificationSummary
+  NotificationSummary,
+  SessionStartRequest,
+  SessionEngineItem,
+  SessionEngineState,
+  SessionGradeRequest,
+  StudySession,
 } from '../types/srs';
 
 // FIX: Import required functions from api.ts
@@ -189,6 +193,7 @@ export const submitReview = async (review: ReviewRequest): Promise<ReviewRespons
       // or handle it in a way that doesn't disrupt the user experience
       return {
         success: true,
+        counted: true,
         message: 'Review submitted successfully with credit adjustments',
         updatedNodes: [],
         creditFlow: []
@@ -259,18 +264,42 @@ export const getReviewHistory = async (
 // SESSION ENDPOINTS  
 // =============================================================================
 
-// Start a study session
+// Start a server-driven study session; the response carries the session and
+// its first item (with the selected version content).
 export const startStudySession = async (
-  domainId: number, 
-  sessionType: SessionType
-): Promise<StudySession> => {
+  request: SessionStartRequest
+): Promise<SessionEngineState> => {
   const response = await observedFetch(`${API_URL}/api/srs/sessions`, {
     method: 'POST',
     headers: { 
       ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ domainId, sessionType }),
+    body: JSON.stringify(request),
+  });
+  return handleSRSResponse(response);
+};
+
+// Fetch the session's current item without advancing.
+export const getSessionItem = async (sessionId: number): Promise<SessionEngineItem> => {
+  const response = await observedFetch(`${API_URL}/api/srs/sessions/${sessionId}/item`, {
+    headers: getAuthHeaders(),
+  });
+  return handleSRSResponse(response);
+};
+
+// Grade the session's current item; returns the next item.
+export const gradeSession = async (
+  sessionId: number,
+  grade: SessionGradeRequest
+): Promise<SessionEngineItem> => {
+  const response = await observedFetch(`${API_URL}/api/srs/sessions/${sessionId}/grade`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(grade),
   });
   return handleSRSResponse(response);
 };
@@ -300,11 +329,10 @@ export const getDomainPrerequisites = async (domainId: number): Promise<NodePrer
 // Create a prerequisite relationship
 export const createPrerequisite = async (prerequisite: {
   nodeId: number;
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   prerequisiteId: number;
-  prerequisiteType: 'meta_definition' | 'meta_exercise';
+  prerequisiteType: 'definition' | 'exercise';
   weight: number;
-  isManual: boolean;
 }): Promise<NodePrerequisite> => {
   const response = await observedFetch(`${API_URL}/api/srs/prerequisites`, {
     method: 'POST',
@@ -320,7 +348,7 @@ export const createPrerequisite = async (prerequisite: {
 // Update a prerequisite relationship
 export const updatePrerequisite = async (
   prerequisiteId: number,
-  updates: { weight?: number; isManual?: boolean }
+  updates: { weight?: number }
 ): Promise<NodePrerequisite> => {
   const response = await observedFetch(`${API_URL}/api/srs/prerequisites/${prerequisiteId}`, {
     method: 'PUT',
@@ -357,6 +385,17 @@ export const getStatusColor = (status: NodeStatus): string => {
     learned: '#93C5FD',    // Blue 300 - mastered (muted)
   };
   return colors[status] || colors.fresh;
+};
+
+// Exercise solve-state colors: exercises are colored by whether they have
+// been solved (unexpired), merely tried, or never attempted.
+export const getExerciseSolveColor = (state: 'unsolved' | 'tried' | 'solved'): string => {
+  const colors = {
+    unsolved: '#94A3B8', // Slate 400 - never solved
+    tried: '#F59E0B',    // Amber 500 - attempted, not (currently) solved
+    solved: '#10B981',   // Emerald 500 - solved (until expiry)
+  };
+  return colors[state] || colors.unsolved;
 };
 
 // Get status icon for UI display

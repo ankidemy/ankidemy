@@ -267,7 +267,7 @@ func (h *DefinitionHandler) UpdateDefinition(c *gin.Context) {
 	}
 
 	// Update definition
-	if err := h.definitionDAO.Update(definition, req.References, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+	if err := h.definitionDAO.Update(definition, req.References); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update definition"})
 		return
 	}

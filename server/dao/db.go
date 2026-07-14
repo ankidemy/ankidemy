@@ -59,8 +59,6 @@ func InitDB() (*gorm.DB, error) {
 		&models.MetaExercise{},
 		&models.Exercise{},
 		&models.UserDomainProgress{},
-		&models.UserDefinitionProgress{},
-		&models.UserExerciseProgress{},
 		&models.NodePrerequisite{},
 		&models.UserNodeProgress{},
 		&models.StudySession{},
@@ -92,7 +90,9 @@ func InitDB() (*gorm.DB, error) {
 		}
 	}
 
-	// Ensure DB check constraints support the new 'meta_exercise' node type
+	// Migrate legacy data to the standardized schema, then (re)apply the
+	// canonical CHECK constraints.
+	ensureModernSchema(db)
 	ensureSRSConstraints(db)
 	ensureSRSDueIndexes(db)
 	ensurePGStatStatements(db)
@@ -108,23 +108,23 @@ func InitDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-// ensureSRSConstraints updates or creates CHECK constraints to include 'meta_exercise' and 'meta_definition'
+// ensureSRSConstraints enforces the canonical node-type vocabulary.
 func ensureSRSConstraints(db *gorm.DB) {
 	stmts := []string{
 		// node_prerequisites
 		"ALTER TABLE node_prerequisites DROP CONSTRAINT IF EXISTS node_prerequisites_node_type_check;",
-		"ALTER TABLE node_prerequisites ADD CONSTRAINT node_prerequisites_node_type_check CHECK (node_type IN ('definition','exercise','meta_exercise','meta_definition'));",
+		"ALTER TABLE node_prerequisites ADD CONSTRAINT node_prerequisites_node_type_check CHECK (node_type IN ('definition','exercise'));",
 		"ALTER TABLE node_prerequisites DROP CONSTRAINT IF EXISTS node_prerequisites_prerequisite_type_check;",
-		"ALTER TABLE node_prerequisites ADD CONSTRAINT node_prerequisites_prerequisite_type_check CHECK (prerequisite_type IN ('definition','exercise','meta_exercise','meta_definition'));",
+		"ALTER TABLE node_prerequisites ADD CONSTRAINT node_prerequisites_prerequisite_type_check CHECK (prerequisite_type IN ('definition','exercise'));",
 		// user_node_progress
 		"ALTER TABLE user_node_progress DROP CONSTRAINT IF EXISTS user_node_progress_node_type_check;",
-		"ALTER TABLE user_node_progress ADD CONSTRAINT user_node_progress_node_type_check CHECK (node_type IN ('definition','exercise','meta_exercise','meta_definition'));",
+		"ALTER TABLE user_node_progress ADD CONSTRAINT user_node_progress_node_type_check CHECK (node_type IN ('definition','exercise'));",
 		// session_reviews
 		"ALTER TABLE session_reviews DROP CONSTRAINT IF EXISTS session_reviews_node_type_check;",
-		"ALTER TABLE session_reviews ADD CONSTRAINT session_reviews_node_type_check CHECK (node_type IN ('definition','exercise','meta_exercise','meta_definition'));",
+		"ALTER TABLE session_reviews ADD CONSTRAINT session_reviews_node_type_check CHECK (node_type IN ('definition','exercise'));",
 		// review_history
 		"ALTER TABLE review_history DROP CONSTRAINT IF EXISTS review_history_node_type_check;",
-		"ALTER TABLE review_history ADD CONSTRAINT review_history_node_type_check CHECK (node_type IN ('definition','exercise','meta_exercise','meta_definition'));",
+		"ALTER TABLE review_history ADD CONSTRAINT review_history_node_type_check CHECK (node_type IN ('definition','exercise'));",
 	}
 	for _, s := range stmts {
 		if err := db.Exec(s).Error; err != nil {
@@ -191,7 +191,7 @@ func ensureDomainNodeCodes(db *gorm.DB) error {
 		return err
 	}
 	for _, md := range metaDefs {
-		rows = append(rows, codeRow{ID: md.ID, DomainID: md.DomainID, Code: md.Code, NodeType: "meta_definition"})
+		rows = append(rows, codeRow{ID: md.ID, DomainID: md.DomainID, Code: md.Code, NodeType: "definition"})
 	}
 
 	var metaExs []models.MetaExercise
@@ -199,7 +199,7 @@ func ensureDomainNodeCodes(db *gorm.DB) error {
 		return err
 	}
 	for _, me := range metaExs {
-		rows = append(rows, codeRow{ID: me.ID, DomainID: me.DomainID, Code: me.Code, NodeType: "meta_exercise"})
+		rows = append(rows, codeRow{ID: me.ID, DomainID: me.DomainID, Code: me.Code, NodeType: "exercise"})
 	}
 
 	seen := make(map[string]bool)

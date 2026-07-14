@@ -24,11 +24,11 @@ type AvailableItem = { code: string; name: string; numericId: number };
 interface Props {
   domainId: number;
   nodeId: number; // numeric node id (definition or pool)
-  nodeType: 'meta_definition' | 'meta_exercise';
+  nodeType: 'definition' | 'exercise';
   availableDefinitions: AvailableItem[];
   canEdit?: boolean;
   // Control which prerequisite kinds can be added
-  allowKinds?: Array<'meta_definition' | 'meta_exercise'>;
+  allowKinds?: Array<'definition' | 'exercise'>;
   onChanged?: () => void; // notify parent to refresh graph
   externalLinks?: ExternalPrerequisiteLink[];
   onExternalChanged?: () => void;
@@ -40,14 +40,14 @@ const PrerequisitesPanel: React.FC<Props> = ({
   nodeType,
   availableDefinitions,
   canEdit = true,
-  allowKinds = ['meta_definition', 'meta_exercise'],
+  allowKinds = ['definition', 'exercise'],
   onChanged,
   externalLinks = [],
   onExternalChanged,
 }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rows, setRows] = useState<Array<{ id: number; prerequisiteId: number; weight: number; type: 'meta_definition' | 'meta_exercise' }>>([]);
+  const [rows, setRows] = useState<Array<{ id: number; prerequisiteId: number; weight: number; type: 'definition' | 'exercise' }>>([]);
   const [addingDefinitionIds, setAddingDefinitionIds] = useState<number[]>([]);
   const [addingExerciseIds, setAddingExerciseIds] = useState<number[]>([]);
   const [definitionWeights, setDefinitionWeights] = useState<Record<number, number>>({});
@@ -55,7 +55,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
   const [weightDrafts, setWeightDrafts] = useState<Record<number, string>>({});
 
   const [metaList, setMetaList] = useState<AvailableItem[]>([]);
-  const [selectedKind, setSelectedKind] = useState<'meta_definition' | 'meta_exercise'>(allowKinds.includes('meta_definition') ? 'meta_definition' : 'meta_exercise');
+  const [selectedKind, setSelectedKind] = useState<'definition' | 'exercise'>(allowKinds.includes('definition') ? 'definition' : 'exercise');
   const [searchDef, setSearchDef] = useState('');
   const [searchMeta, setSearchMeta] = useState('');
 
@@ -68,7 +68,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
   const [selectedExternalDomainUid, setSelectedExternalDomainUid] = useState<string>('');
   const [externalDefinitions, setExternalDefinitions] = useState<AvailableItem[]>([]);
   const [externalExercises, setExternalExercises] = useState<AvailableItem[]>([]);
-  const [externalNodeType, setExternalNodeType] = useState<'meta_definition' | 'meta_exercise'>('meta_definition');
+  const [externalNodeType, setExternalNodeType] = useState<'definition' | 'exercise'>('definition');
   const [externalNodeQuery, setExternalNodeQuery] = useState('');
   const [selectedExternalNodeId, setSelectedExternalNodeId] = useState<number | ''>('');
   const [externalError, setExternalError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
   }, [externalDomains, externalDomainQuery, domainId, selectedExternalOwner]);
 
   const externalNodeOptions = useMemo(() => {
-    return externalNodeType === 'meta_definition' ? externalDefinitions : externalExercises;
+    return externalNodeType === 'definition' ? externalDefinitions : externalExercises;
   }, [externalDefinitions, externalExercises, externalNodeType]);
 
   const filteredExternalNodeOptions = useMemo(() => {
@@ -145,13 +145,13 @@ const PrerequisitesPanel: React.FC<Props> = ({
       const filtered = all.filter(p =>
         p.nodeId === nodeId &&
         p.nodeType === nodeType &&
-        (p.prerequisiteType === 'meta_definition' || p.prerequisiteType === 'meta_exercise')
+        (p.prerequisiteType === 'definition' || p.prerequisiteType === 'exercise')
       );
       setRows(filtered.map(p => ({
         id: p.id,
         prerequisiteId: p.prerequisiteId,
         weight: p.weight,
-        type: p.prerequisiteType as 'meta_definition' | 'meta_exercise'
+        type: p.prerequisiteType as 'definition' | 'exercise'
       })));
       setError(null);
     } catch (e) {
@@ -232,8 +232,8 @@ const PrerequisitesPanel: React.FC<Props> = ({
   }, [selectedExternalOwner]);
 
   useEffect(() => {
-    if (nodeType === 'meta_definition') {
-      setExternalNodeType('meta_definition');
+    if (nodeType === 'definition') {
+      setExternalNodeType('definition');
     }
   }, [nodeType]);
 
@@ -300,16 +300,16 @@ const PrerequisitesPanel: React.FC<Props> = ({
 
   const handleAddMultiple = async () => {
     if (!canEdit) return;
-    const toProcess: Array<{ id: number; type: 'meta_definition' | 'meta_exercise'; weight: number }> = [];
-    if (selectedKind === 'meta_definition') {
+    const toProcess: Array<{ id: number; type: 'definition' | 'exercise'; weight: number }> = [];
+    if (selectedKind === 'definition') {
       addingDefinitionIds.forEach(id => {
         const weight = Math.max(0.01, Math.min(1.0, definitionWeights[id] ?? 1.0));
-        toProcess.push({ id, type: 'meta_definition', weight });
+        toProcess.push({ id, type: 'definition', weight });
       });
     } else {
       addingExerciseIds.forEach(id => {
         const weight = Math.max(0.01, Math.min(1.0, exerciseWeights[id] ?? 1.0));
-        toProcess.push({ id, type: 'meta_exercise', weight });
+        toProcess.push({ id, type: 'exercise', weight });
       });
     }
 
@@ -320,7 +320,6 @@ const PrerequisitesPanel: React.FC<Props> = ({
         prerequisiteId: item.id,
         prerequisiteType: item.type,
         weight: item.weight,
-        isManual: true,
       });
     }
 
@@ -399,8 +398,8 @@ const PrerequisitesPanel: React.FC<Props> = ({
         ) : (
           <div className="space-y-2">
             {rows.map(r => {
-              const d = (r.type === 'meta_definition' ? defMap : metaMap).get(r.prerequisiteId);
-              const typeLabel = r.type === 'meta_definition' ? 'Concept' : 'Exercise';
+              const d = (r.type === 'definition' ? defMap : metaMap).get(r.prerequisiteId);
+              const typeLabel = r.type === 'definition' ? 'Concept' : 'Exercise';
               return (
                 <div key={r.id} className="flex items-center justify-between p-2 border rounded">
                   <div className="flex-1">
@@ -452,7 +451,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
           <div className="text-xs text-gray-500 mb-2">Only domain owners or editors can edit prerequisites.</div>
         )}
         <div className="space-y-3">
-          {allowKinds.includes('meta_definition') && (
+          {allowKinds.includes('definition') && (
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-600">Concepts</span>
@@ -507,7 +506,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
             </div>
           )}
 
-          {allowKinds.includes('meta_exercise') && (
+          {allowKinds.includes('exercise') && (
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-600">Exercises</span>
@@ -572,8 +571,8 @@ const PrerequisitesPanel: React.FC<Props> = ({
                   onChange={(e)=> setSelectedKind(e.target.value as any)}
                   disabled={!canEdit}
                 >
-                  {allowKinds.includes('meta_definition') && <option value="meta_definition">Concepts</option>}
-                  {allowKinds.includes('meta_exercise') && <option value="meta_exercise">Exercises</option>}
+                  {allowKinds.includes('definition') && <option value="definition">Concepts</option>}
+                  {allowKinds.includes('exercise') && <option value="exercise">Exercises</option>}
                 </select>
               </div>
             )}
@@ -586,7 +585,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
               onClick={handleAddMultiple}
               disabled={
                 !canEdit ||
-                (selectedKind === 'meta_definition' ? addingDefinitionIds.length : addingExerciseIds.length) === 0
+                (selectedKind === 'definition' ? addingDefinitionIds.length : addingExerciseIds.length) === 0
               }
             >
               Add Selected
@@ -708,11 +707,11 @@ const PrerequisitesPanel: React.FC<Props> = ({
                 <select
                   className="border rounded px-2 py-1 text-xs disabled:bg-gray-100"
                   value={externalNodeType}
-                  onChange={(e) => setExternalNodeType(e.target.value as 'meta_definition' | 'meta_exercise')}
-                  disabled={!canEdit || externalLoading || nodeType === 'meta_definition'}
+                  onChange={(e) => setExternalNodeType(e.target.value as 'definition' | 'exercise')}
+                  disabled={!canEdit || externalLoading || nodeType === 'definition'}
                 >
-                  <option value="meta_definition">Concept</option>
-                  {nodeType === 'meta_exercise' && <option value="meta_exercise">Exercise</option>}
+                  <option value="definition">Concept</option>
+                  {nodeType === 'exercise' && <option value="exercise">Exercise</option>}
                 </select>
               </div>
               <Input

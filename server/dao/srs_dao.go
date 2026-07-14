@@ -60,62 +60,34 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	// domain size instead of the global node_prerequisites table. UNION also
 	// dedups rows matched by both halves.
 
-	// Get prerequisites for legacy definitions (backward compatibility)
+	// Definition (concept) node prerequisites
 	definitionQuery := fmt.Sprintf(`
 		%s
 		SELECT np.* FROM node_prerequisites np
-		JOIN definitions d ON np.node_id = d.id AND np.node_type = 'definition'
-		WHERE d.domain_id = ?
-		UNION
-		SELECT np.* FROM node_prerequisites np
-		JOIN definitions d ON np.prerequisite_id = d.id AND np.prerequisite_type = 'definition'
-		WHERE d.domain_id = ?
-	`, comment)
-
-	// Get prerequisites for meta_definitions (concept pools)
-	metaDefQuery := fmt.Sprintf(`
-		%s
-		SELECT np.* FROM node_prerequisites np
-		JOIN meta_definitions md ON np.node_id = md.id AND np.node_type = 'meta_definition'
+		JOIN meta_definitions md ON np.node_id = md.id AND np.node_type = 'definition'
 		WHERE md.domain_id = ?
 		UNION
 		SELECT np.* FROM node_prerequisites np
-		JOIN meta_definitions md ON np.prerequisite_id = md.id AND np.prerequisite_type = 'meta_definition'
+		JOIN meta_definitions md ON np.prerequisite_id = md.id AND np.prerequisite_type = 'definition'
 		WHERE md.domain_id = ?
 	`, comment)
 
-	// Get prerequisites for meta_exercises
+	// Exercise node prerequisites
 	exerciseQuery := fmt.Sprintf(`
 		%s
 		SELECT np.* FROM node_prerequisites np
-		JOIN meta_exercises e ON np.node_id = e.id AND np.node_type = 'meta_exercise'
+		JOIN meta_exercises e ON np.node_id = e.id AND np.node_type = 'exercise'
 		WHERE e.domain_id = ?
 		UNION
 		SELECT np.* FROM node_prerequisites np
-		JOIN meta_exercises e ON np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise'
+		JOIN meta_exercises e ON np.prerequisite_id = e.id AND np.prerequisite_type = 'exercise'
 		WHERE e.domain_id = ?
 	`, comment)
 
 	var defPrereqs []models.NodePrerequisite
-	var metaDefPrereqs []models.NodePrerequisite
 	var exPrereqs []models.NodePrerequisite
 
 	if err := d.db.Raw(definitionQuery, domainID, domainID).Scan(&defPrereqs).Error; err != nil {
-		if stage != "" {
-			logDAOStage(
-				requestID,
-				route,
-				daoMethod,
-				stage,
-				startedAt,
-				err,
-				map[string]interface{}{"domainId": domainID},
-			)
-		}
-		return nil, err
-	}
-
-	if err := d.db.Raw(metaDefQuery, domainID, domainID).Scan(&metaDefPrereqs).Error; err != nil {
 		if stage != "" {
 			logDAOStage(
 				requestID,
@@ -148,10 +120,6 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	// Combine and deduplicate
 	prereqMap := make(map[string]models.NodePrerequisite)
 	for _, prereq := range defPrereqs {
-		key := fmt.Sprintf("%d_%s_%d_%s", prereq.NodeID, prereq.NodeType, prereq.PrerequisiteID, prereq.PrerequisiteType)
-		prereqMap[key] = prereq
-	}
-	for _, prereq := range metaDefPrereqs {
 		key := fmt.Sprintf("%d_%s_%d_%s", prereq.NodeID, prereq.NodeType, prereq.PrerequisiteID, prereq.PrerequisiteType)
 		prereqMap[key] = prereq
 	}
@@ -190,11 +158,10 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 			startedAt,
 			nil,
 			map[string]interface{}{
-				"domainId":            domainID,
-				"definitionCount":     len(defPrereqs),
-				"metaDefinitionCount": len(metaDefPrereqs),
-				"exerciseCount":       len(exPrereqs),
-				"resultCount":         len(prerequisites),
+				"domainId":        domainID,
+				"definitionCount": len(defPrereqs),
+				"exerciseCount":   len(exPrereqs),
+				"resultCount":     len(prerequisites),
 			},
 		)
 	}
@@ -398,9 +365,10 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
 		WHERE md.domain_id = ?
 	`
 
-	// Get exercise (meta) progress
+	// Exercise node progress, including solve state (solved_until) and seen
+	// counts used by the UI to color exercises unsolved / tried / solved.
 	exQuery := `
-        SELECT 
+        SELECT
             e.id as node_id,
             'exercise' as node_type,
             e.code as node_code,
@@ -415,7 +383,7 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
             COALESCE(unp.credit_postponed, false) as credit_postponed,
             COALESCE(unp.total_reviews, 0) as total_reviews,
             COALESCE(unp.successful_reviews, 0) as successful_reviews,
-            CASE 
+            CASE
                 WHEN unp.next_review IS NULL THEN NULL
                 WHEN unp.next_review <= NOW() THEN 0
                 ELSE EXTRACT(days FROM (unp.next_review - NOW()))::INTEGER
@@ -423,10 +391,20 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
             CASE
                 WHEN unp.status = 'grasped' AND (unp.next_review IS NULL OR unp.next_review <= NOW()) THEN true
                 ELSE false
-            END as is_due
+            END as is_due,
+            umes.solved_until,
+            COALESCE(seen.seen_count, 0) as seen_count
         FROM meta_exercises e
-        LEFT JOIN user_node_progress unp ON e.id = unp.node_id 
+        LEFT JOIN user_node_progress unp ON e.id = unp.node_id
             AND unp.node_type = 'exercise' AND unp.user_id = ?
+        LEFT JOIN user_meta_exercise_stats umes ON umes.meta_exercise_id = e.id
+            AND umes.user_id = ?
+        LEFT JOIN (
+            SELECT ex.meta_exercise_id, SUM(uevs.seen_count) as seen_count
+            FROM exercises ex
+            JOIN user_exercise_version_stats uevs ON uevs.exercise_id = ex.id AND uevs.user_id = ?
+            GROUP BY ex.meta_exercise_id
+        ) seen ON seen.meta_exercise_id = e.id
         WHERE e.domain_id = ?
     `
 
@@ -437,7 +415,7 @@ func (d *SRSDao) GetDomainProgress(userID uint, domainID uint) ([]models.NodePro
 		return nil, err
 	}
 
-	if err := d.db.Raw(exQuery, userID, domainID).Scan(&exResults).Error; err != nil {
+	if err := d.db.Raw(exQuery, userID, userID, userID, domainID).Scan(&exResults).Error; err != nil {
 		return nil, err
 	}
 
@@ -547,10 +525,10 @@ func (d *SRSDao) GetDueReviews(userID uint, domainID uint, nodeType string, requ
 		stage = "fetch_due_rows"
 	}
 
-	if nodeType == "meta_definition" {
+	if nodeType == "definition" {
 		nodeType = "definition"
 	}
-	if nodeType == "meta_exercise" {
+	if nodeType == "exercise" {
 		nodeType = "exercise"
 	}
 
@@ -646,10 +624,10 @@ func (d *SRSDao) GetDueReviewsCompact(userID uint, domainID uint, nodeType strin
 		stage = "fetch_due_rows"
 	}
 
-	if nodeType == "meta_definition" {
+	if nodeType == "definition" {
 		nodeType = "definition"
 	}
-	if nodeType == "meta_exercise" {
+	if nodeType == "exercise" {
 		nodeType = "exercise"
 	}
 

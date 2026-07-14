@@ -146,13 +146,11 @@ func newDBNodeAccessResolver(db *gorm.DB) nodeAccessResolver {
 
 func (r *dbNodeAccessResolver) ResolveNodeAccess(nodeType string, nodeID uint) (*resolvedNodeAccess, error) {
 	return resolveNodeAccessWithLookup(nodeType, nodeID, map[string]nodeAccessLookup{
-		"definition":      r.loadDefinition,
-		"exercise":        r.loadExercise,
-		"meta_definition": r.loadMetaDefinition,
-		"meta_exercise":   r.loadMetaExercise,
-		"source":          r.loadSource,
-		"meta_quest":      r.loadQuest,
-		"quest":           r.loadQuest,
+		"definition": r.loadMetaDefinition,
+		"exercise":   r.loadMetaExercise,
+		"source":     r.loadSource,
+		"meta_quest": r.loadQuest,
+		"quest":      r.loadQuest,
 	})
 }
 
@@ -171,22 +169,6 @@ func resolveNodeAccessWithLookup(nodeType string, nodeID uint, lookups map[strin
 	clone.NodeType = nodeType
 	clone.NodeID = nodeID
 	return &clone, nil
-}
-
-func (r *dbNodeAccessResolver) loadDefinition(nodeID uint) (*resolvedNodeAccess, error) {
-	var definition models.Definition
-	if err := r.db.Select("domain_id", "owner_id").First(&definition, nodeID).Error; err != nil {
-		return nil, err
-	}
-	return &resolvedNodeAccess{DomainID: definition.DomainID, OwnerID: definition.OwnerID}, nil
-}
-
-func (r *dbNodeAccessResolver) loadExercise(nodeID uint) (*resolvedNodeAccess, error) {
-	var exercise models.Exercise
-	if err := r.db.Select("domain_id", "owner_id").First(&exercise, nodeID).Error; err != nil {
-		return nil, err
-	}
-	return &resolvedNodeAccess{DomainID: exercise.DomainID, OwnerID: exercise.OwnerID}, nil
 }
 
 func (r *dbNodeAccessResolver) loadMetaDefinition(nodeID uint) (*resolvedNodeAccess, error) {

@@ -56,7 +56,7 @@ interface QuestWindowContentProps {
   isCopyingYaml?: boolean;
 }
 
-type RelationDraft = { relationType: string; toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest'; toCode: string };
+type RelationDraft = { relationType: string; toType: 'definition' | 'exercise' | 'source' | 'meta_quest'; toCode: string };
 
 type QuestKind = 'todo' | 'habit' | 'daily';
 type QuestVisibility = 'private' | 'domain';
@@ -67,7 +67,7 @@ const formatQuestKindLabel = (value: QuestKind) => value.charAt(0).toUpperCase()
 const isQuestKind = (value: string): value is QuestKind => value === 'todo' || value === 'habit' || value === 'daily';
 const isQuestVisibility = (value: string): value is QuestVisibility => value === 'private' || value === 'domain';
 const isRelationToType = (value: string): value is RelationDraft['toType'] =>
-  value === 'meta_definition' || value === 'meta_exercise' || value === 'source' || value === 'meta_quest';
+  value === 'definition' || value === 'exercise' || value === 'source' || value === 'meta_quest';
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 const toLocalDateInputValue = (date: Date) => {
@@ -125,7 +125,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const [relevantLinks, setRelevantLinks] = useState<RelationDraft[]>([]);
   const [newRelation, setNewRelation] = useState<RelationDraft>({
     relationType: 'relevant',
-    toType: 'meta_definition',
+    toType: 'definition',
     toCode: '',
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -489,10 +489,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
   const getLinkLabel = useCallback((link: RelationDraft): string => {
     if (!graphData) return link.toCode;
-    if (link.toType === 'meta_definition') {
+    if (link.toType === 'definition') {
       return graphData.definitions?.[link.toCode]?.name || link.toCode;
     }
-    if (link.toType === 'meta_exercise') {
+    if (link.toType === 'exercise') {
       return graphData.exercises?.[link.toCode]?.name || link.toCode;
     }
     if (link.toType === 'source') {
@@ -1829,8 +1829,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   }}
                   className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
                 >
-                  <option value="meta_definition">Definition</option>
-                  <option value="meta_exercise">Exercise</option>
+                  <option value="definition">Definition</option>
+                  <option value="exercise">Exercise</option>
                   <option value="source">Source</option>
                   <option value="meta_quest">Quest</option>
                 </select>
@@ -1889,9 +1889,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   <div className="flex flex-wrap gap-1.5">
                     {relevantLinks.map((link, idx) => {
                       const style =
-                        link.toType === 'meta_definition'
+                        link.toType === 'definition'
                           ? 'bg-blue-50 hover:bg-blue-100 border-blue-200'
-                          : link.toType === 'meta_exercise'
+                          : link.toType === 'exercise'
                             ? 'bg-orange-50 hover:bg-orange-100 border-orange-200'
                             : link.toType === 'source'
                               ? 'bg-green-50 hover:bg-green-100 border-green-200'

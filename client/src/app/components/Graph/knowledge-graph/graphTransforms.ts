@@ -44,7 +44,7 @@ export const buildExternalNodeLookup = (externalPrerequisites: ExternalPrerequis
       id,
       name: getExternalNodeLabel(link),
       displayId,
-      type: (link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition') as 'definition' | 'exercise',
+      type: (link.externalNodeType === 'exercise' ? 'exercise' : 'definition') as 'definition' | 'exercise',
       status: link.status,
       externalDomainId: link.externalDomainId,
       externalDomainUid: link.externalDomainUid,

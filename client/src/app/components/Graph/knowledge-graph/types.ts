@@ -13,7 +13,7 @@ export interface GraphNodeCore {
   externalDomainId?: number;
   externalDomainUid?: string;
   externalNodeId?: number;
-  externalNodeType?: 'meta_definition' | 'meta_exercise';
+  externalNodeType?: 'definition' | 'exercise';
   groupId?: number;
   groupMemberIds?: string[];
   groupMemberCount?: number;
@@ -51,7 +51,7 @@ export interface NodeMetadata {
   externalDomainId?: number;
   externalDomainUid?: string;
   externalNodeId?: number;
-  externalNodeType?: 'meta_definition' | 'meta_exercise';
+  externalNodeType?: 'definition' | 'exercise';
   externalDomainName?: string;
   externalNodeName?: string;
   groupId?: number;
@@ -131,7 +131,7 @@ export interface ExternalNodeLookupEntry {
   externalDomainId?: number;
   externalDomainUid?: string;
   externalNodeId?: number;
-  externalNodeType?: 'meta_definition' | 'meta_exercise';
+  externalNodeType?: 'definition' | 'exercise';
   externalDomainName?: string;
   externalNodeName?: string;
 }

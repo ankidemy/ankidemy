@@ -1,18 +1,30 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 )
+
+// Canonical node types. 'definition' refers to a concept node (meta_definitions
+// table); 'exercise' refers to an exercise pool node (meta_exercises table).
+const (
+	NodeTypeDefinition = "definition"
+	NodeTypeExercise   = "exercise"
+)
+
+// IsValidNodeType reports whether t is one of the canonical node types.
+func IsValidNodeType(t string) bool {
+	return t == NodeTypeDefinition || t == NodeTypeExercise
+}
 
 // NodePrerequisite represents a prerequisite relationship between nodes
 type NodePrerequisite struct {
 	ID               uint      `gorm:"primaryKey" json:"id"`
 	NodeID           uint      `gorm:"column:node_id;not null" json:"nodeId"`
-	NodeType         string    `gorm:"column:node_type;not null" json:"nodeType"` // 'definition', 'meta_exercise' (graph)
+	NodeType         string    `gorm:"column:node_type;not null" json:"nodeType"` // 'definition' | 'exercise'
 	PrerequisiteID   uint      `gorm:"column:prerequisite_id;not null" json:"prerequisiteId"`
 	PrerequisiteType string    `gorm:"column:prerequisite_type;not null" json:"prerequisiteType"`
 	Weight           float64   `gorm:"column:weight;default:1.0" json:"weight"`
-	IsManual         bool      `gorm:"column:is_manual;default:false" json:"isManual"`
 	CreatedAt        time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
 }
 
@@ -26,7 +38,7 @@ type UserNodeProgress struct {
 	UserID             uint       `gorm:"column:user_id;not null" json:"userId"`
 	NodeID             uint       `gorm:"column:node_id;not null" json:"nodeId"`
 	NodeType           string     `gorm:"column:node_type;not null" json:"nodeType"`
-	Status             string     `gorm:"column:status;default:fresh" json:"status"` // fresh, tackling, grasped, learned
+	Status             string     `gorm:"column:status;default:fresh" json:"status"` // fresh, tackling, grasped, learned (exercise status is derived, never user-set)
 	EasinessFactor     float64    `gorm:"column:easiness_factor;default:2.5" json:"easinessFactor"`
 	IntervalDays       float64    `gorm:"column:interval_days;default:0" json:"intervalDays"`
 	Repetitions        int        `gorm:"column:repetitions;default:0" json:"repetitions"`
@@ -50,14 +62,16 @@ func (UserNodeProgress) TableName() string {
 
 // StudySession represents a study session
 type StudySession struct {
-	ID                uint       `gorm:"primaryKey" json:"id"`
-	UserID            uint       `gorm:"column:user_id;not null" json:"userId"`
-	DomainID          uint       `gorm:"column:domain_id;not null" json:"domainId"`
-	SessionType       string     `gorm:"column:session_type;not null" json:"sessionType"` // definition, exercise, mixed
-	StartTime         time.Time  `gorm:"column:start_time;autoCreateTime" json:"startTime"`
-	EndTime           *time.Time `gorm:"column:end_time" json:"endTime"`
-	TotalReviews      int        `gorm:"column:total_reviews;default:0" json:"totalReviews"`
-	SuccessfulReviews int        `gorm:"column:successful_reviews;default:0" json:"successfulReviews"`
+	ID                uint            `gorm:"primaryKey" json:"id"`
+	UserID            uint            `gorm:"column:user_id;not null" json:"userId"`
+	DomainID          uint            `gorm:"column:domain_id;not null" json:"domainId"`
+	SessionType       string          `gorm:"column:session_type;not null" json:"sessionType"` // definition, exercise, mixed
+	Mode              string          `gorm:"column:mode;not null;default:'normal'" json:"mode"` // normal, frenzy
+	StartTime         time.Time       `gorm:"column:start_time;autoCreateTime" json:"startTime"`
+	EndTime           *time.Time      `gorm:"column:end_time" json:"endTime"`
+	TotalReviews      int             `gorm:"column:total_reviews;default:0" json:"totalReviews"`
+	SuccessfulReviews int             `gorm:"column:successful_reviews;default:0" json:"successfulReviews"`
+	RuntimeState      json.RawMessage `gorm:"column:runtime_state;type:jsonb" json:"-"`
 
 	// Relationships
 	User   *User   `gorm:"foreignKey:UserID" json:"-"`
@@ -114,19 +128,20 @@ func (ReviewHistory) TableName() string {
 	return "review_history"
 }
 
-// Review request/response models
+// Review request/response models.
+// Success is derived server-side as quality >= 3; clients only send quality.
 type ReviewRequest struct {
 	NodeID    uint   `json:"nodeId" binding:"required"`
-	NodeType  string `json:"nodeType" binding:"required"`
-	Success   bool   `json:"success"`
+	NodeType  string `json:"nodeType" binding:"required"` // 'definition' | 'exercise'
 	Quality   int    `json:"quality" binding:"min=0,max=5"`
 	TimeTaken int    `json:"timeTaken"` // in seconds
 	SessionID *uint  `json:"sessionId"`
-	VersionID *uint  `json:"versionId,omitempty"` // For meta_exercise reviews, the concrete version used
+	VersionID *uint  `json:"versionId,omitempty"` // Concrete version shown during the review
 }
 
 type ReviewResponse struct {
 	Success      bool               `json:"success"`
+	Counted      bool               `json:"counted"` // false when the node was not due: no SRS state was mutated
 	Message      string             `json:"message"`
 	UpdatedNodes []UserNodeProgress `json:"updatedNodes,omitempty"`
 	CreditFlow   []CreditUpdate     `json:"creditFlow,omitempty"`
@@ -143,12 +158,19 @@ type CreditUpdate struct {
 type SessionRequest struct {
 	DomainID    uint   `json:"domainId" binding:"required"`
 	SessionType string `json:"sessionType" binding:"required"`
+	// Mode selects the session engine: 'normal' (default) or 'frenzy'.
+	Mode string `json:"mode"`
+	// Order applies to normal mode: 'impact' (default) or 'foundations'
+	// (prerequisite-heavy items first, for building knowledge bottom-up).
+	Order                  string `json:"order"`
+	ExercisesPerDefinition int    `json:"exercisesPerDefinition"`
 }
 
 type SessionResponse struct {
 	ID                uint       `json:"id"`
 	DomainID          uint       `json:"domainId"`
 	SessionType       string     `json:"sessionType"`
+	Mode              string     `json:"mode"`
 	StartTime         time.Time  `json:"startTime"`
 	EndTime           *time.Time `json:"endTime"`
 	TotalReviews      int        `json:"totalReviews"`
@@ -174,6 +196,11 @@ type NodeProgress struct {
 	SuccessfulReviews int        `json:"successfulReviews"`
 	DaysUntilReview   *int       `json:"daysUntilReview"`
 	IsDue             bool       `json:"isDue"`
+	// Exercise-only solve tracking for UI coloring: an exercise is 'solved'
+	// while SolvedUntil is in the future, 'tried' when it has been seen but
+	// not (currently) solved, else unseen.
+	SolvedUntil *time.Time `json:"solvedUntil,omitempty"`
+	SeenCount   int        `json:"seenCount,omitempty"`
 }
 
 // DueReviewCompact is the compact payload shape for /srs/domains/:domainId/due?view=compact.
@@ -225,7 +252,6 @@ type PrerequisiteRequest struct {
 	PrerequisiteID   uint    `json:"prerequisiteId" binding:"required"`
 	PrerequisiteType string  `json:"prerequisiteType" binding:"required"`
 	Weight           float64 `json:"weight"`
-	IsManual         bool    `json:"isManual"`
 }
 
 type PrerequisiteResponse struct {
@@ -237,5 +263,4 @@ type PrerequisiteResponse struct {
 	PrerequisiteCode string  `json:"prerequisiteCode"`
 	PrerequisiteName string  `json:"prerequisiteName"`
 	Weight           float64 `json:"weight"`
-	IsManual         bool    `json:"isManual"`
 }

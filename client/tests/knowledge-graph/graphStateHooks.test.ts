@@ -30,10 +30,10 @@ test('buildGraphStructureState builds nodes/links and stable version for same st
       id: 10,
       domainId: 1,
       nodeId: 1,
-      nodeType: 'meta_definition',
+      nodeType: 'definition',
       externalDomainUid: 'ext-domain',
       externalNodeId: 20,
-      externalNodeType: 'meta_definition',
+      externalNodeType: 'definition',
       status: 'ok',
     },
   ] as any;
@@ -46,12 +46,12 @@ test('buildGraphStructureState builds nodes/links and stable version for same st
   assert.equal(a.nodes.has('E1'), true);
   assert.equal(a.nodes.has('S1'), true);
   assert.equal(a.nodes.has('Q1'), true);
-  assert.equal(a.nodes.has('ext:ext-domain:meta_definition:20'), true);
+  assert.equal(a.nodes.has('ext:ext-domain:definition:20'), true);
 
   assert.equal(a.links.has('D1-D2'), true);
   assert.equal(a.links.has('D2-E1'), true);
   assert.equal(a.links.has('S1-D1-relevant'), true);
-  assert.equal(a.links.has('ext:ext-domain:meta_definition:20-D1'), true);
+  assert.equal(a.links.has('ext:ext-domain:definition:20-D1'), true);
 });
 
 test('buildGraphMetadataState changes version only when metadata-driving inputs change', () => {

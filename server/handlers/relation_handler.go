@@ -198,18 +198,18 @@ func (h *RelationHandler) DeleteRelation(c *gin.Context) {
 
 func (h *RelationHandler) buildVisibleNodeSet(domainID uint, userID uint) map[string]map[uint]bool {
 	visible := map[string]map[uint]bool{
-		"meta_definition": {},
-		"meta_exercise":   {},
+		"definition": {},
+		"exercise":   {},
 		"source":          {},
 		"meta_quest":      {},
 	}
 	metaDefs, _ := h.metaDefDAO.ListByDomain(domainID)
 	for _, md := range metaDefs {
-		visible["meta_definition"][md.ID] = true
+		visible["definition"][md.ID] = true
 	}
 	metaExs, _ := h.metaExDAO.GetByDomainID(domainID)
 	for _, me := range metaExs {
-		visible["meta_exercise"][me.ID] = true
+		visible["exercise"][me.ID] = true
 	}
 	sources, _ := h.sourceDAO.ListVisible(domainID, userID)
 	for _, s := range sources {
@@ -224,7 +224,7 @@ func (h *RelationHandler) buildVisibleNodeSet(domainID uint, userID uint) map[st
 
 func (h *RelationHandler) canCreateRelation(domain *models.Domain, userID uint, isAdmin bool, fromNode *resolvedNodeAccess) (bool, error) {
 	switch fromNode.NodeType {
-	case "meta_definition", "meta_exercise":
+	case "definition", "exercise":
 		return canEditDomain(domain, userID, isAdmin, h.permissionDAO)
 	case "source", "meta_quest":
 		return canMutateVisibilityScopedNode(domain, fromNode, userID, isAdmin, h.permissionDAO)
@@ -235,7 +235,7 @@ func (h *RelationHandler) canCreateRelation(domain *models.Domain, userID uint, 
 
 func (h *RelationHandler) resolveRelationNode(nodeType string, nodeID uint) (*resolvedNodeAccess, error) {
 	switch nodeType {
-	case "source", "meta_definition", "meta_exercise", "meta_quest":
+	case "source", "definition", "exercise", "meta_quest":
 		return h.nodeResolver.ResolveNodeAccess(nodeType, nodeID)
 	default:
 		return nil, errors.New("unsupported node type")

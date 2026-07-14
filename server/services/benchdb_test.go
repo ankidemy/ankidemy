@@ -179,7 +179,7 @@ func seedBenchDomain(b *testing.B, db *gorm.DB, defCount, exCount, fanout int) *
 			Type:             "open_ended",
 		}
 		codes = append(codes, models.DomainNodeCode{
-			DomainID: domain.ID, Code: metaDefs[i].Code, NodeType: "meta_definition", NodeID: metaDefs[i].ID,
+			DomainID: domain.ID, Code: metaDefs[i].Code, NodeType: "definition", NodeID: metaDefs[i].ID,
 		})
 	}
 	if err := db.CreateInBatches(&versions, 500).Error; err != nil {
@@ -220,7 +220,7 @@ func seedBenchDomain(b *testing.B, db *gorm.DB, defCount, exCount, fanout int) *
 			Difficulty:     (i % 7) + 1,
 		}
 		codes = append(codes, models.DomainNodeCode{
-			DomainID: domain.ID, Code: metaExs[i].Code, NodeType: "meta_exercise", NodeID: metaExs[i].ID,
+			DomainID: domain.ID, Code: metaExs[i].Code, NodeType: "exercise", NodeID: metaExs[i].ID,
 		})
 	}
 	if err := db.CreateInBatches(&exVersions, 500).Error; err != nil {
@@ -239,9 +239,9 @@ func seedBenchDomain(b *testing.B, db *gorm.DB, defCount, exCount, fanout int) *
 			target := i - layerSize + ((i + f*17) % layerSize)
 			prereqs = append(prereqs, models.NodePrerequisite{
 				NodeID:           defIDs[i],
-				NodeType:         "meta_definition",
+				NodeType:         "definition",
 				PrerequisiteID:   defIDs[target],
-				PrerequisiteType: "meta_definition",
+				PrerequisiteType: "definition",
 				Weight:           1.0,
 			})
 		}
@@ -249,9 +249,9 @@ func seedBenchDomain(b *testing.B, db *gorm.DB, defCount, exCount, fanout int) *
 	for i := 0; i < exCount; i++ {
 		prereqs = append(prereqs, models.NodePrerequisite{
 			NodeID:           exIDs[i],
-			NodeType:         "meta_exercise",
+			NodeType:         "exercise",
 			PrerequisiteID:   defIDs[i%defCount],
-			PrerequisiteType: "meta_definition",
+			PrerequisiteType: "definition",
 			Weight:           1.0,
 		})
 	}

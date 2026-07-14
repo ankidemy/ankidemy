@@ -161,7 +161,6 @@ func BenchmarkDBSubmitReview(b *testing.B) {
 		resp, err := svc.SubmitReview(seed.User.ID, &models.ReviewRequest{
 			NodeID:   reviewed,
 			NodeType: "definition",
-			Success:  true,
 			Quality:  4,
 		})
 		if err != nil {
@@ -183,7 +182,7 @@ func BenchmarkDBUpdateNodeStatusGrasped(b *testing.B) {
 	deepest := seed.DefIDs[len(seed.DefIDs)-1]
 
 	runCounted(b, counter, func(i int) {
-		if err := svc.UpdateNodeStatus(seed.User.ID, deepest, "meta_definition", "grasped"); err != nil {
+		if err := svc.UpdateNodeStatus(seed.User.ID, deepest, "definition", "grasped"); err != nil {
 			b.Fatalf("UpdateNodeStatus: %v", err)
 		}
 	})

@@ -37,6 +37,10 @@ const (
 	maxSRSIntervalDays       = 120.0
 	minSRSMinEasinessFactor  = 1.1
 	maxSRSMinEasinessFactor  = 2.5
+
+	// maxSRSComputedIntervalDays caps the final scheduled interval so every
+	// node is reviewed at least once a year.
+	maxSRSComputedIntervalDays = 366.0
 )
 
 // SRSAlgorithmConfig tunes SM-2 behavior per user/domain.
@@ -185,6 +189,7 @@ func (s *SpacedRepetitionService) CalculateNextInterval(
 		}
 	}
 	interval = math.Max(1, math.Round(interval*config.IntervalMultiplier))
+	interval = math.Min(interval, maxSRSComputedIntervalDays)
 
 	// Calculate next review date
 	nextReview := currentTime.AddDate(0, 0, int(interval))
@@ -197,21 +202,6 @@ func (s *SpacedRepetitionService) CalculateNextInterval(
 	}
 }
 
-// ApplyPartialCredit applies partial credit from implicit reviews
-func (s *SpacedRepetitionService) ApplyPartialCredit(
-	progress *models.UserNodeProgress,
-	credit float64,
-) (accumulatedCredit float64, reviewsCompleted int) {
-	newCredit := progress.AccumulatedCredit + credit
-	reviewsCompleted = int(math.Floor(math.Abs(newCredit)))
-	remainingCredit := newCredit - float64(reviewsCompleted)*math.Copysign(1, newCredit)
-
-	// Clamp to [-1.0, 1.0]
-	remainingCredit = math.Max(-1.0, math.Min(1.0, remainingCredit))
-
-	return remainingCredit, reviewsCompleted
-}
-
 // CreditPropagationService handles credit flow between nodes
 type CreditPropagationService struct{}
 
@@ -221,7 +211,7 @@ func NewCreditPropagationService() *CreditPropagationService {
 
 // NodeKey identifies a node in the knowledge graph. Using a comparable
 // struct (instead of formatted strings) keeps node types with underscores
-// like "meta_exercise" unambiguous and avoids per-lookup allocations.
+// like "exercise" unambiguous and avoids per-lookup allocations.
 type NodeKey struct {
 	Type string
 	ID   uint
@@ -274,24 +264,9 @@ func (c *CreditPropagationService) PropagateCredit(
 		Type:     "explicit",
 	})
 
-	nodeType := reviewedNodeType
-	startNode, exists := graph[makeNodeKey(reviewedNodeID, nodeType)]
+	startNode, exists := graph[makeNodeKey(reviewedNodeID, reviewedNodeType)]
 	if !exists {
-		// Fallback: treat 'exercise' and 'meta_exercise' as equivalent node kinds
-		// Also treat 'definition' and 'meta_definition' as equivalent
-		if reviewedNodeType == "exercise" {
-			nodeType = "meta_exercise"
-		} else if reviewedNodeType == "meta_exercise" {
-			nodeType = "exercise"
-		} else if reviewedNodeType == "definition" {
-			nodeType = "meta_definition"
-		} else if reviewedNodeType == "meta_definition" {
-			nodeType = "definition"
-		}
-		startNode, exists = graph[makeNodeKey(reviewedNodeID, nodeType)]
-		if !exists {
-			return credits
-		}
+		return credits
 	}
 
 	// Perform BFS-based propagation for implicit credits
@@ -481,12 +456,9 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 		return dueNodes
 	}
 
-	// Due nodes carry progress-normalized types ('definition'/'exercise')
-	// while the graph stores meta_* types; compare on the normalized form so
-	// implicit credits landing on meta nodes count toward due-node impact.
 	dueSet := make(map[NodeKey]bool)
 	for _, node := range dueNodes {
-		dueSet[makeNodeKey(node.NodeID, toProgressType(node.NodeType))] = true
+		dueSet[makeNodeKey(node.NodeID, node.NodeType)] = true
 	}
 
 	// Longest-path depths are global node properties; share one memo across
@@ -501,7 +473,7 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 		impact := 0.0
 
 		for _, credit := range credits {
-			creditKey := makeNodeKey(credit.NodeID, toProgressType(credit.NodeType))
+			creditKey := makeNodeKey(credit.NodeID, credit.NodeType)
 			if dueSet[creditKey] && credit.Type == "implicit" && credit.Credit > 0 {
 				impact += credit.Credit
 			}
@@ -559,14 +531,6 @@ func (r *ReviewOptimizationService) calculateDistanceFromRootMemo(
 	memo map[NodeKey]int,
 ) int {
 	key := makeNodeKey(nodeID, nodeType)
-	if _, exists := graph[key]; !exists {
-		// Progress-normalized types miss the meta_* graph keys; fall back the
-		// same way credit propagation does.
-		fallback := makeNodeKey(nodeID, toGraphType(nodeType))
-		if _, exists := graph[fallback]; exists {
-			key = fallback
-		}
-	}
 	return r.nodeDepth(key, graph, memo, make(map[NodeKey]bool))
 }
 

@@ -26,17 +26,17 @@ test('hashString is deterministic and non-negative', () => {
 test('external node id build/parse round-trip', () => {
   const link = {
     externalDomainUid: 'dom-123',
-    externalNodeType: 'meta_definition',
+    externalNodeType: 'definition',
     externalNodeId: 55,
   } as const;
 
   const id = buildExternalNodeId(link as any);
-  assert.equal(id, 'ext:dom-123:meta_definition:55');
+  assert.equal(id, 'ext:dom-123:definition:55');
 
   const parsed = parseExternalNodeId(id);
   assert.deepEqual(parsed, {
     externalDomainUid: 'dom-123',
-    externalNodeType: 'meta_definition',
+    externalNodeType: 'definition',
     externalNodeId: 55,
   });
 });
@@ -44,8 +44,8 @@ test('external node id build/parse round-trip', () => {
 test('parseExternalNodeId rejects invalid values', () => {
   assert.equal(parseExternalNodeId('node:1'), null);
   assert.equal(parseExternalNodeId('ext:dom:bad:1'), null);
-  assert.equal(parseExternalNodeId('ext:dom:meta_definition:not-a-number'), null);
-  assert.equal(parseExternalNodeId('ext:dom:meta_definition'), null);
+  assert.equal(parseExternalNodeId('ext:dom:definition:not-a-number'), null);
+  assert.equal(parseExternalNodeId('ext:dom:definition'), null);
 });
 
 test('computeConvexClosure returns closure between seeds using incoming/outgoing graphs', () => {

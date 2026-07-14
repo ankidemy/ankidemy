@@ -224,17 +224,16 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
           descriptionImagePath: descriptionImagePath || undefined,
         };
         const response = await createMetaDefinition(domainId, metaDefData);
-        // Attach concept prerequisites (meta_definition -> meta_definition) via SRS API
+        // Attach concept prerequisites (definition -> definition) via SRS API
         if (selectedDefPrereqIds.length > 0) {
           const { createPrerequisite } = await import('@/lib/srs-api');
           for (const defId of selectedDefPrereqIds) {
             await createPrerequisite({
               nodeId: (response as any).id,
-              nodeType: 'meta_definition',
+              nodeType: 'definition',
               prerequisiteId: defId,
-              prerequisiteType: 'meta_definition',
+              prerequisiteType: 'definition',
               weight: defPrereqWeights[defId] ?? 1.0,
-              isManual: true,
             });
           }
         }
@@ -281,31 +280,29 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
             descriptionImagePath: solutionImagePath || undefined,
           }
         });
-        // Attach concept prerequisites (meta_exercise -> meta_definition) via SRS API
+        // Attach concept prerequisites (exercise -> definition) via SRS API
         if (selectedDefPrereqIds.length > 0) {
           const { createPrerequisite } = await import('@/lib/srs-api');
           for (const defId of selectedDefPrereqIds) {
             await createPrerequisite({
               nodeId: (response as any).id,
-              nodeType: 'meta_exercise',
+              nodeType: 'exercise',
               prerequisiteId: defId,
-              prerequisiteType: 'meta_definition',
+              prerequisiteType: 'definition',
               weight: defPrereqWeights[defId] ?? 1.0,
-              isManual: true,
             });
           }
         }
-        // Attach exercise prerequisites (meta_exercise -> meta_exercise) via SRS API
+        // Attach exercise prerequisites (exercise -> exercise) via SRS API
         if (selectedExPrereqIds.length > 0) {
           const { createPrerequisite } = await import('@/lib/srs-api');
           for (const exId of selectedExPrereqIds) {
             await createPrerequisite({
               nodeId: (response as any).id,
-              nodeType: 'meta_exercise',
+              nodeType: 'exercise',
               prerequisiteId: exId,
-              prerequisiteType: 'meta_exercise',
+              prerequisiteType: 'exercise',
               weight: exPrereqWeights[exId] ?? 1.0,
-              isManual: true,
             });
           }
         }

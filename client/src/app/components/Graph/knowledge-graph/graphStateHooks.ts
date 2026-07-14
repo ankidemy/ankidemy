@@ -4,8 +4,8 @@ import type {
   Exercise as ApiExercise,
   ExternalPrerequisiteLink,
 } from '@/lib/api';
-import { calculateDaysUntilReview, getStatusColor, isNodeDue } from '@/lib/srs-api';
-import { NodeStatus } from '../../../../types/srs';
+import { calculateDaysUntilReview, getExerciseSolveColor, getStatusColor, isNodeDue } from '@/lib/srs-api';
+import { NodeStatus, exerciseSolveState } from '../../../../types/srs';
 import type {
   Definition,
   Exercise,
@@ -207,7 +207,7 @@ export const buildGraphStructureState = (
     if (!nodes.has(externalNodeId)) {
       nodes.set(externalNodeId, {
         id: externalNodeId,
-        type: link.externalNodeType === 'meta_exercise' ? 'exercise' : 'definition',
+        type: link.externalNodeType === 'exercise' ? 'exercise' : 'definition',
         isExternal: true,
         externalStatus: link.status,
         externalDomainId: link.externalDomainId,
@@ -353,7 +353,11 @@ export const buildGraphMetadataState = (
     const isDefinition = nodeCore.type === 'definition';
     const isRoot = (nodeCore.prerequisites || []).length === 0;
     const status = (progress?.status as NodeStatus) || 'fresh';
-    const srsColor = getStatusColor(status);
+    // Definitions are colored by their SRS status; exercises by solve state
+    // (unsolved / tried / solved) since their status is derived.
+    const srsColor = isDefinition
+      ? getStatusColor(status)
+      : getExerciseSolveColor(exerciseSolveState(progress));
     // Keep frontend due highlighting aligned with backend queue/review rules:
     // only grasped nodes are eligible to be due.
     const isReviewEligible = status === 'grasped';

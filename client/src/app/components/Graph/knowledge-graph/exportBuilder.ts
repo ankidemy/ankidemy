@@ -264,11 +264,11 @@ export const buildExportDataForCodes = async (
   const selectedCodeByTypedId = new Map<string, string>();
   includedDefinitionCodes.forEach(code => {
     const id = codeToNumericIdMap.get(code);
-    if (id) selectedCodeByTypedId.set(`meta_definition:${id}`, code);
+    if (id) selectedCodeByTypedId.set(`definition:${id}`, code);
   });
   includedExerciseCodes.forEach(code => {
     const id = codeToNumericIdMap.get(code);
-    if (id) selectedCodeByTypedId.set(`meta_exercise:${id}`, code);
+    if (id) selectedCodeByTypedId.set(`exercise:${id}`, code);
   });
   Array.from(selectedSourceCodes).forEach(code => {
     const id = graphData.sources?.[code]?.id;

@@ -50,28 +50,15 @@ func NewSRSService(db *gorm.DB, notificationReadModel *NotificationReadModelServ
 	}
 }
 
-// normalize types for different subsystems
-// Progress table stores meta-exercises under 'exercise' and meta-definitions under 'definition' for legacy compatibility
-func toProgressType(t string) string {
-	if t == "meta_exercise" {
-		return "exercise"
-	}
-	if t == "meta_definition" {
-		return "definition"
-	}
-	return t
-}
-
-// Graph (prerequisites) uses 'meta_exercise' and 'meta_definition' as the node types for pools
-func toGraphType(t string) string {
-	if t == "exercise" {
-		return "meta_exercise"
-	}
-	if t == "definition" {
-		return "meta_definition"
-	}
-	return t
-}
+// Typed errors so handlers can map service failures to proper HTTP statuses.
+var (
+	// ErrNodeNotReviewable is returned when an explicit review targets a node
+	// that is not in 'grasped' status.
+	ErrNodeNotReviewable = errors.New("node is not in a reviewable status")
+	// ErrExerciseStatusDerived is returned when a caller tries to set an
+	// exercise status manually; exercise status is derived from definitions.
+	ErrExerciseStatusDerived = errors.New("exercise status is derived from its parent definitions and cannot be set directly")
+)
 
 func isRetryableStatusUpdateError(err error) bool {
 	if err == nil {
@@ -119,56 +106,60 @@ func sortPrerequisitesForDeterministicTraversal(rows []models.NodePrerequisite, 
 	})
 }
 
-// SubmitReview processes an explicit review and handles credit propagation
+// ReviewSuccessThreshold is the quality boundary between failure and success.
+const ReviewSuccessThreshold = 3
+
+// SubmitReview processes an explicit review.
+//
+// Spacing is enforced server-side: the review only mutates SRS state (SM-2
+// parameters + credit propagation) when the node is due. A review of a
+// non-due node is treated as practice — version outcome stats are recorded,
+// but no SRS state changes and the response carries Counted=false.
+// recordOutcome=false additionally suppresses persistent outcome stats (used
+// by frenzy sessions, whose repeat stats are session-scoped).
 func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*models.ReviewResponse, error) {
-	tx := s.db.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	return s.submitReview(userID, request, true)
+}
+
+func (s *SRSService) submitReview(userID uint, request *models.ReviewRequest, recordOutcome bool) (*models.ReviewResponse, error) {
+	success := request.Quality >= ReviewSuccessThreshold
+	now := time.Now()
 
 	// Get current progress
 	progress, err := s.srsDao.GetUserProgress(userID, request.NodeID, request.NodeType)
 	if err != nil {
-		tx.Rollback()
 		return nil, fmt.Errorf("failed to get user progress: %w", err)
 	}
 
-	// Initialize progress if doesn't exist
-	if progress == nil {
-		progress = &models.UserNodeProgress{
-			UserID:            userID,
-			NodeID:            request.NodeID,
-			NodeType:          request.NodeType,
-			Status:            "fresh",
-			EasinessFactor:    2.5,
-			IntervalDays:      0,
-			Repetitions:       0,
-			AccumulatedCredit: 0,
-			CreditPostponed:   false,
-			TotalReviews:      0,
-			SuccessfulReviews: 0,
-		}
+	// Verify node is in reviewable state
+	if progress == nil || progress.Status != "grasped" {
+		return nil, ErrNodeNotReviewable
 	}
 
-	// Verify node is in reviewable state
-	if progress.Status != "grasped" {
-		tx.Rollback()
-		return nil, fmt.Errorf("cannot review node in status: %s. Only 'grasped' nodes can be reviewed", progress.Status)
+	// Spacing enforcement: a node with a future NextReview is not due, so the
+	// grade is practice only. Repeated same-day reviews cannot inflate SRS
+	// state; only spaced reviews count.
+	isDue := progress.NextReview == nil || !progress.NextReview.After(now)
+	if !isDue {
+		if recordOutcome {
+			s.recordVersionOutcome(userID, request, success)
+		}
+		return &models.ReviewResponse{
+			Success: true,
+			Counted: false,
+			Message: "Node is not due; practice outcome recorded without SRS changes",
+		}, nil
 	}
 
 	// Get domain ID for graph building
 	domainID, err := s.getDomainIDForNode(request.NodeID, request.NodeType)
 	if err != nil {
-		tx.Rollback()
 		return nil, fmt.Errorf("failed to get domain ID: %w", err)
 	}
 
 	// Build graph and calculate credit propagation
 	prerequisites, err := s.srsDao.GetPrerequisitesByDomain(domainID)
 	if err != nil {
-		tx.Rollback()
 		return nil, fmt.Errorf("failed to get prerequisites: %w", err)
 	}
 	algorithmConfig := DefaultSRSAlgorithmConfig()
@@ -179,37 +170,24 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 	}
 
 	graph := s.creditService.BuildGraph(prerequisites)
-	credits := s.creditService.PropagateCredit(request.NodeID, request.NodeType, request.Success, graph)
+	credits := s.creditService.PropagateCredit(request.NodeID, request.NodeType, success, graph)
+
+	tx := s.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
 	// Apply credits to all affected nodes
-	updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, time.Now(), algorithmConfig)
+	updatedNodes, err := s.applyCredits(tx, userID, credits, request.Quality, now, algorithmConfig)
 	if err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to apply credits: %w", err)
 	}
 
-	// For meta exercises: record version outcome stats (best-effort, outside main credit path)
-	if request.NodeType == "exercise" && request.VersionID != nil {
-		// resolve meta id equals NodeID
-		metaSvc := NewMetaExerciseService(s.db)
-		// We don't have version difficulty here reliably, but we can fetch it
-		var version models.Exercise
-		if err := s.db.Select("difficulty").First(&version, *request.VersionID).Error; err == nil {
-			d := version.Difficulty
-			go metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success, &d)
-		} else {
-			go metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success, nil)
-		}
-	}
-
-	// For meta definitions: record version outcome stats (best-effort, outside main credit path)
-	if request.NodeType == "definition" && request.VersionID != nil {
-		metaDefSvc := NewMetaDefinitionService(s.db)
-		go metaDefSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, request.Success)
-	}
-
 	// Record review history
-	if err := s.recordReviewHistory(tx, userID, request, progress); err != nil {
+	if err := s.recordReviewHistory(tx, userID, request, progress, success); err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to record review history: %w", err)
 	}
@@ -224,12 +202,12 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 
 	// Update session if provided
 	if request.SessionID != nil {
-		if err := s.updateSessionStats(tx, *request.SessionID, request.Success); err != nil {
+		if err := s.updateSessionStats(tx, *request.SessionID, success); err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("failed to update session: %w", err)
 		}
 
-		if err := s.recordSessionReview(tx, request, time.Now()); err != nil {
+		if err := s.recordSessionReview(tx, request, success, now); err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("failed to record session review: %w", err)
 		}
@@ -239,15 +217,42 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Version outcome stats are recorded exactly once per grade, here.
+	if recordOutcome {
+		s.recordVersionOutcome(userID, request, success)
+	}
+
 	s.invalidateDueCache(userID, domainID)
 	s.invalidateQueueCache(userID, domainID)
 
 	return &models.ReviewResponse{
 		Success:      true,
+		Counted:      true,
 		Message:      "Review submitted successfully",
 		UpdatedNodes: updatedNodes,
 		CreditFlow:   credits,
 	}, nil
+}
+
+// recordVersionOutcome is the single place persistent version stats are
+// written for a graded review.
+func (s *SRSService) recordVersionOutcome(userID uint, request *models.ReviewRequest, success bool) {
+	if request.VersionID == nil {
+		return
+	}
+	switch request.NodeType {
+	case models.NodeTypeExercise:
+		metaSvc := NewMetaExerciseService(s.db)
+		var version models.Exercise
+		if err := s.db.Select("difficulty").First(&version, *request.VersionID).Error; err == nil {
+			d := version.Difficulty
+			metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, success, &d)
+		} else {
+			metaSvc.RecordVersionOutcome(userID, request.NodeID, request.VersionID, success, nil)
+		}
+	case models.NodeTypeDefinition:
+		NewMetaDefinitionService(s.db).RecordVersionOutcome(userID, request.NodeID, request.VersionID, success)
+	}
 }
 
 // applyCredits applies one review's explicit + implicit credits. All progress
@@ -281,62 +286,40 @@ func (s *SRSService) applyCredits(
 		order = append(order, key)
 	}
 
-	// Batch-load existing progress for every credited node, grouped by the
-	// normalized progress type.
-	idsByNormType := make(map[string][]uint)
+	// Batch-load existing progress for every credited node, grouped by type.
+	idsByType := make(map[string][]uint)
 	for _, key := range order {
-		normType := toProgressType(key.Type)
-		idsByNormType[normType] = append(idsByNormType[normType], key.ID)
+		idsByType[key.Type] = append(idsByType[key.Type], key.ID)
 	}
-	existingByTypeAndID := make(map[string]map[uint]models.UserNodeProgress, len(idsByNormType))
-	for normType, ids := range idsByNormType {
-		loaded, err := srsDao.GetUserProgressByNodeIDs(userID, normType, ids)
+	existingByTypeAndID := make(map[string]map[uint]models.UserNodeProgress, len(idsByType))
+	for nodeType, ids := range idsByType {
+		loaded, err := srsDao.GetUserProgressByNodeIDs(userID, nodeType, ids)
 		if err != nil {
 			return nil, err
 		}
-		existingByTypeAndID[normType] = loaded
+		existingByTypeAndID[nodeType] = loaded
 	}
 
-	// The same progress row can be credited under two node types (e.g.
-	// 'exercise' and 'meta_exercise' normalize to one row); keep one write
-	// per row so the batch upsert stays conflict-free.
+	// Keep one write per row so the batch upsert stays conflict-free.
 	pendingRows := make([]*models.UserNodeProgress, 0, len(order))
 	pendingIndex := make(map[NodeKey]int, len(order))
 
 	for _, key := range order {
 		credit := dedup[key]
-		// Normalize node type for progress table lookups/writes
-		normType := toProgressType(credit.NodeType)
 
 		var progress *models.UserNodeProgress
-		normKey := makeNodeKey(credit.NodeID, normType)
+		normKey := makeNodeKey(credit.NodeID, credit.NodeType)
 		if idx, ok := pendingIndex[normKey]; ok {
 			progress = pendingRows[idx]
-		} else if row, ok := existingByTypeAndID[normType][credit.NodeID]; ok {
+		} else if row, ok := existingByTypeAndID[credit.NodeType][credit.NodeID]; ok {
 			rowCopy := row
 			progress = &rowCopy
 		}
 
 		if progress == nil {
-			// For implicit reviews, only apply to nodes that already have progress
-			if credit.Type == "implicit" {
-				continue
-			}
-
-			// Create new progress for explicit review
-			progress = &models.UserNodeProgress{
-				UserID:            userID,
-				NodeID:            credit.NodeID,
-				NodeType:          normType,
-				Status:            "grasped",
-				EasinessFactor:    2.5,
-				IntervalDays:      0,
-				Repetitions:       0,
-				AccumulatedCredit: 0,
-				CreditPostponed:   false,
-				TotalReviews:      0,
-				SuccessfulReviews: 0,
-			}
+			// Credits only apply to nodes that already have progress state;
+			// SubmitReview guarantees the explicit node has a grasped row.
+			continue
 		}
 
 		// Only apply credits to 'grasped' nodes
@@ -413,15 +396,16 @@ func (s *SRSService) applyCredits(
 			// Handle positive credits (successful implicit reviews)
 			if credit.Credit > 0 && !creditPostponed {
 				if newCredit >= 1.0 {
-					// Reached +100% credit - postpone the review
+					// Reached +100% credit — postpone the review by the
+					// CURRENT interval without growing it. Implicit credit
+					// acts like barely passing: it buys time at the same
+					// spacing, but only explicit reviews advance the ladder.
 					newCredit = 1.0
 					creditPostponed = true
 
-					// Calculate next review based on current SR parameters
-					srResult := s.srAlgorithm.CalculateNextInterval(progress, 4, currentTime, algorithmConfig) // Default "good" quality
-					progress.NextReview = &srResult.NextReview
-					progress.Repetitions = srResult.Repetitions
-					progress.IntervalDays = srResult.IntervalDays
+					postponeDays := int(math.Max(1, math.Round(progress.IntervalDays)))
+					nextReview := currentTime.AddDate(0, 0, postponeDays)
+					progress.NextReview = &nextReview
 					// Note: Do not extend BlockNegativeUntil when positive credit postpones
 				}
 			}
@@ -466,8 +450,13 @@ func (s *SRSService) applyCredits(
 	return updatedNodes, nil
 }
 
-// UpdateNodeStatus updates a node's status and handles propagation
+// UpdateNodeStatus updates a definition's status and handles propagation.
+// Exercise status is derived from parent definitions and cannot be set.
 func (s *SRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType string, status string) error {
+	if nodeType != models.NodeTypeDefinition {
+		return ErrExerciseStatusDerived
+	}
+
 	const maxAttempts = 4
 	const baseBackoff = 20 * time.Millisecond
 
@@ -507,11 +496,8 @@ func (s *SRSService) updateNodeStatusOnce(userID uint, nodeID uint, nodeType str
 		return err
 	}
 
-	// Normalize type for progress table
-	normProgressType := toProgressType(nodeType)
-
 	// Get or create progress
-	progress, err := srsDao.GetUserProgress(userID, nodeID, normProgressType)
+	progress, err := srsDao.GetUserProgress(userID, nodeID, nodeType)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -521,7 +507,7 @@ func (s *SRSService) updateNodeStatusOnce(userID uint, nodeID uint, nodeType str
 		progress = &models.UserNodeProgress{
 			UserID:            userID,
 			NodeID:            nodeID,
-			NodeType:          normProgressType,
+			NodeType:          nodeType,
 			Status:            status,
 			EasinessFactor:    2.5,
 			IntervalDays:      0,
@@ -541,9 +527,14 @@ func (s *SRSService) updateNodeStatusOnce(userID uint, nodeID uint, nodeType str
 		return err
 	}
 
-	// Handle status propagation (normalize to graph type for traversal)
-	graphType := toGraphType(nodeType)
-	if err := s.propagateStatus(tx, userID, nodeID, graphType, status, domainID); err != nil {
+	// Propagate among definitions, then derive exercise statuses from the
+	// resulting definition statuses.
+	if err := s.propagateStatus(tx, userID, nodeID, nodeType, status, domainID); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if err := s.DeriveExerciseStatusesTx(tx, userID, domainID); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -594,10 +585,10 @@ func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, node
 
 	switch status {
 	case "grasped":
-		// Mark all transitive prerequisites as grasped if they're fresh/tackling
+		// Mark all transitive definition prerequisites as grasped if they're fresh/tackling
 		return s.propagateStatusTransition(tx, userID, nodeID, nodeType, prereqMap, false, "grasped")
 	case "tackling":
-		// Mark all transitive dependents as tackling if they're fresh/grasped
+		// Mark all transitive definition dependents as tackling if they're fresh/grasped
 		return s.propagateStatusTransition(tx, userID, nodeID, nodeType, dependentMap, true, "tackling")
 	}
 
@@ -620,17 +611,18 @@ func (s *SRSService) propagateStatusTransition(
 	newStatus string,
 ) error {
 	type touchTarget struct {
-		id      uint
-		rawType string
+		id       uint
+		nodeType string
 	}
 
 	// Pass 1: structural walk, identical order to the old recursion — each
-	// edge target is touched, then descended into (once).
+	// edge target is touched, then descended into (once). Only definition
+	// nodes participate; exercise statuses are derived afterwards.
 	touched := make([]touchTarget, 0, 64)
 	visited := make(map[NodeKey]bool)
-	var walk func(id uint, rawType string)
-	walk = func(id uint, rawType string) {
-		key := makeNodeKey(id, rawType)
+	var walk func(id uint, nodeType string)
+	walk = func(id uint, nodeType string) {
+		key := makeNodeKey(id, nodeType)
 		if visited[key] {
 			return
 		}
@@ -640,7 +632,10 @@ func (s *SRSService) propagateStatusTransition(
 			if dependents {
 				targetID, targetType = edge.NodeID, edge.NodeType
 			}
-			touched = append(touched, touchTarget{id: targetID, rawType: targetType})
+			if targetType != models.NodeTypeDefinition {
+				continue
+			}
+			touched = append(touched, touchTarget{id: targetID, nodeType: targetType})
 			walk(targetID, targetType)
 		}
 	}
@@ -652,20 +647,19 @@ func (s *SRSService) propagateStatusTransition(
 
 	// Batch-load current progress for all touched nodes.
 	srsDao := dao.NewSRSDao(tx)
-	idsByNormType := make(map[string][]uint)
+	idsByType := make(map[string][]uint)
 	for _, t := range touched {
-		normType := toProgressType(t.rawType)
-		idsByNormType[normType] = append(idsByNormType[normType], t.id)
+		idsByType[t.nodeType] = append(idsByType[t.nodeType], t.id)
 	}
 	state := make(map[NodeKey]*models.UserNodeProgress)
-	for normType, ids := range idsByNormType {
-		rows, err := srsDao.GetUserProgressByNodeIDs(userID, normType, ids)
+	for nodeType, ids := range idsByType {
+		rows, err := srsDao.GetUserProgressByNodeIDs(userID, nodeType, ids)
 		if err != nil {
 			return err
 		}
 		for id, row := range rows {
 			rowCopy := row
-			state[makeNodeKey(id, normType)] = &rowCopy
+			state[makeNodeKey(id, nodeType)] = &rowCopy
 		}
 	}
 
@@ -677,15 +671,14 @@ func (s *SRSService) propagateStatusTransition(
 	writeOrder := make([]NodeKey, 0, len(touched))
 	queued := make(map[NodeKey]bool)
 	for _, t := range touched {
-		normType := toProgressType(t.rawType)
-		normKey := makeNodeKey(t.id, normType)
+		normKey := makeNodeKey(t.id, t.nodeType)
 
 		progress := state[normKey]
 		if progress == nil {
 			progress = &models.UserNodeProgress{
 				UserID:            userID,
 				NodeID:            t.id,
-				NodeType:          normType,
+				NodeType:          t.nodeType,
 				Status:            newStatus,
 				EasinessFactor:    2.5,
 				IntervalDays:      0,
@@ -1563,40 +1556,25 @@ func isExerciseProgressDue(progress models.UserNodeProgress, exists bool, now ti
 // Helper methods
 
 func (s *SRSService) getDomainIDForNode(nodeID uint, nodeType string) (uint, error) {
-	var domainID uint
-
-	if nodeType == "definition" {
-		// Try meta_definition first (new system), fallback to legacy definition
-		var metaDef models.MetaDefinition
-		if err := s.db.Select("domain_id").First(&metaDef, nodeID).Error; err == nil {
-			domainID = metaDef.DomainID
-		} else {
-			var definition models.Definition
-			if err := s.db.Select("domain_id").First(&definition, nodeID).Error; err != nil {
-				return 0, err
-			}
-			domainID = definition.DomainID
-		}
-	} else if nodeType == "meta_definition" {
+	switch nodeType {
+	case models.NodeTypeDefinition:
 		var metaDef models.MetaDefinition
 		if err := s.db.Select("domain_id").First(&metaDef, nodeID).Error; err != nil {
 			return 0, err
 		}
-		domainID = metaDef.DomainID
-	} else if nodeType == "exercise" || nodeType == "meta_exercise" {
+		return metaDef.DomainID, nil
+	case models.NodeTypeExercise:
 		var meta models.MetaExercise
 		if err := s.db.Select("domain_id").First(&meta, nodeID).Error; err != nil {
 			return 0, err
 		}
-		domainID = meta.DomainID
-	} else {
+		return meta.DomainID, nil
+	default:
 		return 0, errors.New("invalid node type")
 	}
-
-	return domainID, nil
 }
 
-func (s *SRSService) recordReviewHistory(tx *gorm.DB, userID uint, request *models.ReviewRequest, progressBefore *models.UserNodeProgress) error {
+func (s *SRSService) recordReviewHistory(tx *gorm.DB, userID uint, request *models.ReviewRequest, progressBefore *models.UserNodeProgress, success bool) error {
 	srsDao := dao.NewSRSDao(tx)
 
 	history := &models.ReviewHistory{
@@ -1604,7 +1582,7 @@ func (s *SRSService) recordReviewHistory(tx *gorm.DB, userID uint, request *mode
 		NodeID:               request.NodeID,
 		NodeType:             request.NodeType,
 		ReviewType:           "explicit",
-		Success:              request.Success,
+		Success:              success,
 		Quality:              &request.Quality,
 		TimeTaken:            &request.TimeTaken,
 		CreditApplied:        1.0,
@@ -1631,30 +1609,20 @@ func (s *SRSService) updateSessionStats(tx *gorm.DB, sessionID uint, success boo
 	return srsDao.UpdateSession(session)
 }
 
-func (s *SRSService) recordSessionReview(tx *gorm.DB, request *models.ReviewRequest, reviewTime time.Time) error {
+func (s *SRSService) recordSessionReview(tx *gorm.DB, request *models.ReviewRequest, success bool, reviewTime time.Time) error {
 	if request.SessionID == nil {
 		return nil
 	}
 
 	srsDao := dao.NewSRSDao(tx)
 
-	// Normalize node type for session rows: treat meta_exercise as exercise,
-	// meta_definition as definition. This maintains consistency with progress storage.
-	normalizedType := request.NodeType
-	if normalizedType == "meta_exercise" {
-		normalizedType = "exercise"
-	}
-	if normalizedType == "meta_definition" {
-		normalizedType = "definition"
-	}
-
 	sessionReview := &models.SessionReview{
 		SessionID:     *request.SessionID,
 		NodeID:        request.NodeID,
-		NodeType:      normalizedType,
+		NodeType:      request.NodeType,
 		ReviewType:    "explicit",
 		ReviewTime:    reviewTime,
-		Success:       request.Success,
+		Success:       success,
 		Quality:       &request.Quality,
 		TimeTaken:     &request.TimeTaken,
 		CreditApplied: 1.0,

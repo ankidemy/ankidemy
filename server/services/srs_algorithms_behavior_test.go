@@ -3,6 +3,7 @@ package services
 import (
 	"math"
 	"testing"
+	"time"
 
 	"ankidemy/server/models"
 )
@@ -154,26 +155,26 @@ func TestPropagateCreditCycleSafe(t *testing.T) {
 	}
 }
 
-// Reviewing an exercise falls back to the meta_exercise node in the graph,
-// and implicit credits must carry usable node IDs/types for meta_* nodes.
-func TestPropagateCreditMetaTypeFallbackAndKeys(t *testing.T) {
+// Exercise reviews propagate credit through their definition prerequisites
+// with usable node IDs/types.
+func TestPropagateCreditExerciseChain(t *testing.T) {
 	c := NewCreditPropagationService()
 	prereqs := []models.NodePrerequisite{
-		prereq(20, "meta_exercise", 10, "meta_definition", 1.0),
-		prereq(10, "meta_definition", 5, "meta_definition", 1.0),
+		prereq(20, "exercise", 10, "definition", 1.0),
+		prereq(10, "definition", 5, "definition", 1.0),
 	}
 	graph := c.BuildGraph(prereqs)
 
-	// Node type "exercise" falls back to "meta_exercise".
+	// Node type "exercise" falls back to "exercise".
 	credits := c.PropagateCredit(20, "exercise", true, graph)
 	if len(credits) != 3 {
 		t.Fatalf("expected 3 credits (explicit + 2 implicit), got %+v", credits)
 	}
 	byNode := creditByNode(credits)
-	if got := byNode[10]; got.NodeType != "meta_definition" || math.Abs(got.Credit-0.5) > 1e-9 {
+	if got := byNode[10]; got.NodeType != "definition" || math.Abs(got.Credit-0.5) > 1e-9 {
 		t.Errorf("node 10: expected meta_definition 0.5, got %+v", got)
 	}
-	if got := byNode[5]; got.NodeType != "meta_definition" || math.Abs(got.Credit-1.0/3.0) > 1e-9 {
+	if got := byNode[5]; got.NodeType != "definition" || math.Abs(got.Credit-1.0/3.0) > 1e-9 {
 		t.Errorf("node 5: expected meta_definition 1/3, got %+v", got)
 	}
 }
@@ -266,17 +267,39 @@ func TestCalculateDistanceFromRootCycleTerminates(t *testing.T) {
 	}
 }
 
-func TestApplyPartialCredit(t *testing.T) {
+// The computed interval is capped at 366 days so everything is reviewed at
+// least once a year, even with a high EF and max interval multiplier.
+func TestCalculateNextIntervalCeiling(t *testing.T) {
 	s := NewSpacedRepetitionService()
-	p := &models.UserNodeProgress{AccumulatedCredit: 0.8}
-	remaining, completed := s.ApplyPartialCredit(p, 0.5)
-	if completed != 1 || math.Abs(remaining-0.3) > 1e-9 {
-		t.Errorf("expected 1 completed, 0.3 remaining; got %d, %f", completed, remaining)
-	}
+	config := DefaultSRSAlgorithmConfig()
+	config.IntervalMultiplier = 4.0
 
-	p = &models.UserNodeProgress{AccumulatedCredit: -0.8}
-	remaining, completed = s.ApplyPartialCredit(p, -0.5)
-	if completed != 1 || math.Abs(remaining+0.3) > 1e-9 {
-		t.Errorf("expected 1 completed, -0.3 remaining; got %d, %f", completed, remaining)
+	progress := &models.UserNodeProgress{
+		EasinessFactor: 2.5,
+		IntervalDays:   300,
+		Repetitions:    8,
+	}
+	result := s.CalculateNextInterval(progress, 5, time.Now(), config)
+	if result.IntervalDays != 366 {
+		t.Errorf("expected interval capped at 366 days, got %f", result.IntervalDays)
+	}
+}
+
+// Hard (quality 3) passes: repetitions advance instead of resetting.
+func TestCalculateNextIntervalHardPasses(t *testing.T) {
+	s := NewSpacedRepetitionService()
+	config := DefaultSRSAlgorithmConfig()
+
+	progress := &models.UserNodeProgress{
+		EasinessFactor: 2.5,
+		IntervalDays:   6,
+		Repetitions:    2,
+	}
+	result := s.CalculateNextInterval(progress, 3, time.Now(), config)
+	if result.Repetitions != 3 {
+		t.Errorf("expected quality 3 to advance repetitions to 3, got %d", result.Repetitions)
+	}
+	if result.IntervalDays <= progress.IntervalDays {
+		t.Errorf("expected interval to grow on a passing review, got %f", result.IntervalDays)
 	}
 }

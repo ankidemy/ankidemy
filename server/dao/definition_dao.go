@@ -19,7 +19,7 @@ func NewDefinitionDAO(db *gorm.DB) *DefinitionDAO {
 }
 
 // Create creates a new definition with prerequisites managed via node_prerequisites
-func (d *DefinitionDAO) Create(definition *models.Definition, references []string, prerequisiteIDs []uint, weights map[uint]float64) error {
+func (d *DefinitionDAO) Create(definition *models.Definition, references []string) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Create the definition
 		if err := tx.Create(definition).Error; err != nil {
@@ -39,54 +39,12 @@ func (d *DefinitionDAO) Create(definition *models.Definition, references []strin
 			}
 		}
 		
-		// Add prerequisites to node_prerequisites table
-        if len(prerequisiteIDs) > 0 {
-            for _, prereqID := range prerequisiteIDs {
-				// Verify prerequisite exists
-				var count int64
-				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
-					return err
-				}
-				if count == 0 {
-					continue // Skip invalid prerequisite
-				}
-				
-                // Determine weight (default 1.0, clamp 0.01-1.0)
-                w := 1.0
-                if weights != nil {
-                    if val, ok := weights[prereqID]; ok {
-                        if val < 0.01 {
-                            w = 0.01
-                        } else if val > 1.0 {
-                            w = 1.0
-                        } else {
-                            w = val
-                        }
-                    }
-                }
-
-                prerequisite := models.NodePrerequisite{
-                    NodeID:           definition.ID,
-                    NodeType:         "definition",
-                    PrerequisiteID:   prereqID,
-                    PrerequisiteType: "definition",
-                    Weight:           w,
-                    IsManual:         false,
-                }
-				
-				if err := tx.Create(&prerequisite).Error; err != nil {
-					// Ignore duplicates
-					continue
-				}
-			}
-		}
-		
 		return nil
 	})
 }
 
 // Update updates an existing definition and its prerequisites
-func (d *DefinitionDAO) Update(definition *models.Definition, references []string, prerequisiteIDs []uint, weights map[uint]float64) error {
+func (d *DefinitionDAO) Update(definition *models.Definition, references []string) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		// Update the definition
 		if err := tx.Save(definition).Error; err != nil {
@@ -110,53 +68,6 @@ func (d *DefinitionDAO) Update(definition *models.Definition, references []strin
 			}
 		}
 		
-		// Update prerequisites (clear existing, add new ones)
-		if err := tx.Where("node_id = ? AND node_type = ?", definition.ID, "definition").
-			Delete(&models.NodePrerequisite{}).Error; err != nil {
-			return err
-		}
-		
-        if len(prerequisiteIDs) > 0 {
-            for _, prereqID := range prerequisiteIDs {
-				// Verify prerequisite exists
-				var count int64
-				if err := tx.Model(&models.Definition{}).Where("id = ?", prereqID).Count(&count).Error; err != nil {
-					return err
-				}
-				if count == 0 {
-					continue // Skip invalid prerequisite
-				}
-				
-                // Determine weight (default 1.0, clamp 0.01-1.0)
-                w := 1.0
-                if weights != nil {
-                    if val, ok := weights[prereqID]; ok {
-                        if val < 0.01 {
-                            w = 0.01
-                        } else if val > 1.0 {
-                            w = 1.0
-                        } else {
-                            w = val
-                        }
-                    }
-                }
-
-                prerequisite := models.NodePrerequisite{
-                    NodeID:           definition.ID,
-                    NodeType:         "definition",
-                    PrerequisiteID:   prereqID,
-                    PrerequisiteType: "definition",
-                    Weight:           w,
-                    IsManual:         false,
-                }
-				
-				if err := tx.Create(&prerequisite).Error; err != nil {
-					// Ignore duplicates
-					continue
-				}
-			}
-		}
-		
 		return nil
 	})
 }
@@ -164,12 +75,6 @@ func (d *DefinitionDAO) Update(definition *models.Definition, references []strin
 // Delete deletes a definition and its prerequisites
 func (d *DefinitionDAO) Delete(id uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
-		// Delete prerequisites where this definition is involved
-		if err := tx.Where("(node_id = ? AND node_type = ?) OR (prerequisite_id = ? AND prerequisite_type = ?)", 
-			id, "definition", id, "definition").Delete(&models.NodePrerequisite{}).Error; err != nil {
-			return err
-		}
-		
 		// Delete references
 		if err := tx.Where("definition_id = ?", id).Delete(&models.Reference{}).Error; err != nil {
 			return err

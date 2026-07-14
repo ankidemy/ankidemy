@@ -248,7 +248,7 @@ func (h *ExerciseHandler) UpdateExercise(c *gin.Context) {
 	exercise.Verifiable = req.Verifiable
 
 	// Update exercise
-	if err := h.exerciseDAO.Update(exercise, req.PrerequisiteIDs, req.PrerequisiteWeights); err != nil {
+	if err := h.exerciseDAO.Update(exercise); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update exercise"})
 		return
 	}

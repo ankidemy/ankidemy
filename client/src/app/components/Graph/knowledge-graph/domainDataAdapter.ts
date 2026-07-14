@@ -65,14 +65,14 @@ export const buildIdToCodeByTypeFromGraphData = (
   Object.values(graphData.definitions || {}).forEach(def => {
     const id = def.id ?? codeToNumericIdMap?.get(def.code);
     if (typeof id === 'number') {
-      idToCodeByType.set(`meta_definition:${id}`, def.code);
+      idToCodeByType.set(`definition:${id}`, def.code);
     }
   });
 
   Object.values(graphData.exercises || {}).forEach(ex => {
     const id = ex.id ?? codeToNumericIdMap?.get(ex.code);
     if (typeof id === 'number') {
-      idToCodeByType.set(`meta_exercise:${id}`, ex.code);
+      idToCodeByType.set(`exercise:${id}`, ex.code);
     }
   });
 
@@ -108,14 +108,14 @@ export const adaptDomainPayloadToGraphData = (payload: DomainGraphPayload): Doma
     if (!metaDef?.code || typeof metaDef.id !== 'number') return;
     codeToNumericIdMap.set(metaDef.code, metaDef.id);
     nodeDataCache.set(metaDef.code, metaDef);
-    idToCodeByType.set(`meta_definition:${metaDef.id}`, metaDef.code);
+    idToCodeByType.set(`definition:${metaDef.id}`, metaDef.code);
   });
 
   metaExercises.forEach(metaEx => {
     if (!metaEx?.code || typeof metaEx.id !== 'number') return;
     codeToNumericIdMap.set(metaEx.code, metaEx.id);
     nodeDataCache.set(metaEx.code, metaEx);
-    idToCodeByType.set(`meta_exercise:${metaEx.id}`, metaEx.code);
+    idToCodeByType.set(`exercise:${metaEx.id}`, metaEx.code);
   });
 
   const definitions: Record<string, Definition> = {};

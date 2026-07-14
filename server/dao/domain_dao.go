@@ -312,18 +312,12 @@ func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
 		}
 		if len(exIDs) > 0 {
 			if err := tx.Where("(node_type = ? AND node_id IN ?) OR (prerequisite_type = ? AND prerequisite_id IN ?)",
-				"meta_exercise", exIDs, "meta_exercise", exIDs).Delete(&models.NodePrerequisite{}).Error; err != nil {
+				"exercise", exIDs, "exercise", exIDs).Delete(&models.NodePrerequisite{}).Error; err != nil {
 				return err
 			}
 		}
 
 		// Delete per-node user progress and history
-		if len(defIDs) > 0 {
-			if err := tx.Where("definition_id IN ?", defIDs).Delete(&models.UserDefinitionProgress{}).Error; err != nil {
-				return err
-			}
-		}
-		// Note: legacy UserExerciseProgress is not used for meta_exercises; clean up versions separately below
 		// UserNodeProgress and ReviewHistory store generic node references
 		if len(defIDs) > 0 {
 			if err := tx.Where("node_type = ? AND node_id IN ?", "definition", defIDs).Delete(&models.UserNodeProgress{}).Error; err != nil {

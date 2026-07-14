@@ -11,8 +11,11 @@ import {
   DueReview,
   CreditFlowAnimation,
   ReviewRequest,
+  ReviewResponse,
   NodeStatus,
   SessionType,
+  SessionStartRequest,
+  SessionEngineState,
 } from '../types/srs';
 import * as srsApi from '../lib/srs-api';
 // Corrected import path for ToastNotification
@@ -267,11 +270,14 @@ interface SRSContextType {
   getNodeProgress: (nodeId: number, nodeType: 'definition' | 'exercise') => NodeProgress | null;
 
   submitReview: (review: ReviewRequest) => Promise<void>;
+  // Applies a review response coming from the session engine (progress
+  // updates + credit-flow animations) without issuing a request.
+  applyReviewOutcome: (response: ReviewResponse | undefined | null) => void;
   loadDueReviews: (sessionType?: SessionType) => Promise<DueReview[]>; // Return due reviews
   getNextReviewItem: (sessionType: SessionType) => DueReview | null;
   setCurrentReviewItemInContext: (item: DueReview | null) => void;
 
-  startStudySession: (sessionType: SessionType) => Promise<StudySession | null>;
+  startStudySession: (request: Omit<SessionStartRequest, 'domainId'>) => Promise<SessionEngineState | null>;
   endStudySession: () => Promise<void>;
 
   setShowStudyModeInContext: (show: boolean) => void;
@@ -499,10 +505,66 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return progress;
   }, [state.domainProgress]); // Depends only on the progress map state
 
-  const submitReview = useCallback(async (review: ReviewRequest) => {
+  const applyReviewOutcome = useCallback((response: ReviewResponse | undefined | null) => {
+    if (!response) return;
+
+    if (response.updatedNodes) {
+      response.updatedNodes.forEach(nodeProgress => {
+        if (nodeProgress?.nodeId != null && nodeProgress?.nodeType) {
+          dispatch({
+            type: 'UPDATE_NODE_PROGRESS',
+            payload: {
+              nodeId: nodeProgress.nodeId,
+              nodeType: nodeProgress.nodeType,
+              progress: nodeProgress
+            }
+          });
+        }
+      });
+    }
+
+    if (response.creditFlow && Array.isArray(response.creditFlow) && response.creditFlow.length > 0) {
+      const newAnimations = response.creditFlow.map(credit => ({
+        nodeId: credit.nodeId.toString(),
+        credit: credit.credit,
+        type: credit.credit > 0 ? 'positive' as const : 'negative' as const,
+        timestamp: Date.now() + Math.random() * 50
+      }));
+      newAnimations.forEach(animation => {
+        dispatch({ type: 'ADD_CREDIT_ANIMATION', payload: animation });
+      });
+      setTimeout(() => dispatch({ type: 'CLEAR_CREDIT_ANIMATIONS' }), 3000);
+    }
+  }, []);
+
+  const refreshAfterReview = useCallback(async () => {
     const domainId = currentDomainIdRef.current;
     const currentSession = currentSessionRef.current;
-    
+    if (domainId === null) return;
+    try {
+      const [stats, dueReviewsResult] = await Promise.allSettled([
+        srsApi.getDomainStats(domainId, {
+          component: "SRSContext.refreshAfterReview",
+          action: "post-review-refresh",
+        }),
+        srsApi.getDueReviews(domainId, currentSession?.sessionType ?? 'mixed', 'compact')
+      ]);
+
+      if (stats.status === 'fulfilled') {
+        dispatch({ type: 'SET_DOMAIN_STATS', payload: stats.value });
+      }
+      if (dueReviewsResult.status === 'fulfilled') {
+        const dueNodes = Array.isArray(dueReviewsResult.value.dueNodes) ? dueReviewsResult.value.dueNodes : [];
+        dispatch({ type: 'SET_DUE_REVIEWS', payload: dueNodes });
+      }
+    } catch (refreshError) {
+      console.warn('Error during post-review data refresh:', refreshError);
+    }
+  }, []);
+
+  const submitReview = useCallback(async (review: ReviewRequest) => {
+    const domainId = currentDomainIdRef.current;
+
     if (domainId === null) {
         showToast("Cannot submit review: No domain selected.", "warning");
         return;
@@ -510,93 +572,13 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const response = await srsApi.submitReview(review);
-
-      // Update individual node progress based on response
-      if (response.updatedNodes) {
-        response.updatedNodes.forEach(nodeProgress => {
-           // Ensure nodeProgress has required fields before dispatching
-            if (nodeProgress?.nodeId != null && nodeProgress?.nodeType) {
-              dispatch({
-                type: 'UPDATE_NODE_PROGRESS',
-                payload: {
-                  nodeId: nodeProgress.nodeId,
-                  nodeType: nodeProgress.nodeType,
-                  progress: nodeProgress
-                }
-              });
-            } else {
-              console.warn("Received invalid node progress in submitReview response:", nodeProgress);
-            }
-        });
+      applyReviewOutcome(response);
+      if (response.counted) {
+        showToast('Review submitted successfully', 'success');
+      } else {
+        showToast('Not due yet — recorded as practice (no SRS change)', 'info', 2500);
       }
-
-      // Process credit flow animations
-      if (response.creditFlow && Array.isArray(response.creditFlow) && response.creditFlow.length > 0) {
-        console.log('Processing credit flow:', response.creditFlow);
-
-        // Create animations with unique timestamps to prevent duplicates
-        // Add a small random offset to ensure uniqueness for React keying/reducer checks
-        const newAnimations = response.creditFlow.map(credit => ({
-          nodeId: credit.nodeId.toString(), // Ensure nodeId is string for animation key/identity
-          credit: credit.credit,
-          type: credit.credit > 0 ? 'positive' as const : 'negative' as const,
-          timestamp: Date.now() + Math.random() * 50 // Add small random offset
-        }));
-
-        // Add animations one by one or with small delays if needed for sequencing,
-        // or add them all at once and let the reducer handle duplicates/limits.
-        // Adding all at once is simpler and reducer already handles duplicates.
-        newAnimations.forEach(animation => {
-             dispatch({
-               type: 'ADD_CREDIT_ANIMATION',
-               payload: animation
-             });
-        });
-
-
-        // Clear animations after they've had time to display
-        // Use a timeout ID to potentially clear previous timeouts if new animations arrive quickly
-        // This requires managing timeout IDs in state or a ref, which adds complexity.
-        // A simpler approach is to just set a fixed timeout after each batch.
-        // If rapid-fire animations cause issues, reconsider this. For now, fixed timeout:
-        setTimeout(() => dispatch({ type: 'CLEAR_CREDIT_ANIMATIONS' }), 3000); // Adjust delay as needed
-
-      }
-
-      showToast('Review submitted successfully', 'success');
-
-      // Refresh data that might have changed due to review
-      // Fetch updated stats and due reviews specifically
-      // Doing this separately is faster than a full domain data reload
-      try {
-        const [stats, dueReviewsResult] = await Promise.allSettled([
-            srsApi.getDomainStats(domainId, {
-              component: "SRSContext.submitReview",
-              action: "post-review-refresh",
-            }),
-            // Fetch reviews based on the session type if in a session, otherwise mixed
-            srsApi.getDueReviews(domainId, review.sessionId ? currentSession?.sessionType : 'mixed', 'compact')
-        ]);
-
-        if (stats.status === 'fulfilled') {
-             dispatch({ type: 'SET_DOMAIN_STATS', payload: stats.value });
-        } else {
-             console.warn('Could not refresh stats after review submission:', stats.reason);
-        }
-
-        if (dueReviewsResult.status === 'fulfilled') {
-            const dueNodes = Array.isArray(dueReviewsResult.value.dueNodes) ? dueReviewsResult.value.dueNodes : [];
-            dispatch({ type: 'SET_DUE_REVIEWS', payload: dueNodes });
-        } else {
-            console.warn('Could not refresh due reviews after review submission:', dueReviewsResult.reason);
-        }
-
-      } catch (refreshError) {
-        console.error('Error during post-review data refresh:', refreshError);
-        // Note: The individual Promise.allSettled catches handle errors per promise,
-        // this catch would only be for errors within the Promise.allSettled setup itself.
-      }
-
+      await refreshAfterReview();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to submit review';
       console.error('Submit review failed:', error);
@@ -605,7 +587,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, []); // STABLE - no dependencies
+  }, [applyReviewOutcome, refreshAfterReview]); // STABLE - no dependencies
 
   const loadDueReviews = useCallback(async (sessionType: SessionType = 'mixed'): Promise<DueReview[]> => {
     const domainId = currentDomainIdRef.current;
@@ -658,7 +640,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dispatch({ type: 'SET_CURRENT_REVIEW_ITEM', payload: item });
   }, []); // No dependencies
 
-  const startStudySession = useCallback(async (sessionType: SessionType): Promise<StudySession | null> => {
+  const startStudySession = useCallback(async (request: Omit<SessionStartRequest, 'domainId'>): Promise<SessionEngineState | null> => {
     const domainId = currentDomainIdRef.current;
     if (domainId === null) {
       showToast('Please select a domain first.', 'error');
@@ -666,12 +648,11 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
-      const session = await srsApi.startStudySession(domainId, sessionType);
-      dispatch({ type: 'START_SESSION_SUCCESS', payload: session });
-      // Load the due reviews for the session type immediately after starting
-      await loadDueReviews(sessionType);
-      showToast(`Started ${sessionType} study session.`, 'success');
-      return session;
+      const engineState = await srsApi.startStudySession({ domainId, ...request });
+      dispatch({ type: 'START_SESSION_SUCCESS', payload: engineState.session });
+      await loadDueReviews(request.sessionType);
+      showToast(`Started ${request.sessionType} study session.`, 'success');
+      return engineState;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start study session';
       console.error('Start session failed:', error);
@@ -756,6 +737,7 @@ export const SRSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateNodeStatus,
     getNodeProgress,
     submitReview,
+    applyReviewOutcome,
     loadDueReviews,
     getNextReviewItem,
     setCurrentReviewItemInContext,

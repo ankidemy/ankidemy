@@ -13,6 +13,12 @@ export const getStatusColor = (status: string): string => {
   return '#9ca3af';
 };
 
+export const getExerciseSolveColor = (state: 'unsolved' | 'tried' | 'solved'): string => {
+  if (state === 'solved') return '#10B981';
+  if (state === 'tried') return '#F59E0B';
+  return '#94A3B8';
+};
+
 export const isNodeDue = (nextReview?: string | null): boolean => {
   if (!nextReview) return false;
   const ts = Date.parse(nextReview);

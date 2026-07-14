@@ -8,57 +8,15 @@ import (
 	"testing"
 
 	"ankidemy/server/models"
+	"ankidemy/server/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-type fakeProgressStore struct {
-	trackDefinitionReviewCalled bool
-	updateDomainProgressCalled  bool
-	trackExerciseAttemptCalled  bool
-}
+type fakeProgressStore struct{}
 
 func (f *fakeProgressStore) GetUserDomainProgress(userID uint) ([]models.UserDomainProgress, error) {
 	return nil, nil
-}
-
-func (f *fakeProgressStore) GetUserDefinitionProgress(userID, domainID uint) ([]models.UserDefinitionProgress, error) {
-	return nil, nil
-}
-
-func (f *fakeProgressStore) GetUserExerciseProgress(userID, domainID uint) ([]models.UserExerciseProgress, error) {
-	return nil, nil
-}
-
-func (f *fakeProgressStore) TrackDefinitionReview(userID, definitionID uint, result models.ReviewResult, timeTaken int) error {
-	f.trackDefinitionReviewCalled = true
-	return nil
-}
-
-func (f *fakeProgressStore) UpdateDomainProgress(userID, domainID uint) error {
-	f.updateDomainProgressCalled = true
-	return nil
-}
-
-func (f *fakeProgressStore) TrackExerciseAttempt(userID, exerciseID uint, correct bool, timeTaken int) error {
-	f.trackExerciseAttemptCalled = true
-	return nil
-}
-
-func (f *fakeProgressStore) GetDefinitionsForReview(userID, domainID uint, limit int) ([]models.Definition, error) {
-	return nil, nil
-}
-
-func (f *fakeProgressStore) EndStudySession(sessionID uint) error {
-	return nil
-}
-
-func (f *fakeProgressStore) GetStudySessions(userID uint) ([]models.StudySession, error) {
-	return nil, nil
-}
-
-func (f *fakeProgressStore) GetSessionDetails(sessionID uint) (*models.StudySession, []models.SessionDefinition, []models.SessionExercise, error) {
-	return nil, nil, nil, nil
 }
 
 type fakeDefinitionFinder struct {
@@ -117,6 +75,20 @@ func (f *fakeSRSService) UpdateNodeStatus(userID uint, nodeID uint, nodeType str
 }
 
 func (f *fakeSRSService) InvalidateDomainReviewCaches(domainID uint) {}
+
+func (f *fakeSRSService) DeriveExerciseStatusesForDomain(domainID uint) error { return nil }
+
+func (f *fakeSRSService) StartEngineSession(userID uint, request *models.SessionRequest, requestID string) (*services.SessionEngineState, error) {
+	return &services.SessionEngineState{}, nil
+}
+
+func (f *fakeSRSService) GetEngineSessionItem(userID uint, sessionID uint) (*services.SessionEngineItem, error) {
+	return &services.SessionEngineItem{}, nil
+}
+
+func (f *fakeSRSService) GradeEngineSession(userID uint, sessionID uint, grade *models.SessionGradeRequest, requestID string) (*services.SessionEngineItem, error) {
+	return &services.SessionEngineItem{}, nil
+}
 
 type fakeSRSDAO struct {
 	createSessionCalled bool
@@ -184,74 +156,6 @@ func testJSONContext(method, target, body string) (*gin.Context, *httptest.Respo
 	return c, recorder
 }
 
-func TestProgressReviewDefinitionRejectsUnauthorizedBeforeSideEffects(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	progress := &fakeProgressStore{}
-	handler := &ProgressHandler{
-		progressDAO: progress,
-		domainDAO: fakeDomainFinder{
-			domain: &models.Domain{ID: 42, OwnerID: 11, Privacy: "private"},
-		},
-		definitionDAO: fakeDefinitionFinder{
-			definition: &models.Definition{DomainID: 42},
-		},
-		permissionDAO: fakePermissionLookup{},
-	}
-
-	c, recorder := testJSONContext(http.MethodPost, "/api/progress/definitions/9/review", `{"result":"good","timeTaken":3}`)
-	c.Params = gin.Params{{Key: "id", Value: "9"}}
-	c.Set("userID", uint(7))
-
-	handler.ReviewDefinition(c)
-
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", recorder.Code)
-	}
-	if progress.trackDefinitionReviewCalled {
-		t.Fatal("expected definition review tracking to be skipped")
-	}
-	if progress.updateDomainProgressCalled {
-		t.Fatal("expected domain progress update to be skipped")
-	}
-}
-
-func TestProgressAttemptExerciseRejectsUnauthorizedBeforeSideEffects(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	progress := &fakeProgressStore{}
-	exercises := &fakeExerciseStore{
-		exercise: &models.Exercise{DomainID: 42, Verifiable: true},
-	}
-	handler := &ProgressHandler{
-		progressDAO: progress,
-		domainDAO: fakeDomainFinder{
-			domain: &models.Domain{ID: 42, OwnerID: 11, Privacy: "private"},
-		},
-		exerciseDAO:   exercises,
-		permissionDAO: fakePermissionLookup{},
-	}
-
-	c, recorder := testJSONContext(http.MethodPost, "/api/progress/exercises/9/attempt", `{"answer":"42","timeTaken":5}`)
-	c.Params = gin.Params{{Key: "id", Value: "9"}}
-	c.Set("userID", uint(7))
-
-	handler.AttemptExercise(c)
-
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", recorder.Code)
-	}
-	if exercises.verifyCalled {
-		t.Fatal("expected answer verification to be skipped")
-	}
-	if progress.trackExerciseAttemptCalled {
-		t.Fatal("expected exercise attempt tracking to be skipped")
-	}
-	if progress.updateDomainProgressCalled {
-		t.Fatal("expected domain progress update to be skipped")
-	}
-}
-
 func TestSRSSubmitReviewRejectsViewerBeforeServiceCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -264,7 +168,7 @@ func TestSRSSubmitReviewRejectsViewerBeforeServiceCall(t *testing.T) {
 		permissionDAO: fakePermissionLookup{role: "viewer", exists: true},
 		nodeAccessResolver: fakeNodeAccessResolver{
 			resolved: map[string]*resolvedNodeAccess{
-				"meta_definition:9": {DomainID: 42},
+				"definition:9": {DomainID: 42},
 			},
 		},
 	}
@@ -294,12 +198,12 @@ func TestSRSUpdateNodeStatusRejectsViewerBeforeServiceCall(t *testing.T) {
 		permissionDAO: fakePermissionLookup{role: "viewer", exists: true},
 		nodeAccessResolver: fakeNodeAccessResolver{
 			resolved: map[string]*resolvedNodeAccess{
-				"meta_exercise:9": {DomainID: 42},
+				"definition:9": {DomainID: 42},
 			},
 		},
 	}
 
-	c, recorder := testJSONContext(http.MethodPut, "/api/srs/nodes/status", `{"nodeId":9,"nodeType":"exercise","status":"grasped"}`)
+	c, recorder := testJSONContext(http.MethodPut, "/api/srs/nodes/status", `{"nodeId":9,"nodeType":"definition","status":"grasped"}`)
 	c.Set("userID", uint(7))
 
 	handler.UpdateNodeStatus(c)

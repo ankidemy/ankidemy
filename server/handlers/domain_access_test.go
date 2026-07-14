@@ -110,8 +110,8 @@ func TestResolveNodeAccessWithLookupSupportsConfiguredNodeTypes(t *testing.T) {
 	}{
 		{nodeType: "definition", nodeID: 1, domainID: 11, ownerID: 21},
 		{nodeType: "exercise", nodeID: 2, domainID: 12, ownerID: 22},
-		{nodeType: "meta_definition", nodeID: 3, domainID: 13, ownerID: 23},
-		{nodeType: "meta_exercise", nodeID: 4, domainID: 14, ownerID: 24},
+		{nodeType: "definition", nodeID: 3, domainID: 13, ownerID: 23},
+		{nodeType: "exercise", nodeID: 4, domainID: 14, ownerID: 24},
 		{nodeType: "source", nodeID: 5, domainID: 15, ownerID: 25, visibility: "private"},
 		{nodeType: "meta_quest", nodeID: 6, domainID: 16, ownerID: 26, visibility: "domain"},
 		{nodeType: "quest", nodeID: 6, domainID: 16, ownerID: 26, visibility: "domain"},

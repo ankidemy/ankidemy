@@ -90,6 +90,7 @@ func ValidateBackupArchive(reader *zip.Reader) (*ValidatedBackupArchive, error) 
 		if err := json.Unmarshal(payload, &parsed); err != nil {
 			return nil, errors.New("failed to parse backup.json")
 		}
+		NormalizeDomainBackupNodeTypes(&parsed)
 		validated.Backup = &parsed
 		validated.ImportData = &parsed.Data
 		return validated, nil

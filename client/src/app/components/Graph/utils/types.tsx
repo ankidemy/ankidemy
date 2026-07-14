@@ -115,9 +115,9 @@ export interface MetaQuest {
 export interface NodeRelation {
   id?: number;
   domainId?: number;
-  fromType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  fromType: 'definition' | 'exercise' | 'source' | 'meta_quest';
   fromId: number;
-  toType: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest';
+  toType: 'definition' | 'exercise' | 'source' | 'meta_quest';
   toId: number;
   relationType: string;
   contextKey?: string;
@@ -158,7 +158,7 @@ export interface GraphNode {
   externalDomainId?: number;
   externalDomainUid?: string;
   externalNodeId?: number;
-  externalNodeType?: 'meta_definition' | 'meta_exercise';
+  externalNodeType?: 'definition' | 'exercise';
   externalDomainName?: string;
   externalNodeName?: string;
 

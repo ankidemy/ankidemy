@@ -71,7 +71,7 @@ type updateGroupStateRequest struct {
 }
 
 func isValidGroupNodeType(nodeType string) bool {
-	return nodeType == "meta_definition" || nodeType == "meta_exercise"
+	return nodeType == "definition" || nodeType == "exercise"
 }
 
 func (h *GroupHandler) getDomainNodes(domainID uint) (map[uint]models.MetaDefinition, map[uint]models.MetaExercise, error) {
@@ -104,7 +104,7 @@ func (h *GroupHandler) validateNodeRefs(refs []groupNodeRef, defs map[uint]model
 		if !isValidGroupNodeType(ref.NodeType) {
 			return nil, nil, errors.New("invalid node type")
 		}
-		if ref.NodeType == "meta_definition" {
+		if ref.NodeType == "definition" {
 			def, ok := defs[ref.NodeID]
 			if !ok {
 				return nil, nil, errors.New("invalid node reference")
@@ -191,12 +191,12 @@ func (h *GroupHandler) ListByDomain(c *gin.Context) {
 	seedsByGroup := make(map[uint][]groupNodeRef)
 	for _, s := range seeds {
 		ref := groupNodeRef{NodeID: s.NodeID, NodeType: s.NodeType}
-		if s.NodeType == "meta_definition" {
+		if s.NodeType == "definition" {
 			if def, ok := defs[s.NodeID]; ok {
 				ref.NodeCode = def.Code
 				ref.NodeName = def.Name
 			}
-		} else if s.NodeType == "meta_exercise" {
+		} else if s.NodeType == "exercise" {
 			if ex, ok := exs[s.NodeID]; ok {
 				ref.NodeCode = ex.Code
 				ref.NodeName = ex.Name
@@ -208,12 +208,12 @@ func (h *GroupHandler) ListByDomain(c *gin.Context) {
 	membersByGroup := make(map[uint][]groupNodeRef)
 	for _, m := range members {
 		ref := groupNodeRef{NodeID: m.NodeID, NodeType: m.NodeType}
-		if m.NodeType == "meta_definition" {
+		if m.NodeType == "definition" {
 			if def, ok := defs[m.NodeID]; ok {
 				ref.NodeCode = def.Code
 				ref.NodeName = def.Name
 			}
-		} else if m.NodeType == "meta_exercise" {
+		} else if m.NodeType == "exercise" {
 			if ex, ok := exs[m.NodeID]; ok {
 				ref.NodeCode = ex.Code
 				ref.NodeName = ex.Name
@@ -456,12 +456,12 @@ func (h *GroupHandler) Update(c *gin.Context) {
 				continue
 			}
 			ref := groupNodeRef{NodeID: s.NodeID, NodeType: s.NodeType}
-			if s.NodeType == "meta_definition" {
+			if s.NodeType == "definition" {
 				if def, ok := defs[s.NodeID]; ok {
 					ref.NodeCode = def.Code
 					ref.NodeName = def.Name
 				}
-			} else if s.NodeType == "meta_exercise" {
+			} else if s.NodeType == "exercise" {
 				if ex, ok := exs[s.NodeID]; ok {
 					ref.NodeCode = ex.Code
 					ref.NodeName = ex.Name
@@ -475,12 +475,12 @@ func (h *GroupHandler) Update(c *gin.Context) {
 				continue
 			}
 			ref := groupNodeRef{NodeID: m.NodeID, NodeType: m.NodeType}
-			if m.NodeType == "meta_definition" {
+			if m.NodeType == "definition" {
 				if def, ok := defs[m.NodeID]; ok {
 					ref.NodeCode = def.Code
 					ref.NodeName = def.Name
 				}
-			} else if m.NodeType == "meta_exercise" {
+			} else if m.NodeType == "exercise" {
 				if ex, ok := exs[m.NodeID]; ok {
 					ref.NodeCode = ex.Code
 					ref.NodeName = ex.Name

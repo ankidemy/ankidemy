@@ -59,14 +59,14 @@ test('adaptDomainPayloadToGraphData maps payload to graph data and ids', () => {
       {
         fromType: 'source',
         fromId: 3,
-        toType: 'meta_definition',
+        toType: 'definition',
         toId: 1,
         relationType: 'relevant',
       },
       {
         fromType: 'meta_quest',
         fromId: 4,
-        toType: 'meta_exercise',
+        toType: 'exercise',
         toId: 2,
         relationType: 'relevant',
       },
@@ -107,21 +107,21 @@ test('buildIdToCodeByTypeFromGraphData reconstructs relation lookup ids', () => 
   } as any;
 
   const idMap = buildIdToCodeByTypeFromGraphData(graphData);
-  assert.equal(idMap.get('meta_definition:10'), 'D1');
-  assert.equal(idMap.get('meta_exercise:11'), 'E1');
+  assert.equal(idMap.get('definition:10'), 'D1');
+  assert.equal(idMap.get('exercise:11'), 'E1');
   assert.equal(idMap.get('source:12'), 'S1');
   assert.equal(idMap.get('meta_quest:13'), 'Q1');
 });
 
 test('buildRelationEdgesFromDomainRelations ignores unresolved ids', () => {
   const idToCodeByType = new Map<string, string>([
-    ['meta_definition:1', 'D1'],
-    ['meta_exercise:2', 'E1'],
+    ['definition:1', 'D1'],
+    ['exercise:2', 'E1'],
   ]);
 
   const edges = buildRelationEdgesFromDomainRelations([
-    { fromType: 'meta_definition', fromId: 1, toType: 'meta_exercise', toId: 2, relationType: 'depends_on' },
-    { fromType: 'meta_definition', fromId: 1, toType: 'meta_exercise', toId: 999, relationType: 'depends_on' },
+    { fromType: 'definition', fromId: 1, toType: 'exercise', toId: 2, relationType: 'depends_on' },
+    { fromType: 'definition', fromId: 1, toType: 'exercise', toId: 999, relationType: 'depends_on' },
   ] as any, idToCodeByType);
 
   assert.deepEqual(edges, [

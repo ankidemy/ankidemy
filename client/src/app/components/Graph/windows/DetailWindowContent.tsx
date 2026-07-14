@@ -14,9 +14,9 @@ import MetaDefinitionEditForm, { MetaDefinitionEditFormRef } from '../details/Me
 import VersionHeaderControls from '../components/VersionHeaderControls';
 import { useSRS } from '@/contexts/SRSContext';
 import { useUI } from '@/contexts/UIContext';
-import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem } from '@/types/srs';
+import { NodeStatus, ReviewHistoryItem as SRSReviewHistoryItem, exerciseSolveState } from '@/types/srs';
 import ProgressDisplay from '../components/ProgressDisplay';
-import { getReviewHistory, getDomainPrerequisites, getStatusColor, formatNextReview, createPrerequisite } from '@/lib/srs-api';
+import { getReviewHistory, getDomainPrerequisites, getStatusColor, formatNextReview, createPrerequisite, getExerciseSolveColor } from '@/lib/srs-api';
 import { InlineMarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import {
   updateDefinition,
@@ -468,11 +468,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const handleReviewDefinition = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
     if (!numericId) return;
     
-    const qualityMap = { again: 0, hard: 1, good: 4, easy: 5 } as const;
+    const qualityMap = { again: 0, hard: 3, good: 4, easy: 5 } as const;
     await srs.submitReview({
       nodeId: numericId,
-      nodeType: 'meta_definition',
-      success: qualityMap[quality] >= 3,
+      nodeType: 'definition',
       quality: qualityMap[quality] as any,
       timeTaken: 0,
       sessionId: srs.state.currentSession?.id,
@@ -486,11 +485,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   const handleRateExercise = useCallback(async (quality: 'again' | 'hard' | 'good' | 'easy') => {
     if (!numericId) return;
     
-    const qualityMap = { again: 0, hard: 1, good: 4, easy: 5 };
+    const qualityMap = { again: 0, hard: 3, good: 4, easy: 5 };
     await srs.submitReview({
       nodeId: numericId,
       nodeType: 'exercise',
-      success: qualityMap[quality] >= 3,
       quality: qualityMap[quality] as any,
       timeTaken: 0,
       sessionId: srs.state.currentSession?.id,
@@ -526,6 +524,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   // Status change handler
   const handleStatusChange = useCallback(async (status: NodeStatus) => {
     if (!numericId || !srsNodeType) return;
+    if (srsNodeType !== 'definition') {
+      showToast('Exercise status follows its parent definitions.', 'info');
+      return;
+    }
 
     await srs.updateNodeStatus(numericId, srsNodeType, status);
     showToast(`Status updated to ${status}`, 'success');
@@ -575,7 +577,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       await createRelation(domainData.id, {
         fromType: 'meta_quest',
         fromId: quest.id,
-        toType: currentNode.type === 'definition' ? 'meta_definition' : 'meta_exercise',
+        toType: currentNode.type === 'definition' ? 'definition' : 'exercise',
         toId: numericId,
         relationType: 'reminds_open',
       });
@@ -889,17 +891,17 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       const nodeId = codeToNumericIdMap.get(currentNode.id);
       const domainId = domainData?.id;
       if (!nodeId || !domainId) return;
-      const nodeType = currentNode.type === 'definition' ? 'meta_definition' : 'meta_exercise';
+      const nodeType = currentNode.type === 'definition' ? 'definition' : 'exercise';
       try {
         const all = await getDomainPrerequisites(domainId);
         if (cancelled) return;
         const filtered = all.filter(p => p.nodeId === nodeId && p.nodeType === nodeType);
         const definitions = filtered
-          .filter(p => p.prerequisiteType === 'meta_definition')
+          .filter(p => p.prerequisiteType === 'definition')
           .map(p => definitionIdToCodeMap.get(p.prerequisiteId))
           .filter((code): code is string => Boolean(code));
         const exercises = filtered
-          .filter(p => p.prerequisiteType === 'meta_exercise')
+          .filter(p => p.prerequisiteType === 'exercise')
           .map(p => exerciseIdToCodeMap.get(p.prerequisiteId))
           .filter((code): code is string => Boolean(code));
         setPrereqLookup({ definitions, exercises, loaded: true });
@@ -1151,11 +1153,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         });
         await createPrerequisite({
           nodeId: created.id,
-          nodeType: 'meta_definition',
+          nodeType: 'definition',
           prerequisiteId: meta.id,
-          prerequisiteType: 'meta_definition',
+          prerequisiteType: 'definition',
           weight: 1.0,
-          isManual: true,
         });
         await deleteMetaDefinitionVersion(meta.id, defVersion.id);
         onInsertNode?.(nextCode, 'definition', {
@@ -1185,11 +1186,10 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
         });
         await createPrerequisite({
           nodeId: created.id,
-          nodeType: 'meta_exercise',
+          nodeType: 'exercise',
           prerequisiteId: meta.id,
-          prerequisiteType: 'meta_exercise',
+          prerequisiteType: 'exercise',
           weight: 1.0,
-          isManual: true,
         });
         await deleteMetaExerciseVersion(meta.id, exVersion.id);
         onInsertNode?.(nextCode, 'exercise', {
@@ -1405,7 +1405,20 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                 {currentNode.id}
               </span>
             )}
-            {showStatusPicker ? (
+            {currentNode.type !== 'definition' ? (
+              // Exercise status is derived from parent definitions: show the
+              // solve state instead of a status picker.
+              <span
+                className="kg-font-tag flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 rounded px-2 py-0.5"
+                title="Exercise status follows its parent definitions; the badge shows whether it has been solved"
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: getExerciseSolveColor(exerciseSolveState(nodeProgress)) }}
+                />
+                <span className="capitalize">{exerciseSolveState(nodeProgress)}</span>
+              </span>
+            ) : showStatusPicker ? (
               <div className="flex items-center gap-1">
                 <span className="text-[11px] text-gray-500">Select:</span>
                 {(['tackling', 'grasped', 'learned'] as NodeStatus[]).map(status => (
@@ -1801,7 +1814,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                         <PrerequisitesPanel
                           domainId={domainData.id}
                           nodeId={numericId}
-                          nodeType={'meta_exercise'}
+                          nodeType={'exercise'}
                           availableDefinitions={availableDefinitions}
                           canEdit={canEdit}
                           externalLinks={externalPrerequisites}
@@ -1834,9 +1847,9 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                         <PrerequisitesPanel
                           domainId={domainData.id}
                           nodeId={numericId}
-                          nodeType={'meta_definition'}
+                          nodeType={'definition'}
                           availableDefinitions={availableDefinitions}
-                          allowKinds={['meta_definition']}
+                          allowKinds={['definition']}
                           canEdit={canEdit}
                           externalLinks={externalPrerequisites}
                           onExternalChanged={onExternalChanged}

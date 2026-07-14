@@ -122,7 +122,7 @@ func main() {
 	domainHandler := handlers.NewDomainHandler(domainDAO, progressDAO, importService, permissionDAO, notificationReadModelService) // Added ImportService
 	definitionHandler := handlers.NewDefinitionHandler(definitionDAO, domainDAO, metaDefinitionDAO, permissionDAO)
 	exerciseHandler := handlers.NewExerciseHandler(exerciseDAO, domainDAO, permissionDAO)
-	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, definitionDAO, exerciseDAO, permissionDAO)
+	progressHandler := handlers.NewProgressHandler(progressDAO, domainDAO, permissionDAO)
 	graphHandler := handlers.NewGraphHandler(graphDAO, domainDAO, permissionDAO, sourceDAO, metaQuestDAO)
 	domainNetworkHandler := handlers.NewDomainNetworkHandler(domainNetworkDAO, domainDAO, permissionDAO)
 	srsHandler := handlers.NewSRSHandler(db, permissionDAO, notificationReadModelService, queryCache)
@@ -389,24 +389,10 @@ func main() {
 			// Relation routes
 			authorized.DELETE("/relations/:id", relationHandler.DeleteRelation)
 
-			// Progress routes
+			// Progress routes (domain enrollment overview)
 			progress := authorized.Group("/progress")
 			{
 				progress.GET("/domains", progressHandler.GetDomainProgress)
-				progress.GET("/domains/:domainId/definitions", progressHandler.GetDefinitionProgress)
-				progress.GET("/domains/:domainId/exercises", progressHandler.GetExerciseProgress)
-				progress.POST("/definitions/:id/review", progressHandler.ReviewDefinition)
-				progress.POST("/exercises/:id/attempt", progressHandler.AttemptExercise)
-				progress.GET("/domains/:domainId/review", progressHandler.GetDefinitionsForReview)
-			}
-
-			// Session routes
-			sessions := authorized.Group("/sessions")
-			{
-				sessions.POST("/start", progressHandler.StartSession)
-				sessions.PUT("/:id/end", progressHandler.EndSession)
-				sessions.GET("", progressHandler.GetSessions)
-				sessions.GET("/:id", progressHandler.GetSessionDetails)
 			}
 
 			// SRS ROUTES
@@ -424,8 +410,10 @@ func main() {
 				srs.GET("/notifications/summary", srsHandler.GetNotificationSummary)
 				srs.PUT("/nodes/status", srsHandler.UpdateNodeStatus)
 
-				// Session endpoints
+				// Session endpoints (server-driven session engine)
 				srs.POST("/sessions", srsHandler.StartSession)
+				srs.GET("/sessions/:sessionId/item", srsHandler.GetSessionItem)
+				srs.POST("/sessions/:sessionId/grade", srsHandler.GradeSession)
 				srs.PUT("/sessions/:sessionId/end", srsHandler.EndSession)
 				srs.GET("/sessions", srsHandler.GetUserSessions)
 

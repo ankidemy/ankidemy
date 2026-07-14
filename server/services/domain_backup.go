@@ -91,6 +91,28 @@ type SRSProgress struct {
 	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
+// NormalizeDomainBackupNodeTypes canonicalizes node-type strings from older
+// backup files (meta_definition/meta_exercise → definition/exercise).
+func NormalizeDomainBackupNodeTypes(b *DomainBackup) {
+	if b == nil {
+		return
+	}
+	if b.UserState != nil {
+		for i := range b.UserState.PrivateRelations {
+			b.UserState.PrivateRelations[i].FromType = canonicalImportNodeType(b.UserState.PrivateRelations[i].FromType)
+			b.UserState.PrivateRelations[i].ToType = canonicalImportNodeType(b.UserState.PrivateRelations[i].ToType)
+		}
+		for i := range b.UserState.SRSProgress {
+			b.UserState.SRSProgress[i].NodeType = canonicalImportNodeType(b.UserState.SRSProgress[i].NodeType)
+		}
+	}
+	if b.SRS != nil {
+		for i := range b.SRS.Progress {
+			b.SRS.Progress[i].NodeType = canonicalImportNodeType(b.SRS.Progress[i].NodeType)
+		}
+	}
+}
+
 func (s *ImportService) ExportDomainBackup(domainID uint, userID uint) (*DomainBackup, error) {
 	domain, err := s.domainDAO.FindByID(domainID)
 	if err != nil {

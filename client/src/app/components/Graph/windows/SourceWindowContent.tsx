@@ -28,7 +28,7 @@ interface SourceWindowContentProps {
   isCopyingYaml?: boolean;
 }
 
-type RelationDraft = { id?: number; relationType: string; toType: 'meta_definition' | 'meta_exercise'; toCode: string };
+type RelationDraft = { id?: number; relationType: string; toType: 'definition' | 'exercise'; toCode: string };
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
@@ -120,7 +120,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   const [relevantLinks, setRelevantLinks] = useState<RelationDraft[]>([]);
   const [newRelation, setNewRelation] = useState<RelationDraft>({
     relationType: 'relevant',
-    toType: 'meta_definition',
+    toType: 'definition',
     toCode: '',
   });
 
@@ -145,12 +145,12 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   }, [graphData]);
 
   const targetLookup = useMemo(() => {
-    const map = new Map<string, { type: 'meta_definition' | 'meta_exercise'; id: number }>();
+    const map = new Map<string, { type: 'definition' | 'exercise'; id: number }>();
     Object.values(graphData?.definitions || {}).forEach(def => {
-      if (def.id) map.set(def.code, { type: 'meta_definition', id: def.id });
+      if (def.id) map.set(def.code, { type: 'definition', id: def.id });
     });
     Object.values(graphData?.exercises || {}).forEach(ex => {
-      if (ex.id) map.set(ex.code, { type: 'meta_exercise', id: ex.id });
+      if (ex.id) map.set(ex.code, { type: 'exercise', id: ex.id });
     });
     return map;
   }, [graphData]);
@@ -221,7 +221,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
         .map(rel => {
           const code = codeLookup.get(`${rel.toType}:${rel.toId}`);
           if (!code) return null;
-          if (rel.toType !== 'meta_definition' && rel.toType !== 'meta_exercise') return null;
+          if (rel.toType !== 'definition' && rel.toType !== 'exercise') return null;
           return {
             id: rel.id,
             relationType: rel.relationType || 'relevant',
@@ -476,10 +476,10 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
 
   const getLinkLabel = useCallback((link: RelationDraft): string => {
     if (!graphData) return link.toCode;
-    if (link.toType === 'meta_definition') {
+    if (link.toType === 'definition') {
       return graphData.definitions?.[link.toCode]?.name || link.toCode;
     }
-    if (link.toType === 'meta_exercise') {
+    if (link.toType === 'exercise') {
       return graphData.exercises?.[link.toCode]?.name || link.toCode;
     }
     return link.toCode;
@@ -743,7 +743,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               {relevantLinks.map((link, idx) => (
                 <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
                   <span className="kg-font-tag px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                    {link.toType === 'meta_definition' ? 'Definition' : 'Exercise'}
+                    {link.toType === 'definition' ? 'Definition' : 'Exercise'}
                   </span>
                   <span className="text-gray-800">{link.toCode}</span>
                   <Button
@@ -761,8 +761,8 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
                   onChange={(e) => setNewRelation(prev => ({ ...prev, toType: e.target.value as RelationDraft['toType'] }))}
                   className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
                 >
-                  <option value="meta_definition">Definition</option>
-                  <option value="meta_exercise">Exercise</option>
+                  <option value="definition">Definition</option>
+                  <option value="exercise">Exercise</option>
                 </select>
                 <Input
                   value={newRelation.toCode}
@@ -787,7 +787,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
             <div className="flex flex-wrap gap-1.5">
               {relevantLinks.map((link, idx) => {
                 const style =
-                  link.toType === 'meta_definition'
+                  link.toType === 'definition'
                     ? 'bg-blue-50 hover:bg-blue-100 border-blue-200'
                     : 'bg-orange-50 hover:bg-orange-100 border-orange-200';
                 return (

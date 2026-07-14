@@ -1061,10 +1061,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const numericId = codeToNumericIdMap.get(nodeCode);
     if (!numericId) return null;
     if (currentStructuralGraphData.definitions?.[nodeCode]) {
-      return { nodeId: numericId, nodeType: 'meta_definition' };
+      return { nodeId: numericId, nodeType: 'definition' };
     }
     if (currentStructuralGraphData.exercises?.[nodeCode]) {
-      return { nodeId: numericId, nodeType: 'meta_exercise' };
+      return { nodeId: numericId, nodeType: 'exercise' };
     }
     return null;
   }, [codeToNumericIdMap, currentStructuralGraphData]);
@@ -2167,7 +2167,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   }, [codeToNumericIdMap]);
 
   const getMetaNodeType = useCallback((nodeType: 'definition' | 'exercise') => (
-    nodeType === 'definition' ? 'meta_definition' : 'meta_exercise'
+    nodeType === 'definition' ? 'definition' : 'exercise'
   ), []);
 
   const getDefaultFrenzyContent = useCallback((nodeType: 'definition' | 'exercise' | 'source', nodeName: string) => {
@@ -2409,7 +2409,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         prerequisiteId: sourceId,
         prerequisiteType: getMetaNodeType(source.type),
         weight: 1.0,
-        isManual: true,
       });
       setFrenzyPrerequisiteMap(prev => {
         const next = new Map(prev);
@@ -2430,16 +2429,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.quests,
   ]);
 
-  const resolveRelationTarget = useCallback((node: GraphNode): { type: 'meta_definition' | 'meta_exercise' | 'source' | 'meta_quest'; id: number; code: string } | null => {
+  const resolveRelationTarget = useCallback((node: GraphNode): { type: 'definition' | 'exercise' | 'source' | 'meta_quest'; id: number; code: string } | null => {
     if (node.type === 'definition') {
       const id = codeToNumericIdMap.get(node.id);
       if (!id) return null;
-      return { type: 'meta_definition', id, code: node.id };
+      return { type: 'definition', id, code: node.id };
     }
     if (node.type === 'exercise') {
       const id = codeToNumericIdMap.get(node.id);
       if (!id) return null;
-      return { type: 'meta_exercise', id, code: node.id };
+      return { type: 'exercise', id, code: node.id };
     }
     if (node.type === 'source') {
       const src = currentStructuralGraphData.sources?.[node.id];
@@ -2493,7 +2492,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Source links must start from a source node.', 'warning');
       return;
     }
-    if (otherInfo.type !== 'meta_definition' && otherInfo.type !== 'meta_exercise') {
+    if (otherInfo.type !== 'definition' && otherInfo.type !== 'exercise') {
       showToast('Sources can only be linked to definitions or exercises.', 'warning');
       return;
     }
@@ -4220,7 +4219,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const targets: FlaggableTarget[] = [];
     selectedNodeIds.forEach(code => {
       const nodeType = getNodeTypeByCode(code);
-      if (nodeType !== 'definition' && nodeType !== 'exercise') return;
+      // Exercise status is derived from parent definitions; only
+      // definitions can be flagged manually.
+      if (nodeType !== 'definition') return;
       const numericId = codeToNumericIdMap.get(code);
       if (!numericId) return;
       targets.push({ id: numericId, type: nodeType, code });
@@ -4230,7 +4231,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const handleFlagSelection = useCallback(async (status: NodeStatus, label: string) => {
     if (flaggableSelection.length === 0) {
-      showToast('Select at least one definition or exercise.', 'warning');
+      showToast('Select at least one definition (exercise status follows its definitions).', 'warning');
       return;
     }
     if (!Number.isFinite(numericDomainId)) {
@@ -4453,7 +4454,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const externalPositions: Array<{
         externalDomainUid: string;
         externalNodeId: number;
-        externalNodeType: 'meta_definition' | 'meta_exercise';
+        externalNodeType: 'definition' | 'exercise';
         xPosition: number;
         yPosition: number;
       }> = [];
@@ -4842,7 +4843,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             prerequisiteId: prereqId,
             prerequisiteType: getMetaNodeType(prereqType),
             weight: snapshot.prerequisiteWeights?.[prereqCode] ?? 1.0,
-            isManual: true,
           });
           applyPrerequisiteUpdate(prereqCode, snapshot.code, 'add', snapshot.prerequisiteWeights?.[prereqCode] ?? 1.0);
         }
@@ -4856,7 +4856,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             prerequisiteId: restoredMetaId,
             prerequisiteType: getMetaNodeType(snapshot.nodeType),
             weight: incoming.weight ?? 1.0,
-            isManual: true,
           });
           applyPrerequisiteUpdate(snapshot.code, incoming.code, 'add', incoming.weight ?? 1.0);
         }

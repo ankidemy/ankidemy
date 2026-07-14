@@ -44,12 +44,12 @@ test('buildExternalNodeLookup keeps worst status precedence for same external no
       id: 1,
       domainId: 1,
       nodeId: 11,
-      nodeType: 'meta_definition',
+      nodeType: 'definition',
       externalDomainUid: 'dom-x',
       externalDomainId: 99,
       externalDomainName: 'Ext',
       externalNodeId: 10,
-      externalNodeType: 'meta_definition',
+      externalNodeType: 'definition',
       externalNodeName: 'Node 10',
       status: 'ok',
     },
@@ -57,19 +57,19 @@ test('buildExternalNodeLookup keeps worst status precedence for same external no
       id: 2,
       domainId: 1,
       nodeId: 11,
-      nodeType: 'meta_definition',
+      nodeType: 'definition',
       externalDomainUid: 'dom-x',
       externalDomainId: 99,
       externalDomainName: 'Ext',
       externalNodeId: 10,
-      externalNodeType: 'meta_definition',
+      externalNodeType: 'definition',
       externalNodeName: 'Node 10 - stale',
       status: 'missing_node',
     },
   ] as any[];
 
   const map = buildExternalNodeLookup(links as any);
-  const entry = map.get('ext:dom-x:meta_definition:10');
+  const entry = map.get('ext:dom-x:definition:10');
   assert.ok(entry);
   assert.equal(entry?.status, 'missing_node');
 });
@@ -93,10 +93,10 @@ test('buildGroupMembersById supports exact and convex-closure groups', () => {
       domainId: 1,
       name: 'Exact',
       isExact: true,
-      seeds: [{ nodeId: 1, nodeType: 'meta_definition', nodeCode: 'A', nodeName: 'A' }],
+      seeds: [{ nodeId: 1, nodeType: 'definition', nodeCode: 'A', nodeName: 'A' }],
       members: [
-        { nodeId: 1, nodeType: 'meta_definition', nodeCode: 'A', nodeName: 'A' },
-        { nodeId: 2, nodeType: 'meta_definition', nodeCode: 'B', nodeName: 'B' },
+        { nodeId: 1, nodeType: 'definition', nodeCode: 'A', nodeName: 'A' },
+        { nodeId: 2, nodeType: 'definition', nodeCode: 'B', nodeName: 'B' },
       ],
     },
     {
@@ -105,8 +105,8 @@ test('buildGroupMembersById supports exact and convex-closure groups', () => {
       name: 'Closure',
       isExact: false,
       seeds: [
-        { nodeId: 1, nodeType: 'meta_definition', nodeCode: 'A', nodeName: 'A' },
-        { nodeId: 3, nodeType: 'meta_definition', nodeCode: 'C', nodeName: 'C' },
+        { nodeId: 1, nodeType: 'definition', nodeCode: 'A', nodeName: 'A' },
+        { nodeId: 3, nodeType: 'definition', nodeCode: 'C', nodeName: 'C' },
       ],
     },
   ] as any[];

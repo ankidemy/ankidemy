@@ -95,7 +95,15 @@ func (s *MetaExerciseService) SuggestVersion(userID uint, metaExerciseID uint) (
 	return &chosen.Ex, nil
 }
 
-// RecordVersionOutcome updates per-version and meta stats after a review
+// solvedStateDuration returns how long a successful solve counts as solved:
+// 90 days plus a randomized 1-90 extra days, so re-eligibility is staggered
+// and users revisit exercises they have probably forgotten.
+func solvedStateDuration() time.Duration {
+	return time.Duration(90+rand.Intn(90)+1) * 24 * time.Hour
+}
+
+// RecordVersionOutcome updates per-version and per-node stats after a grade.
+// On success the node's solved state is (re)armed with a randomized expiry.
 func (s *MetaExerciseService) RecordVersionOutcome(userID uint, metaExerciseID uint, versionID *uint, success bool, difficulty *int) {
 	now := time.Now()
 	if versionID != nil {
@@ -109,15 +117,20 @@ func (s *MetaExerciseService) RecordVersionOutcome(userID uint, metaExerciseID u
 			_ = s.db.Save(&row).Error
 		}
 	}
-	if success && difficulty != nil {
+	if success {
+		solvedUntil := now.Add(solvedStateDuration())
 		var meta models.UserMetaExerciseStats
 		tx := s.db.Where("user_id = ? AND meta_exercise_id = ?", userID, metaExerciseID).Limit(1).Find(&meta)
 		if tx.Error != nil || tx.RowsAffected == 0 {
-			meta = models.UserMetaExerciseStats{UserID: userID, MetaExerciseID: metaExerciseID, LastCorrectDifficulty: *difficulty}
-		} else {
-			if *difficulty > meta.LastCorrectDifficulty {
+			meta = models.UserMetaExerciseStats{UserID: userID, MetaExerciseID: metaExerciseID, LastCorrectDifficulty: 1, SolvedUntil: &solvedUntil}
+			if difficulty != nil {
 				meta.LastCorrectDifficulty = *difficulty
 			}
+		} else {
+			if difficulty != nil && *difficulty > meta.LastCorrectDifficulty {
+				meta.LastCorrectDifficulty = *difficulty
+			}
+			meta.SolvedUntil = &solvedUntil
 		}
 		_ = s.db.Save(&meta).Error
 	}
@@ -149,7 +162,7 @@ func (s *MetaExerciseService) SelectExercisesForDefinition(userID uint, definiti
 	// Find meta-exercises that list this definition as a prerequisite.
 	var candidateIDs []uint
 	err := s.db.Model(&models.NodePrerequisite{}).
-		Where("node_type = ? AND prerequisite_id = ? AND prerequisite_type IN ?", "meta_exercise", definitionID, []string{"meta_definition", "definition"}).
+		Where("node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?", "exercise", definitionID, "definition").
 		Pluck("node_id", &candidateIDs).Error
 	if err != nil {
 		return nil, err
@@ -170,7 +183,7 @@ func (s *MetaExerciseService) SelectExercisesForDefinition(userID uint, definiti
 
 	// Load prerequisites for candidate exercises.
 	var prereqs []models.NodePrerequisite
-	if err := s.db.Where("node_type = ? AND node_id IN ?", "meta_exercise", candidateIDs).Find(&prereqs).Error; err != nil {
+	if err := s.db.Where("node_type = ? AND node_id IN ?", "exercise", candidateIDs).Find(&prereqs).Error; err != nil {
 		return nil, err
 	}
 
@@ -180,10 +193,10 @@ func (s *MetaExerciseService) SelectExercisesForDefinition(userID uint, definiti
 
 	for _, p := range prereqs {
 		switch p.PrerequisiteType {
-		case "meta_definition", "definition":
+		case "definition":
 			defPrereqsByEx[p.NodeID] = append(defPrereqsByEx[p.NodeID], p.PrerequisiteID)
 			defPrereqIDs[p.PrerequisiteID] = struct{}{}
-		case "meta_exercise", "exercise":
+		case "exercise":
 			exPrereqsByEx[p.NodeID] = append(exPrereqsByEx[p.NodeID], p.PrerequisiteID)
 		}
 	}
@@ -211,7 +224,7 @@ func (s *MetaExerciseService) SelectExercisesForDefinition(userID uint, definiti
 	solvedSet := make(map[uint]struct{})
 	var solvedIDs []uint
 	if err := s.db.Model(&models.UserMetaExerciseStats{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND solved_until IS NOT NULL AND solved_until > NOW()", userID).
 		Pluck("meta_exercise_id", &solvedIDs).Error; err != nil {
 		return nil, err
 	}
@@ -449,8 +462,8 @@ func (s *MetaExerciseService) SelectExercisesForDefinitions(userID uint, definit
 	if err := s.db.Raw(`
 		SELECT prerequisite_id AS definition_id, node_id AS meta_exercise_id
 		FROM node_prerequisites
-		WHERE node_type = 'meta_exercise'
-		  AND prerequisite_type IN ('meta_definition', 'definition')
+		WHERE node_type = 'exercise'
+		  AND prerequisite_type = 'definition'
 		  AND prerequisite_id IN ?
 	`, uniqueDefIDs).Scan(&links).Error; err != nil {
 		return nil, err
@@ -486,7 +499,7 @@ func (s *MetaExerciseService) SelectExercisesForDefinitions(userID uint, definit
 	}
 
 	var prereqs []models.NodePrerequisite
-	if err := s.db.Where("node_type = ? AND node_id IN ?", "meta_exercise", candidateIDs).Find(&prereqs).Error; err != nil {
+	if err := s.db.Where("node_type = ? AND node_id IN ?", "exercise", candidateIDs).Find(&prereqs).Error; err != nil {
 		return nil, err
 	}
 
@@ -495,10 +508,10 @@ func (s *MetaExerciseService) SelectExercisesForDefinitions(userID uint, definit
 	defPrereqIDs := make(map[uint]struct{})
 	for _, prereq := range prereqs {
 		switch prereq.PrerequisiteType {
-		case "meta_definition", "definition":
+		case "definition":
 			defPrereqsByEx[prereq.NodeID] = append(defPrereqsByEx[prereq.NodeID], prereq.PrerequisiteID)
 			defPrereqIDs[prereq.PrerequisiteID] = struct{}{}
-		case "meta_exercise", "exercise":
+		case "exercise":
 			exPrereqsByEx[prereq.NodeID] = append(exPrereqsByEx[prereq.NodeID], prereq.PrerequisiteID)
 		}
 	}
@@ -524,7 +537,7 @@ func (s *MetaExerciseService) SelectExercisesForDefinitions(userID uint, definit
 	solvedSet := make(map[uint]struct{})
 	var solvedIDs []uint
 	if err := s.db.Model(&models.UserMetaExerciseStats{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND solved_until IS NOT NULL AND solved_until > NOW()", userID).
 		Pluck("meta_exercise_id", &solvedIDs).Error; err != nil {
 		return nil, err
 	}
