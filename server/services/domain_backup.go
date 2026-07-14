@@ -619,6 +619,10 @@ func (s *ImportService) ImportDomainSRSProgress(domainID, userID uint, progress 
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Resolve codes to node IDs and keep the last occurrence per node
+		// (matching the last-write-wins behavior of sequential updates).
+		rowIndex := make(map[NodeKey]int)
+		rows := make([]*models.UserNodeProgress, 0, len(progress))
 		for _, item := range progress {
 			nodeType := item.NodeType
 			var nodeID uint
@@ -639,62 +643,69 @@ func (s *ImportService) ImportDomainSRSProgress(domainID, userID uint, progress 
 				continue
 			}
 
-			var existing models.UserNodeProgress
-			err := tx.Where("user_id = ? AND node_id = ? AND node_type = ?", userID, nodeID, nodeType).
-				First(&existing).Error
-			if err != nil {
-				if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return err
-				}
-				newProgress := &models.UserNodeProgress{
-					UserID:             userID,
-					NodeID:             nodeID,
-					NodeType:           nodeType,
-					Status:             item.Status,
-					EasinessFactor:     item.EasinessFactor,
-					IntervalDays:       item.IntervalDays,
-					Repetitions:        item.Repetitions,
-					LastReview:         item.LastReview,
-					NextReview:         item.NextReview,
-					BlockNegativeUntil: item.BlockNegativeUntil,
-					AccumulatedCredit:  item.AccumulatedCredit,
-					CreditPostponed:    item.CreditPostponed,
-					TotalReviews:       item.TotalReviews,
-					SuccessfulReviews:  item.SuccessfulReviews,
-					CreatedAt:          item.CreatedAt,
-					UpdatedAt:          item.UpdatedAt,
-				}
-				if err := tx.Create(newProgress).Error; err != nil {
-					return fmt.Errorf("failed to create progress for %s: %v", item.Code, err)
-				}
-				_ = tx.Model(&models.UserNodeProgress{}).
-					Where("id = ?", newProgress.ID).
-					Updates(map[string]interface{}{
-						"created_at": item.CreatedAt,
-						"updated_at": item.UpdatedAt,
-					}).Error
+			row := &models.UserNodeProgress{
+				UserID:             userID,
+				NodeID:             nodeID,
+				NodeType:           nodeType,
+				Status:             item.Status,
+				EasinessFactor:     item.EasinessFactor,
+				IntervalDays:       item.IntervalDays,
+				Repetitions:        item.Repetitions,
+				LastReview:         item.LastReview,
+				NextReview:         item.NextReview,
+				BlockNegativeUntil: item.BlockNegativeUntil,
+				AccumulatedCredit:  item.AccumulatedCredit,
+				CreditPostponed:    item.CreditPostponed,
+				TotalReviews:       item.TotalReviews,
+				SuccessfulReviews:  item.SuccessfulReviews,
+				CreatedAt:          item.CreatedAt,
+				UpdatedAt:          item.UpdatedAt,
+			}
+			key := NodeKey{Type: nodeType, ID: nodeID}
+			if idx, ok := rowIndex[key]; ok {
+				rows[idx] = row
 				continue
 			}
+			rowIndex[key] = len(rows)
+			rows = append(rows, row)
+		}
 
-			updates := map[string]interface{}{
-				"status":               item.Status,
-				"easiness_factor":      item.EasinessFactor,
-				"interval_days":        item.IntervalDays,
-				"repetitions":          item.Repetitions,
-				"last_review":          item.LastReview,
-				"next_review":          item.NextReview,
-				"block_negative_until": item.BlockNegativeUntil,
-				"accumulated_credit":   item.AccumulatedCredit,
-				"credit_postponed":     item.CreditPostponed,
-				"total_reviews":        item.TotalReviews,
-				"successful_reviews":   item.SuccessfulReviews,
-				"created_at":           item.CreatedAt,
-				"updated_at":           item.UpdatedAt,
+		if len(rows) == 0 {
+			return nil
+		}
+
+		// Upsert in chunks; backup timestamps are written verbatim, matching
+		// the previous per-row create/update behavior.
+		const chunkSize = 500
+		for start := 0; start < len(rows); start += chunkSize {
+			end := start + chunkSize
+			if end > len(rows) {
+				end = len(rows)
 			}
-			if err := tx.Model(&models.UserNodeProgress{}).
-				Where("id = ?", existing.ID).
-				Updates(updates).Error; err != nil {
-				return fmt.Errorf("failed to update progress for %s: %v", item.Code, err)
+			chunk := rows[start:end]
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "user_id"},
+					{Name: "node_id"},
+					{Name: "node_type"},
+				},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"status",
+					"easiness_factor",
+					"interval_days",
+					"repetitions",
+					"last_review",
+					"next_review",
+					"block_negative_until",
+					"accumulated_credit",
+					"credit_postponed",
+					"total_reviews",
+					"successful_reviews",
+					"created_at",
+					"updated_at",
+				}),
+			}).Create(&chunk).Error; err != nil {
+				return fmt.Errorf("failed to upsert SRS progress batch: %v", err)
 			}
 		}
 		return nil

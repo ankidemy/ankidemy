@@ -2,11 +2,8 @@ package services
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"ankidemy/server/models"
@@ -222,6 +219,18 @@ func NewCreditPropagationService() *CreditPropagationService {
 	return &CreditPropagationService{}
 }
 
+// NodeKey identifies a node in the knowledge graph. Using a comparable
+// struct (instead of formatted strings) keeps node types with underscores
+// like "meta_exercise" unambiguous and avoids per-lookup allocations.
+type NodeKey struct {
+	Type string
+	ID   uint
+}
+
+func makeNodeKey(nodeID uint, nodeType string) NodeKey {
+	return NodeKey{Type: nodeType, ID: nodeID}
+}
+
 // GraphNode represents a node in the knowledge graph
 type GraphNode struct {
 	ID            uint
@@ -253,7 +262,7 @@ func (c *CreditPropagationService) PropagateCredit(
 	reviewedNodeID uint,
 	reviewedNodeType string,
 	success bool,
-	graph map[string]*GraphNode,
+	graph map[NodeKey]*GraphNode,
 ) []models.CreditUpdate {
 	credits := []models.CreditUpdate{}
 
@@ -266,8 +275,7 @@ func (c *CreditPropagationService) PropagateCredit(
 	})
 
 	nodeType := reviewedNodeType
-	nodeKey := c.getNodeKey(reviewedNodeID, nodeType)
-	startNode, exists := graph[nodeKey]
+	startNode, exists := graph[makeNodeKey(reviewedNodeID, nodeType)]
 	if !exists {
 		// Fallback: treat 'exercise' and 'meta_exercise' as equivalent node kinds
 		// Also treat 'definition' and 'meta_definition' as equivalent
@@ -280,8 +288,7 @@ func (c *CreditPropagationService) PropagateCredit(
 		} else if reviewedNodeType == "meta_definition" {
 			nodeType = "definition"
 		}
-		nodeKey = c.getNodeKey(reviewedNodeID, nodeType)
-		startNode, exists = graph[nodeKey]
+		startNode, exists = graph[makeNodeKey(reviewedNodeID, nodeType)]
 		if !exists {
 			return credits
 		}
@@ -301,11 +308,10 @@ func (c *CreditPropagationService) PropagateCredit(
 func (c *CreditPropagationService) bfsPropagate(
 	start *GraphNode,
 	success bool,
-	graph map[string]*GraphNode,
+	graph map[NodeKey]*GraphNode,
 ) []models.CreditUpdate {
 	type entry struct {
-		id         uint
-		t          string
+		key        NodeKey
 		distance   int
 		pathWeight float64
 	}
@@ -319,16 +325,16 @@ func (c *CreditPropagationService) bfsPropagate(
 	}
 
 	// Track best (shortest) distance discovered per node
-	bestDist := make(map[string]int)
+	bestDist := make(map[NodeKey]int)
 	// Track single contributing path weight for a node at the best distance.
 	// To avoid multi-parent amplification, we keep only one contribution per node.
-	bestWeight := make(map[string]float64)
+	bestWeight := make(map[NodeKey]float64)
 	// Maintain discovery order to output credits in BFS order
-	discovery := make([]string, 0, 64)
+	discovery := make([]NodeKey, 0, 64)
 
 	// Prevent the explicitly reviewed start node from receiving implicit credit
 	// via cycles by pre-marking it as seen at distance 0.
-	startKey := c.getNodeKey(start.ID, start.Type)
+	startKey := makeNodeKey(start.ID, start.Type)
 	bestDist[startKey] = 0
 	bestWeight[startKey] = 0
 
@@ -338,7 +344,7 @@ func (c *CreditPropagationService) bfsPropagate(
 		// Start with d=2 for immediate neighbors so that
 		// amount = 1/d yields 1/2 for distance-1 = 1.
 		// This avoids any chance of giving full (1.0) credit to neighbors.
-		q = append(q, entry{id: e.ID, t: e.Type, distance: 2, pathWeight: e.Weight})
+		q = append(q, entry{key: makeNodeKey(e.ID, e.Type), distance: 2, pathWeight: e.Weight})
 	}
 
 	for len(q) > 0 {
@@ -352,20 +358,18 @@ func (c *CreditPropagationService) bfsPropagate(
 			continue
 		}
 
-		key := c.getNodeKey(cur.id, cur.t)
 		// First time discovered: set distance, initialize weight, and enqueue neighbors
-		d, seen := bestDist[key]
+		d, seen := bestDist[cur.key]
 		if !seen {
-			bestDist[key] = cur.distance
-			bestWeight[key] = cur.pathWeight
-			discovery = append(discovery, key)
+			bestDist[cur.key] = cur.distance
+			bestWeight[cur.key] = cur.pathWeight
+			discovery = append(discovery, cur.key)
 
 			// Enqueue neighbors for further expansion
-			if node, ok := graph[key]; ok {
+			if node, ok := graph[cur.key]; ok {
 				for _, e := range nextEdges(node) {
 					q = append(q, entry{
-						id:         e.ID,
-						t:          e.Type,
+						key:        makeNodeKey(e.ID, e.Type),
 						distance:   cur.distance + 1, // increment denominator d by 1 per hop
 						pathWeight: cur.pathWeight * e.Weight,
 					})
@@ -378,8 +382,8 @@ func (c *CreditPropagationService) bfsPropagate(
 		// contribution. Choose the path with the larger absolute weight to avoid
 		// under-crediting strongly connected paths while preventing accumulation.
 		if cur.distance == d {
-			if math.Abs(cur.pathWeight) > math.Abs(bestWeight[key]) {
-				bestWeight[key] = cur.pathWeight
+			if math.Abs(cur.pathWeight) > math.Abs(bestWeight[cur.key]) {
+				bestWeight[cur.key] = cur.pathWeight
 			}
 			continue
 		}
@@ -390,7 +394,6 @@ func (c *CreditPropagationService) bfsPropagate(
 	// Build implicit credit updates in BFS discovery order
 	credits := make([]models.CreditUpdate, 0, len(discovery))
 	for _, key := range discovery {
-		id, t := c.parseNodeKey(key)
 		distance := bestDist[key]
 		weight := bestWeight[key]
 
@@ -403,8 +406,8 @@ func (c *CreditPropagationService) bfsPropagate(
 			amount = -amount
 		}
 		credits = append(credits, models.CreditUpdate{
-			NodeID:   id,
-			NodeType: t,
+			NodeID:   key.ID,
+			NodeType: key.Type,
 			Credit:   amount,
 			Type:     "implicit",
 		})
@@ -414,71 +417,40 @@ func (c *CreditPropagationService) bfsPropagate(
 }
 
 // BuildGraph creates a graph representation from prerequisites
-func (c *CreditPropagationService) BuildGraph(prerequisites []models.NodePrerequisite) map[string]*GraphNode {
-	graph := make(map[string]*GraphNode)
+func (c *CreditPropagationService) BuildGraph(prerequisites []models.NodePrerequisite) map[NodeKey]*GraphNode {
+	graph := make(map[NodeKey]*GraphNode, len(prerequisites))
 
-	// Initialize all nodes
-	nodeSet := make(map[string]bool)
-	for _, prereq := range prerequisites {
-		nodeKey := c.getNodeKey(prereq.NodeID, prereq.NodeType)
-		prereqKey := c.getNodeKey(prereq.PrerequisiteID, prereq.PrerequisiteType)
-		nodeSet[nodeKey] = true
-		nodeSet[prereqKey] = true
-	}
-
-	for nodeKey := range nodeSet {
-		nodeID, nodeType := c.parseNodeKey(nodeKey)
-		graph[nodeKey] = &GraphNode{
-			ID:            nodeID,
-			Type:          nodeType,
+	ensureNode := func(key NodeKey) *GraphNode {
+		if node, exists := graph[key]; exists {
+			return node
+		}
+		node := &GraphNode{
+			ID:            key.ID,
+			Type:          key.Type,
 			Prerequisites: []GraphEdge{},
 			Dependents:    []GraphEdge{},
 		}
+		graph[key] = node
+		return node
 	}
 
-	// Build edges
 	for _, prereq := range prerequisites {
-		nodeKey := c.getNodeKey(prereq.NodeID, prereq.NodeType)
-		prereqKey := c.getNodeKey(prereq.PrerequisiteID, prereq.PrerequisiteType)
+		node := ensureNode(makeNodeKey(prereq.NodeID, prereq.NodeType))
+		prereqNode := ensureNode(makeNodeKey(prereq.PrerequisiteID, prereq.PrerequisiteType))
 
-		if node, exists := graph[nodeKey]; exists {
-			node.Prerequisites = append(node.Prerequisites, GraphEdge{
-				ID:     prereq.PrerequisiteID,
-				Type:   prereq.PrerequisiteType,
-				Weight: prereq.Weight,
-			})
-		}
-
-		if prereqNode, exists := graph[prereqKey]; exists {
-			prereqNode.Dependents = append(prereqNode.Dependents, GraphEdge{
-				ID:     prereq.NodeID,
-				Type:   prereq.NodeType,
-				Weight: prereq.Weight,
-			})
-		}
+		node.Prerequisites = append(node.Prerequisites, GraphEdge{
+			ID:     prereq.PrerequisiteID,
+			Type:   prereq.PrerequisiteType,
+			Weight: prereq.Weight,
+		})
+		prereqNode.Dependents = append(prereqNode.Dependents, GraphEdge{
+			ID:     prereq.NodeID,
+			Type:   prereq.NodeType,
+			Weight: prereq.Weight,
+		})
 	}
 
 	return graph
-}
-
-// getNodeKey creates a unique key for a node
-func (c *CreditPropagationService) getNodeKey(nodeID uint, nodeType string) string {
-	return fmt.Sprintf("%s_%d", nodeType, nodeID)
-}
-
-// parseNodeKey parses a node key back to ID and type
-func (c *CreditPropagationService) parseNodeKey(key string) (uint, string) {
-	parts := strings.Split(key, "_")
-	if len(parts) != 2 {
-		return 0, ""
-	}
-
-	id, err := strconv.ParseUint(parts[1], 10, 32)
-	if err != nil {
-		return 0, ""
-	}
-
-	return uint(id), parts[0]
 }
 
 // ReviewOptimizationService handles optimal review ordering
@@ -503,17 +475,23 @@ type NodeScore struct {
 // OptimizeReviewOrder sorts nodes for optimal review sequence
 func (r *ReviewOptimizationService) OptimizeReviewOrder(
 	dueNodes []models.NodeProgress,
-	graph map[string]*GraphNode,
+	graph map[NodeKey]*GraphNode,
 ) []models.NodeProgress {
 	if len(dueNodes) == 0 {
 		return dueNodes
 	}
 
-	dueSet := make(map[string]bool)
+	// Due nodes carry progress-normalized types ('definition'/'exercise')
+	// while the graph stores meta_* types; compare on the normalized form so
+	// implicit credits landing on meta nodes count toward due-node impact.
+	dueSet := make(map[NodeKey]bool)
 	for _, node := range dueNodes {
-		key := r.creditService.getNodeKey(node.NodeID, node.NodeType)
-		dueSet[key] = true
+		dueSet[makeNodeKey(node.NodeID, toProgressType(node.NodeType))] = true
 	}
+
+	// Longest-path depths are global node properties; share one memo across
+	// all due nodes so the whole batch costs O(nodes + edges).
+	depthMemo := make(map[NodeKey]int)
 
 	scores := make([]NodeScore, 0, len(dueNodes))
 
@@ -523,14 +501,14 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 		impact := 0.0
 
 		for _, credit := range credits {
-			creditKey := r.creditService.getNodeKey(credit.NodeID, credit.NodeType)
+			creditKey := makeNodeKey(credit.NodeID, toProgressType(credit.NodeType))
 			if dueSet[creditKey] && credit.Type == "implicit" && credit.Credit > 0 {
 				impact += credit.Credit
 			}
 		}
 
 		// Calculate distance from root
-		distance := r.calculateDistanceFromRoot(node.NodeID, node.NodeType, graph)
+		distance := r.calculateDistanceFromRootMemo(node.NodeID, node.NodeType, graph, depthMemo)
 
 		scores = append(scores, NodeScore{
 			NodeID:           node.NodeID,
@@ -550,16 +528,14 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 
 	// Reorder original nodes based on scores
 	result := make([]models.NodeProgress, 0, len(dueNodes))
-	nodeMap := make(map[string]models.NodeProgress)
+	nodeMap := make(map[NodeKey]models.NodeProgress)
 
 	for _, node := range dueNodes {
-		key := r.creditService.getNodeKey(node.NodeID, node.NodeType)
-		nodeMap[key] = node
+		nodeMap[makeNodeKey(node.NodeID, node.NodeType)] = node
 	}
 
 	for _, score := range scores {
-		key := r.creditService.getNodeKey(score.NodeID, score.NodeType)
-		if node, exists := nodeMap[key]; exists {
+		if node, exists := nodeMap[makeNodeKey(score.NodeID, score.NodeType)]; exists {
 			result = append(result, node)
 		}
 	}
@@ -571,40 +547,63 @@ func (r *ReviewOptimizationService) OptimizeReviewOrder(
 func (r *ReviewOptimizationService) calculateDistanceFromRoot(
 	nodeID uint,
 	nodeType string,
-	graph map[string]*GraphNode,
+	graph map[NodeKey]*GraphNode,
 ) int {
-	visited := make(map[string]bool)
-	return r.dfsMaxDepth(nodeID, nodeType, 0, graph, visited)
+	return r.calculateDistanceFromRootMemo(nodeID, nodeType, graph, make(map[NodeKey]int))
 }
 
-// dfsMaxDepth calculates maximum depth using DFS
-func (r *ReviewOptimizationService) dfsMaxDepth(
+func (r *ReviewOptimizationService) calculateDistanceFromRootMemo(
 	nodeID uint,
 	nodeType string,
-	currentDepth int,
-	graph map[string]*GraphNode,
-	visited map[string]bool,
+	graph map[NodeKey]*GraphNode,
+	memo map[NodeKey]int,
 ) int {
-	nodeKey := r.creditService.getNodeKey(nodeID, nodeType)
-	if visited[nodeKey] {
-		return currentDepth
+	key := makeNodeKey(nodeID, nodeType)
+	if _, exists := graph[key]; !exists {
+		// Progress-normalized types miss the meta_* graph keys; fall back the
+		// same way credit propagation does.
+		fallback := makeNodeKey(nodeID, toGraphType(nodeType))
+		if _, exists := graph[fallback]; exists {
+			key = fallback
+		}
+	}
+	return r.nodeDepth(key, graph, memo, make(map[NodeKey]bool))
+}
+
+// nodeDepth returns the longest prerequisite path below key, memoized.
+// On acyclic graphs (the intended shape of prerequisite data) this matches
+// exhaustive DFS exactly while running in O(nodes + edges) overall; nodes on
+// the current recursion stack terminate a path, so cycles cannot loop or
+// blow up the search space.
+func (r *ReviewOptimizationService) nodeDepth(
+	key NodeKey,
+	graph map[NodeKey]*GraphNode,
+	memo map[NodeKey]int,
+	onStack map[NodeKey]bool,
+) int {
+	if depth, ok := memo[key]; ok {
+		return depth
+	}
+	if onStack[key] {
+		return 0
 	}
 
-	visited[nodeKey] = true
-	defer func() { delete(visited, nodeKey) }()
-
-	node, exists := graph[nodeKey]
+	node, exists := graph[key]
 	if !exists || len(node.Prerequisites) == 0 {
-		return currentDepth
+		memo[key] = 0
+		return 0
 	}
 
-	maxDepth := currentDepth
+	onStack[key] = true
+	maxDepth := 0
 	for _, prereq := range node.Prerequisites {
-		depth := r.dfsMaxDepth(prereq.ID, prereq.Type, currentDepth+1, graph, visited)
+		depth := 1 + r.nodeDepth(makeNodeKey(prereq.ID, prereq.Type), graph, memo, onStack)
 		if depth > maxDepth {
 			maxDepth = depth
 		}
 	}
+	delete(onStack, key)
 
+	memo[key] = maxDepth
 	return maxDepth
 }

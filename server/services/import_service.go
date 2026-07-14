@@ -565,34 +565,70 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		"meta_quest":      {},
 	}
 
+	// Bulk-load prerequisites, versions, and references for the whole domain
+	// instead of querying per node.
+	prereqData, err := dao.NewGraphDAO(s.db).LoadDomainPrerequisiteData(domainID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load domain prerequisites: %v", err)
+	}
+
+	defVersionsByMeta := make(map[uint][]models.Definition)
+	if len(metaDefs) > 0 {
+		metaDefIDs := make([]uint, 0, len(metaDefs))
+		for _, md := range metaDefs {
+			metaDefIDs = append(metaDefIDs, md.ID)
+		}
+		var allVersions []models.Definition
+		if err := s.db.Where("meta_definition_id IN ?", metaDefIDs).Order("id ASC").Find(&allVersions).Error; err != nil {
+			return nil, fmt.Errorf("failed to fetch definition versions: %v", err)
+		}
+		for _, v := range allVersions {
+			defVersionsByMeta[v.MetaDefinitionID] = append(defVersionsByMeta[v.MetaDefinitionID], v)
+		}
+	}
+	referencesByDefinition := make(map[uint][]string)
+	{
+		versionIDs := make([]uint, 0, 256)
+		for _, versions := range defVersionsByMeta {
+			for _, v := range versions {
+				versionIDs = append(versionIDs, v.ID)
+			}
+		}
+		if len(versionIDs) > 0 {
+			var refs []models.Reference
+			if err := s.db.Where("definition_id IN ?", versionIDs).Order("id ASC").Find(&refs).Error; err != nil {
+				return nil, fmt.Errorf("failed to fetch references: %v", err)
+			}
+			for _, r := range refs {
+				referencesByDefinition[r.DefinitionID] = append(referencesByDefinition[r.DefinitionID], r.Reference)
+			}
+		}
+	}
+	exVersionsByMeta := make(map[uint][]models.Exercise)
+	if len(metas) > 0 {
+		metaExIDs := make([]uint, 0, len(metas))
+		for _, me := range metas {
+			metaExIDs = append(metaExIDs, me.ID)
+		}
+		var allVersions []models.Exercise
+		if err := s.db.Where("meta_exercise_id IN ?", metaExIDs).Order("id ASC").Find(&allVersions).Error; err != nil {
+			return nil, fmt.Errorf("failed to fetch exercise versions: %v", err)
+		}
+		for _, v := range allVersions {
+			exVersionsByMeta[v.MetaExerciseID] = append(exVersionsByMeta[v.MetaExerciseID], v)
+		}
+	}
+
 	// Export meta-definitions (pools with versions)
 	for _, md := range metaDefs {
-		// Get concept prerequisites and weights (meta_definition -> meta_definition)
-		prerequisiteCodes, err := s.getMetaDefinitionPrerequisiteCodes(md.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get prerequisites for meta definition %s: %v", md.Code, err)
-		}
-		prereqWeights, err := s.getMetaDefinitionPrerequisiteWeights(md.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get prerequisite weights for meta definition %s: %v", md.Code, err)
-		}
+		prerequisiteCodes := prereqData.DefCodes[md.ID]
+		prereqWeights := prereqData.DefWeights[md.ID]
 
-		// Get definition versions under this pool
-		var versions []models.Definition
-		if err := s.db.Where("meta_definition_id = ?", md.ID).Order("id ASC").Find(&versions).Error; err != nil {
-			return nil, fmt.Errorf("failed to fetch versions for %s: %v", md.Code, err)
-		}
+		versions := defVersionsByMeta[md.ID]
 		vnodes := make([]ImportMetaDefinitionVersion, 0, len(versions))
 		for _, v := range versions {
-			// Load references
-			var refs []models.Reference
-			if err := s.db.Where("definition_id = ?", v.ID).Find(&refs).Error; err != nil {
-				return nil, fmt.Errorf("failed to fetch references for definition %d: %v", v.ID, err)
-			}
-			refStrings := make([]string, 0, len(refs))
-			for _, r := range refs {
-				refStrings = append(refStrings, r.Reference)
-			}
+			refStrings := make([]string, 0, len(referencesByDefinition[v.ID]))
+			refStrings = append(refStrings, referencesByDefinition[v.ID]...)
 
 			prompt := normalizeImportText(v.Prompt)
 			if prompt == "" {
@@ -632,14 +668,10 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 
 	// Export meta-exercises (with all prerequisite types and weights)
 	for _, me := range metas {
-		prerequisiteCodes, prereqWeights, err := s.getMetaExerciseAllPrerequisites(me.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get prerequisites for meta exercise %s: %v", me.Code, err)
-		}
-		var versions []models.Exercise
-		if err := s.db.Where("meta_exercise_id = ?", me.ID).Order("id ASC").Find(&versions).Error; err != nil {
-			return nil, fmt.Errorf("failed to fetch versions for %s: %v", me.Code, err)
-		}
+		prerequisiteCodes := prereqData.ExCodes[me.ID]
+		prereqWeights := prereqData.ExWeights[me.ID]
+
+		versions := exVersionsByMeta[me.ID]
 		vnodes := make([]ImportExerciseVersion, 0, len(versions))
 		for _, v := range versions {
 			statement := normalizeImportText(v.Statement)
@@ -703,11 +735,22 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 	if err := s.db.Where("domain_id = ? AND visibility = 'domain'", domainID).Find(&quests).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch quests: %v", err)
 	}
-	for _, q := range quests {
-		var versions []models.QuestVersion
-		if err := s.db.Where("meta_quest_id = ?", q.ID).Order("id ASC").Find(&versions).Error; err != nil {
-			return nil, fmt.Errorf("failed to fetch quest versions for %s: %v", q.Code, err)
+	questVersionsByMeta := make(map[uint][]models.QuestVersion)
+	if len(quests) > 0 {
+		questIDs := make([]uint, 0, len(quests))
+		for _, q := range quests {
+			questIDs = append(questIDs, q.ID)
 		}
+		var allVersions []models.QuestVersion
+		if err := s.db.Where("meta_quest_id IN ?", questIDs).Order("id ASC").Find(&allVersions).Error; err != nil {
+			return nil, fmt.Errorf("failed to fetch quest versions: %v", err)
+		}
+		for _, v := range allVersions {
+			questVersionsByMeta[v.MetaQuestID] = append(questVersionsByMeta[v.MetaQuestID], v)
+		}
+	}
+	for _, q := range quests {
+		versions := questVersionsByMeta[q.ID]
 		vnodes := make([]ImportQuestVersion, 0, len(versions))
 		for _, v := range versions {
 			vnodes = append(vnodes, ImportQuestVersion{
@@ -1201,164 +1244,6 @@ func normalizeDuplicateStrategy(strategy DuplicateStrategy) DuplicateStrategy {
 	}
 }
 
-// Helper function to get prerequisite codes for a node (legacy - definitions only)
-func (s *ImportService) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string, error) {
-	query := `
-		SELECT d.code
-		FROM node_prerequisites np
-		JOIN definitions d ON np.prerequisite_id = d.id
-		WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
-		ORDER BY d.code
-	`
-
-	var codes []string
-	if err := s.db.Raw(query, nodeID, nodeType).Scan(&codes).Error; err != nil {
-		return nil, err
-	}
-
-	return codes, nil
-}
-
-// getPrerequisiteWeights returns a map[code]weight for a node's prerequisites (legacy - definitions only)
-func (s *ImportService) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
-	query := `
-        SELECT d.code, np.weight
-        FROM node_prerequisites np
-        JOIN definitions d ON np.prerequisite_id = d.id
-        WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
-        ORDER BY d.code
-    `
-	type row struct {
-		Code   string
-		Weight float64
-	}
-	var rows []row
-	if err := s.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	res := make(map[string]float64, len(rows))
-	for _, r := range rows {
-		res[r.Code] = r.Weight
-	}
-	return res, nil
-}
-
-// getMetaDefinitionPrerequisiteCodes returns concept prerequisite codes for a meta_definition
-func (s *ImportService) getMetaDefinitionPrerequisiteCodes(nodeID uint) ([]string, error) {
-	query := `
-		SELECT md.code
-		FROM node_prerequisites np
-		JOIN meta_definitions md ON np.prerequisite_id = md.id
-		WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
-		ORDER BY md.code
-	`
-	var codes []string
-	if err := s.db.Raw(query, nodeID).Scan(&codes).Error; err != nil {
-		return nil, err
-	}
-	return codes, nil
-}
-
-// getMetaDefinitionPrerequisiteWeights returns concept prerequisite weights for a meta_definition
-func (s *ImportService) getMetaDefinitionPrerequisiteWeights(nodeID uint) (map[string]float64, error) {
-	query := `
-        SELECT md.code, np.weight
-        FROM node_prerequisites np
-        JOIN meta_definitions md ON np.prerequisite_id = md.id
-        WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
-        ORDER BY md.code
-    `
-	type row struct {
-		Code   string
-		Weight float64
-	}
-	var rows []row
-	if err := s.db.Raw(query, nodeID).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	res := make(map[string]float64, len(rows))
-	for _, r := range rows {
-		res[r.Code] = r.Weight
-	}
-	return res, nil
-}
-
-// getMetaExerciseAllPrerequisites returns all prerequisite codes and weights for a meta_exercise
-// (includes meta_definition, meta_exercise, and legacy definition types)
-func (s *ImportService) getMetaExerciseAllPrerequisites(nodeID uint) ([]string, map[string]float64, error) {
-	type row struct {
-		Code   string
-		Weight float64
-	}
-
-	// Get meta_definition prerequisites
-	query1 := `
-        SELECT md.code, np.weight
-        FROM node_prerequisites np
-        JOIN meta_definitions md ON np.prerequisite_id = md.id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
-    `
-	var mdRows []row
-	if err := s.db.Raw(query1, nodeID).Scan(&mdRows).Error; err != nil {
-		return nil, nil, err
-	}
-
-	// Get meta_exercise prerequisites
-	query2 := `
-        SELECT me.code, np.weight
-        FROM node_prerequisites np
-        JOIN meta_exercises me ON np.prerequisite_id = me.id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
-    `
-	var meRows []row
-	if err := s.db.Raw(query2, nodeID).Scan(&meRows).Error; err != nil {
-		return nil, nil, err
-	}
-
-	// Get legacy definition prerequisites (for backward compatibility)
-	query3 := `
-        SELECT d.code, np.weight
-        FROM node_prerequisites np
-        JOIN definitions d ON np.prerequisite_id = d.id
-        WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
-    `
-	var defRows []row
-	if err := s.db.Raw(query3, nodeID).Scan(&defRows).Error; err != nil {
-		return nil, nil, err
-	}
-
-	codes := make([]string, 0, len(mdRows)+len(meRows)+len(defRows))
-	weights := make(map[string]float64, len(mdRows)+len(meRows)+len(defRows))
-	seen := make(map[string]bool, len(mdRows)+len(meRows)+len(defRows))
-
-	for _, r := range mdRows {
-		if r.Code == "" || seen[r.Code] {
-			continue
-		}
-		seen[r.Code] = true
-		codes = append(codes, r.Code)
-		weights[r.Code] = r.Weight
-	}
-	for _, r := range meRows {
-		if r.Code == "" || seen[r.Code] {
-			continue
-		}
-		seen[r.Code] = true
-		codes = append(codes, r.Code)
-		weights[r.Code] = r.Weight
-	}
-	for _, r := range defRows {
-		if r.Code == "" || seen[r.Code] {
-			continue
-		}
-		seen[r.Code] = true
-		codes = append(codes, r.Code)
-		weights[r.Code] = r.Weight
-	}
-
-	return codes, weights, nil
-}
-
 // importDataToDomain handles the core import logic for definitions and exercises
 func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, ownerID uint, data *ImportData, strategy DuplicateStrategy) error {
 	strategy = normalizeDuplicateStrategy(strategy)
@@ -1558,11 +1443,12 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 	// Create DAOs for the transaction
 	exerciseDAO := dao.NewExerciseDAO(tx)
-	metaDefDAO := dao.NewMetaDefinitionDAO(tx)
-	metaExDAO := dao.NewMetaExerciseDAO(tx)
 
-	// Create meta-definitions first (with no prerequisites)
+	// Create meta-definitions first (with no prerequisites). Existing pools
+	// are updated in place; new pools and their code registrations are
+	// inserted in batches.
 	metaDefs := make(map[string]*models.MetaDefinition)
+	newMetaDefs := make([]*models.MetaDefinition, 0, len(data.MetaDefinitions))
 	for code, node := range data.MetaDefinitions {
 		baseCode := node.Code
 		if baseCode == "" {
@@ -1593,69 +1479,120 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			XPosition: node.XPosition,
 			YPosition: node.YPosition,
 		}
-		if err := tx.Create(md).Error; err != nil {
-			return fmt.Errorf("failed to create metaDefinition %s: %v", assigned, err)
-		}
-		if err := tx.Create(&models.DomainNodeCode{
-			DomainID: domain.ID,
-			Code:     assigned,
-			NodeType: "meta_definition",
-			NodeID:   md.ID,
-		}).Error; err != nil {
-			return fmt.Errorf("failed to register code for metaDefinition %s: %v", assigned, err)
-		}
+		newMetaDefs = append(newMetaDefs, md)
 		metaDefs[assigned] = md
-		if assigned != baseCode {
-			log.Printf("Created meta-definition: %s (ID: %d) [renamed from %s]", md.Name, md.ID, code)
+	}
+	if len(newMetaDefs) > 0 {
+		if err := tx.CreateInBatches(newMetaDefs, 500).Error; err != nil {
+			return fmt.Errorf("failed to create metaDefinitions: %v", err)
+		}
+		newCodes := make([]models.DomainNodeCode, 0, len(newMetaDefs))
+		for _, md := range newMetaDefs {
+			newCodes = append(newCodes, models.DomainNodeCode{
+				DomainID: domain.ID,
+				Code:     md.Code,
+				NodeType: "meta_definition",
+				NodeID:   md.ID,
+			})
+		}
+		if err := tx.CreateInBatches(newCodes, 500).Error; err != nil {
+			return fmt.Errorf("failed to register codes for metaDefinitions: %v", err)
 		}
 	}
 
-	// Create versions for each meta-definition
-	// Build a map for first definition version per meta-definition to help exercise prerequisite resolution later
+	// Create versions for each meta-definition.
+	// For pools being updated, clear old versions/references with one batched
+	// delete per table; then insert all new versions and references in
+	// batches. Field defaults mirror MetaDefinitionDAO.AddVersion.
 	firstDefByCode := map[string]*models.Definition{}
-	for code, node := range data.MetaDefinitions {
-		assigned := metaDefAssigned[code]
-		md := metaDefs[assigned]
+	{
+		clearMetaIDs := make([]uint, 0, len(data.MetaDefinitions))
 		if strategy == DuplicateStrategyUpdate {
-			if _, ok := existingMetaDefs[assigned]; ok {
-				var versionIDs []uint
-				if err := tx.Model(&models.Definition{}).
-					Where("meta_definition_id = ?", md.ID).
-					Pluck("id", &versionIDs).Error; err != nil {
-					return fmt.Errorf("failed to load existing versions for %s: %v", assigned, err)
-				}
-				if len(versionIDs) > 0 {
-					if err := tx.Where("definition_id IN ?", versionIDs).
-						Delete(&models.Reference{}).Error; err != nil {
-						return fmt.Errorf("failed to clear references for %s: %v", assigned, err)
-					}
-				}
-				if err := tx.Where("meta_definition_id = ?", md.ID).
-					Delete(&models.Definition{}).Error; err != nil {
-					return fmt.Errorf("failed to clear versions for %s: %v", assigned, err)
+			for code := range data.MetaDefinitions {
+				assigned := metaDefAssigned[code]
+				if _, ok := existingMetaDefs[assigned]; ok {
+					clearMetaIDs = append(clearMetaIDs, metaDefs[assigned].ID)
 				}
 			}
 		}
-		for idx, v := range node.Versions {
-			def, err := metaDefDAO.AddVersion(md.ID, &models.DefinitionVersionRequest{
-				Prompt:               v.Prompt,
-				Type:                 v.Type,
-				Description:          v.Description,
-				Notes:                v.Notes,
-				References:           v.References,
-				PromptImagePath:      v.PromptImagePath,
-				DescriptionImagePath: v.DescriptionImagePath,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create version for %s: %v", assigned, err)
+		if len(clearMetaIDs) > 0 {
+			var versionIDs []uint
+			if err := tx.Model(&models.Definition{}).
+				Where("meta_definition_id IN ?", clearMetaIDs).
+				Pluck("id", &versionIDs).Error; err != nil {
+				return fmt.Errorf("failed to load existing versions: %v", err)
 			}
-			if idx == 0 {
-				firstDefByCode[assigned] = def
+			if len(versionIDs) > 0 {
+				if err := tx.Where("definition_id IN ?", versionIDs).
+					Delete(&models.Reference{}).Error; err != nil {
+					return fmt.Errorf("failed to clear references: %v", err)
+				}
+			}
+			if err := tx.Where("meta_definition_id IN ?", clearMetaIDs).
+				Delete(&models.Definition{}).Error; err != nil {
+				return fmt.Errorf("failed to clear versions: %v", err)
+			}
+		}
+
+		newVersions := make([]*models.Definition, 0, len(data.MetaDefinitions))
+		versionRefs := make([][]string, 0, len(data.MetaDefinitions))
+		for code, node := range data.MetaDefinitions {
+			assigned := metaDefAssigned[code]
+			md := metaDefs[assigned]
+			for idx, v := range node.Versions {
+				defType := v.Type
+				if defType == "" {
+					defType = "open_ended"
+				}
+				prompt := strings.TrimSpace(v.Prompt)
+				if prompt == "" {
+					prompt = fallbackDefinitionPrompt(md.Name)
+				}
+				def := &models.Definition{
+					Code:                 md.Code,
+					Name:                 md.Name,
+					Prompt:               prompt,
+					Type:                 defType,
+					Description:          v.Description,
+					Notes:                v.Notes,
+					PromptImagePath:      v.PromptImagePath,
+					DescriptionImagePath: v.DescriptionImagePath,
+					DomainID:             md.DomainID,
+					OwnerID:              md.OwnerID,
+					MetaDefinitionID:     md.ID,
+					XPosition:            md.XPosition,
+					YPosition:            md.YPosition,
+				}
+				newVersions = append(newVersions, def)
+				versionRefs = append(versionRefs, v.References)
+				if idx == 0 {
+					firstDefByCode[assigned] = def
+				}
+			}
+		}
+		if len(newVersions) > 0 {
+			if err := tx.CreateInBatches(newVersions, 500).Error; err != nil {
+				return fmt.Errorf("failed to create definition versions: %v", err)
+			}
+			refs := make([]models.Reference, 0, len(newVersions))
+			for i, def := range newVersions {
+				for _, ref := range versionRefs[i] {
+					if ref != "" {
+						refs = append(refs, models.Reference{DefinitionID: def.ID, Reference: ref})
+					}
+				}
+			}
+			if len(refs) > 0 {
+				if err := tx.CreateInBatches(refs, 500).Error; err != nil {
+					return fmt.Errorf("failed to create references: %v", err)
+				}
 			}
 		}
 	}
 
 	// Attach concept prerequisites (meta_definition → meta_definition)
+	defPrereqClearIDs := make([]uint, 0, len(data.MetaDefinitions))
+	defPrereqRows := make([]models.NodePrerequisite, 0, len(data.MetaDefinitions)*2)
 	for code, node := range data.MetaDefinitions {
 		assigned := metaDefAssigned[code]
 		md := metaDefs[assigned]
@@ -1682,16 +1619,44 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			}
 		}
 		if len(ids) > 0 || strategy == DuplicateStrategyUpdate {
-			if err := metaDefDAO.Update(md, ids, weights); err != nil {
-				return fmt.Errorf("failed to attach prerequisites for %s: %v", assigned, err)
+			// All targets are meta_definitions from this domain, so the old
+			// per-prerequisite type lookup is not needed; collect rows for
+			// one batched delete + insert after the loop.
+			defPrereqClearIDs = append(defPrereqClearIDs, md.ID)
+			for _, pid := range ids {
+				w := 1.0
+				if val, ok := weights[pid]; ok {
+					w = val
+				}
+				defPrereqRows = append(defPrereqRows, models.NodePrerequisite{
+					NodeID:           md.ID,
+					NodeType:         "meta_definition",
+					PrerequisiteID:   pid,
+					PrerequisiteType: "meta_definition",
+					Weight:           w,
+				})
 			}
+		}
+	}
+	if len(defPrereqClearIDs) > 0 {
+		if err := tx.Where("node_id IN ? AND node_type = ?", defPrereqClearIDs, "meta_definition").
+			Delete(&models.NodePrerequisite{}).Error; err != nil {
+			return fmt.Errorf("failed to clear metaDefinition prerequisites: %v", err)
+		}
+	}
+	if len(defPrereqRows) > 0 {
+		if err := tx.CreateInBatches(defPrereqRows, 500).Error; err != nil {
+			return fmt.Errorf("failed to attach metaDefinition prerequisites: %v", err)
 		}
 	}
 
 	// (legacy conversion moved earlier)
 
-	// Create meta-exercises and then attach prerequisites + versions
+	// Create meta-exercises and then attach prerequisites + versions.
+	// Existing pools are updated in place; new pools and their code
+	// registrations are inserted in batches.
 	metas := make(map[string]*models.MetaExercise) // map by assigned code
+	newMetaExs := make([]*models.MetaExercise, 0, len(data.MetaExercises))
 	for code, me := range data.MetaExercises {
 		baseCode := me.Code
 		if baseCode == "" {
@@ -1715,137 +1680,182 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}
 
 		meta := &models.MetaExercise{Code: assignedCode, Name: me.Name, DomainID: domain.ID, OwnerID: ownerID, XPosition: me.XPosition, YPosition: me.YPosition}
-		if err := tx.Create(meta).Error; err != nil {
-			return fmt.Errorf("failed to create metaExercise %s: %v", assignedCode, err)
-		}
-		if err := tx.Create(&models.DomainNodeCode{
-			DomainID: domain.ID,
-			Code:     assignedCode,
-			NodeType: "meta_exercise",
-			NodeID:   meta.ID,
-		}).Error; err != nil {
-			return fmt.Errorf("failed to register code for metaExercise %s: %v", assignedCode, err)
-		}
+		newMetaExs = append(newMetaExs, meta)
 		metas[assignedCode] = meta
-		if assignedCode != baseCode {
-			log.Printf("Created meta-exercise: %s (ID: %d) [renamed from %s]", meta.Name, meta.ID, code)
-		}
 	}
-
-	// Attach meta prerequisites (can reference definitions or other metas) after all metas exist
-	for code, me := range data.MetaExercises {
-		assignedCode := metaAssigned[code]
-		meta := metas[assignedCode]
-		if strategy == DuplicateStrategyUpdate {
-			if _, ok := existingMetaExs[assignedCode]; ok {
-				if err := tx.Where("node_id = ? AND node_type = ?", meta.ID, "meta_exercise").
-					Delete(&models.NodePrerequisite{}).Error; err != nil {
-					return fmt.Errorf("failed to clear prerequisites for %s: %v", assignedCode, err)
-				}
-			}
+	if len(newMetaExs) > 0 {
+		if err := tx.CreateInBatches(newMetaExs, 500).Error; err != nil {
+			return fmt.Errorf("failed to create metaExercises: %v", err)
 		}
-		if len(me.Prerequisites) == 0 {
-			continue
-		}
-		// Deduplicate in case input contains duplicates
-		seen := map[string]struct{}{}
-		for _, pcode := range me.Prerequisites {
-			if _, ok := seen[pcode]; ok {
-				continue
-			}
-			seen[pcode] = struct{}{}
-
-			// Resolve prerequisite through assignment maps
-			// Priority: meta_definition (concepts) > meta_exercise > legacy definitions
-			resolvedMetaDefCode := metaDefAssigned[pcode]
-			if resolvedMetaDefCode == "" {
-				resolvedMetaDefCode = pcode
-			}
-			resolvedMetaExCode := metaAssigned[pcode]
-
-			// 1. Try to find in imported meta-definitions (concepts) - preferred for graph
-			if metaDef, ok := metaDefs[resolvedMetaDefCode]; ok {
-				w := clamp01(me.PrerequisiteWeights[pcode])
-				var count int64
-				if err := tx.Model(&models.NodePrerequisite{}).
-					Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
-						metas[assignedCode].ID, "meta_exercise", metaDef.ID, "meta_definition").
-					Count(&count).Error; err != nil {
-					return fmt.Errorf("failed to check existing prerequisite: %v", err)
-				}
-				if count == 0 {
-					if err := tx.Create(&models.NodePrerequisite{
-						NodeID:           metas[assignedCode].ID,
-						NodeType:         "meta_exercise",
-						PrerequisiteID:   metaDef.ID,
-						PrerequisiteType: "meta_definition",
-						Weight:           w,
-						IsManual:         true,
-					}).Error; err != nil {
-						return fmt.Errorf("failed to attach meta_definition prerequisite %s to %s: %v", pcode, assignedCode, err)
-					}
-				}
-				continue
-			}
-
-			// 2. Try to find in imported meta-exercises
-			if metaEx, ok := metas[resolvedMetaExCode]; ok {
-				w := clamp01(me.PrerequisiteWeights[pcode])
-				var count int64
-				if err := tx.Model(&models.NodePrerequisite{}).
-					Where("node_id = ? AND node_type = ? AND prerequisite_id = ? AND prerequisite_type = ?",
-						metas[assignedCode].ID, "meta_exercise", metaEx.ID, "meta_exercise").
-					Count(&count).Error; err != nil {
-					return fmt.Errorf("failed to check existing prerequisite: %v", err)
-				}
-				if count == 0 {
-					if err := tx.Create(&models.NodePrerequisite{
-						NodeID:           metas[assignedCode].ID,
-						NodeType:         "meta_exercise",
-						PrerequisiteID:   metaEx.ID,
-						PrerequisiteType: "meta_exercise",
-						Weight:           w,
-						IsManual:         true,
-					}).Error; err != nil {
-						return fmt.Errorf("failed to attach meta_exercise prerequisite %s to %s: %v", pcode, assignedCode, err)
-					}
-				}
-				continue
-			}
-
-			// 3. No legacy fallback: do not create meta_exercise → definition links in dev meta graph
-			// If code does not resolve to meta_definition or meta_exercise, skip with warning.
-
-			log.Printf("Warning: Unknown prerequisite code %s for metaExercise %s", pcode, assignedCode)
-		}
-	}
-
-	// Create versions for each meta
-	for code, me := range data.MetaExercises {
-		assignedCode := metaAssigned[code]
-		meta := metas[assignedCode]
-		if strategy == DuplicateStrategyUpdate {
-			if _, ok := existingMetaExs[assignedCode]; ok {
-				if err := tx.Where("meta_exercise_id = ?", meta.ID).
-					Delete(&models.Exercise{}).Error; err != nil {
-					return fmt.Errorf("failed to clear versions for %s: %v", assignedCode, err)
-				}
-			}
-		}
-		for _, v := range me.Versions {
-			_, err := metaExDAO.AddVersion(meta.ID, &models.ExerciseVersionRequest{
-				Statement:            v.Statement,
-				Description:          v.Description,
-				Hints:                v.Hints,
-				Verifiable:           v.Verifiable,
-				Result:               v.Result,
-				Difficulty:           v.Difficulty,
-				Notes:                v.Notes,
-				StatementImagePath:   v.StatementImagePath,
-				DescriptionImagePath: v.DescriptionImagePath,
+		newCodes := make([]models.DomainNodeCode, 0, len(newMetaExs))
+		for _, meta := range newMetaExs {
+			newCodes = append(newCodes, models.DomainNodeCode{
+				DomainID: domain.ID,
+				Code:     meta.Code,
+				NodeType: "meta_exercise",
+				NodeID:   meta.ID,
 			})
-			if err != nil {
-				return fmt.Errorf("failed to create version for %s: %v", assignedCode, err)
+		}
+		if err := tx.CreateInBatches(newCodes, 500).Error; err != nil {
+			return fmt.Errorf("failed to register codes for metaExercises: %v", err)
+		}
+	}
+
+	// Attach meta prerequisites (can reference definitions or other metas)
+	// after all metas exist. New/updated pools start with no prerequisite
+	// rows inside this transaction, so an in-memory (node, prereq) pair set
+	// replaces the old per-edge existence probes; rows are inserted in one
+	// batch at the end.
+	{
+		exPrereqClearIDs := make([]uint, 0, len(data.MetaExercises))
+		if strategy == DuplicateStrategyUpdate {
+			for code := range data.MetaExercises {
+				assignedCode := metaAssigned[code]
+				if _, ok := existingMetaExs[assignedCode]; ok {
+					exPrereqClearIDs = append(exPrereqClearIDs, metas[assignedCode].ID)
+				}
+			}
+		}
+		if len(exPrereqClearIDs) > 0 {
+			if err := tx.Where("node_id IN ? AND node_type = ?", exPrereqClearIDs, "meta_exercise").
+				Delete(&models.NodePrerequisite{}).Error; err != nil {
+				return fmt.Errorf("failed to clear metaExercise prerequisites: %v", err)
+			}
+		}
+
+		type prereqPair struct {
+			nodeID     uint
+			prereqID   uint
+			prereqType string
+		}
+		pairSeen := map[prereqPair]struct{}{}
+		exPrereqRows := make([]models.NodePrerequisite, 0, len(data.MetaExercises)*2)
+
+		for code, me := range data.MetaExercises {
+			assignedCode := metaAssigned[code]
+			if len(me.Prerequisites) == 0 {
+				continue
+			}
+			// Deduplicate in case input contains duplicates
+			seen := map[string]struct{}{}
+			for _, pcode := range me.Prerequisites {
+				if _, ok := seen[pcode]; ok {
+					continue
+				}
+				seen[pcode] = struct{}{}
+
+				// Resolve prerequisite through assignment maps
+				// Priority: meta_definition (concepts) > meta_exercise > legacy definitions
+				resolvedMetaDefCode := metaDefAssigned[pcode]
+				if resolvedMetaDefCode == "" {
+					resolvedMetaDefCode = pcode
+				}
+				resolvedMetaExCode := metaAssigned[pcode]
+
+				// 1. Try to find in imported meta-definitions (concepts) - preferred for graph
+				if metaDef, ok := metaDefs[resolvedMetaDefCode]; ok {
+					pair := prereqPair{nodeID: metas[assignedCode].ID, prereqID: metaDef.ID, prereqType: "meta_definition"}
+					if _, exists := pairSeen[pair]; !exists {
+						pairSeen[pair] = struct{}{}
+						exPrereqRows = append(exPrereqRows, models.NodePrerequisite{
+							NodeID:           pair.nodeID,
+							NodeType:         "meta_exercise",
+							PrerequisiteID:   pair.prereqID,
+							PrerequisiteType: pair.prereqType,
+							Weight:           clamp01(me.PrerequisiteWeights[pcode]),
+							IsManual:         true,
+						})
+					}
+					continue
+				}
+
+				// 2. Try to find in imported meta-exercises
+				if metaEx, ok := metas[resolvedMetaExCode]; ok {
+					pair := prereqPair{nodeID: metas[assignedCode].ID, prereqID: metaEx.ID, prereqType: "meta_exercise"}
+					if _, exists := pairSeen[pair]; !exists {
+						pairSeen[pair] = struct{}{}
+						exPrereqRows = append(exPrereqRows, models.NodePrerequisite{
+							NodeID:           pair.nodeID,
+							NodeType:         "meta_exercise",
+							PrerequisiteID:   pair.prereqID,
+							PrerequisiteType: pair.prereqType,
+							Weight:           clamp01(me.PrerequisiteWeights[pcode]),
+							IsManual:         true,
+						})
+					}
+					continue
+				}
+
+				// 3. No legacy fallback: do not create meta_exercise → definition links in dev meta graph
+				// If code does not resolve to meta_definition or meta_exercise, skip with warning.
+
+				log.Printf("Warning: Unknown prerequisite code %s for metaExercise %s", pcode, assignedCode)
+			}
+		}
+
+		if len(exPrereqRows) > 0 {
+			if err := tx.CreateInBatches(exPrereqRows, 500).Error; err != nil {
+				return fmt.Errorf("failed to attach metaExercise prerequisites: %v", err)
+			}
+		}
+	}
+
+	// Create versions for each meta. For pools being updated, clear old
+	// versions with one batched delete; insert new versions in batches.
+	// Field defaults mirror MetaExerciseDAO.AddVersion.
+	{
+		clearMetaIDs := make([]uint, 0, len(data.MetaExercises))
+		if strategy == DuplicateStrategyUpdate {
+			for code := range data.MetaExercises {
+				assignedCode := metaAssigned[code]
+				if _, ok := existingMetaExs[assignedCode]; ok {
+					clearMetaIDs = append(clearMetaIDs, metas[assignedCode].ID)
+				}
+			}
+		}
+		if len(clearMetaIDs) > 0 {
+			if err := tx.Where("meta_exercise_id IN ?", clearMetaIDs).
+				Delete(&models.Exercise{}).Error; err != nil {
+				return fmt.Errorf("failed to clear exercise versions: %v", err)
+			}
+		}
+
+		newVersions := make([]*models.Exercise, 0, len(data.MetaExercises))
+		for code, me := range data.MetaExercises {
+			assignedCode := metaAssigned[code]
+			meta := metas[assignedCode]
+			for _, v := range me.Versions {
+				statement := strings.TrimSpace(v.Statement)
+				if statement == "" {
+					statement = fallbackExerciseStatement(meta.Name)
+				}
+				diff := v.Difficulty
+				if diff < 1 || diff > 7 {
+					diff = 3
+				}
+				newVersions = append(newVersions, &models.Exercise{
+					Code:                 meta.Code,
+					Name:                 meta.Name,
+					Statement:            statement,
+					Description:          v.Description,
+					Notes:                v.Notes,
+					Hints:                v.Hints,
+					StatementImagePath:   v.StatementImagePath,
+					DescriptionImagePath: v.DescriptionImagePath,
+					DomainID:             meta.DomainID,
+					OwnerID:              meta.OwnerID,
+					MetaExerciseID:       meta.ID,
+					Verifiable:           v.Verifiable,
+					Result:               v.Result,
+					Difficulty:           diff,
+					XPosition:            meta.XPosition,
+					YPosition:            meta.YPosition,
+				})
+			}
+		}
+		if len(newVersions) > 0 {
+			if err := tx.CreateInBatches(newVersions, 500).Error; err != nil {
+				return fmt.Errorf("failed to create exercise versions: %v", err)
 			}
 		}
 	}

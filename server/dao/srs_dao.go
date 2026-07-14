@@ -53,12 +53,22 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	}
 	startedAt := time.Now()
 
+	// Each query matches rows where either endpoint is a node of the given
+	// type inside the domain. The UNION-of-joins form lets the planner drive
+	// each half from the domain's node list through the (node_id, node_type)
+	// / (prerequisite_id, prerequisite_type) indexes, so cost scales with the
+	// domain size instead of the global node_prerequisites table. UNION also
+	// dedups rows matched by both halves.
+
 	// Get prerequisites for legacy definitions (backward compatibility)
 	definitionQuery := fmt.Sprintf(`
 		%s
 		SELECT np.* FROM node_prerequisites np
-		JOIN definitions d ON (np.node_id = d.id AND np.node_type = 'definition')
-		   OR (np.prerequisite_id = d.id AND np.prerequisite_type = 'definition')
+		JOIN definitions d ON np.node_id = d.id AND np.node_type = 'definition'
+		WHERE d.domain_id = ?
+		UNION
+		SELECT np.* FROM node_prerequisites np
+		JOIN definitions d ON np.prerequisite_id = d.id AND np.prerequisite_type = 'definition'
 		WHERE d.domain_id = ?
 	`, comment)
 
@@ -66,8 +76,11 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	metaDefQuery := fmt.Sprintf(`
 		%s
 		SELECT np.* FROM node_prerequisites np
-		JOIN meta_definitions md ON (np.node_id = md.id AND np.node_type = 'meta_definition')
-		   OR (np.prerequisite_id = md.id AND np.prerequisite_type = 'meta_definition')
+		JOIN meta_definitions md ON np.node_id = md.id AND np.node_type = 'meta_definition'
+		WHERE md.domain_id = ?
+		UNION
+		SELECT np.* FROM node_prerequisites np
+		JOIN meta_definitions md ON np.prerequisite_id = md.id AND np.prerequisite_type = 'meta_definition'
 		WHERE md.domain_id = ?
 	`, comment)
 
@@ -75,8 +88,11 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	exerciseQuery := fmt.Sprintf(`
 		%s
 		SELECT np.* FROM node_prerequisites np
-		JOIN meta_exercises e ON (np.node_id = e.id AND np.node_type = 'meta_exercise')
-		   OR (np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise')
+		JOIN meta_exercises e ON np.node_id = e.id AND np.node_type = 'meta_exercise'
+		WHERE e.domain_id = ?
+		UNION
+		SELECT np.* FROM node_prerequisites np
+		JOIN meta_exercises e ON np.prerequisite_id = e.id AND np.prerequisite_type = 'meta_exercise'
 		WHERE e.domain_id = ?
 	`, comment)
 
@@ -84,7 +100,7 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 	var metaDefPrereqs []models.NodePrerequisite
 	var exPrereqs []models.NodePrerequisite
 
-	if err := d.db.Raw(definitionQuery, domainID).Scan(&defPrereqs).Error; err != nil {
+	if err := d.db.Raw(definitionQuery, domainID, domainID).Scan(&defPrereqs).Error; err != nil {
 		if stage != "" {
 			logDAOStage(
 				requestID,
@@ -99,7 +115,7 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 		return nil, err
 	}
 
-	if err := d.db.Raw(metaDefQuery, domainID).Scan(&metaDefPrereqs).Error; err != nil {
+	if err := d.db.Raw(metaDefQuery, domainID, domainID).Scan(&metaDefPrereqs).Error; err != nil {
 		if stage != "" {
 			logDAOStage(
 				requestID,
@@ -114,7 +130,7 @@ func (d *SRSDao) getPrerequisitesByDomainInternal(domainID uint, requestID strin
 		return nil, err
 	}
 
-	if err := d.db.Raw(exerciseQuery, domainID).Scan(&exPrereqs).Error; err != nil {
+	if err := d.db.Raw(exerciseQuery, domainID, domainID).Scan(&exPrereqs).Error; err != nil {
 		if stage != "" {
 			logDAOStage(
 				requestID,
@@ -284,6 +300,66 @@ func (d *SRSDao) CreateOrUpdateProgress(progress *models.UserNodeProgress) error
 			},
 		},
 	).Create(progress).Error
+}
+
+// CreateOrUpdateProgressBatch upserts many progress rows in chunked
+// multi-row statements. Rows must be unique per (user_id, node_id,
+// node_type); Postgres rejects ON CONFLICT updates touching a row twice.
+func (d *SRSDao) CreateOrUpdateProgressBatch(rows []*models.UserNodeProgress) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	for _, row := range rows {
+		if row.CreatedAt.IsZero() {
+			row.CreatedAt = now
+		}
+		row.UpdatedAt = now
+	}
+
+	// Keep each statement well under the driver parameter limit.
+	const chunkSize = 1000
+	for start := 0; start < len(rows); start += chunkSize {
+		end := start + chunkSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		chunk := rows[start:end]
+		if err := d.db.Clauses(
+			clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "user_id"},
+					{Name: "node_id"},
+					{Name: "node_type"},
+				},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"status",
+					"easiness_factor",
+					"interval_days",
+					"repetitions",
+					"last_review",
+					"next_review",
+					"block_negative_until",
+					"accumulated_credit",
+					"credit_postponed",
+					"total_reviews",
+					"successful_reviews",
+					"updated_at",
+				}),
+			},
+			clause.Returning{
+				Columns: []clause.Column{
+					{Name: "id"},
+					{Name: "created_at"},
+					{Name: "updated_at"},
+				},
+			},
+		).Create(&chunk).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetDomainProgress gets all progress for a user in a domain

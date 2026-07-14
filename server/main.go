@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
@@ -36,6 +38,20 @@ func main() {
 	// Set Gin mode based on environment
 	if os.Getenv("APP_ENV") == "production" {
 		gin.SetMode(gin.ReleaseMode)
+	}
+
+	// Optional Go profiling endpoint (CPU/heap/goroutine/etc). Enable by
+	// setting PPROF_ADDR, e.g. PPROF_ADDR=localhost:6060 — then inspect with
+	//   go tool pprof http://localhost:6060/debug/pprof/profile?seconds=15
+	// Bind to localhost (or keep the port unpublished in Docker) so profiles
+	// are never exposed publicly.
+	if pprofAddr := strings.TrimSpace(os.Getenv("PPROF_ADDR")); pprofAddr != "" {
+		go func() {
+			log.Printf("pprof listening on http://%s/debug/pprof/", pprofAddr)
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Printf("pprof server stopped: %v", err)
+			}
+		}()
 	}
 
 	// Initialize database connection

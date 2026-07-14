@@ -112,6 +112,131 @@ type VisualGraph struct {
 	} `json:"links"`
 }
 
+// DomainPrerequisiteData holds prerequisite codes and weights for every
+// meta_definition / meta_exercise in a domain, loaded with a fixed number of
+// queries instead of one to three per node.
+type DomainPrerequisiteData struct {
+	DefCodes   map[uint][]string
+	DefWeights map[uint]map[string]float64
+	ExCodes    map[uint][]string
+	ExWeights  map[uint]map[string]float64
+}
+
+// loadDomainPrerequisiteData bulk-loads prerequisite codes/weights for all
+// nodes of a domain. Per-node ordering matches the previous per-node queries:
+// meta_definition prereqs sorted by code; meta_exercise prereqs grouped as
+// meta_definition, then meta_exercise, then legacy definition codes (each
+// group sorted by code, duplicates dropped, empty codes skipped).
+func (d *GraphDAO) LoadDomainPrerequisiteData(domainID uint) (*DomainPrerequisiteData, error) {
+	type prereqRow struct {
+		NodeID uint
+		Code   string
+		Weight float64
+	}
+
+	load := func(query string) ([]prereqRow, error) {
+		var rows []prereqRow
+		if err := d.db.Raw(query, domainID).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		return rows, nil
+	}
+
+	defToDefRows, err := load(`
+		SELECT np.node_id AS node_id, md.code AS code, np.weight AS weight
+		FROM node_prerequisites np
+		JOIN meta_definitions md ON np.prerequisite_id = md.id
+		WHERE np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
+		  AND np.node_id IN (SELECT id FROM meta_definitions WHERE domain_id = ?)
+		ORDER BY np.node_id, md.code
+	`)
+	if err != nil {
+		return nil, err
+	}
+	exToDefRows, err := load(`
+		SELECT np.node_id AS node_id, md.code AS code, np.weight AS weight
+		FROM node_prerequisites np
+		JOIN meta_definitions md ON np.prerequisite_id = md.id
+		WHERE np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
+		  AND np.node_id IN (SELECT id FROM meta_exercises WHERE domain_id = ?)
+		ORDER BY np.node_id, md.code
+	`)
+	if err != nil {
+		return nil, err
+	}
+	exToExRows, err := load(`
+		SELECT np.node_id AS node_id, me.code AS code, np.weight AS weight
+		FROM node_prerequisites np
+		JOIN meta_exercises me ON np.prerequisite_id = me.id
+		WHERE np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
+		  AND np.node_id IN (SELECT id FROM meta_exercises WHERE domain_id = ?)
+		ORDER BY np.node_id, me.code
+	`)
+	if err != nil {
+		return nil, err
+	}
+	exToLegacyRows, err := load(`
+		SELECT np.node_id AS node_id, dd.code AS code, np.weight AS weight
+		FROM node_prerequisites np
+		JOIN definitions dd ON np.prerequisite_id = dd.id
+		WHERE np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
+		  AND np.node_id IN (SELECT id FROM meta_exercises WHERE domain_id = ?)
+		ORDER BY np.node_id, dd.code
+	`)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &DomainPrerequisiteData{
+		DefCodes:   make(map[uint][]string),
+		DefWeights: make(map[uint]map[string]float64),
+		ExCodes:    make(map[uint][]string),
+		ExWeights:  make(map[uint]map[string]float64),
+	}
+
+	for _, row := range defToDefRows {
+		data.DefCodes[row.NodeID] = append(data.DefCodes[row.NodeID], row.Code)
+		if data.DefWeights[row.NodeID] == nil {
+			data.DefWeights[row.NodeID] = make(map[string]float64)
+		}
+		data.DefWeights[row.NodeID][row.Code] = row.Weight
+	}
+
+	// Codes keep the first occurrence (meta_definition, then meta_exercise,
+	// then legacy). Weights mirror the old per-node queries: meta rows always
+	// overwrite, legacy rows only fill missing codes.
+	exSeen := make(map[uint]map[string]bool)
+	appendExRow := func(row prereqRow, overwriteWeight bool) {
+		if row.Code == "" {
+			return
+		}
+		if exSeen[row.NodeID] == nil {
+			exSeen[row.NodeID] = make(map[string]bool)
+		}
+		if data.ExWeights[row.NodeID] == nil {
+			data.ExWeights[row.NodeID] = make(map[string]float64)
+		}
+		if !exSeen[row.NodeID][row.Code] {
+			exSeen[row.NodeID][row.Code] = true
+			data.ExCodes[row.NodeID] = append(data.ExCodes[row.NodeID], row.Code)
+		}
+		if _, exists := data.ExWeights[row.NodeID][row.Code]; overwriteWeight || !exists {
+			data.ExWeights[row.NodeID][row.Code] = row.Weight
+		}
+	}
+	for _, row := range exToDefRows {
+		appendExRow(row, true)
+	}
+	for _, row := range exToExRows {
+		appendExRow(row, true)
+	}
+	for _, row := range exToLegacyRows {
+		appendExRow(row, false)
+	}
+
+	return data, nil
+}
+
 // GetVisualGraph returns the domain as a visual graph structure (filtered by user visibility).
 func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, error) {
 	// Load domain with meta definitions and meta exercises
@@ -159,15 +284,15 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 		}, 0),
 	}
 
+	// Bulk-load prerequisite codes for every node in the domain.
+	prereqData, err := d.LoadDomainPrerequisiteData(domainID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Add meta_definitions to nodes with their prerequisites
 	for _, def := range metaDefs {
 		nodeID := fmt.Sprintf("def_%d", def.ID)
-
-		// Get prerequisite codes for this meta_definition
-		prereqCodes, err := d.getPrerequisiteCodes(def.ID, "meta_definition")
-		if err != nil {
-			return nil, err
-		}
 
 		// Add node (visually displayed as "definition")
 		graph.Nodes = append(graph.Nodes, VisualNode{
@@ -177,19 +302,13 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 			Code:          def.Code,
 			X:             def.XPosition,
 			Y:             def.YPosition,
-			Prerequisites: prereqCodes,
+			Prerequisites: prereqData.DefCodes[def.ID],
 		})
 	}
 
 	// Add meta_exercises to nodes with their prerequisites
 	for _, ex := range metaExs {
 		nodeID := fmt.Sprintf("ex_%d", ex.ID)
-
-		// Get prerequisite codes for this meta_exercise
-		prereqCodes, err := d.getPrerequisiteCodes(ex.ID, "meta_exercise")
-		if err != nil {
-			return nil, err
-		}
 
 		// Add node (visually displayed as "exercise")
 		graph.Nodes = append(graph.Nodes, VisualNode{
@@ -199,7 +318,7 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 			Code:          ex.Code,
 			X:             ex.XPosition,
 			Y:             ex.YPosition,
-			Prerequisites: prereqCodes,
+			Prerequisites: prereqData.ExCodes[ex.ID],
 		})
 	}
 
@@ -378,42 +497,75 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		Groups:      make([]GroupData, 0),
 	}
 
+	// Bulk-load prerequisite codes/weights, first versions, and references
+	// instead of querying per node (export uses the first version of each
+	// pool as representative).
+	prereqData, err := d.LoadDomainPrerequisiteData(domainID)
+	if err != nil {
+		return nil, err
+	}
+
+	firstDefVersions := make(map[uint]models.Definition)
+	if len(metaDefs) > 0 {
+		metaDefIDs := make([]uint, 0, len(metaDefs))
+		for _, md := range metaDefs {
+			metaDefIDs = append(metaDefIDs, md.ID)
+		}
+		var rows []models.Definition
+		if err := d.db.Where("meta_definition_id IN ?", metaDefIDs).Order("id ASC").Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if _, ok := firstDefVersions[row.MetaDefinitionID]; !ok {
+				firstDefVersions[row.MetaDefinitionID] = row
+			}
+		}
+	}
+	referencesByDefinition := make(map[uint][]string)
+	{
+		firstVersionIDs := make([]uint, 0, len(firstDefVersions))
+		for _, v := range firstDefVersions {
+			firstVersionIDs = append(firstVersionIDs, v.ID)
+		}
+		if len(firstVersionIDs) > 0 {
+			var refs []models.Reference
+			if err := d.db.Where("definition_id IN ?", firstVersionIDs).Order("id ASC").Find(&refs).Error; err != nil {
+				return nil, err
+			}
+			for _, ref := range refs {
+				referencesByDefinition[ref.DefinitionID] = append(referencesByDefinition[ref.DefinitionID], ref.Reference)
+			}
+		}
+	}
+	firstExVersions := make(map[uint]models.Exercise)
+	if len(exercises) > 0 {
+		metaExIDs := make([]uint, 0, len(exercises))
+		for _, me := range exercises {
+			metaExIDs = append(metaExIDs, me.ID)
+		}
+		var rows []models.Exercise
+		if err := d.db.Where("meta_exercise_id IN ?", metaExIDs).Order("id ASC").Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if _, ok := firstExVersions[row.MetaExerciseID]; !ok {
+				firstExVersions[row.MetaExerciseID] = row
+			}
+		}
+	}
+
 	// Add meta_definitions using CODE as key
 	for _, metaDef := range metaDefs {
-		// Get the first version for description/notes/references
-		// (export uses first version as representative)
-		var firstVersion models.Definition
 		var references []string
 		var description, notes string
 
-		err := d.db.Where("meta_definition_id = ?", metaDef.ID).
-			Order("id ASC").
-			Limit(1).
-			First(&firstVersion).Error
-
-		if err == nil {
+		if firstVersion, ok := firstDefVersions[metaDef.ID]; ok {
 			description = firstVersion.Description
 			notes = firstVersion.Notes
-
-			// Get references for first version
-			var refs []models.Reference
-			d.db.Where("definition_id = ?", firstVersion.ID).Find(&refs)
-			references = make([]string, 0, len(refs))
-			for _, ref := range refs {
-				references = append(references, ref.Reference)
-			}
+			references = make([]string, 0, len(referencesByDefinition[firstVersion.ID]))
+			references = append(references, referencesByDefinition[firstVersion.ID]...)
 		}
 		description = fallbackGraphDefinitionDescription(description)
-
-		// Get prerequisite codes and weights
-		prerequisiteCodes, err := d.getPrerequisiteCodes(metaDef.ID, "meta_definition")
-		if err != nil {
-			return nil, err
-		}
-		prereqWeights, err := d.getPrerequisiteWeights(metaDef.ID, "meta_definition")
-		if err != nil {
-			return nil, err
-		}
 
 		// Use meta_definition CODE as key
 		graphData.Definitions[metaDef.Code] = DefinitionNode{
@@ -422,25 +574,20 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			Description:         description,
 			Notes:               notes,
 			References:          references,
-			Prerequisites:       prerequisiteCodes,
-			PrerequisiteWeights: prereqWeights,
+			Prerequisites:       prereqData.DefCodes[metaDef.ID],
+			PrerequisiteWeights: prereqData.DefWeights[metaDef.ID],
 			XPosition:           metaDef.XPosition,
 			YPosition:           metaDef.YPosition,
 		}
 	}
 
-	// Add meta_exercises using CODE as key (FIXED)
+	// Add meta_exercises using CODE as key
 	for _, ex := range exercises {
-		var firstVersion models.Exercise
 		var statement, description, hints, result string
 		var verifiable bool
 		var difficulty int
 
-		exErr := d.db.Where("meta_exercise_id = ?", ex.ID).
-			Order("id ASC").
-			Limit(1).
-			First(&firstVersion).Error
-		if exErr == nil {
+		if firstVersion, ok := firstExVersions[ex.ID]; ok {
 			statement = strings.TrimSpace(firstVersion.Statement)
 			description = firstVersion.Description
 			hints = firstVersion.Hints
@@ -455,16 +602,6 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			difficulty = 3
 		}
 
-		// Get prerequisite codes and weights
-		prerequisiteCodes, err := d.getPrerequisiteCodes(ex.ID, "meta_exercise")
-		if err != nil {
-			return nil, err
-		}
-		prereqWeights, err := d.getPrerequisiteWeights(ex.ID, "meta_exercise")
-		if err != nil {
-			return nil, err
-		}
-
 		// Use exercise CODE as key, not ID
 		graphData.Exercises[ex.Code] = ExerciseNode{
 			Code:                ex.Code,
@@ -475,8 +612,8 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 			Verifiable:          verifiable,
 			Result:              result,
 			Difficulty:          difficulty,
-			Prerequisites:       prerequisiteCodes,
-			PrerequisiteWeights: prereqWeights,
+			Prerequisites:       prereqData.ExCodes[ex.ID],
+			PrerequisiteWeights: prereqData.ExWeights[ex.ID],
 			XPosition:           ex.XPosition,
 			YPosition:           ex.YPosition,
 		}
@@ -558,175 +695,6 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 	}
 
 	return graphData, nil
-}
-
-// Helper function to get prerequisite codes for a node
-func (d *GraphDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]string, error) {
-	if nodeType == "meta_exercise" {
-		// Exercises can depend on meta_definitions, meta_exercises, or legacy definitions.
-		codes := make([]string, 0)
-		seen := make(map[string]bool)
-
-		mdQuery := `
-            SELECT md.code
-            FROM node_prerequisites np
-            JOIN meta_definitions md ON np.prerequisite_id = md.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
-            ORDER BY md.code
-        `
-		var mdCodes []string
-		if err := d.db.Raw(mdQuery, nodeID).Scan(&mdCodes).Error; err != nil {
-			return nil, err
-		}
-		for _, code := range mdCodes {
-			if code == "" || seen[code] {
-				continue
-			}
-			seen[code] = true
-			codes = append(codes, code)
-		}
-
-		meQuery := `
-            SELECT me.code
-            FROM node_prerequisites np
-            JOIN meta_exercises me ON np.prerequisite_id = me.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
-            ORDER BY me.code
-        `
-		var meCodes []string
-		if err := d.db.Raw(meQuery, nodeID).Scan(&meCodes).Error; err != nil {
-			return nil, err
-		}
-		for _, code := range meCodes {
-			if code == "" || seen[code] {
-				continue
-			}
-			seen[code] = true
-			codes = append(codes, code)
-		}
-
-		legacyQuery := `
-            SELECT d.code
-            FROM node_prerequisites np
-            JOIN definitions d ON np.prerequisite_id = d.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
-            ORDER BY d.code
-        `
-		var legacyCodes []string
-		if err := d.db.Raw(legacyQuery, nodeID).Scan(&legacyCodes).Error; err != nil {
-			return nil, err
-		}
-		for _, code := range legacyCodes {
-			if code == "" || seen[code] {
-				continue
-			}
-			seen[code] = true
-			codes = append(codes, code)
-		}
-
-		return codes, nil
-	}
-	if nodeType == "meta_definition" {
-		// Concepts depend on concepts (meta_definition)
-		query := `
-            SELECT md.code
-            FROM node_prerequisites np
-            JOIN meta_definitions md ON np.prerequisite_id = md.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
-            ORDER BY md.code
-        `
-		var codes []string
-		if err := d.db.Raw(query, nodeID).Scan(&codes).Error; err != nil {
-			return nil, err
-		}
-		return codes, nil
-	}
-	return []string{}, nil
-}
-
-// getPrerequisiteWeights returns map[code]weight for a node's prerequisites
-func (d *GraphDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
-	type row struct {
-		Code   string
-		Weight float64
-	}
-	if nodeType == "meta_exercise" {
-		weights := make(map[string]float64)
-
-		mdQuery := `
-            SELECT md.code, np.weight
-            FROM node_prerequisites np
-            JOIN meta_definitions md ON np.prerequisite_id = md.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_definition'
-            ORDER BY md.code
-        `
-		var mdRows []row
-		if err := d.db.Raw(mdQuery, nodeID).Scan(&mdRows).Error; err != nil {
-			return nil, err
-		}
-		for _, r := range mdRows {
-			if r.Code != "" {
-				weights[r.Code] = r.Weight
-			}
-		}
-
-		meQuery := `
-            SELECT me.code, np.weight
-            FROM node_prerequisites np
-            JOIN meta_exercises me ON np.prerequisite_id = me.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'meta_exercise'
-            ORDER BY me.code
-        `
-		var meRows []row
-		if err := d.db.Raw(meQuery, nodeID).Scan(&meRows).Error; err != nil {
-			return nil, err
-		}
-		for _, r := range meRows {
-			if r.Code != "" {
-				weights[r.Code] = r.Weight
-			}
-		}
-
-		legacyQuery := `
-            SELECT d.code, np.weight
-            FROM node_prerequisites np
-            JOIN definitions d ON np.prerequisite_id = d.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_exercise' AND np.prerequisite_type = 'definition'
-            ORDER BY d.code
-        `
-		var rows []row
-		if err := d.db.Raw(legacyQuery, nodeID).Scan(&rows).Error; err != nil {
-			return nil, err
-		}
-		for _, r := range rows {
-			if r.Code == "" {
-				continue
-			}
-			if _, exists := weights[r.Code]; !exists {
-				weights[r.Code] = r.Weight
-			}
-		}
-		return weights, nil
-	}
-	if nodeType == "meta_definition" {
-		query := `
-            SELECT md.code, np.weight
-            FROM node_prerequisites np
-            JOIN meta_definitions md ON np.prerequisite_id = md.id
-            WHERE np.node_id = ? AND np.node_type = 'meta_definition' AND np.prerequisite_type = 'meta_definition'
-            ORDER BY md.code
-        `
-		var rows []row
-		if err := d.db.Raw(query, nodeID).Scan(&rows).Error; err != nil {
-			return nil, err
-		}
-		res := make(map[string]float64, len(rows))
-		for _, r := range rows {
-			res[r.Code] = r.Weight
-		}
-		return res, nil
-	}
-	return map[string]float64{}, nil
 }
 
 // ImportDomain imports a domain from the graph format using clean DAOs
@@ -1133,67 +1101,62 @@ func (d *GraphDAO) ImportDomain(domainID uint, data *GraphData) error {
 	})
 }
 
-// UpdateGraphPositions updates the positions of nodes in the graph
+// UpdateGraphPositions updates the positions of nodes in the graph.
+// Updates are grouped per table and applied with one statement each using a
+// VALUES join, so saving a whole layout costs at most four statements.
 func (d *GraphDAO) UpdateGraphPositions(positionUpdates map[string]struct{ X, Y float64 }) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		for nodeID, pos := range positionUpdates {
-			// Parse the node ID to determine if it's a definition or exercise
-			parts := strings.Split(nodeID, "_")
-			if len(parts) != 2 {
-				return errors.New("invalid node ID format: " + nodeID)
-			}
+	type posUpdate struct {
+		id   uint64
+		x, y float64
+	}
+	tables := map[string][]posUpdate{}
+	tableFor := map[string]string{
+		"def":   "meta_definitions",
+		"ex":    "meta_exercises",
+		"src":   "sources",
+		"quest": "meta_quests",
+	}
 
-			nodeType := parts[0]
-			nodeIDStr := parts[1]
+	for nodeID, pos := range positionUpdates {
+		// Parse the node ID to determine if it's a definition or exercise
+		parts := strings.Split(nodeID, "_")
+		if len(parts) != 2 {
+			return errors.New("invalid node ID format: " + nodeID)
+		}
 
-			id, err := strconv.ParseUint(nodeIDStr, 10, 32)
-			if err != nil {
-				return errors.New("invalid node ID number: " + nodeIDStr)
-			}
+		nodeType := parts[0]
+		nodeIDStr := parts[1]
 
-		if nodeType == "def" {
-			// Update meta_definition position
-			if err := tx.Model(&models.MetaDefinition{}).
-				Where("id = ?", id).
-				Updates(map[string]interface{}{
-					"x_position": pos.X,
-					"y_position": pos.Y,
-				}).Error; err != nil {
-				return err
-			}
-		} else if nodeType == "ex" {
-			// Update meta_exercise position
-			if err := tx.Model(&models.MetaExercise{}).
-				Where("id = ?", id).
-				Updates(map[string]interface{}{
-					"x_position": pos.X,
-					"y_position": pos.Y,
-				}).Error; err != nil {
-				return err
-			}
-		} else if nodeType == "src" {
-			if err := tx.Model(&models.Source{}).
-				Where("id = ?", id).
-				Updates(map[string]interface{}{
-					"x_position": pos.X,
-					"y_position": pos.Y,
-				}).Error; err != nil {
-				return err
-			}
-		} else if nodeType == "quest" {
-			if err := tx.Model(&models.MetaQuest{}).
-				Where("id = ?", id).
-				Updates(map[string]interface{}{
-					"x_position": pos.X,
-					"y_position": pos.Y,
-				}).Error; err != nil {
-				return err
-			}
-		} else {
+		id, err := strconv.ParseUint(nodeIDStr, 10, 32)
+		if err != nil {
+			return errors.New("invalid node ID number: " + nodeIDStr)
+		}
+
+		table, ok := tableFor[nodeType]
+		if !ok {
 			return errors.New("unknown node type: " + nodeType)
 		}
-		}
+		tables[table] = append(tables[table], posUpdate{id: id, x: pos.X, y: pos.Y})
+	}
 
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		for table, updates := range tables {
+			values := make([]string, 0, len(updates))
+			args := make([]interface{}, 0, len(updates)*3)
+			for _, u := range updates {
+				values = append(values, "(?::bigint, ?::float8, ?::float8)")
+				args = append(args, u.id, u.x, u.y)
+			}
+			stmt := fmt.Sprintf(`
+				UPDATE %s AS t
+				SET x_position = v.x, y_position = v.y, updated_at = NOW()
+				FROM (VALUES %s) AS v(id, x, y)
+				WHERE t.id = v.id
+			`, table, strings.Join(values, ", "))
+			if err := tx.Exec(stmt, args...).Error; err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }

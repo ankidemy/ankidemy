@@ -250,7 +250,9 @@ func (s *SRSService) SubmitReview(userID uint, request *models.ReviewRequest) (*
 	}, nil
 }
 
-// Enhanced applyCredits with better error handling
+// applyCredits applies one review's explicit + implicit credits. All progress
+// rows are loaded and written in batches; a dense credit flow costs a handful
+// of statements instead of two per node.
 func (s *SRSService) applyCredits(
 	tx *gorm.DB,
 	userID uint,
@@ -259,17 +261,16 @@ func (s *SRSService) applyCredits(
 	currentTime time.Time,
 	algorithmConfig SRSAlgorithmConfig,
 ) ([]models.UserNodeProgress, error) {
-	var updatedNodes []models.UserNodeProgress
 	srsDao := dao.NewSRSDao(tx)
 	var warnings []string
 
 	// Deduplicate credits per node for this single review to ensure only one
 	// contribution per node. Prefer explicit over implicit; for implicit duplicates,
 	// keep the one with the larger absolute credit.
-	dedup := make(map[string]models.CreditUpdate)
-	order := make([]string, 0, len(credits))
+	dedup := make(map[NodeKey]models.CreditUpdate)
+	order := make([]NodeKey, 0, len(credits))
 	for _, cr := range credits {
-		key := fmt.Sprintf("%s_%d", cr.NodeType, cr.NodeID)
+		key := makeNodeKey(cr.NodeID, cr.NodeType)
 		if existing, ok := dedup[key]; ok {
 			if cr.Type == "explicit" || (existing.Type != "explicit" && math.Abs(cr.Credit) > math.Abs(existing.Credit)) {
 				dedup[key] = cr
@@ -280,15 +281,40 @@ func (s *SRSService) applyCredits(
 		order = append(order, key)
 	}
 
+	// Batch-load existing progress for every credited node, grouped by the
+	// normalized progress type.
+	idsByNormType := make(map[string][]uint)
+	for _, key := range order {
+		normType := toProgressType(key.Type)
+		idsByNormType[normType] = append(idsByNormType[normType], key.ID)
+	}
+	existingByTypeAndID := make(map[string]map[uint]models.UserNodeProgress, len(idsByNormType))
+	for normType, ids := range idsByNormType {
+		loaded, err := srsDao.GetUserProgressByNodeIDs(userID, normType, ids)
+		if err != nil {
+			return nil, err
+		}
+		existingByTypeAndID[normType] = loaded
+	}
+
+	// The same progress row can be credited under two node types (e.g.
+	// 'exercise' and 'meta_exercise' normalize to one row); keep one write
+	// per row so the batch upsert stays conflict-free.
+	pendingRows := make([]*models.UserNodeProgress, 0, len(order))
+	pendingIndex := make(map[NodeKey]int, len(order))
+
 	for _, key := range order {
 		credit := dedup[key]
 		// Normalize node type for progress table lookups/writes
 		normType := toProgressType(credit.NodeType)
 
-		// Get or create progress
-		progress, err := srsDao.GetUserProgress(userID, credit.NodeID, normType)
-		if err != nil {
-			return nil, err
+		var progress *models.UserNodeProgress
+		normKey := makeNodeKey(credit.NodeID, normType)
+		if idx, ok := pendingIndex[normKey]; ok {
+			progress = pendingRows[idx]
+		} else if row, ok := existingByTypeAndID[normType][credit.NodeID]; ok {
+			rowCopy := row
+			progress = &rowCopy
 		}
 
 		if progress == nil {
@@ -414,23 +440,22 @@ func (s *SRSService) applyCredits(
 			progress.CreditPostponed = creditPostponed
 		}
 
-		// Save progress with error handling
-		if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-			// Check if it's a constraint violation
-			if strings.Contains(err.Error(), "user_node_progress_accumulated_credit_check") {
-				// This should not happen with our bounds checking, but handle gracefully
-				log.Printf("Constraint violation despite bounds checking for node %d: %v", credit.NodeID, err)
-				// Force the credit to be within bounds and try again
-				progress.AccumulatedCredit = math.Max(-1.0, math.Min(1.0, progress.AccumulatedCredit))
-				if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-					return nil, fmt.Errorf("failed to save progress for node %d after bounds correction: %w", credit.NodeID, err)
-				}
-			} else {
-				return nil, fmt.Errorf("failed to save progress for node %d: %w", credit.NodeID, err)
-			}
-		}
+		// Defensive clamp so the batch write can never trip the DB constraint.
+		progress.AccumulatedCredit = math.Max(-1.0, math.Min(1.0, progress.AccumulatedCredit))
 
-		updatedNodes = append(updatedNodes, *progress)
+		if _, ok := pendingIndex[normKey]; !ok {
+			pendingIndex[normKey] = len(pendingRows)
+			pendingRows = append(pendingRows, progress)
+		}
+	}
+
+	if err := srsDao.CreateOrUpdateProgressBatch(pendingRows); err != nil {
+		return nil, fmt.Errorf("failed to save progress batch (%d rows): %w", len(pendingRows), err)
+	}
+
+	updatedNodes := make([]models.UserNodeProgress, 0, len(pendingRows))
+	for _, row := range pendingRows {
+		updatedNodes = append(updatedNodes, *row)
 	}
 
 	// If there were warnings, log them but don't fail the operation
@@ -518,7 +543,7 @@ func (s *SRSService) updateNodeStatusOnce(userID uint, nodeID uint, nodeType str
 
 	// Handle status propagation (normalize to graph type for traversal)
 	graphType := toGraphType(nodeType)
-	if err := s.propagateStatus(tx, userID, nodeID, graphType, status); err != nil {
+	if err := s.propagateStatus(tx, userID, nodeID, graphType, status, domainID); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -541,14 +566,8 @@ func (s *SRSService) updateNodeStatusOnce(userID uint, nodeID uint, nodeType str
 }
 
 // propagateStatus handles status propagation logic
-func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, nodeType string, status string) error {
+func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, nodeType string, status string, domainID uint) error {
 	srsDao := dao.NewSRSDao(tx)
-
-	// Get domain ID to build prerequisite graph
-	domainID, err := s.getDomainIDForNode(nodeID, nodeType)
-	if err != nil {
-		return err
-	}
 
 	prerequisites, err := srsDao.GetPrerequisitesByDomain(domainID)
 	if err != nil {
@@ -556,12 +575,12 @@ func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, node
 	}
 
 	// Build maps for easier traversal
-	prereqMap := make(map[string][]models.NodePrerequisite)
-	dependentMap := make(map[string][]models.NodePrerequisite)
+	prereqMap := make(map[NodeKey][]models.NodePrerequisite)
+	dependentMap := make(map[NodeKey][]models.NodePrerequisite)
 
 	for _, prereq := range prerequisites {
-		nodeKey := fmt.Sprintf("%s_%d", prereq.NodeType, prereq.NodeID)
-		prereqKey := fmt.Sprintf("%s_%d", prereq.PrerequisiteType, prereq.PrerequisiteID)
+		nodeKey := makeNodeKey(prereq.NodeID, prereq.NodeType)
+		prereqKey := makeNodeKey(prereq.PrerequisiteID, prereq.PrerequisiteType)
 
 		prereqMap[nodeKey] = append(prereqMap[nodeKey], prereq)
 		dependentMap[prereqKey] = append(dependentMap[prereqKey], prereq)
@@ -575,52 +594,99 @@ func (s *SRSService) propagateStatus(tx *gorm.DB, userID uint, nodeID uint, node
 
 	switch status {
 	case "grasped":
-		// Recursively mark prerequisites as grasped if they're fresh/tackling
-		if err := s.propagateGrasped(tx, userID, nodeID, nodeType, prereqMap, make(map[string]bool)); err != nil {
-			return err
-		}
-
+		// Mark all transitive prerequisites as grasped if they're fresh/tackling
+		return s.propagateStatusTransition(tx, userID, nodeID, nodeType, prereqMap, false, "grasped")
 	case "tackling":
-		// Recursively mark dependents as tackling if they're fresh/grasped
-		if err := s.propagateTackling(tx, userID, nodeID, nodeType, dependentMap, make(map[string]bool)); err != nil {
-			return err
-		}
+		// Mark all transitive dependents as tackling if they're fresh/grasped
+		return s.propagateStatusTransition(tx, userID, nodeID, nodeType, dependentMap, true, "tackling")
 	}
 
 	return nil
 }
 
-// propagateGrasped recursively marks prerequisites as grasped
-func (s *SRSService) propagateGrasped(tx *gorm.DB, userID uint, nodeID uint, nodeType string, prereqMap map[string][]models.NodePrerequisite, visited map[string]bool) error {
-	nodeKey := fmt.Sprintf("%s_%d", nodeType, nodeID)
-	if visited[nodeKey] {
+// propagateStatusTransition walks the prerequisite (or dependent) closure of
+// the start node in deterministic DFS order, applies the status transition in
+// memory, and persists every touched row in one batched upsert. This keeps
+// the per-node semantics of the previous recursive implementation (including
+// creating missing progress rows and touching unchanged ones) while issuing
+// a constant number of SQL statements instead of two per node.
+func (s *SRSService) propagateStatusTransition(
+	tx *gorm.DB,
+	userID uint,
+	startID uint,
+	startType string,
+	edgeMap map[NodeKey][]models.NodePrerequisite,
+	dependents bool,
+	newStatus string,
+) error {
+	type touchTarget struct {
+		id      uint
+		rawType string
+	}
+
+	// Pass 1: structural walk, identical order to the old recursion — each
+	// edge target is touched, then descended into (once).
+	touched := make([]touchTarget, 0, 64)
+	visited := make(map[NodeKey]bool)
+	var walk func(id uint, rawType string)
+	walk = func(id uint, rawType string) {
+		key := makeNodeKey(id, rawType)
+		if visited[key] {
+			return
+		}
+		visited[key] = true
+		for _, edge := range edgeMap[key] {
+			targetID, targetType := edge.PrerequisiteID, edge.PrerequisiteType
+			if dependents {
+				targetID, targetType = edge.NodeID, edge.NodeType
+			}
+			touched = append(touched, touchTarget{id: targetID, rawType: targetType})
+			walk(targetID, targetType)
+		}
+	}
+	walk(startID, startType)
+
+	if len(touched) == 0 {
 		return nil
 	}
-	visited[nodeKey] = true
 
+	// Batch-load current progress for all touched nodes.
 	srsDao := dao.NewSRSDao(tx)
-	prerequisites, exists := prereqMap[nodeKey]
-	if !exists {
-		return nil
+	idsByNormType := make(map[string][]uint)
+	for _, t := range touched {
+		normType := toProgressType(t.rawType)
+		idsByNormType[normType] = append(idsByNormType[normType], t.id)
 	}
-
-	for _, prereq := range prerequisites {
-		// Normalize type for progress storage
-		normType := toProgressType(prereq.PrerequisiteType)
-
-		// Get current progress
-		progress, err := srsDao.GetUserProgress(userID, prereq.PrerequisiteID, normType)
+	state := make(map[NodeKey]*models.UserNodeProgress)
+	for normType, ids := range idsByNormType {
+		rows, err := srsDao.GetUserProgressByNodeIDs(userID, normType, ids)
 		if err != nil {
 			return err
 		}
+		for id, row := range rows {
+			rowCopy := row
+			state[makeNodeKey(id, normType)] = &rowCopy
+		}
+	}
 
-		// Update status if it's fresh or tackling
+	// Pass 2: apply transitions in touch order; write each row once.
+	fromA, fromB := "fresh", "tackling"
+	if newStatus == "tackling" {
+		fromA, fromB = "fresh", "grasped"
+	}
+	writeOrder := make([]NodeKey, 0, len(touched))
+	queued := make(map[NodeKey]bool)
+	for _, t := range touched {
+		normType := toProgressType(t.rawType)
+		normKey := makeNodeKey(t.id, normType)
+
+		progress := state[normKey]
 		if progress == nil {
 			progress = &models.UserNodeProgress{
 				UserID:            userID,
-				NodeID:            prereq.PrerequisiteID,
+				NodeID:            t.id,
 				NodeType:          normType,
-				Status:            "grasped",
+				Status:            newStatus,
 				EasinessFactor:    2.5,
 				IntervalDays:      0,
 				Repetitions:       0,
@@ -629,118 +695,22 @@ func (s *SRSService) propagateGrasped(tx *gorm.DB, userID uint, nodeID uint, nod
 				TotalReviews:      0,
 				SuccessfulReviews: 0,
 			}
-		} else if progress.Status == "fresh" || progress.Status == "tackling" {
-			progress.Status = "grasped"
+			state[normKey] = progress
+		} else if progress.Status == fromA || progress.Status == fromB {
+			progress.Status = newStatus
 		}
 
-		if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-			return err
-		}
-
-		// Recursively propagate
-		if err := s.propagateGrasped(tx, userID, prereq.PrerequisiteID, prereq.PrerequisiteType, prereqMap, visited); err != nil {
-			return err
+		if !queued[normKey] {
+			queued[normKey] = true
+			writeOrder = append(writeOrder, normKey)
 		}
 	}
 
-	return nil
-}
-
-// propagateTackling recursively marks dependents as tackling
-func (s *SRSService) propagateTackling(tx *gorm.DB, userID uint, nodeID uint, nodeType string, dependentMap map[string][]models.NodePrerequisite, visited map[string]bool) error {
-	nodeKey := fmt.Sprintf("%s_%d", nodeType, nodeID)
-	if visited[nodeKey] {
-		return nil
+	rows := make([]*models.UserNodeProgress, 0, len(writeOrder))
+	for _, key := range writeOrder {
+		rows = append(rows, state[key])
 	}
-	visited[nodeKey] = true
-
-	srsDao := dao.NewSRSDao(tx)
-	dependents, exists := dependentMap[nodeKey]
-	if !exists {
-		return nil
-	}
-
-	for _, dep := range dependents {
-		// Normalize type for progress storage
-		normType := toProgressType(dep.NodeType)
-
-		// Get current progress
-		progress, err := srsDao.GetUserProgress(userID, dep.NodeID, normType)
-		if err != nil {
-			return err
-		}
-
-		// Update status if it's fresh or grasped
-		if progress == nil {
-			progress = &models.UserNodeProgress{
-				UserID:            userID,
-				NodeID:            dep.NodeID,
-				NodeType:          normType,
-				Status:            "tackling",
-				EasinessFactor:    2.5,
-				IntervalDays:      0,
-				Repetitions:       0,
-				AccumulatedCredit: 0,
-				CreditPostponed:   false,
-				TotalReviews:      0,
-				SuccessfulReviews: 0,
-			}
-		} else if progress.Status == "fresh" || progress.Status == "grasped" {
-			progress.Status = "tackling"
-		}
-
-		if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-			return err
-		}
-
-		// Recursively propagate
-		if err := s.propagateTackling(tx, userID, dep.NodeID, dep.NodeType, dependentMap, visited); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// propagateFresh recursively marks dependents as fresh if they were grasped
-func (s *SRSService) propagateFresh(tx *gorm.DB, userID uint, nodeID uint, nodeType string, dependentMap map[string][]models.NodePrerequisite, visited map[string]bool) error {
-	nodeKey := fmt.Sprintf("%s_%d", nodeType, nodeID)
-	if visited[nodeKey] {
-		return nil
-	}
-	visited[nodeKey] = true
-
-	srsDao := dao.NewSRSDao(tx)
-	dependents, exists := dependentMap[nodeKey]
-	if !exists {
-		return nil
-	}
-
-	for _, dep := range dependents {
-		// Normalize type for progress storage
-		normType := toProgressType(dep.NodeType)
-
-		// Get current progress
-		progress, err := srsDao.GetUserProgress(userID, dep.NodeID, normType)
-		if err != nil {
-			return err
-		}
-
-		// Only update if it was grasped
-		if progress != nil && progress.Status == "grasped" {
-			progress.Status = "fresh"
-			if err := srsDao.CreateOrUpdateProgress(progress); err != nil {
-				return err
-			}
-
-			// Recursively propagate
-			if err := s.propagateFresh(tx, userID, dep.NodeID, dep.NodeType, dependentMap, visited); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return srsDao.CreateOrUpdateProgressBatch(rows)
 }
 
 const (
@@ -750,7 +720,7 @@ const (
 
 type reviewQueueGraphCache struct {
 	loaded bool
-	graph  map[string]*GraphNode
+	graph  map[NodeKey]*GraphNode
 }
 
 func (s *SRSService) dueCacheKey(userID uint, domainID uint, nodeType string, view string) string {
