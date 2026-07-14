@@ -1,7 +1,5 @@
 // src/types/srs.ts
 // SRS-specific types for the enhanced application
-// Reference UI graph types for consistency across the app
-import type { Definition, Exercise } from "../app/components/Graph/utils/types";
 
 export type NodeStatus = 'fresh' | 'tackling' | 'grasped' | 'learned';
 export type ReviewQuality = 0 | 1 | 2 | 3 | 4 | 5;
@@ -122,25 +120,6 @@ export interface NotificationSummary {
   generatedAt: string;
 }
 
-// Enhanced definition with SRS data
-export interface DefinitionWithSRS extends Definition {
-  progress?: NodeProgress;
-  dependents?: number[];
-  isDue: boolean;
-  daysUntilReview?: number;
-}
-
-// Enhanced exercise with SRS data
-export interface ExerciseWithSRS extends Exercise {
-  progress?: NodeProgress;
-  dependents?: number[];
-  isDue: boolean;
-  daysUntilReview?: number;
-}
-
-// Union type for nodes with SRS
-export type NodeWithSRS = DefinitionWithSRS | ExerciseWithSRS;
-
 // Due review item
 export interface DueReview {
   nodeId: number;
@@ -163,13 +142,6 @@ export interface ReviewQueueItem {
   exerciseMetaId?: number;
   exerciseMetaCode?: string;
   exerciseMetaName?: string;
-}
-
-// Study mode statistics
-export interface StudyModeStats {
-  definitions: number;
-  exercises: number;
-  mixed: number;
 }
 
 // Review history item
@@ -198,12 +170,3 @@ export interface CreditFlowAnimation {
   timestamp: number;
 }
 
-// Optimal review order item
-export interface OptimalReviewItem {
-  nodeId: number;
-  nodeType: 'definition' | 'exercise';
-  nodeCode: string;
-  nodeName: string;
-  impact: number;
-  distanceFromRoot: number;
-}

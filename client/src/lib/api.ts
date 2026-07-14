@@ -1,7 +1,7 @@
 // FILE: src/lib/api.ts
 // Complete API client for Ankidemy with standardized import/export handling
 
-import { dump as dumpYaml, load as loadYaml } from 'js-yaml';
+import { dump as dumpYaml } from 'js-yaml';
 import { observedFetch, type RequestObservabilityMeta } from './http-observability';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765';
@@ -386,18 +386,6 @@ export interface SurveyEventRequest {
   happenedAt?: string;
   note?: string;
   payload?: any;
-}
-
-export interface ReviewRequest {
-  definitionId: number;
-  result: 'again' | 'hard' | 'good' | 'easy';
-  timeTaken: number;
-}
-
-export interface ExerciseAttemptRequest {
-  exerciseId: number;
-  answer: string;
-  timeTaken: number;
 }
 
 export interface VisualGraph {
@@ -1005,25 +993,6 @@ export const registerUser = async (userDetails: {
   return data;
 };
 
-export const refreshToken = async (token: string): Promise<AuthResponse> => {
-  const response = await observedFetch(`${API_URL}/api/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  });
-
-  const data = await handleResponse(response);
-  if ((data as any)?.user) {
-    (data as any).user = normalizeUser((data as any).user);
-  }
-  
-  if (data.token) {
-    localStorage.setItem('token', data.token);
-  }
-  
-  return data;
-};
-
 export const logout = (): void => {
   localStorage.removeItem('token');
 };
@@ -1099,14 +1068,6 @@ export const getPublicDomains = async (): Promise<Domain[]> => {
     console.warn('Error fetching public domains:', error);
     return []; // Return empty array on error
   }
-};
-
-export const getAllDomains = async (): Promise<Domain[]> => {
-  const response = await observedFetch(`${API_URL}/api/domains`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
 };
 
 export const getMyDomains = async (): Promise<Domain[]> => {
@@ -1399,18 +1360,14 @@ export const declineDomainInvite = async (
   await handleResponse(response);
 };
 
-export const deleteDomain = async (id: number): Promise<void> => {
+// Archive domain (soft delete)
+export const archiveDomain = async (id: number): Promise<void> => {
   const response = await observedFetch(`${API_URL}/api/domains/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
-  
-  return handleResponse(response);
-};
 
-// Archive domain (soft delete). Alias for deleteDomain for clearer semantics in UI
-export const archiveDomain = async (id: number): Promise<void> => {
-  return deleteDomain(id);
+  return handleResponse(response);
 };
 
 // List archived domains owned by current user
@@ -1449,14 +1406,6 @@ export const enrollInDomain = async (id: number): Promise<void> => {
 };
 
 // Definition API
-export const getDomainDefinitions = async (domainId: number): Promise<Definition[]> => {
-  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/definitions`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
 export const createDefinition = async (domainId: number, definition: DefinitionRequest): Promise<Definition> => {
   const response = await observedFetch(`${API_URL}/api/domains/${domainId}/definitions`, {
     method: 'POST',
@@ -1465,14 +1414,6 @@ export const createDefinition = async (domainId: number, definition: DefinitionR
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(definition),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getDefinition = async (id: number): Promise<Definition> => {
-  const response = await observedFetch(`${API_URL}/api/definitions/${id}`, {
-    headers: getAuthHeaders(),
   });
   
   return handleResponse(response);
@@ -1510,15 +1451,6 @@ export const updateDefinition = async (id: number, definitionData: {
   return result;
 };
 
-export const deleteDefinition = async (id: number): Promise<void> => {
-  const response = await observedFetch(`${API_URL}/api/definitions/${id}`, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
 export const getDefinitionByCode = async (code: string, opts?: { domainId?: number }): Promise<Definition> => {
   const domainQuery = opts?.domainId ? `?domainId=${opts.domainId}` : '';
   const url = `${API_URL}/api/definitions/code/${encodeURIComponent(code)}${domainQuery}`;
@@ -1527,46 +1459,6 @@ export const getDefinitionByCode = async (code: string, opts?: { domainId?: numb
   });
   
   return handleResponse(response);
-};
-
-/**
- * Gets the ID of a definition by its code
- * @param code The code of the definition
- * @returns Promise resolving to the ID of the definition
- */
-export const getDefinitionIdByCode = async (code: string): Promise<number> => {
-  try {
-    const response = await getDefinitionByCode(code);
-    // Handle array response (API might return array of matching definitions)
-    const definition = Array.isArray(response) ? response[0] : response;
-    if (!definition || !definition.id) {
-      throw new Error(`No definition found with code: ${code}`);
-    }
-    return definition.id;
-  } catch (error) {
-    console.error('Error getting definition ID by code:', error);
-    throw error;
-  }
-};
-
-/**
- * Gets the ID of an exercise by its code
- * @param code The code of the exercise
- * @returns Promise resolving to the ID of the exercise
- */
-export const getExerciseIdByCode = async (code: string): Promise<number> => {
-  try {
-    const response = await getExerciseByCode(code);
-    // Handle array response (API might return array of matching exercises)
-    const exercise = Array.isArray(response) ? response[0] : response;
-    if (!exercise || !exercise.id) {
-      throw new Error(`No exercise found with code: ${code}`);
-    }
-    return exercise.id;
-  } catch (error) {
-    console.error('Error getting exercise ID by code:', error);
-    throw error;
-  }
 };
 
 // =============================================================================
@@ -1723,32 +1615,6 @@ export const getNextMetaDefinitionVersion = async (id: number): Promise<Definiti
   return handleResponse(response);
 };
 
-export interface DefinitionExerciseSelection {
-  metaExerciseId: number;
-  metaExerciseCode: string;
-  metaExerciseName: string;
-  version: ExerciseVersion;
-}
-
-export const getNextMetaDefinitionExercise = async (id: number): Promise<DefinitionExerciseSelection | null> => {
-  const response = await observedFetch(`${API_URL}/api/meta-definitions/${id}/next-exercise`, {
-    headers: getAuthHeaders(),
-  });
-  if (response.status === 204) {
-    return null;
-  }
-  return handleResponse(response);
-};
-
-// Exercise API
-export const getDomainExercises = async (domainId: number): Promise<Exercise[]> => {
-  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/exercises`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
 // New: Meta-exercises API
 export const getDomainMetaExercises = async (domainId: number): Promise<MetaExercise[]> => {
   const response = await observedFetch(`${API_URL}/api/domains/${domainId}/meta-exercises`, { headers: getAuthHeaders() });
@@ -1836,28 +1702,6 @@ export const recordMetaExerciseOutcome = async (metaId: number, payload: { versi
   await handleResponse(response);
 };
 
-export const createExercise = async (domainId: number, exercise: ExerciseRequest): Promise<Exercise> => {
-  const exerciseData = { ...exercise };
-  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/exercises`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(exerciseData),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getExercise = async (id: number): Promise<Exercise> => {
-  const response = await observedFetch(`${API_URL}/api/exercises/${id}`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
 // Utility functions for exercise updates
 export const updateExercise = async (id: number, exerciseData: {
   name?: string;
@@ -1895,15 +1739,6 @@ export const updateExercise = async (id: number, exerciseData: {
   return result;
 };
 
-export const deleteExercise = async (id: number): Promise<void> => {
-  const response = await observedFetch(`${API_URL}/api/exercises/${id}`, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
 export const getExerciseByCode = async (code: string, opts?: { domainId?: number }): Promise<Exercise> => {
   const domainQuery = opts?.domainId ? `?domainId=${opts.domainId}` : '';
   const url = `${API_URL}/api/exercises/code/${encodeURIComponent(code)}${domainQuery}`;
@@ -1914,115 +1749,9 @@ export const getExerciseByCode = async (code: string, opts?: { domainId?: number
   return handleResponse(response);
 };
 
-export const verifyExerciseAnswer = async (id: number, answer: string): Promise<{ correct: boolean; message: string }> => {
-  const response = await observedFetch(`${API_URL}/api/exercises/${id}/verify`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ answer }),
-  });
-  
-  return handleResponse(response);
-};
-
 // Progress API
 export const getDomainProgress = async (): Promise<any[]> => {
   const response = await observedFetch(`${API_URL}/api/progress/domains`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getDefinitionProgress = async (domainId: number): Promise<any[]> => {
-  const response = await observedFetch(`${API_URL}/api/progress/domains/${domainId}/definitions`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getExerciseProgress = async (domainId: number): Promise<any[]> => {
-  const response = await observedFetch(`${API_URL}/api/progress/domains/${domainId}/exercises`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-export const reviewDefinition = async (definitionId: number, reviewRequest: ReviewRequest): Promise<any> => {
-  const response = await observedFetch(`${API_URL}/api/progress/definitions/${definitionId}/review`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(reviewRequest),
-  });
-  
-  return handleResponse(response);
-};
-
-export const attemptExercise = async (exerciseId: number, attemptRequest: ExerciseAttemptRequest): Promise<any> => {
-  const response = await observedFetch(`${API_URL}/api/progress/exercises/${exerciseId}/attempt`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(attemptRequest),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getDefinitionsForReview = async (domainId: number, limit?: number): Promise<Definition[]> => {
-  const url = limit 
-    ? `${API_URL}/api/progress/domains/${domainId}/review?limit=${limit}` 
-    : `${API_URL}/api/progress/domains/${domainId}/review`;
-    
-  const response = await observedFetch(url, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-// Study Session API
-export const startSession = async (domainId: number): Promise<any> => {
-  const response = await observedFetch(`${API_URL}/api/sessions/start`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ domainId }),
-  });
-  
-  return handleResponse(response);
-};
-
-export const endSession = async (sessionId: number): Promise<any> => {
-  const response = await observedFetch(`${API_URL}/api/sessions/${sessionId}/end`, {
-    method: 'PUT',
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getSessions = async (): Promise<any[]> => {
-  const response = await observedFetch(`${API_URL}/api/sessions`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-export const getSessionDetails = async (sessionId: number): Promise<any> => {
-  const response = await observedFetch(`${API_URL}/api/sessions/${sessionId}`, {
     headers: getAuthHeaders(),
   });
   
@@ -2235,14 +1964,6 @@ export const getSurveyQueue = async (domainId: number): Promise<SurveyQueueItem[
   return handleResponse(response);
 };
 
-export const getSurveyStats = async (domainId: number): Promise<{ dueQuests: number }> => {
-  const response = await observedFetch(`${API_URL}/api/survey/domains/${domainId}/stats`, {
-    headers: getAuthHeaders(),
-  });
-  if (response.status === 404) return { dueQuests: 0 };
-  return handleResponse(response);
-};
-
 export const postSurveyEvent = async (payload: SurveyEventRequest): Promise<void> => {
   const response = await observedFetch(`${API_URL}/api/survey/events`, {
     method: 'POST',
@@ -2328,19 +2049,6 @@ export const updateGroupPositions = async (domainId: number, positions: Record<s
 export const exportDomain = async (domainId: number): Promise<GraphData> => {
   const response = await observedFetch(`${API_URL}/api/domains/${domainId}/export`, {
     headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
-export const importDomain = async (domainId: number, graphData: GraphData): Promise<void> => {
-  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/import`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(graphData),
   });
   
   return handleResponse(response);
@@ -2498,20 +2206,7 @@ export const serializeDomainExportData = (data: unknown, format: DomainExportFor
   return JSON.stringify(data, null, 2);
 };
 
-export const parseDomainImportData = (text: string, format: DomainExportFormat): DomainExportData => {
-  try {
-    const rawData = format === 'yaml' ? loadYaml(text) : JSON.parse(text);
-    if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
-      throw new Error(`expected a ${format.toUpperCase()} object at the root`);
-    }
-    return standardizeImportData(rawData);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unknown error';
-    throw new Error(`Invalid ${format.toUpperCase()} file: ${detail}`);
-  }
-};
-
-export const downloadDomainExportFile = (data: DomainExportData, filename: string, format: DomainExportFormat): void => {
+const downloadDomainExportFile = (data: DomainExportData, filename: string, format: DomainExportFormat): void => {
   const payload = serializeDomainExportData(data, format);
   const descriptor = getExportFileDescriptor(format);
   const blob = new Blob([payload], { type: `${descriptor.mimeType};charset=utf-8` });
@@ -2543,50 +2238,6 @@ export const downloadYamlFile = (data: DomainExportData, filename: string): void
  */
 export const downloadZipFile = (blob: Blob, filename: string): void => {
   triggerBlobDownload(blob, filename);
-};
-
-/**
- * UPDATED: Enhanced JSON file upload with format standardization
- * @returns Promise resolving to the parsed and standardized JSON data
- */
-export const uploadJsonFile = (): Promise<DomainExportData> => {
-  return new Promise((resolve, reject) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json,application/json';
-    
-    input.onchange = (event) => {
-      const file = (event.target as HTMLInputElement).files?.[0];
-      if (!file) {
-        reject(new Error('No file selected'));
-        return;
-      }
-      
-      if (!file.name.toLowerCase().endsWith('.json')) {
-        reject(new Error('Please select a JSON file'));
-        return;
-      }
-      
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const text = e.target?.result as string;
-          const standardizedData = parseDomainImportData(text, 'json');
-          resolve(standardizedData);
-        } catch (error) {
-          reject(new Error(error instanceof Error ? error.message : 'Invalid JSON file'));
-        }
-      };
-      
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-      
-      reader.readAsText(file);
-    };
-    
-    input.click();
-  });
 };
 
 /**
@@ -2741,42 +2392,6 @@ export const validateImportData = (data: any): { isValid: boolean; errors: strin
   return { isValid: errors.length === 0, errors };
 };
 
-// Health check API
-export const checkHealth = async (): Promise<{ status: string }> => {
-  const response = await observedFetch(`${API_URL}/health`);
-  return handleResponse(response);
-};
-
-/**
- * Parses a description string that may contain multiple descriptions separated by '|||'
- * The backend stores descriptions as a single string, but the frontend can display
- * them as multiple alternatives.
- * 
- * @param description Description string potentially containing multiple parts
- * @returns An array of individual description strings
- */
-export const parseDescriptions = (description: string): string[] => {
-  if (description.includes('|||')) {
-    return description.split('|||');
-  }
-  return [description];
-};
-
-/**
- * Fetches updated graph data from the backend
- * This is useful after making updates to ensure the UI reflects the current state
- * 
- * @param domainId The ID of the domain to refresh graph data for
- * @returns Promise resolving to the updated VisualGraph data
- */
-export const refreshGraphData = async (domainId: number): Promise<VisualGraph> => {
-  const response = await observedFetch(`${API_URL}/api/domains/${domainId}/graph`, {
-    headers: getAuthHeaders(),
-  });
-  
-  return handleResponse(response);
-};
-
 // DOMAIN NETWORK API
 
 /**
@@ -2785,32 +2400,6 @@ export const refreshGraphData = async (domainId: number): Promise<VisualGraph> =
 export const getDomainLinks = async (domainIds?: number[]): Promise<DomainLink[]> => {
   const params = domainIds && domainIds.length > 0 ? `?domainIds=${domainIds.join(',')}` : '';
   const response = await observedFetch(`${API_URL}/api/network/links${params}`, {
-    headers: getAuthHeaders(),
-  });
-  return handleResponse(response);
-};
-
-/**
- * Creates a user-defined link between two domains
- */
-export const createDomainLink = async (domainId1: number, domainId2: number): Promise<DomainLink> => {
-  const response = await observedFetch(`${API_URL}/api/network/links`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ domainId1, domainId2 }),
-  });
-  return handleResponse(response);
-};
-
-/**
- * Deletes a user-defined link by ID
- */
-export const deleteDomainLink = async (linkId: number): Promise<void> => {
-  const response = await observedFetch(`${API_URL}/api/network/links/${linkId}`, {
-    method: 'DELETE',
     headers: getAuthHeaders(),
   });
   return handleResponse(response);

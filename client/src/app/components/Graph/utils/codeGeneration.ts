@@ -1,4 +1,4 @@
-export type DotCodeParts = {
+type DotCodeParts = {
   major: number;
   minor: number;
   patch: number;

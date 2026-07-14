@@ -14,17 +14,6 @@ export function hashString(str: string): number {
   return Math.abs(hash);
 }
 
-export function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number,
-): (...args: Parameters<T>) => void {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
-
 export const FRENZY_DOUBLE_CLICK_MS = 260;
 export const FRENZY_SINGLE_CLICK_DELAY_MS = 270;
 export const FRENZY_LINK_SNAP_DISTANCE = 20;

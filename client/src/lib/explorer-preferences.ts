@@ -72,7 +72,7 @@ export const loadExplorerUIPreferences = (domainId: number | string): ExplorerUI
   }
 };
 
-export const saveExplorerUIPreferences = (domainId: number | string, prefs: ExplorerUIPreferences) => {
+const saveExplorerUIPreferences = (domainId: number | string, prefs: ExplorerUIPreferences) => {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(buildKey(domainId), JSON.stringify(prefs));

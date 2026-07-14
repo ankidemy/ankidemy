@@ -5,28 +5,19 @@
 import React, { useState, useRef, useCallback, useMemo, FC, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { MathJaxProvider } from '@/app/components/core/MathJaxWrapper';
-import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import { UIProvider, useUI } from '@/contexts/UIContext';
 import { DraggableWindow } from '@/app/components/core/DraggableWindow';
 import ContextToolbar, { ToolbarLayout } from './components/ContextToolbar';
+import FrenzyNoteCard from './components/FrenzyNoteCard';
 import GraphHelpOverlay from './components/GraphHelpOverlay';
 import { DetailWindowContent } from './windows/DetailWindowContent';
 import { ReviewWindowContent } from './windows/ReviewWindowContent';
 import { SourceWindowContent } from './windows/SourceWindowContent';
 import { QuestWindowContent } from './windows/QuestWindowContent';
 import { SurveyWindowContent } from './windows/SurveyWindowContent';
-import { RefreshCw, List, Maximize, Download, Upload, Eye, EyeOff, LifeBuoy, Anchor, RadioTower, Compass, Link2, Unlink, Trash2, Pencil, MousePointer, Move, Undo2, Flag, FlagTriangleLeft, Check, UserPlus, UserMinus, Plus, Minus, Users, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Zap, Layers, X, Copy } from 'lucide-react';
+import { RefreshCw, Zap } from 'lucide-react';
 import { Button } from "@/app/components/core/button";
 import { APP_PREFERENCES_UPDATED_EVENT, getAppTimeZone, isKnowledgeGraphNightModeEnabled, isSurveyQueueSoundEnabled, updateAppPreferences } from '@/lib/app-preferences';
-import {
-  buildQuestSchedulePayload,
-  coalesceTimezone,
-  CustomRepeatPeriod,
-  DurationMode,
-  parseScheduleToDrafts,
-  RepeatPreset,
-  WeekdayCode,
-} from './windows/questScheduleDrafts';
 import {
   getDefinitionByCode,
   getExerciseByCode,
@@ -44,7 +35,6 @@ import {
   updateSource,
   deleteSource,
   createQuest,
-  updateQuest,
   deleteQuest,
   createRelation,
   deleteRelation,
@@ -66,7 +56,6 @@ import {
   MetaDefinition,
   MetaExercise,
   MetaQuestDTO,
-  QuestVersionDTO,
     SourceDTO,
     NodeRelationDTO,
 	  ExternalPrerequisiteLink,
@@ -96,7 +85,6 @@ import {
   updateUserDomainSettings,
   UserDomainSettings,
   UserDomainSettingsUpdate,
-  DomainExportData,
   serializeDomainExportData,
 } from '@/lib/api';
 import { loadExplorerUIPreferences, updateExplorerUIPreferences, ExplorerUIPreferences, ExplorerUIPreferencesPatch } from '@/lib/explorer-preferences';
@@ -126,11 +114,9 @@ import { GraphLifecycle } from './utils/GraphLifecycle';
 import TopControls from './panels/TopControls';
 import ImportDialog from './ImportDialog';
 import LeftPanelToggle from './panels/LeftPanelToggle';
-import ZoomableImage from './components/ZoomableImage';
 import LeftPanel from './panels/LeftPanel';
 import NodeCreationModal from './NodeCreationModal';
 import SelectionInfoPanel from './components/SelectionInfoPanel';
-import VersionHeaderControls from './components/VersionHeaderControls';
 import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 import DomainAccessModal from '@/app/components/Domain/DomainAccessModal';
@@ -173,6 +159,7 @@ import {
   buildLocalAdjacency,
   buildNodeGroupsByCode,
   buildQuestNodeIds,
+  buildRecursivePrereqCounts,
   buildRenderGraphLinks,
   buildRenderGraphNodes,
 } from './knowledge-graph/graphTransforms';
@@ -195,6 +182,16 @@ import {
   buildIdToCodeByTypeFromGraphData,
   buildRelationEdgesFromDomainRelations,
 } from './knowledge-graph/domainDataAdapter';
+import {
+  buildExportDataForCodes,
+  formatDownloadTimestamp,
+  sanitizeFilenamePart,
+} from './knowledge-graph/exportBuilder';
+import {
+  buildToolboxLayouts,
+  createToolboxButtonRenderer,
+} from './knowledge-graph/toolboxLayouts';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import type {
   FrenzyDeletedNodeSnapshot,
   FrenzyEditTool,
@@ -225,21 +222,6 @@ type FlaggableTarget = {
   code: string;
 };
 
-const sanitizeFilenamePart = (value: string): string => {
-  return value
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 80);
-};
-
-const formatDownloadTimestamp = (date = new Date()): string => {
-  const pad = (input: number) => String(input).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
-};
-
 const progressMapKey = (nodeType: 'definition' | 'exercise', nodeId: number): string => `${nodeType}_${nodeId}`;
 
 const buildStatusMap = (rows: NodeProgress[]): Map<string, NodeStatus> => {
@@ -250,67 +232,55 @@ const buildStatusMap = (rows: NodeProgress[]): Map<string, NodeStatus> => {
   return map;
 };
 
-const prunePrerequisites = (
-  prerequisites: string[] | undefined,
-  prerequisiteWeights: Record<string, number> | undefined,
-  allowedCodes: Set<string>,
-): { prerequisites: string[]; prerequisiteWeights?: Record<string, number> } => {
-  const cleanedPrerequisites = (prerequisites || []).filter(code => allowedCodes.has(code));
-  if (cleanedPrerequisites.length === 0) {
-    return { prerequisites: [] };
-  }
-  if (!prerequisiteWeights) {
-    return { prerequisites: cleanedPrerequisites };
-  }
-  const cleanedWeights: Record<string, number> = {};
-  cleanedPrerequisites.forEach(code => {
-    if (typeof prerequisiteWeights[code] === 'number') {
-      cleanedWeights[code] = prerequisiteWeights[code];
-    }
-  });
-  if (Object.keys(cleanedWeights).length === 0) {
-    return { prerequisites: cleanedPrerequisites };
-  }
-  return { prerequisites: cleanedPrerequisites, prerequisiteWeights: cleanedWeights };
-};
+const GraphLoadingState: FC = () => (
+  <div className="flex items-center justify-center h-full text-gray-500">
+    Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
+  </div>
+);
 
-const copyTextToClipboard = async (text: string): Promise<void> => {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
+const EmptyDomainState: FC<{
+  title: string;
+  canEdit: boolean;
+  onCreateDefinition: () => void;
+  onCreateExercise: () => void;
+  footer?: React.ReactNode;
+}> = ({ title, canEdit, onCreateDefinition, onCreateExercise, footer }) => (
+  <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
+    <p className="text-lg">{title}</p>
+    <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
+    {!canEdit && (
+      <p className="mt-1 text-sm text-gray-400">Only domain owners or editors can create nodes.</p>
+    )}
+    <div className="mt-4 flex items-center gap-2">
+      <Button
+        onClick={onCreateDefinition}
+        size="sm"
+        disabled={!canEdit}
+        title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
+      >
+        Create Definition
+      </Button>
+      <Button
+        onClick={onCreateExercise}
+        variant="outline"
+        size="sm"
+        disabled={!canEdit}
+        title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
+      >
+        Create Exercise
+      </Button>
+    </div>
+    {footer}
+  </div>
+);
 
-  if (typeof document === 'undefined') {
-    throw new Error('Clipboard is not available in this environment.');
-  }
-
-  const textArea = document.createElement('textarea');
-  textArea.value = text;
-  textArea.setAttribute('readonly', '');
-  textArea.style.position = 'fixed';
-  textArea.style.opacity = '0';
-  textArea.style.pointerEvents = 'none';
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-
-  try {
-    const copied = document.execCommand('copy');
-    if (!copied) {
-      throw new Error('Copy command was rejected by the browser.');
-    }
-  } finally {
-    document.body.removeChild(textArea);
-  }
-};
-
-const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => {
-  return (
+const KnowledgeGraph: FC<KnowledgeGraphProps> = (props) => (
+  <MathJaxProvider>
     <UIProvider>
       <KnowledgeGraphInner {...props} />
     </UIProvider>
-  );
-};
+  </MathJaxProvider>
+);
 
 const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   graphData: initialGraphData,
@@ -658,44 +628,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [frenzyNoteIsNewVersion, setFrenzyNoteIsNewVersion] = useState(false);
   const [isFrenzyCodeEditing, setIsFrenzyCodeEditing] = useState(false);
   const [frenzyQuestNote, setFrenzyQuestNote] = useState<FrenzyQuestNoteState | null>(null);
-  const [frenzyQuestCodeDraft, setFrenzyQuestCodeDraft] = useState('');
-  const [frenzyQuestNameDraft, setFrenzyQuestNameDraft] = useState('');
-  const [frenzyQuestKindDraft, setFrenzyQuestKindDraft] = useState<'todo' | 'habit' | 'daily'>('todo');
-  const [frenzyQuestVisibilityDraft, setFrenzyQuestVisibilityDraft] = useState<'private' | 'domain'>('private');
-  const [frenzyQuestActiveDraft, setFrenzyQuestActiveDraft] = useState(true);
-  const [frenzyQuestTimezoneDraft, setFrenzyQuestTimezoneDraft] = useState(coalesceTimezone());
-  const [frenzyQuestDueDateDraft, setFrenzyQuestDueDateDraft] = useState('');
-  const [frenzyQuestDueTimeDraft, setFrenzyQuestDueTimeDraft] = useState('');
-  const [frenzyQuestRepeatEnabledDraft, setFrenzyQuestRepeatEnabledDraft] = useState(false);
-  const [frenzyQuestRepeatPresetDraft, setFrenzyQuestRepeatPresetDraft] = useState<RepeatPreset>('daily');
-  const [frenzyQuestCustomRepeatEveryDraft, setFrenzyQuestCustomRepeatEveryDraft] = useState(1);
-  const [frenzyQuestCustomRepeatPeriodDraft, setFrenzyQuestCustomRepeatPeriodDraft] = useState<CustomRepeatPeriod>('days');
-  const [frenzyQuestCustomRepeatWeekdaysDraft, setFrenzyQuestCustomRepeatWeekdaysDraft] = useState<Set<WeekdayCode>>(new Set(['MO']));
-  const [frenzyQuestDurationModeDraft, setFrenzyQuestDurationModeDraft] = useState<DurationMode>('forever');
-  const [frenzyQuestDurationCountDraft, setFrenzyQuestDurationCountDraft] = useState(10);
-  const [frenzyQuestUntilDateDraft, setFrenzyQuestUntilDateDraft] = useState('');
-  const [isSavingFrenzyQuestNote, setIsSavingFrenzyQuestNote] = useState(false);
-  const [, setFrenzyQuestAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const frenzyQuestLastAutoSavedRef = useRef<string>('');
-  const frenzyQuestDraftStateRef = useRef({
-    code: '',
-    name: '',
-    kind: 'todo' as 'todo' | 'habit' | 'daily',
-    visibility: 'private' as 'private' | 'domain',
-    active: true,
-    timezone: '',
-    date: '',
-    time: '',
-    repeatEnabled: false,
-    preset: 'daily' as RepeatPreset,
-    customEvery: 1,
-    customPeriod: 'days' as CustomRepeatPeriod,
-    customWeekdays: ['MO'],
-    durationMode: 'forever' as DurationMode,
-    durationCount: 10,
-    untilDate: '',
-  });
-  const saveFrenzyQuestNoteRef = useRef<(force?: boolean) => void | Promise<void>>(async () => {});
   const [frenzyPrerequisiteMap, setFrenzyPrerequisiteMap] = useState<Map<string, NodePrerequisite>>(new Map());
   const [lastDeletedNode, setLastDeletedNode] = useState<FrenzyDeletedNodeSnapshot | null>(null);
   const [toolbarTransientMessage, setToolbarTransientMessage] = useState<string | null>(null);
@@ -726,9 +658,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     initialX: number;
     initialY: number;
   } | null>(null);
-  const frenzyPromptImageInputRef = useRef<HTMLInputElement | null>(null);
-  const frenzyContentImageInputRef = useRef<HTMLInputElement | null>(null);
-  const frenzySolutionImageInputRef = useRef<HTMLInputElement | null>(null);
   const openFrenzyNoteRef = useRef<(node: GraphNode, metaIdOverride?: number, anchorGraph?: { x: number; y: number }) => void | Promise<void>>(async () => {});
 
   // Refs for stable callbacks
@@ -791,49 +720,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     [baseGraphStructure],
   );
 
-  const recursivePrereqCountByCode = useMemo(() => {
-    const prereqByCode = new Map<string, string[]>();
-    Object.values(currentStructuralGraphData.definitions || {}).forEach(def => {
-      prereqByCode.set(def.code, (def.prerequisites || []).filter(Boolean));
-    });
-    Object.values(currentStructuralGraphData.exercises || {}).forEach(ex => {
-      prereqByCode.set(ex.code, (ex.prerequisites || []).filter(Boolean));
-    });
-
-    const memo = new Map<string, Set<string>>();
-    const visiting = new Set<string>();
-
-    const collectAncestors = (code: string): Set<string> => {
-      const cached = memo.get(code);
-      if (cached) return cached;
-      if (visiting.has(code)) return new Set<string>();
-
-      visiting.add(code);
-      const result = new Set<string>();
-      const prereqs = prereqByCode.get(code) || [];
-
-      prereqs.forEach(prereqCode => {
-        if (!prereqCode || prereqCode === code) return;
-        result.add(prereqCode);
-        const nested = collectAncestors(prereqCode);
-        nested.forEach(parentCode => result.add(parentCode));
-      });
-
-      visiting.delete(code);
-      memo.set(code, result);
-      return result;
-    };
-
-    prereqByCode.forEach((_, code) => {
-      collectAncestors(code);
-    });
-
-    const countMap = new Map<string, number>();
-    memo.forEach((ancestorSet, code) => {
-      countMap.set(code, ancestorSet.size);
-    });
-    return countMap;
-  }, [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises]);
+  const recursivePrereqCountByCode = useMemo(
+    () => buildRecursivePrereqCounts(
+      currentStructuralGraphData.definitions || {},
+      currentStructuralGraphData.exercises || {},
+    ),
+    [currentStructuralGraphData.definitions, currentStructuralGraphData.exercises],
+  );
 
   const groupedGraphStructure = useMemo(
     () => buildGroupedGraphStructure({
@@ -1360,8 +1253,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Load comprehensive domain data
   const loadComprehensiveDomainData = useCallback(async (domainId: number) => {
     try {
-      console.log("Loading comprehensive domain data for:", domainId);
-
       const [allMetaDefinitions, allMetaExercises, externalLinks, groups, sources, quests, relations] = await Promise.all([
         // Use meta-definitions (concept pools) as definition nodes in the graph
         getDomainMetaDefinitions(domainId).catch(err => { console.warn("Failed to load meta-definitions:", err); return [] as MetaDefinition[]; }),
@@ -1408,84 +1299,41 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [refreshSurveyStats]);
 
-  // NEW SURGICAL UPDATE FUNCTIONS
-  const surgicallyUpdateDefinition = useCallback((nodeCode: string, updatedData: ApiDefinition) => {
-    console.log('Performing surgical update for definition:', nodeCode);
-    
-    
-    setNodeDataCache(prevCache => {
-      const newCache = new Map(prevCache);
-      newCache.set(nodeCode, updatedData);
-      return newCache;
-    });
-    
-    setCodeToNumericIdMap(prevMap => {
-      const newMap = new Map(prevMap);
-      if (updatedData.id && !newMap.has(nodeCode)) {
-        newMap.set(nodeCode, updatedData.id);
-      }
-      return newMap;
-    });
-    
-    setCurrentStructuralGraphData(prevData => {
-      const newDefinitions = { ...prevData.definitions };
-      if (newDefinitions[nodeCode]) {
-        newDefinitions[nodeCode] = { 
-          ...newDefinitions[nodeCode],
-          ...updatedData,
-          type: 'definition',
-          prerequisiteWeights: updatedData.prerequisiteWeights || 
-            (updatedData.prerequisites ? Object.fromEntries(updatedData.prerequisites.map(p => [p, 1.0])) : {})
-        };
-      }
-      return { ...prevData, definitions: newDefinitions };
-    });
-  }, []);
-
-  const surgicallyUpdateExercise = useCallback((nodeCode: string, updatedData: ApiExercise) => {
-    console.log('Performing surgical update for exercise:', nodeCode);
-    
-    
-    setNodeDataCache(prevCache => {
-      const newCache = new Map(prevCache);
-      newCache.set(nodeCode, updatedData);
-      return newCache;
-    });
-    
-    setCodeToNumericIdMap(prevMap => {
-      const newMap = new Map(prevMap);
-      if (updatedData.id && !newMap.has(nodeCode)) {
-        newMap.set(nodeCode, updatedData.id);
-      }
-      return newMap;
-    });
-    
-    setCurrentStructuralGraphData(prevData => {
-      const newExercises = { ...prevData.exercises };
-      if (newExercises[nodeCode]) {
-        newExercises[nodeCode] = { 
-          ...newExercises[nodeCode],
-          ...updatedData,
-          type: 'exercise',
-          prerequisiteWeights: updatedData.prerequisiteWeights || 
-            (updatedData.prerequisites ? Object.fromEntries(updatedData.prerequisites.map(p => [p, 1.0])) : {})
-        };
-      }
-      return { ...prevData, exercises: newExercises };
-    });
-  }, []);
-
-  // Combined surgical update function
+  // Applies an updated node payload to local caches and structural data
+  // without triggering a full graph reload.
   const handleSurgicalNodeUpdate = useCallback((nodeCode: string, updatedData: ApiDefinition | ApiExercise) => {
-    const nodeType = (updatedData as any).type || 
+    const nodeType = (updatedData as any).type ||
       (currentStructuralGraphData.definitions?.[nodeCode] ? 'definition' : 'exercise');
-    
-    if (nodeType === 'definition') {
-      surgicallyUpdateDefinition(nodeCode, updatedData as ApiDefinition);
-    } else {
-      surgicallyUpdateExercise(nodeCode, updatedData as ApiExercise);
-    }
-  }, [surgicallyUpdateDefinition, surgicallyUpdateExercise, currentStructuralGraphData]);
+    const collectionKey = nodeType === 'definition' ? 'definitions' : 'exercises';
+
+    setNodeDataCache(prevCache => {
+      const newCache = new Map(prevCache);
+      newCache.set(nodeCode, updatedData);
+      return newCache;
+    });
+
+    setCodeToNumericIdMap(prevMap => {
+      const newMap = new Map(prevMap);
+      if (updatedData.id && !newMap.has(nodeCode)) {
+        newMap.set(nodeCode, updatedData.id);
+      }
+      return newMap;
+    });
+
+    setCurrentStructuralGraphData(prevData => {
+      const collection = { ...prevData[collectionKey] };
+      if (collection[nodeCode]) {
+        collection[nodeCode] = {
+          ...collection[nodeCode],
+          ...updatedData,
+          type: nodeType,
+          prerequisiteWeights: updatedData.prerequisiteWeights ||
+            (updatedData.prerequisites ? Object.fromEntries(updatedData.prerequisites.map(p => [p, 1.0])) : {})
+        };
+      }
+      return { ...prevData, [collectionKey]: collection };
+    });
+  }, [currentStructuralGraphData]);
 
   // Enrollment and user/domain bootstrap (moved out of useEffect)
   const checkAndInitEnrollment = useCallback(async (domainId: number) => {
@@ -1535,7 +1383,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (isProcessingData && graphRef.current && stableGraph.nodes.length > 0) {
       setTimeout(() => {
         zoomToFitVisibleNodes(400);
-        console.log('Initial zoom-to-fit applied');
       }, 100);
     }
   }, [isProcessingData, stableGraph.nodes.length, zoomToFitVisibleNodes]);
@@ -2002,15 +1849,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     pendingFocusNodeIdRef.current = nodeCode;
   }, [computeSpawnPosition]);
 
-  const handleSurgicalInsertNode = useCallback((
-    nodeCode: string,
-    nodeType: 'definition' | 'exercise',
-    createdData?: any,
-    spawnOverride?: { x: number; y: number }
-  ) => {
-    insertCreatedNode(nodeCode, nodeType, createdData, spawnOverride);
-  }, [insertCreatedNode]);
-
   // SURGICAL INSERT ON CREATE (no full refresh)
   const handleNodeCreationSuccess = useCallback(async (nodeCode: string, created?: any) => {
     setShowNodeCreationModal(false);
@@ -2380,9 +2218,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [subjectMatterId, numericIdToCodeMap]);
 
-  const resetFrenzyEditState = useCallback(() => {
-    setFrenzyTool('none');
-    setPendingLinkSourceId(null);
+  // Clears the sticky-note editor and all of its draft fields.
+  const clearFrenzyNoteState = useCallback(() => {
     setFrenzyNote(null);
     setFrenzyNoteCodeDraft('');
     setFrenzyNoteDraft('');
@@ -2397,6 +2234,73 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setFrenzyNoteIsNewVersion(false);
     setIsFrenzyCodeEditing(false);
     setIsDraggingFrenzyNote(false);
+  }, []);
+
+  // Identity of the note currently shown in the editor. Async save/upload
+  // continuations must check this before touching note/draft state: the note
+  // may have been closed or switched to another node while a request was in
+  // flight, and stale writes would corrupt drafts for the wrong node (and can
+  // end up persisting bogus values for shared fields like name/code).
+  const activeFrenzyNoteKeyRef = useRef<string | null>(null);
+  activeFrenzyNoteKeyRef.current = frenzyNote ? `${frenzyNote.nodeType}:${frenzyNote.metaId}` : null;
+
+  // Derives the editable fields for one version of a definition/exercise,
+  // applying auto-generated content/prompt hints for freshly created nodes.
+  const buildFrenzyVersionFields = useCallback((
+    nodeType: 'definition' | 'exercise',
+    nodeId: string,
+    nodeName: string,
+    version: DefinitionVersion | ExerciseVersion,
+  ) => {
+    const isDefinition = nodeType === 'definition';
+    const autoContentHint = frenzyAutoContentRef.current.get(nodeId);
+    const defaultContent = autoContentHint || getDefaultFrenzyContent(nodeType, nodeName);
+    const content = isDefinition
+      ? ((version as DefinitionVersion).description || '')
+      : ((version as ExerciseVersion).statement || '');
+    const isAutoContent = !!autoContentHint && (content.trim().length === 0 || content === autoContentHint);
+    const effectiveContent = content.trim().length > 0 ? content : defaultContent;
+
+    const rawPrompt = isDefinition ? ((version as DefinitionVersion).prompt || '') : '';
+    const autoPromptHint = isDefinition ? frenzyAutoPromptRef.current.get(nodeId) : undefined;
+    const defaultPrompt = isDefinition ? (autoPromptHint || getDefaultFrenzyPrompt(nodeName)) : '';
+    const isAutoPrompt = isDefinition && !!autoPromptHint
+      && (rawPrompt.trim().length === 0 || rawPrompt === autoPromptHint);
+    const prompt = isDefinition ? (rawPrompt.trim().length > 0 ? rawPrompt : defaultPrompt) : '';
+
+    return {
+      prompt,
+      defaultPrompt,
+      isAutoPrompt,
+      promptImagePath: isDefinition ? ((version as DefinitionVersion).promptImagePath || '') : '',
+      content: effectiveContent,
+      defaultContent,
+      isAutoContent,
+      contentImagePath: isDefinition
+        ? ((version as DefinitionVersion).descriptionImagePath || '')
+        : ((version as ExerciseVersion).statementImagePath || ''),
+      solution: isDefinition ? '' : ((version as ExerciseVersion).description || ''),
+      solutionImagePath: isDefinition ? '' : ((version as ExerciseVersion).descriptionImagePath || ''),
+    };
+  }, [getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+
+  // Seeds the sticky-note draft fields from a version's fields.
+  const applyFrenzyVersionDrafts = useCallback((fields: ReturnType<typeof buildFrenzyVersionFields>) => {
+    setFrenzyNoteDraft(fields.content);
+    setFrenzyNotePromptDraft(fields.prompt);
+    setFrenzyNotePromptImagePath(fields.promptImagePath);
+    setFrenzyNoteContentImagePath(fields.contentImagePath);
+    setFrenzyNoteSolutionDraft(fields.solution);
+    setFrenzyNoteSolutionImagePath(fields.solutionImagePath);
+    setShowFrenzySolution(false);
+    setFrenzyNotePreview(false);
+    setFrenzyNoteIsNewVersion(false);
+  }, []);
+
+  const resetFrenzyEditState = useCallback(() => {
+    setFrenzyTool('none');
+    setPendingLinkSourceId(null);
+    clearFrenzyNoteState();
     if (frenzyClickTimerRef.current) {
       clearTimeout(frenzyClickTimerRef.current);
       frenzyClickTimerRef.current = null;
@@ -2407,7 +2311,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
     frenzyLastClickRef.current = null;
     frenzyLastBackgroundClickRef.current = null;
-  }, []);
+  }, [clearFrenzyNoteState]);
 
 	  const toggleFrenzyEditMode = useCallback(async () => {
 	    if (!canEdit) {
@@ -2946,24 +2850,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	    }
 	    if (node.type !== 'quest' && frenzyQuestNote) {
 	      setFrenzyQuestNote(null);
-	      setFrenzyQuestCodeDraft('');
-	      setFrenzyQuestNameDraft('');
-	      setFrenzyQuestKindDraft('todo');
-	      setFrenzyQuestVisibilityDraft('private');
-	      setFrenzyQuestActiveDraft(true);
-	      setFrenzyQuestTimezoneDraft(coalesceTimezone());
-	      setFrenzyQuestDueDateDraft('');
-	      setFrenzyQuestDueTimeDraft('');
-	      setFrenzyQuestRepeatEnabledDraft(false);
-	      setFrenzyQuestRepeatPresetDraft('daily');
-	      setFrenzyQuestCustomRepeatEveryDraft(1);
-	      setFrenzyQuestCustomRepeatPeriodDraft('days');
-	      setFrenzyQuestCustomRepeatWeekdaysDraft(new Set(['MO']));
-	      setFrenzyQuestDurationModeDraft('forever');
-	      setFrenzyQuestDurationCountDraft(10);
-	      setFrenzyQuestUntilDateDraft('');
-	      setFrenzyQuestAutoSaveStatus('idle');
-	      frenzyQuestLastAutoSavedRef.current = '';
 	    }
 	    if (node.type === 'source') {
 	      const sourceData = currentStructuralGraphData.sources?.[node.id];
@@ -3090,19 +2976,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	          setFrenzyNotePosition(notePosition);
 	        }
 
-	        setFrenzyNote(null);
-	        setFrenzyNoteCodeDraft('');
-	        setFrenzyNoteDraft('');
-	        setFrenzyNoteNameDraft('');
-	        setFrenzyNotePromptDraft('');
-	        setFrenzyNotePromptImagePath('');
-	        setFrenzyNoteContentImagePath('');
-	        setFrenzyNoteSolutionDraft('');
-	        setFrenzyNoteSolutionImagePath('');
-	        setShowFrenzySolution(false);
-	        setFrenzyNotePreview(false);
-	        setFrenzyNoteIsNewVersion(false);
-	        setIsFrenzyCodeEditing(false);
+	        clearFrenzyNoteState();
 
 		        setFrenzyQuestNote({
 		          nodeId: resolvedCode,
@@ -3113,25 +2987,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 		          active: quest.active ?? true,
 		          schedule: quest.schedule,
 		        });
-		        setFrenzyQuestCodeDraft(resolvedCode);
-		        setFrenzyQuestNameDraft(resolvedName);
-		        setFrenzyQuestKindDraft(kind);
-		        setFrenzyQuestVisibilityDraft(visibility);
-		        setFrenzyQuestActiveDraft(quest.active ?? true);
-		        const drafts = parseScheduleToDrafts(quest.schedule);
-		        setFrenzyQuestTimezoneDraft(drafts.timezone);
-		        setFrenzyQuestDueDateDraft(drafts.date);
-		        setFrenzyQuestDueTimeDraft(drafts.time);
-		        setFrenzyQuestRepeatEnabledDraft(kind === 'habit' ? true : drafts.repeatEnabled);
-		        setFrenzyQuestRepeatPresetDraft(drafts.preset);
-		        setFrenzyQuestCustomRepeatEveryDraft(drafts.customEvery);
-		        setFrenzyQuestCustomRepeatPeriodDraft(drafts.customPeriod);
-		        setFrenzyQuestCustomRepeatWeekdaysDraft(drafts.customWeekdays);
-	        setFrenzyQuestDurationModeDraft(drafts.durationMode);
-	        setFrenzyQuestDurationCountDraft(drafts.durationCount);
-	        setFrenzyQuestUntilDateDraft(drafts.untilDate);
-	        setFrenzyQuestAutoSaveStatus('idle');
-	        frenzyQuestLastAutoSavedRef.current = '';
 
 	        if (anchor) {
 	          requestAnimationFrame(() => {
@@ -3165,43 +3020,10 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       const versionIndex = 0;
       const version = versions[versionIndex];
 
+      const nodeType = node.type as 'definition' | 'exercise';
       const resolvedName = (meta as MetaDefinition | MetaExercise).name || node.name;
       const resolvedCode = (meta as MetaDefinition | MetaExercise).code || node.id;
-      const autoContentHint = frenzyAutoContentRef.current.get(resolvedCode);
-      const defaultContent = autoContentHint
-        || getDefaultFrenzyContent(node.type, resolvedName);
-      const content = node.type === 'definition'
-        ? ((version as DefinitionVersion).description || '')
-        : ((version as ExerciseVersion).statement || '');
-      const isAutoContent = !!autoContentHint && (content.trim().length === 0 || content === autoContentHint);
-      const effectiveContent = content.trim().length > 0 ? content : defaultContent;
-
-      const rawPrompt = node.type === 'definition'
-        ? ((version as DefinitionVersion).prompt || '')
-        : '';
-      const autoPromptHint = node.type === 'definition'
-        ? frenzyAutoPromptRef.current.get(resolvedCode)
-        : undefined;
-      const defaultPrompt = node.type === 'definition'
-        ? (autoPromptHint || getDefaultFrenzyPrompt(resolvedName))
-        : '';
-      const isAutoPrompt = node.type === 'definition' && !!autoPromptHint
-        && (rawPrompt.trim().length === 0 || rawPrompt === autoPromptHint);
-      const effectivePrompt = node.type === 'definition'
-        ? (rawPrompt.trim().length > 0 ? rawPrompt : defaultPrompt)
-        : '';
-      const promptImagePath = node.type === 'definition'
-        ? ((version as DefinitionVersion).promptImagePath || '')
-        : '';
-      const contentImagePath = node.type === 'definition'
-        ? ((version as DefinitionVersion).descriptionImagePath || '')
-        : ((version as ExerciseVersion).statementImagePath || '');
-      const solutionText = node.type === 'exercise'
-        ? ((version as ExerciseVersion).description || '')
-        : '';
-      const solutionImagePath = node.type === 'exercise'
-        ? ((version as ExerciseVersion).descriptionImagePath || '')
-        : '';
+      const fields = buildFrenzyVersionFields(nodeType, resolvedCode, resolvedName, version);
       const anchor = anchorGraph
         || (typeof node.x === 'number' && typeof node.y === 'number'
           ? { x: node.x, y: node.y }
@@ -3215,34 +3037,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
       setFrenzyNote({
         nodeId: resolvedCode,
-        nodeType: node.type,
+        nodeType,
         nodeName: resolvedName,
         metaId,
         version,
         allVersions: versions,
         versionIndex,
-        prompt: effectivePrompt,
-        defaultPrompt,
-        isAutoPrompt,
-        promptImagePath,
-        content: effectiveContent,
-        defaultContent,
-        isAutoContent,
-        contentImagePath,
-        solution: solutionText,
-        solutionImagePath,
+        ...fields,
       });
       setFrenzyNoteCodeDraft(resolvedCode);
-      setFrenzyNoteDraft(effectiveContent);
       setFrenzyNoteNameDraft(resolvedName);
-      setFrenzyNotePromptDraft(effectivePrompt);
-      setFrenzyNotePromptImagePath(promptImagePath);
-      setFrenzyNoteContentImagePath(contentImagePath);
-      setFrenzyNoteSolutionDraft(solutionText);
-      setFrenzyNoteSolutionImagePath(solutionImagePath);
-      setShowFrenzySolution(false);
-      setFrenzyNotePreview(false);
-      setFrenzyNoteIsNewVersion(false);
+      applyFrenzyVersionDrafts(fields);
       setIsFrenzyCodeEditing(false);
       if (anchor) {
         requestAnimationFrame(() => {
@@ -3260,7 +3065,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     canEdit,
     codeToNumericIdMap,
     getDefaultFrenzyContent,
-    getDefaultFrenzyPrompt,
+    buildFrenzyVersionFields,
+    applyFrenzyVersionDrafts,
+    clearFrenzyNoteState,
     getFrenzyNotePlacement,
 	    currentStructuralGraphData.sources,
 	    currentStructuralGraphData.quests,
@@ -3298,39 +3105,13 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     });
     setNewlyCreatedNodeId(prev => (prev === code ? null : prev));
     if (frenzyNote?.nodeId === code) {
-      setFrenzyNote(null);
-      setFrenzyNoteCodeDraft('');
-      setFrenzyNoteDraft('');
-      setFrenzyNoteNameDraft('');
-      setFrenzyNotePromptDraft('');
-      setFrenzyNotePreview(false);
-      setFrenzyNoteIsNewVersion(false);
-      setIsFrenzyCodeEditing(false);
-      setIsDraggingFrenzyNote(false);
+      clearFrenzyNoteState();
     }
     if (frenzyQuestNote?.nodeId === code) {
       setFrenzyQuestNote(null);
-      setFrenzyQuestCodeDraft('');
-      setFrenzyQuestNameDraft('');
-      setFrenzyQuestKindDraft('todo');
-      setFrenzyQuestVisibilityDraft('private');
-      setFrenzyQuestActiveDraft(true);
-      setFrenzyQuestTimezoneDraft(coalesceTimezone());
-      setFrenzyQuestDueDateDraft('');
-      setFrenzyQuestDueTimeDraft('');
-      setFrenzyQuestRepeatEnabledDraft(false);
-      setFrenzyQuestRepeatPresetDraft('daily');
-      setFrenzyQuestCustomRepeatEveryDraft(1);
-      setFrenzyQuestCustomRepeatPeriodDraft('days');
-      setFrenzyQuestCustomRepeatWeekdaysDraft(new Set(['MO']));
-      setFrenzyQuestDurationModeDraft('forever');
-      setFrenzyQuestDurationCountDraft(10);
-      setFrenzyQuestUntilDateDraft('');
-      setFrenzyQuestAutoSaveStatus('idle');
-      frenzyQuestLastAutoSavedRef.current = '';
       setIsDraggingFrenzyNote(false);
     }
-  }, [pendingLinkSourceId, frenzyNote, frenzyQuestNote]);
+  }, [pendingLinkSourceId, frenzyNote, frenzyQuestNote, clearFrenzyNoteState]);
 
 	  const applyQuestUpdateToGraph = useCallback((updated: MetaQuestDTO) => {
 	    if (!updated?.id || !updated?.code) return;
@@ -3354,74 +3135,44 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     });
   }, []);
 
+  // Inserts a quest created from a window (detail/source) plus its relation.
+  const handleQuestCreated = useCallback((
+    quest: { code: string } & Partial<MetaQuestDTO>,
+    relation: { fromCode: string; toCode: string; relationType: string },
+  ) => {
+    setCurrentStructuralGraphData(prev => {
+      const nextQuests = { ...(prev.quests || {}) };
+      nextQuests[quest.code] = {
+        ...(nextQuests[quest.code] || {}),
+        ...quest,
+        type: 'quest',
+      };
+      const nextRelations = [...(prev.relations || [])];
+      nextRelations.push({
+        fromCode: relation.fromCode,
+        toCode: relation.toCode,
+        relationType: relation.relationType,
+      });
+      return { ...prev, quests: nextQuests, relations: nextRelations };
+    });
+  }, []);
+
   const switchFrenzyNoteVersion = useCallback((newIndex: number) => {
     if (!frenzyNote) return;
     if (frenzyNote.nodeType === 'source') return;
     if (newIndex < 0 || newIndex >= frenzyNote.allVersions.length) return;
 
     const version = frenzyNote.allVersions[newIndex];
-    const resolvedName = frenzyNote.nodeName;
-    const autoContentHint = frenzyAutoContentRef.current.get(frenzyNote.nodeId);
-    const defaultContent = autoContentHint || getDefaultFrenzyContent(frenzyNote.nodeType, resolvedName);
-
-    const content = frenzyNote.nodeType === 'definition'
-      ? ((version as DefinitionVersion).description || '')
-      : ((version as ExerciseVersion).statement || '');
-    const isAutoContent = !!autoContentHint && (content.trim().length === 0 || content === autoContentHint);
-    const effectiveContent = content.trim().length > 0 ? content : defaultContent;
-
-    const rawPrompt = frenzyNote.nodeType === 'definition'
-      ? ((version as DefinitionVersion).prompt || '')
-      : '';
-    const autoPromptHint = frenzyNote.nodeType === 'definition'
-      ? frenzyAutoPromptRef.current.get(frenzyNote.nodeId)
-      : undefined;
-    const defaultPrompt = frenzyNote.nodeType === 'definition'
-      ? (autoPromptHint || getDefaultFrenzyPrompt(resolvedName))
-      : '';
-    const isAutoPrompt = frenzyNote.nodeType === 'definition' && !!autoPromptHint
-      && (rawPrompt.trim().length === 0 || rawPrompt === autoPromptHint);
-    const effectivePrompt = frenzyNote.nodeType === 'definition'
-      ? (rawPrompt.trim().length > 0 ? rawPrompt : defaultPrompt)
-      : '';
-    const promptImagePath = frenzyNote.nodeType === 'definition'
-      ? ((version as DefinitionVersion).promptImagePath || '')
-      : '';
-    const contentImagePath = frenzyNote.nodeType === 'definition'
-      ? ((version as DefinitionVersion).descriptionImagePath || '')
-      : ((version as ExerciseVersion).statementImagePath || '');
-    const solutionText = frenzyNote.nodeType === 'exercise'
-      ? ((version as ExerciseVersion).description || '')
-      : '';
-    const solutionImagePath = frenzyNote.nodeType === 'exercise'
-      ? ((version as ExerciseVersion).descriptionImagePath || '')
-      : '';
+    const fields = buildFrenzyVersionFields(frenzyNote.nodeType, frenzyNote.nodeId, frenzyNote.nodeName, version);
 
     setFrenzyNote({
       ...frenzyNote,
       version,
       versionIndex: newIndex,
-      prompt: effectivePrompt,
-      defaultPrompt,
-      isAutoPrompt,
-      promptImagePath,
-      content: effectiveContent,
-      defaultContent,
-      isAutoContent,
-      contentImagePath,
-      solution: solutionText,
-      solutionImagePath,
+      ...fields,
     });
-    setFrenzyNoteDraft(effectiveContent);
-    setFrenzyNotePromptDraft(effectivePrompt);
-    setFrenzyNotePromptImagePath(promptImagePath);
-    setFrenzyNoteContentImagePath(contentImagePath);
-    setFrenzyNoteSolutionDraft(solutionText);
-    setFrenzyNoteSolutionImagePath(solutionImagePath);
-    setShowFrenzySolution(false);
-    setFrenzyNotePreview(false);
-    setFrenzyNoteIsNewVersion(false);
-  }, [frenzyNote, getDefaultFrenzyContent, getDefaultFrenzyPrompt]);
+    applyFrenzyVersionDrafts(fields);
+  }, [frenzyNote, buildFrenzyVersionFields, applyFrenzyVersionDrafts]);
 
   const startFrenzyNewVersion = useCallback(() => {
     if (!frenzyNote) return;
@@ -3465,6 +3216,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     const versionToDelete = frenzyNote.version;
     const isDefinition = frenzyNote.nodeType === 'definition';
+    const noteKey = `${frenzyNote.nodeType}:${frenzyNote.metaId}`;
+    const noteStillActive = () => activeFrenzyNoteKeyRef.current === noteKey;
 
     setIsSavingFrenzyNote(true);
     try {
@@ -3488,45 +3241,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       // Switch to version 0 after deletion
       const newVersionIndex = 0;
       const newVersion = versions[newVersionIndex];
+      const fields = buildFrenzyVersionFields(frenzyNote.nodeType, frenzyNote.nodeId, frenzyNote.nodeName, newVersion);
 
-      const content = isDefinition
-        ? ((newVersion as DefinitionVersion).description || '')
-        : ((newVersion as ExerciseVersion).statement || '');
-      const rawPrompt = isDefinition
-        ? ((newVersion as DefinitionVersion).prompt || '')
-        : '';
-      const promptImagePath = isDefinition
-        ? ((newVersion as DefinitionVersion).promptImagePath || '')
-        : '';
-      const contentImagePath = isDefinition
-        ? ((newVersion as DefinitionVersion).descriptionImagePath || '')
-        : ((newVersion as ExerciseVersion).statementImagePath || '');
-      const solutionText = !isDefinition
-        ? ((newVersion as ExerciseVersion).description || '')
-        : '';
-      const solutionImagePath = !isDefinition
-        ? ((newVersion as ExerciseVersion).descriptionImagePath || '')
-        : '';
-
-      setFrenzyNote(prev => prev ? {
-        ...prev,
-        version: newVersion,
-        allVersions: versions,
-        versionIndex: newVersionIndex,
-        prompt: rawPrompt,
-        content,
-        promptImagePath,
-        contentImagePath,
-        solution: solutionText,
-        solutionImagePath,
-      } : prev);
-
-      setFrenzyNoteDraft(content);
-      setFrenzyNotePromptDraft(rawPrompt);
-      setFrenzyNotePromptImagePath(promptImagePath);
-      setFrenzyNoteContentImagePath(contentImagePath);
-      setFrenzyNoteSolutionDraft(solutionText);
-      setFrenzyNoteSolutionImagePath(solutionImagePath);
+      if (noteStillActive()) {
+        setFrenzyNote(prev => prev ? {
+          ...prev,
+          version: newVersion,
+          allVersions: versions,
+          versionIndex: newVersionIndex,
+          ...fields,
+        } : prev);
+        applyFrenzyVersionDrafts(fields);
+      }
 
       showToast('Version deleted successfully.', 'success');
     } catch (error) {
@@ -3535,7 +3261,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setIsSavingFrenzyNote(false);
     }
-  }, [frenzyNote]);
+  }, [frenzyNote, buildFrenzyVersionFields, applyFrenzyVersionDrafts]);
 
   const createFrenzyNode = useCallback(async (
     type: 'definition' | 'exercise' | 'source' | 'quest',
@@ -3750,6 +3476,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const nameDraft = frenzyNoteNameDraft.trim();
     const codeDraft = frenzyNoteCodeDraft.trim();
     const isDefinition = frenzyNote.nodeType === 'definition';
+    // If the editor closes or switches nodes while a request is in flight,
+    // skip local note/draft updates so stale data can't leak into another
+    // node's drafts (server writes for THIS note are still applied).
+    const noteKey = `${frenzyNote.nodeType}:${frenzyNote.metaId}`;
+    const noteStillActive = () => activeFrenzyNoteKeyRef.current === noteKey;
 
     if (frenzyNote.nodeType === 'source') {
       const nameChanged = nameDraft.length > 0 && nameDraft !== frenzyNote.nodeName;
@@ -3780,15 +3511,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           contentMd: draft,
         });
 
-        setFrenzyNote(prev => prev ? {
-          ...prev,
-          nodeId: updated.code,
-          nodeName: updated.title,
-          content: updated.contentMd || '',
-        } : prev);
-        setFrenzyNoteCodeDraft(updated.code);
-        setFrenzyNoteNameDraft(updated.title);
-        setFrenzyNoteDraft(updated.contentMd || '');
+        if (noteStillActive()) {
+          setFrenzyNote(prev => prev ? {
+            ...prev,
+            nodeId: updated.code,
+            nodeName: updated.title,
+            content: updated.contentMd || '',
+          } : prev);
+          setFrenzyNoteCodeDraft(updated.code);
+          setFrenzyNoteNameDraft(updated.title);
+          setFrenzyNoteDraft(updated.contentMd || '');
+        }
 
         setCurrentStructuralGraphData(prev => {
           const nextSources = { ...(prev.sources || {}) };
@@ -3859,54 +3592,29 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           });
         }
 
-        // Reload the meta to get updated versions
-        const meta = isDefinition
-          ? await getMetaDefinition(frenzyNote.metaId)
-          : await getMetaExercise(frenzyNote.metaId);
-        const versions = (meta as MetaDefinition | MetaExercise).versions || [];
-        const newVersionIndex = versions.length - 1;
-        const newVersion = versions[newVersionIndex];
+        // Only the version itself is created here; shared meta fields
+        // (name/code) are intentionally never written from this path.
+        // Reseed the editor only if this note is still the active one.
+        if (noteStillActive()) {
+          const meta = isDefinition
+            ? await getMetaDefinition(frenzyNote.metaId)
+            : await getMetaExercise(frenzyNote.metaId);
+          const versions = (meta as MetaDefinition | MetaExercise).versions || [];
+          const newVersionIndex = versions.length - 1;
+          const newVersion = versions[newVersionIndex];
+          const fields = buildFrenzyVersionFields(frenzyNote.nodeType, frenzyNote.nodeId, frenzyNote.nodeName, newVersion);
 
-        // Update frenzyNote with the new versions array and switch to it
-        const content = isDefinition
-          ? ((newVersion as DefinitionVersion).description || '')
-          : ((newVersion as ExerciseVersion).statement || '');
-        const rawPrompt = isDefinition
-          ? ((newVersion as DefinitionVersion).prompt || '')
-          : '';
-        const promptImagePath = isDefinition
-          ? ((newVersion as DefinitionVersion).promptImagePath || '')
-          : '';
-        const contentImagePath = isDefinition
-          ? ((newVersion as DefinitionVersion).descriptionImagePath || '')
-          : ((newVersion as ExerciseVersion).statementImagePath || '');
-        const solutionText = !isDefinition
-          ? ((newVersion as ExerciseVersion).description || '')
-          : '';
-        const solutionImagePath = !isDefinition
-          ? ((newVersion as ExerciseVersion).descriptionImagePath || '')
-          : '';
-
-        setFrenzyNote(prev => prev ? {
-          ...prev,
-          version: newVersion,
-          allVersions: versions,
-          versionIndex: newVersionIndex,
-          prompt: rawPrompt,
-          content,
-          promptImagePath,
-          contentImagePath,
-          solution: solutionText,
-          solutionImagePath,
-        } : prev);
-
-        setFrenzyNoteDraft(content);
-        setFrenzyNotePromptDraft(rawPrompt);
-        setFrenzyNotePromptImagePath(promptImagePath);
-        setFrenzyNoteContentImagePath(contentImagePath);
-        setFrenzyNoteSolutionDraft(solutionText);
-        setFrenzyNoteSolutionImagePath(solutionImagePath);
-        setFrenzyNoteIsNewVersion(false);
+          if (noteStillActive()) {
+            setFrenzyNote(prev => prev ? {
+              ...prev,
+              version: newVersion,
+              allVersions: versions,
+              versionIndex: newVersionIndex,
+              ...fields,
+            } : prev);
+            applyFrenzyVersionDrafts(fields);
+          }
+        }
 
         showToast('New version created successfully.', 'success');
       } catch (error) {
@@ -3961,17 +3669,19 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             descriptionImagePath: nextDescriptionImage,
           });
           const updated = { ...current, prompt: nextPrompt, description: nextDescription, promptImagePath: nextPromptImage, descriptionImagePath: nextDescriptionImage };
-          setFrenzyNote(prev => prev ? {
-            ...prev,
-            prompt: nextPrompt,
-            content: nextDescription,
-            promptImagePath: nextPromptImage,
-            contentImagePath: nextDescriptionImage,
-            version: updated,
-            allVersions: prev.allVersions.map((v, idx) => idx === prev.versionIndex ? updated : v),
-            isAutoPrompt: promptChanged ? false : prev.isAutoPrompt,
-            isAutoContent: contentChanged ? false : prev.isAutoContent,
-          } : prev);
+          if (noteStillActive()) {
+            setFrenzyNote(prev => prev ? {
+              ...prev,
+              prompt: nextPrompt,
+              content: nextDescription,
+              promptImagePath: nextPromptImage,
+              contentImagePath: nextDescriptionImage,
+              version: updated,
+              allVersions: prev.allVersions.map((v, idx) => idx === prev.versionIndex ? updated : v),
+              isAutoPrompt: promptChanged ? false : prev.isAutoPrompt,
+              isAutoContent: contentChanged ? false : prev.isAutoContent,
+            } : prev);
+          }
         } else {
           const current = frenzyNote.version as ExerciseVersion;
           const nextStatement = contentChanged ? draft : (current.statement || '');
@@ -3990,16 +3700,18 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             descriptionImagePath: nextSolutionImage,
           });
           const updated = { ...current, statement: nextStatement, description: nextSolution, statementImagePath: nextStatementImage, descriptionImagePath: nextSolutionImage };
-          setFrenzyNote(prev => prev ? {
-            ...prev,
-            content: nextStatement,
-            contentImagePath: nextStatementImage,
-            solution: nextSolution,
-            solutionImagePath: nextSolutionImage,
-            version: updated,
-            allVersions: prev.allVersions.map((v, idx) => idx === prev.versionIndex ? updated : v),
-            isAutoContent: contentChanged ? false : prev.isAutoContent,
-          } : prev);
+          if (noteStillActive()) {
+            setFrenzyNote(prev => prev ? {
+              ...prev,
+              content: nextStatement,
+              contentImagePath: nextStatementImage,
+              solution: nextSolution,
+              solutionImagePath: nextSolutionImage,
+              version: updated,
+              allVersions: prev.allVersions.map((v, idx) => idx === prev.versionIndex ? updated : v),
+              isAutoContent: contentChanged ? false : prev.isAutoContent,
+            } : prev);
+          }
         }
         if (contentChanged) {
           frenzyAutoContentRef.current.delete(previousCode);
@@ -4010,100 +3722,59 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       }
 
       if (nameChanged || codeChanged) {
-        if (frenzyNote.nodeType === 'definition') {
-          const updatedMeta = await updateMetaDefinition(frenzyNote.metaId, {
-            ...(codeChanged ? { code: codeDraft } : {}),
-            ...(nameChanged ? { name: nameDraft } : {}),
-          });
-          const updatedCode = updatedMeta.code;
-          const updatedName = updatedMeta.name;
-          const codeWasUpdated = updatedCode !== previousCode;
+        const updatePayload = {
+          ...(codeChanged ? { code: codeDraft } : {}),
+          ...(nameChanged ? { name: nameDraft } : {}),
+        };
+        const updatedMeta = isDefinition
+          ? await updateMetaDefinition(frenzyNote.metaId, updatePayload)
+          : await updateMetaExercise(frenzyNote.metaId, updatePayload);
+        const updatedCode = updatedMeta.code;
+        const updatedName = updatedMeta.name;
+        const codeWasUpdated = updatedCode !== previousCode;
 
-          if (!codeWasUpdated && nameChanged) {
-            setCurrentStructuralGraphData(prev => {
-              const next = { ...prev };
-              if (next.definitions?.[previousCode]) {
-                next.definitions = { ...next.definitions };
-                next.definitions[previousCode] = {
-                  ...next.definitions[previousCode],
-                  name: updatedName,
-                };
-              }
-              return next;
-            });
-            setNodeDataCache(prev => {
-              const next = new Map(prev);
-              const cached = next.get(previousCode);
-              if (cached) {
-                next.set(previousCode, { ...cached, name: updatedName });
-              }
-              return next;
-            });
-          }
+        if (!codeWasUpdated && nameChanged) {
+          const collectionKey = isDefinition ? 'definitions' : 'exercises';
+          setCurrentStructuralGraphData(prev => {
+            const collection = prev[collectionKey];
+            if (!collection?.[previousCode]) return prev;
+            return {
+              ...prev,
+              [collectionKey]: {
+                ...collection,
+                [previousCode]: { ...collection[previousCode], name: updatedName },
+              },
+            };
+          });
+          setNodeDataCache(prev => {
+            const next = new Map(prev);
+            const cached = next.get(previousCode);
+            if (cached) {
+              next.set(previousCode, { ...cached, name: updatedName });
+            }
+            return next;
+          });
+        }
+        if (noteStillActive()) {
           setFrenzyNote(prev => prev ? { ...prev, nodeId: updatedCode, nodeName: updatedName } : prev);
           setFrenzyNoteCodeDraft(updatedCode);
           setFrenzyNoteNameDraft(updatedName);
+        }
 
-          if (codeWasUpdated) {
-            const autoContent = frenzyAutoContentRef.current.get(previousCode);
-            if (autoContent) {
-              frenzyAutoContentRef.current.set(updatedCode, autoContent);
-              frenzyAutoContentRef.current.delete(previousCode);
-            }
-            const autoPrompt = frenzyAutoPromptRef.current.get(previousCode);
-            if (autoPrompt) {
-              frenzyAutoPromptRef.current.set(updatedCode, autoPrompt);
-              frenzyAutoPromptRef.current.delete(previousCode);
-            }
-            await refreshGraphAndSRSData();
-            if (isFrenzyEditMode) {
-              await loadFrenzyPrerequisites();
-            }
+        if (codeWasUpdated) {
+          const autoContent = frenzyAutoContentRef.current.get(previousCode);
+          if (autoContent) {
+            frenzyAutoContentRef.current.set(updatedCode, autoContent);
+            frenzyAutoContentRef.current.delete(previousCode);
           }
-        } else {
-          const updatedMeta = await updateMetaExercise(frenzyNote.metaId, {
-            ...(codeChanged ? { code: codeDraft } : {}),
-            ...(nameChanged ? { name: nameDraft } : {}),
-          });
-          const updatedCode = updatedMeta.code;
-          const updatedName = updatedMeta.name;
-          const codeWasUpdated = updatedCode !== previousCode;
-
-          if (!codeWasUpdated && nameChanged) {
-            setCurrentStructuralGraphData(prev => {
-              const next = { ...prev };
-              if (next.exercises?.[previousCode]) {
-                next.exercises = { ...next.exercises };
-                next.exercises[previousCode] = {
-                  ...next.exercises[previousCode],
-                  name: updatedName,
-                };
-              }
-              return next;
-            });
-            setNodeDataCache(prev => {
-              const next = new Map(prev);
-              const cached = next.get(previousCode);
-              if (cached) {
-                next.set(previousCode, { ...cached, name: updatedName });
-              }
-              return next;
-            });
+          const autoPrompt = isDefinition ? frenzyAutoPromptRef.current.get(previousCode) : undefined;
+          if (autoPrompt) {
+            frenzyAutoPromptRef.current.set(updatedCode, autoPrompt);
+            frenzyAutoPromptRef.current.delete(previousCode);
           }
-          setFrenzyNote(prev => prev ? { ...prev, nodeId: updatedCode, nodeName: updatedName } : prev);
-          setFrenzyNoteCodeDraft(updatedCode);
-          setFrenzyNoteNameDraft(updatedName);
-
-          if (codeWasUpdated) {
-            const autoContent = frenzyAutoContentRef.current.get(previousCode);
-            if (autoContent) {
-              frenzyAutoContentRef.current.set(updatedCode, autoContent);
-              frenzyAutoContentRef.current.delete(previousCode);
-            }
-            await refreshGraphAndSRSData();
-            if (isFrenzyEditMode) {
-              await loadFrenzyPrerequisites();
-            }
+          await refreshGraphAndSRSData();
+          if (isFrenzyEditMode) {
+            await loadFrenzyPrerequisites();
           }
         }
       }
@@ -4128,6 +3799,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     isFrenzyEditMode,
     loadFrenzyPrerequisites,
     refreshGraphAndSRSData,
+    buildFrenzyVersionFields,
+    applyFrenzyVersionDrafts,
 	    existingCodes,
 	  ]);
 
@@ -4166,247 +3839,6 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     await deleteFrenzyNoteVersion();
   }, [frenzyNote, frenzyNoteIsNewVersion, isSavingFrenzyNote, frenzyCodeConflict, saveFrenzyNote, deleteFrenzyNoteVersion]);
 
-  const saveFrenzyQuestNote = useCallback(async (force?: boolean) => {
-    if (!frenzyQuestNote) return;
-    if (isSavingFrenzyQuestNote) return;
-
-    const codeDraft = frenzyQuestCodeDraft.trim();
-    const nameDraft = frenzyQuestNameDraft.trim();
-
-    if (codeDraft.length === 0) {
-      showToast('Quest code cannot be empty.', 'warning');
-      return;
-    }
-    if (nameDraft.length === 0) {
-      showToast('Quest name cannot be empty.', 'warning');
-      return;
-    }
-
-    const snapshot = JSON.stringify({
-      id: frenzyQuestNote.questId,
-      code: codeDraft,
-      name: nameDraft,
-      kind: frenzyQuestKindDraft,
-      visibility: frenzyQuestVisibilityDraft,
-      active: frenzyQuestActiveDraft,
-      timezone: frenzyQuestTimezoneDraft,
-      date: frenzyQuestDueDateDraft,
-      time: frenzyQuestDueTimeDraft,
-      repeatEnabled: frenzyQuestRepeatEnabledDraft,
-      preset: frenzyQuestRepeatPresetDraft,
-      customEvery: frenzyQuestCustomRepeatEveryDraft,
-      customPeriod: frenzyQuestCustomRepeatPeriodDraft,
-      customWeekdays: Array.from(frenzyQuestCustomRepeatWeekdaysDraft).sort(),
-      durationMode: frenzyQuestDurationModeDraft,
-      durationCount: frenzyQuestDurationCountDraft,
-      untilDate: frenzyQuestUntilDateDraft,
-    });
-
-    if (!force && snapshot === frenzyQuestLastAutoSavedRef.current) return;
-    if (codeDraft !== frenzyQuestNote.nodeId && existingCodes.has(codeDraft)) {
-      showToast('Quest code already exists in this domain.', 'error');
-      return;
-    }
-
-    setIsSavingFrenzyQuestNote(true);
-    setFrenzyQuestAutoSaveStatus('saving');
-    try {
-      const schedule = buildQuestSchedulePayload({
-        existingSchedule: frenzyQuestNote.schedule,
-        kind: frenzyQuestKindDraft,
-        timezone: frenzyQuestTimezoneDraft,
-        dueDate: frenzyQuestDueDateDraft,
-        dueTime: frenzyQuestDueTimeDraft,
-        repeatEnabled: frenzyQuestRepeatEnabledDraft,
-        preset: frenzyQuestRepeatPresetDraft,
-        customEvery: frenzyQuestCustomRepeatEveryDraft,
-        customPeriod: frenzyQuestCustomRepeatPeriodDraft,
-        customWeekdays: frenzyQuestCustomRepeatWeekdaysDraft,
-        durationMode: frenzyQuestDurationModeDraft,
-        durationCount: frenzyQuestDurationCountDraft,
-        untilDate: frenzyQuestUntilDateDraft,
-      });
-
-	      const updated = await updateQuest(frenzyQuestNote.questId, {
-	        code: codeDraft,
-	        name: nameDraft,
-	        kind: frenzyQuestKindDraft,
-	        visibility: frenzyQuestVisibilityDraft,
-	        active: frenzyQuestActiveDraft,
-	        schedule,
-	      });
-
-	      applyQuestUpdateToGraph(updated);
-	      const updatedKindRaw = (updated as { kind?: unknown }).kind;
-	      const updatedVisibilityRaw = (updated as { visibility?: unknown }).visibility;
-	      setFrenzyQuestNote(prev => prev ? {
-	        ...prev,
-	        nodeId: updated.code || prev.nodeId,
-	        nodeName: updated.name || prev.nodeName,
-	        kind: isQuestKindValue(updatedKindRaw) ? updatedKindRaw : prev.kind,
-	        visibility: isQuestVisibilityValue(updatedVisibilityRaw) ? updatedVisibilityRaw : prev.visibility,
-	        active: updated.active ?? prev.active,
-	        schedule: updated.schedule,
-	      } : prev);
-      setFrenzyQuestCodeDraft(updated.code || codeDraft);
-      setFrenzyQuestNameDraft(updated.name || nameDraft);
-
-      frenzyQuestLastAutoSavedRef.current = snapshot;
-      setFrenzyQuestAutoSaveStatus('saved');
-      window.setTimeout(() => {
-        setFrenzyQuestAutoSaveStatus(prev => (prev === 'saved' ? 'idle' : prev));
-      }, 900);
-    } catch (error) {
-      console.error('Failed to save frenzy quest note:', error);
-      setFrenzyQuestAutoSaveStatus('error');
-      showToast('Failed to save quest.', 'error');
-    } finally {
-      setIsSavingFrenzyQuestNote(false);
-    }
-  }, [
-    frenzyQuestNote,
-    isSavingFrenzyQuestNote,
-    frenzyQuestCodeDraft,
-    frenzyQuestNameDraft,
-    frenzyQuestKindDraft,
-    frenzyQuestVisibilityDraft,
-    frenzyQuestActiveDraft,
-    frenzyQuestTimezoneDraft,
-    frenzyQuestDueDateDraft,
-    frenzyQuestDueTimeDraft,
-    frenzyQuestRepeatEnabledDraft,
-    frenzyQuestRepeatPresetDraft,
-    frenzyQuestCustomRepeatEveryDraft,
-    frenzyQuestCustomRepeatPeriodDraft,
-    frenzyQuestCustomRepeatWeekdaysDraft,
-    frenzyQuestDurationModeDraft,
-    frenzyQuestDurationCountDraft,
-    frenzyQuestUntilDateDraft,
-    existingCodes,
-    applyQuestUpdateToGraph,
-  ]);
-
-  useEffect(() => {
-    saveFrenzyQuestNoteRef.current = saveFrenzyQuestNote;
-  }, [saveFrenzyQuestNote]);
-
-  useEffect(() => {
-    const baselineDraftState = {
-      code: frenzyQuestCodeDraft.trim(),
-      name: frenzyQuestNameDraft.trim(),
-      kind: frenzyQuestKindDraft,
-      visibility: frenzyQuestVisibilityDraft,
-      active: frenzyQuestActiveDraft,
-      timezone: frenzyQuestTimezoneDraft,
-      date: frenzyQuestDueDateDraft,
-      time: frenzyQuestDueTimeDraft,
-      repeatEnabled: frenzyQuestRepeatEnabledDraft,
-      preset: frenzyQuestRepeatPresetDraft,
-      customEvery: frenzyQuestCustomRepeatEveryDraft,
-      customPeriod: frenzyQuestCustomRepeatPeriodDraft,
-      customWeekdays: Array.from(frenzyQuestCustomRepeatWeekdaysDraft).sort(),
-      durationMode: frenzyQuestDurationModeDraft,
-      durationCount: frenzyQuestDurationCountDraft,
-      untilDate: frenzyQuestUntilDateDraft,
-    };
-    frenzyQuestDraftStateRef.current = baselineDraftState;
-  }, [
-    frenzyQuestCodeDraft,
-    frenzyQuestNameDraft,
-    frenzyQuestKindDraft,
-    frenzyQuestVisibilityDraft,
-    frenzyQuestActiveDraft,
-    frenzyQuestTimezoneDraft,
-    frenzyQuestDueDateDraft,
-    frenzyQuestDueTimeDraft,
-    frenzyQuestRepeatEnabledDraft,
-    frenzyQuestRepeatPresetDraft,
-    frenzyQuestCustomRepeatEveryDraft,
-    frenzyQuestCustomRepeatPeriodDraft,
-    frenzyQuestCustomRepeatWeekdaysDraft,
-    frenzyQuestDurationModeDraft,
-    frenzyQuestDurationCountDraft,
-    frenzyQuestUntilDateDraft,
-  ]);
-
-  useEffect(() => {
-    if (!frenzyQuestNote) return;
-    const draftState = frenzyQuestDraftStateRef.current;
-    // Establish a baseline so we don't auto-save immediately on open.
-    const baseline = JSON.stringify({
-      id: frenzyQuestNote.questId,
-      code: draftState.code,
-      name: draftState.name,
-      kind: draftState.kind,
-      visibility: draftState.visibility,
-      active: draftState.active,
-      timezone: draftState.timezone,
-      date: draftState.date,
-      time: draftState.time,
-      repeatEnabled: draftState.repeatEnabled,
-      preset: draftState.preset,
-      customEvery: draftState.customEvery,
-      customPeriod: draftState.customPeriod,
-      customWeekdays: draftState.customWeekdays,
-      durationMode: draftState.durationMode,
-      durationCount: draftState.durationCount,
-      untilDate: draftState.untilDate,
-    });
-    frenzyQuestLastAutoSavedRef.current = baseline;
-    setFrenzyQuestAutoSaveStatus('idle');
-    return () => {
-      void saveFrenzyQuestNoteRef.current();
-    };
-  }, [frenzyQuestNote]);
-
-  useEffect(() => {
-    if (!frenzyQuestNote) return;
-    const snapshot = JSON.stringify({
-      id: frenzyQuestNote.questId,
-      code: frenzyQuestCodeDraft.trim(),
-      name: frenzyQuestNameDraft.trim(),
-      kind: frenzyQuestKindDraft,
-      visibility: frenzyQuestVisibilityDraft,
-      active: frenzyQuestActiveDraft,
-      timezone: frenzyQuestTimezoneDraft,
-      date: frenzyQuestDueDateDraft,
-      time: frenzyQuestDueTimeDraft,
-      repeatEnabled: frenzyQuestRepeatEnabledDraft,
-      preset: frenzyQuestRepeatPresetDraft,
-      customEvery: frenzyQuestCustomRepeatEveryDraft,
-      customPeriod: frenzyQuestCustomRepeatPeriodDraft,
-      customWeekdays: Array.from(frenzyQuestCustomRepeatWeekdaysDraft).sort(),
-      durationMode: frenzyQuestDurationModeDraft,
-      durationCount: frenzyQuestDurationCountDraft,
-      untilDate: frenzyQuestUntilDateDraft,
-    });
-    if (snapshot === frenzyQuestLastAutoSavedRef.current) return;
-
-    const timer = window.setTimeout(() => {
-      void saveFrenzyQuestNote();
-    }, 650);
-    return () => window.clearTimeout(timer);
-  }, [
-    frenzyQuestNote,
-    frenzyQuestCodeDraft,
-    frenzyQuestNameDraft,
-    frenzyQuestKindDraft,
-    frenzyQuestVisibilityDraft,
-    frenzyQuestActiveDraft,
-    frenzyQuestTimezoneDraft,
-    frenzyQuestDueDateDraft,
-    frenzyQuestDueTimeDraft,
-    frenzyQuestRepeatEnabledDraft,
-    frenzyQuestRepeatPresetDraft,
-    frenzyQuestCustomRepeatEveryDraft,
-    frenzyQuestCustomRepeatPeriodDraft,
-    frenzyQuestCustomRepeatWeekdaysDraft,
-    frenzyQuestDurationModeDraft,
-    frenzyQuestDurationCountDraft,
-    frenzyQuestUntilDateDraft,
-    saveFrenzyQuestNote,
-  ]);
-
 	  const uploadFrenzyImage = useCallback(async (file: File, target: 'prompt' | 'content' | 'solution') => {
 	    if (!frenzyNote) return;
 	    if (frenzyNote.nodeType === 'source') {
@@ -4422,6 +3854,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     const field = target === 'prompt'
       ? 'prompt'
       : (frenzyNote.nodeType === 'definition' ? 'description' : (target === 'content' ? 'statement' : 'description'));
+    const noteKey = `${frenzyNote.nodeType}:${frenzyNote.metaId}`;
+    const noteStillActive = () => activeFrenzyNoteKeyRef.current === noteKey;
 
     try {
       const { imagePath } = await uploadNodeImage({
@@ -4450,14 +3884,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           promptImagePath: nextPromptImage,
           descriptionImagePath: nextContentImage,
         });
-        setFrenzyNotePromptImagePath(nextPromptImage);
-        setFrenzyNoteContentImagePath(nextContentImage);
-        setFrenzyNote(prev => prev ? {
-          ...prev,
-          promptImagePath: nextPromptImage,
-          contentImagePath: nextContentImage,
-          version: { ...current, promptImagePath: nextPromptImage, descriptionImagePath: nextContentImage },
-        } : prev);
+        if (noteStillActive()) {
+          setFrenzyNotePromptImagePath(nextPromptImage);
+          setFrenzyNoteContentImagePath(nextContentImage);
+          setFrenzyNote(prev => prev ? {
+            ...prev,
+            promptImagePath: nextPromptImage,
+            contentImagePath: nextContentImage,
+            version: { ...current, promptImagePath: nextPromptImage, descriptionImagePath: nextContentImage },
+          } : prev);
+        }
       } else {
         const current = frenzyNote.version as ExerciseVersion;
         const nextStatementImage = target === 'content' ? imagePath : (frenzyNoteContentImagePath || current.statementImagePath || '');
@@ -4477,14 +3913,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           statementImagePath: nextStatementImage,
           descriptionImagePath: nextSolutionImage,
         });
-        setFrenzyNoteContentImagePath(nextStatementImage);
-        setFrenzyNoteSolutionImagePath(nextSolutionImage);
-        setFrenzyNote(prev => prev ? {
-          ...prev,
-          contentImagePath: nextStatementImage,
-          solutionImagePath: nextSolutionImage,
-          version: { ...current, statementImagePath: nextStatementImage, descriptionImagePath: nextSolutionImage, description: nextSolution },
-        } : prev);
+        if (noteStillActive()) {
+          setFrenzyNoteContentImagePath(nextStatementImage);
+          setFrenzyNoteSolutionImagePath(nextSolutionImage);
+          setFrenzyNote(prev => prev ? {
+            ...prev,
+            contentImagePath: nextStatementImage,
+            solutionImagePath: nextSolutionImage,
+            version: { ...current, statementImagePath: nextStatementImage, descriptionImagePath: nextSolutionImage, description: nextSolution },
+          } : prev);
+        }
       }
       showToast('Image uploaded.', 'success', 1200);
     } catch (error) {
@@ -4516,47 +3954,14 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const closeFrenzyNote = useCallback(async () => {
     if (frenzyNote) {
       await saveFrenzyNote();
-      setFrenzyNote(null);
-      setFrenzyNoteCodeDraft('');
-      setFrenzyNoteDraft('');
-      setFrenzyNoteNameDraft('');
-      setFrenzyNotePromptDraft('');
-      setFrenzyNotePromptImagePath('');
-      setFrenzyNoteContentImagePath('');
-      setFrenzyNoteSolutionDraft('');
-      setFrenzyNoteSolutionImagePath('');
-      setShowFrenzySolution(false);
-      setFrenzyNotePreview(false);
-      setFrenzyNoteIsNewVersion(false);
-      setIsFrenzyCodeEditing(false);
-	    }
-	    if (frenzyQuestNote) {
-	      setFrenzyQuestNote(null);
-	      setFrenzyQuestCodeDraft('');
-	      setFrenzyQuestNameDraft('');
-      setFrenzyQuestKindDraft('todo');
-      setFrenzyQuestVisibilityDraft('private');
-      setFrenzyQuestActiveDraft(true);
-      setFrenzyQuestTimezoneDraft(coalesceTimezone());
-      setFrenzyQuestDueDateDraft('');
-      setFrenzyQuestDueTimeDraft('');
-      setFrenzyQuestRepeatEnabledDraft(false);
-      setFrenzyQuestRepeatPresetDraft('daily');
-      setFrenzyQuestCustomRepeatEveryDraft(1);
-      setFrenzyQuestCustomRepeatPeriodDraft('days');
-      setFrenzyQuestCustomRepeatWeekdaysDraft(new Set(['MO']));
-      setFrenzyQuestDurationModeDraft('forever');
-      setFrenzyQuestDurationCountDraft(10);
-      setFrenzyQuestUntilDateDraft('');
-	      setFrenzyQuestAutoSaveStatus('idle');
-	      frenzyQuestLastAutoSavedRef.current = '';
-		    }
-		    setIsDraggingFrenzyNote(false);
+    }
+    clearFrenzyNoteState();
+    setFrenzyQuestNote(null);
     setIsResizingFrenzyNote(false);
     setFrenzyResizeDirection('');
     frenzyNoteDragOffsetRef.current = null;
     frenzyNoteResizeStartRef.current = null;
-		  }, [frenzyNote, frenzyQuestNote, saveFrenzyNote]);
+  }, [frenzyNote, saveFrenzyNote, clearFrenzyNoteState]);
 
 	  useEffect(() => {
 	    const handleEsc = (event: KeyboardEvent) => {
@@ -4764,15 +4169,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       });
       setNewlyCreatedNodeId(prev => (prev === node.id ? null : prev));
       if (frenzyNote?.nodeId === node.id) {
-        setFrenzyNote(null);
-        setFrenzyNoteCodeDraft('');
-        setFrenzyNoteDraft('');
-        setFrenzyNoteNameDraft('');
-        setFrenzyNotePromptDraft('');
-        setFrenzyNotePreview(false);
-        setFrenzyNoteIsNewVersion(false);
-        setIsFrenzyCodeEditing(false);
-        setIsDraggingFrenzyNote(false);
+        clearFrenzyNoteState();
       }
 
       showToast(`Deleted ${node.id}. Undo available.`, 'success');
@@ -4790,6 +4187,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentUser,
     domainData,
     removeAuxNodeFromGraph,
+    clearFrenzyNoteState,
     showToolbarTransient,
   ]);
 
@@ -5176,288 +4574,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [currentDomainId, currentDomainName]);
 
-  const buildExportDataForCodes = useCallback(async (codes: string[]) => {
+  const buildSelectionExportData = useCallback(async (codes: string[]) => {
     if (!currentDomainId) {
       throw new Error('No domain selected for export.');
     }
-
-    const selectedCodes = Array.from(new Set(codes.filter((code): code is string => typeof code === 'string' && code.trim().length > 0)));
-    if (selectedCodes.length === 0) {
-      throw new Error('Select at least one node to export.');
-    }
-
-    const selectedDefinitionCodes = new Set<string>();
-    const selectedExerciseCodes = new Set<string>();
-    const selectedSourceCodes = new Set<string>();
-    const selectedQuestCodes = new Set<string>();
-
-    selectedCodes.forEach(code => {
-      if (currentStructuralGraphData.definitions?.[code]) {
-        selectedDefinitionCodes.add(code);
-        return;
-      }
-      if (currentStructuralGraphData.exercises?.[code]) {
-        selectedExerciseCodes.add(code);
-        return;
-      }
-      if (currentStructuralGraphData.sources?.[code]) {
-        selectedSourceCodes.add(code);
-        return;
-      }
-      if (currentStructuralGraphData.quests?.[code]) {
-        selectedQuestCodes.add(code);
-      }
-    });
-
-    const recognizedSelectionCount =
-      selectedDefinitionCodes.size +
-      selectedExerciseCodes.size +
-      selectedSourceCodes.size +
-      selectedQuestCodes.size;
-
-    if (recognizedSelectionCount === 0) {
-      throw new Error('Select definition, exercise, source, or quest nodes to export.');
-    }
-
-    const [metaDefinitionEntries, metaExerciseEntries, metaQuestEntries, domainRelations] = await Promise.all([
-      Promise.all(
-        Array.from(selectedDefinitionCodes).map(async (code) => {
-          const metaId = codeToNumericIdMap.get(code);
-          if (!metaId) {
-            throw new Error(`Missing metadata for definition "${code}".`);
-          }
-          const meta = await getMetaDefinition(metaId);
-          return [code, meta] as const;
-        })
-      ),
-      Promise.all(
-        Array.from(selectedExerciseCodes).map(async (code) => {
-          const metaId = codeToNumericIdMap.get(code);
-          if (!metaId) {
-            throw new Error(`Missing metadata for exercise "${code}".`);
-          }
-          const meta = await getMetaExercise(metaId);
-          return [code, meta] as const;
-        })
-      ),
-      Promise.all(
-        Array.from(selectedQuestCodes).map(async (code) => {
-          const questId = currentStructuralGraphData.quests?.[code]?.id;
-          if (!questId) {
-            throw new Error(`Missing metadata for quest "${code}".`);
-          }
-          const metaQuest = await getQuest(questId);
-          return [code, metaQuest] as const;
-        })
-      ),
-      getDomainRelations(currentDomainId),
-    ]);
-
-    const includedDefinitionCodes = new Set(metaDefinitionEntries.map(([code]) => code));
-    const includedExerciseCodes = new Set(metaExerciseEntries.map(([code]) => code));
-    const allowedPrerequisiteCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
-
-    const exportData: DomainExportData = {};
-
-    if (metaDefinitionEntries.length > 0) {
-      const metaDefinitions: NonNullable<DomainExportData['metaDefinitions']> = {};
-      metaDefinitionEntries.forEach(([code, meta]) => {
-        const { prerequisites, prerequisiteWeights } = prunePrerequisites(
-          meta.prerequisites,
-          meta.prerequisiteWeights,
-          allowedPrerequisiteCodes,
-        );
-        const rawVersions: Array<Partial<DefinitionVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
-          ? meta.versions
-          : [{ prompt: `Define ${meta.name || meta.code}`, type: 'open_ended' }];
-        metaDefinitions[code] = {
-          code: meta.code,
-          name: meta.name,
-          prerequisites,
-          prerequisiteWeights,
-          xPosition: meta.xPosition,
-          yPosition: meta.yPosition,
-          versions: rawVersions.map(version => ({
-            prompt: (version.prompt || '').trim() || `Define ${meta.name || meta.code}`,
-            type: (version.type || '').trim() || 'open_ended',
-            description: version.description || undefined,
-            notes: version.notes || undefined,
-            references: Array.isArray(version.references) ? version.references : [],
-            promptImagePath: version.promptImagePath || undefined,
-            descriptionImagePath: version.descriptionImagePath || undefined,
-          })),
-        };
-      });
-      exportData.metaDefinitions = metaDefinitions;
-    }
-
-    if (metaExerciseEntries.length > 0) {
-      const metaExercises: NonNullable<DomainExportData['metaExercises']> = {};
-      metaExerciseEntries.forEach(([code, meta]) => {
-        const { prerequisites, prerequisiteWeights } = prunePrerequisites(
-          meta.prerequisites,
-          meta.prerequisiteWeights,
-          allowedPrerequisiteCodes,
-        );
-        const rawVersions: Array<Partial<ExerciseVersion>> = Array.isArray(meta.versions) && meta.versions.length > 0
-          ? meta.versions
-          : [{ statement: `Solve: ${meta.name || meta.code}`, difficulty: 3 }];
-        metaExercises[code] = {
-          code: meta.code,
-          name: meta.name,
-          prerequisites,
-          prerequisiteWeights,
-          xPosition: meta.xPosition,
-          yPosition: meta.yPosition,
-          versions: rawVersions.map(version => ({
-            statement: (version.statement || '').trim() || `Solve: ${meta.name || meta.code}`,
-            description: version.description || undefined,
-            hints: version.hints || undefined,
-            verifiable: version.verifiable,
-            result: version.result || undefined,
-            difficulty: typeof version.difficulty === 'number' ? version.difficulty : 3,
-            notes: version.notes || undefined,
-            statementImagePath: version.statementImagePath || undefined,
-            descriptionImagePath: version.descriptionImagePath || undefined,
-          })),
-        };
-      });
-      exportData.metaExercises = metaExercises;
-    }
-
-    if (selectedSourceCodes.size > 0) {
-      const sources: NonNullable<DomainExportData['sources']> = {};
-      Array.from(selectedSourceCodes).forEach(code => {
-        const source = currentStructuralGraphData.sources?.[code];
-        if (!source) return;
-        sources[code] = {
-          code: source.code,
-          title: source.title,
-          contentMd: source.contentMd,
-          bibtexKey: source.bibtexKey ?? null,
-          filePath: source.filePath ?? null,
-          xPosition: source.xPosition,
-          yPosition: source.yPosition,
-        };
-      });
-      if (Object.keys(sources).length > 0) {
-        exportData.sources = sources;
-      }
-    }
-
-    if (metaQuestEntries.length > 0) {
-      const metaQuests: NonNullable<DomainExportData['metaQuests']> = {};
-      metaQuestEntries.forEach(([code, metaQuest]) => {
-        const rawVersions: Array<Partial<QuestVersionDTO>> = Array.isArray(metaQuest.versions) && metaQuest.versions.length > 0
-          ? metaQuest.versions
-          : [{ title: metaQuest.name || metaQuest.code }];
-        metaQuests[code] = {
-          code: metaQuest.code,
-          name: metaQuest.name,
-          kind: metaQuest.kind,
-          schedule: metaQuest.schedule,
-          xPosition: metaQuest.xPosition,
-          yPosition: metaQuest.yPosition,
-          versions: rawVersions.map(version => ({
-            title: (version.title || '').trim() || metaQuest.name || metaQuest.code,
-            descriptionMd: version.descriptionMd || undefined,
-            taskList: version.taskList,
-            imagePath: version.imagePath || undefined,
-          })),
-        };
-      });
-      exportData.metaQuests = metaQuests;
-    }
-
-    const selectedCodeByTypedId = new Map<string, string>();
-    includedDefinitionCodes.forEach(code => {
-      const id = codeToNumericIdMap.get(code);
-      if (id) selectedCodeByTypedId.set(`meta_definition:${id}`, code);
-    });
-    includedExerciseCodes.forEach(code => {
-      const id = codeToNumericIdMap.get(code);
-      if (id) selectedCodeByTypedId.set(`meta_exercise:${id}`, code);
-    });
-    Array.from(selectedSourceCodes).forEach(code => {
-      const id = currentStructuralGraphData.sources?.[code]?.id;
-      if (id) selectedCodeByTypedId.set(`source:${id}`, code);
-    });
-    Array.from(selectedQuestCodes).forEach(code => {
-      const id = currentStructuralGraphData.quests?.[code]?.id;
-      if (id) selectedCodeByTypedId.set(`meta_quest:${id}`, code);
-    });
-
-    const relations = domainRelations.reduce<NonNullable<DomainExportData['relations']>>((acc, relation) => {
-      const fromCode = selectedCodeByTypedId.get(`${relation.fromType}:${relation.fromId}`);
-      const toCode = selectedCodeByTypedId.get(`${relation.toType}:${relation.toId}`);
-      if (!fromCode || !toCode) return acc;
-      acc.push({
-        fromType: relation.fromType,
-        fromCode,
-        toType: relation.toType,
-        toCode,
-        relationType: relation.relationType,
-        contextKey: relation.contextKey,
-      });
-      return acc;
-    }, []);
-    if (relations.length > 0) {
-      exportData.relations = relations;
-    }
-
-    const selectedGroupCodes = new Set([...includedDefinitionCodes, ...includedExerciseCodes]);
-    if (selectedGroupCodes.size > 0 && domainGroups.length > 0) {
-      const groups = domainGroups.reduce<NonNullable<DomainExportData['groups']>>((acc, group) => {
-        const seeds = (group.seeds || [])
-          .filter(seed => selectedGroupCodes.has(seed.nodeCode))
-          .map(seed => ({
-            nodeType: seed.nodeType,
-            code: seed.nodeCode,
-          }));
-        if (seeds.length === 0) return acc;
-        const members = (group.members || [])
-          .filter(member => selectedGroupCodes.has(member.nodeCode))
-          .map(member => ({
-            nodeType: member.nodeType,
-            code: member.nodeCode,
-          }));
-        acc.push({
-          name: group.name,
-          isExact: group.isExact,
-          xPosition: group.xPosition,
-          yPosition: group.yPosition,
-          seeds,
-          members: members.length > 0 ? members : undefined,
-        });
-        return acc;
-      }, []);
-      if (groups.length > 0) {
-        exportData.groups = groups;
-      }
-    }
-
-    const exportedNodeCount =
-      Object.keys(exportData.metaDefinitions || {}).length +
-      Object.keys(exportData.metaExercises || {}).length +
-      Object.keys(exportData.sources || {}).length +
-      Object.keys(exportData.metaQuests || {}).length;
-
-    if (exportedNodeCount === 0) {
-      throw new Error('No exportable nodes were found in the current selection.');
-    }
-
-    const orderedExportedCodes = selectedCodes.filter(code => (
-      includedDefinitionCodes.has(code) ||
-      includedExerciseCodes.has(code) ||
-      selectedSourceCodes.has(code) ||
-      selectedQuestCodes.has(code)
-    ));
-
-    return {
-      exportData,
-      exportedNodeCount,
-      orderedExportedCodes,
-    };
+    return buildExportDataForCodes({
+      domainId: currentDomainId,
+      graphData: currentStructuralGraphData,
+      codeToNumericIdMap,
+      domainGroups,
+    }, codes);
   }, [
     currentDomainId,
     currentStructuralGraphData,
@@ -5481,7 +4607,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     try {
       showToast(`Exporting selected nodes as ${format.toUpperCase()}...`, 'info', 2000);
 
-      const { exportData, exportedNodeCount, orderedExportedCodes } = await buildExportDataForCodes(selectedCodes);
+      const { exportData, exportedNodeCount, orderedExportedCodes } = await buildSelectionExportData(selectedCodes);
 
       const nodeNameByCode = new Map(stableGraph.nodes.map(node => [node.id, node.name || node.id]));
       const filenameParts = orderedExportedCodes
@@ -5511,7 +4637,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentDomainId,
     currentDomainName,
     selectedNodeIds,
-    buildExportDataForCodes,
+    buildSelectionExportData,
     stableGraph.nodes,
   ]);
 
@@ -5524,7 +4650,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
     setIsCopyingSelectionYaml(true);
     try {
-      const { exportData, exportedNodeCount } = await buildExportDataForCodes(selectedCodes);
+      const { exportData, exportedNodeCount } = await buildSelectionExportData(selectedCodes);
       const yamlContent = serializeDomainExportData(exportData, 'yaml');
       await copyTextToClipboard(yamlContent);
       showToast(
@@ -5537,12 +4663,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setIsCopyingSelectionYaml(false);
     }
-  }, [selectedNodeIds, buildExportDataForCodes]);
+  }, [selectedNodeIds, buildSelectionExportData]);
 
   const handleCopyNodeYamlToClipboard = useCallback(async (windowId: string, nodeCode: string, nodeLabel: string) => {
     setCopyingWindowId(windowId);
     try {
-      const { exportData } = await buildExportDataForCodes([nodeCode]);
+      const { exportData } = await buildSelectionExportData([nodeCode]);
       const yamlContent = serializeDomainExportData(exportData, 'yaml');
       await copyTextToClipboard(yamlContent);
       showToast(`Copied "${nodeLabel}" as YAML.`, 'success');
@@ -5552,7 +4678,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     } finally {
       setCopyingWindowId(prev => (prev === windowId ? null : prev));
     }
-  }, [buildExportDataForCodes]);
+  }, [buildSelectionExportData]);
 
   const getWindowCopyTarget = useCallback((windowState: any): { code: string; label: string } | null => {
     if (!windowState || typeof windowState !== 'object') {
@@ -5758,32 +4884,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     showToolbarTransient,
   ]);
 
-  type ToolboxButtonOptions = {
-    variant?: "outline" | "secondary" | "ghost" | "destructive";
-    enabled?: boolean;
-    onClick?: () => void;
-  };
-
-  const toolboxButton = useCallback(
-    (label: string, icon: React.ReactNode, options: ToolboxButtonOptions = {}) => {
-      const { variant = "outline", enabled = true, onClick } = options;
-      const isCompact = toolbarDisplayMode === 'compact';
-      const hasIcon = icon !== null && icon !== undefined && icon !== false;
-      return (
-        <Button
-          variant={variant}
-          size="sm"
-          title={label}
-          aria-label={label}
-          disabled={!enabled}
-          onClick={enabled ? onClick : undefined}
-          className={isCompact ? "h-4 w-4 p-0" : "h-4 px-1.5 py-0 text-[9px] leading-none gap-1"}
-        >
-          {hasIcon ? icon : <span className="text-[9px] font-medium leading-none">{label}</span>}
-          {!isCompact && hasIcon && <span className="text-[9px] font-medium leading-none">{label}</span>}
-        </Button>
-      );
-    },
+  const toolboxButton = useMemo(
+    () => createToolboxButtonRenderer(toolbarDisplayMode),
     [toolbarDisplayMode]
   );
 
@@ -5965,348 +5067,65 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     </select>
   ), [groupSelectValue, handleToolbarGroupSelect, hasGroups, groupSummaries]);
 
-  const toolboxLayouts: ToolbarLayout[] = useMemo(() => ([
-    {
-      id: 'edit',
-      label: 'Edit',
-      handleIcon: <Pencil size={9} />,
-      sections: [
-        {
-          id: 'node-create',
-          title: 'Node',
-          rows: [
-            [
-              toolboxButton('Definition', <LifeBuoy size={10} />, {
-                onClick: () => void createFrenzyNode('definition'),
-                enabled: canUseEditTools,
-              }),
-              toolboxButton('Exercise', <Anchor size={10} />, {
-                onClick: () => void createFrenzyNode('exercise'),
-                enabled: canUseEditTools,
-                variant: 'secondary',
-              }),
-            ],
-            [
-              toolboxButton('Quest', <RadioTower size={10} />, {
-                onClick: () => void createFrenzyNode('quest'),
-                enabled: canUseEditTools,
-                variant: 'ghost',
-              }),
-              toolboxButton('Source', <Compass size={10} />, {
-                onClick: () => void createFrenzyNode('source'),
-                enabled: canUseEditTools,
-                variant: 'ghost',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'select',
-          title: 'Select',
-          rows: [
-            [
-              toolboxButton('Box Select', <Maximize size={10} />, {
-                onClick: toggleBoxSelectionMode,
-                variant: isBoxSelectionMode ? 'secondary' : 'outline',
-              }),
-              toolboxButton('Multi Select', <List size={10} />, { enabled: false, variant: 'ghost' }),
-            ],
-            [
-              toolboxButton('Clear', <EyeOff size={10} />, {
-                onClick: handleClearSelection,
-                enabled: selectedNodeIds.size > 0,
-                variant: 'ghost',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'graph',
-          title: 'Graph',
-          rows: [
-            [
-              toolboxButton('Link', <Link2 size={10} />, {
-                onClick: () => void handleFrenzyToolChange('link'),
-                enabled: canUseEditTools,
-              }),
-              toolboxButton('Unlink', <Unlink size={10} />, {
-                onClick: () => void handleFrenzyToolChange('unlink'),
-                enabled: canUseEditTools,
-                variant: 'ghost',
-              }),
-              toolboxButton('Delete', <Trash2 size={10} />, {
-                onClick: () => void handleFrenzyToolChange('delete'),
-                enabled: canUseEditTools,
-                variant: 'destructive',
-              }),
-            ],
-            ...(lastDeletedNode ? [[
-              toolboxButton('Undo delete', <Undo2 size={10} />, {
-                onClick: () => void undoFrenzyDelete(),
-                enabled: canUseEditTools,
-                variant: 'ghost',
-              })
-            ]] : []),
-          ],
-        },
-      ],
-    },
-    {
-      id: 'normal',
-      label: 'Normal',
-      handleIcon: <MousePointer size={9} />,
-      sections: [
-        {
-          id: 'select-normal',
-          title: 'Select',
-          rows: [
-            [
-              toolboxButton('Clear', <EyeOff size={10} />, {
-                onClick: handleClearSelection,
-                enabled: selectedNodeIds.size > 0,
-                variant: 'ghost',
-              }),
-              toolboxButton('Add', <Plus size={10} />, {
-                onClick: () => toggleSelectionTool('add'),
-                variant: selectionTool === 'add' ? 'secondary' : 'outline',
-              }),
-              toolboxButton('Remove', <Minus size={10} />, {
-                onClick: () => toggleSelectionTool('remove'),
-                variant: selectionTool === 'remove' ? 'secondary' : 'ghost',
-              }),
-            ],
-            [
-              toolboxButton('Move', <Move size={10} />, {
-                onClick: () => toggleSelectionTool('move'),
-                variant: selectionTool === 'move' ? 'secondary' : 'outline',
-              }),
-              toolboxButton('Parents', <ArrowUp size={10} />, {
-                onClick: handleAddParentsToSelection,
-                enabled: selectedNodeIds.size > 0,
-                variant: 'ghost',
-              }),
-              toolboxButton('Children', <ArrowDown size={10} />, {
-                onClick: handleAddChildrenToSelection,
-                enabled: selectedNodeIds.size > 0,
-                variant: 'ghost',
-              }),
-            ],
-            [
-              toolboxButton('Box Select', <Maximize size={10} />, {
-                onClick: toggleBoxSelectionMode,
-                variant: isBoxSelectionMode ? 'secondary' : 'ghost',
-              }),
-              toolboxButton('Select group', <Users size={10} />, {
-                onClick: handleSelectGroupMembers,
-                enabled: canSelectGroupMembers,
-                variant: 'ghost',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'flag',
-          title: 'Flag',
-          rows: [
-            [
-              toolboxButton('Grasping', <FlagTriangleLeft size={10} />, {
-                onClick: () => void handleFlagSelection('grasped', 'Grasping'),
-                enabled: flaggableSelection.length > 0,
-              }),
-            ],
-            [
-              toolboxButton('Tackling', <Flag size={10} />, {
-                onClick: () => void handleFlagSelection('tackling', 'Tackling'),
-                enabled: flaggableSelection.length > 0,
-                variant: 'ghost',
-              }),
-            ],
-            [
-              toolboxButton('Learned', <Check size={10} />, {
-                onClick: () => void handleFlagSelection('learned', 'Learned'),
-                enabled: flaggableSelection.length > 0,
-                variant: 'ghost',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'display',
-          title: 'Display',
-          rows: [
-            [
-              toolboxButton('Fit', <Maximize size={10} />, {
-                onClick: () => zoomToFitVisibleNodes(400),
-              }),
-            ],
-            [
-              toolboxButton(labelDisplayLabel, <Eye size={10} />, {
-                onClick: cycleLabelDisplay,
-              }),
-            ],
-            [
-	              toolboxButton(labelBackgroundLabel, <Layers size={10} />, {
-	                onClick: toggleLabelBackground,
-	                variant: labelBackgroundMode === 'off' ? 'ghost' : labelBackgroundMode === 'behind_links' ? 'outline' : 'secondary',
-	              }),
-	            ],
-            [
-              toolboxButton(questDisplayLabel, <RadioTower size={10} />, {
-                onClick: cycleQuestVisibility,
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'group',
-          title: 'Group',
-          collapsible: true,
-          defaultExpanded: false,
-          rows: [
-            [
-              groupSelectControl,
-            ],
-            [
-              toolboxButton('Collapse', <EyeOff size={10} />, {
-                onClick: () => {
-                  if (toolbarGroupId) toggleGroupCollapse(toolbarGroupId, true);
-                },
-                enabled: canModifyGroup && !selectedGroupSummary?.collapsed,
-                variant: 'ghost',
-              }),
-              toolboxButton('Expand', <Eye size={10} />, {
-                onClick: () => {
-                  if (toolbarGroupId) toggleGroupCollapse(toolbarGroupId, false);
-                },
-                enabled: canModifyGroup && !!selectedGroupSummary?.collapsed,
-                variant: 'ghost',
-              }),
-              toolboxButton('Add', <UserPlus size={10} />, {
-                onClick: () => void handleAddSelectionToGroup(),
-                enabled: canEditGroupSelection,
-              }),
-              toolboxButton('Remove', <UserMinus size={10} />, {
-                onClick: () => void handleRemoveSelectionFromGroup(),
-                enabled: canEditGroupSelection,
-                variant: 'ghost',
-              }),
-            ],
-            [
-              toolboxButton('Create group', <Plus size={10} />, {
-                onClick: handleCreateGroupPrompt,
-                enabled: canEdit && selectableGroupCodes.length > 0,
-              }),
-              toolboxButton('Delete group', <Trash2 size={10} />, {
-                onClick: handleDeleteGroupPrompt,
-                enabled: canEdit && !!toolbarGroupId,
-                variant: 'destructive',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'dag',
-          title: 'DAG',
-          collapsible: true,
-          defaultExpanded: false,
-          rows: [
-            [
-              toolboxButton(dagModeEnabled ? 'DAG On' : 'DAG Off', <Link2 size={10} />, {
-                onClick: handleToggleDagMode,
-                variant: dagModeEnabled ? 'secondary' : 'outline',
-              }),
-              (
-                <div key="dag-controls" className={dagModeEnabled ? "flex flex-col gap-0.5" : "flex flex-col gap-0.5 opacity-50"}>
-                  {toolboxButton(
-                    dagOrientation === 'bu' ? 'Bottom-Up' : 'Top-Down',
-                    dagOrientation === 'bu' ? <ArrowUp size={10} /> : <ArrowDown size={10} />,
-                    {
-                      onClick: toggleDagVertical,
-                      enabled: dagModeEnabled,
-                      variant: 'ghost',
-                    }
-                  )}
-                  {toolboxButton(
-                    dagOrientation === 'rl' ? 'Right-Left' : 'Left-Right',
-                    dagOrientation === 'rl' ? <ArrowLeft size={10} /> : <ArrowRight size={10} />,
-                    {
-                      onClick: toggleDagHorizontal,
-                      enabled: dagModeEnabled,
-                      variant: 'ghost',
-                    }
-                  )}
-                  {toolboxButton(
-                    dagOrientation === 'radialin' ? 'Radial In' : 'Radial Out',
-                    <RefreshCw size={10} />,
-                    {
-                      onClick: toggleDagRadial,
-                      enabled: dagModeEnabled,
-                      variant: 'ghost',
-                    }
-                  )}
-                </div>
-              ),
-            ],
-          ],
-        },
-        {
-          id: 'info',
-          title: 'Info',
-          collapsible: true,
-          defaultExpanded: false,
-          rows: [
-            [
-              infoSectionContent,
-            ],
-          ],
-        },
-        {
-          id: 'io',
-          title: 'I/O',
-          collapsible: true,
-          defaultExpanded: false,
-          rows: [
-            [
-              toolboxButton('Import', <Upload size={10} />, {
-                onClick: handleToolbarImport,
-                enabled: canImport,
-                variant: 'ghost',
-              }),
-              toolboxButton('Export', isExporting ? <RefreshCw size={10} className="animate-spin" /> : <Download size={10} />, {
-                onClick: () => void handleToolbarExport(),
-                enabled: canExport && !isExporting && !isCopyingSelectionYaml,
-              }),
-            ],
-            [
-              toolboxButton('Copy', isCopyingSelectionYaml ? <RefreshCw size={10} className="animate-spin" /> : <Copy size={10} />, {
-                onClick: () => void handleToolbarCopySelectedYaml(),
-                enabled: canExport && selectedNodeIds.size > 0 && !isCopyingSelectionYaml && !isExporting,
-                variant: 'ghost',
-              }),
-              toolboxButton('Share', <Users size={10} />, {
-                onClick: handleToolbarShare,
-                enabled: canShare,
-                variant: 'ghost',
-              }),
-            ],
-          ],
-        },
-        {
-          id: 'save',
-          title: 'Save',
-          rows: [
-            [
-              toolboxButton('Save', <Save size={10} />, {
-                onClick: () => void savePositions(),
-                enabled: positionsChanged && !isSavingPositions && canEdit,
-                variant: positionsChanged ? 'secondary' : 'outline',
-              }),
-            ],
-          ],
-        },
-      ],
-    },
-  ]), [
+  const toolboxLayouts: ToolbarLayout[] = useMemo(() => buildToolboxLayouts({
+    toolboxButton,
+    canEdit,
+    canUseEditTools,
+    selectedCount: selectedNodeIds.size,
+    selectionTool,
+    isBoxSelectionMode,
+    flaggableCount: flaggableSelection.length,
+    selectableGroupCount: selectableGroupCodes.length,
+    hasUndoableDelete: !!lastDeletedNode,
+    toolbarGroupId,
+    canModifyGroup,
+    canEditGroupSelection,
+    canSelectGroupMembers,
+    selectedGroupCollapsed: !!selectedGroupSummary?.collapsed,
+    groupSelectControl,
+    dagModeEnabled,
+    dagOrientation,
+    labelDisplayLabel,
+    labelBackgroundLabel,
+    labelBackgroundMode,
+    questDisplayLabel,
+    infoSectionContent,
+    positionsChanged,
+    isSavingPositions,
+    isExporting,
+    isCopyingSelectionYaml,
+    canImport,
+    canExport,
+    canShare,
+    createFrenzyNode,
+    handleFrenzyToolChange,
+    undoFrenzyDelete,
+    handleClearSelection,
+    toggleSelectionTool,
+    handleAddParentsToSelection,
+    handleAddChildrenToSelection,
+    toggleBoxSelectionMode,
+    handleSelectGroupMembers,
+    handleFlagSelection,
+    zoomToFitVisibleNodes,
+    cycleLabelDisplay,
+    toggleLabelBackground,
+    cycleQuestVisibility,
+    toggleGroupCollapse,
+    handleAddSelectionToGroup,
+    handleRemoveSelectionFromGroup,
+    handleCreateGroupPrompt,
+    handleDeleteGroupPrompt,
+    handleToggleDagMode,
+    toggleDagVertical,
+    toggleDagHorizontal,
+    toggleDagRadial,
+    handleToolbarImport,
+    handleToolbarExport: () => void handleToolbarExport(),
+    handleToolbarCopySelectedYaml,
+    handleToolbarShare,
+    savePositions,
+  }), [
     toolboxButton,
     createFrenzyNode,
     canUseEditTools,
@@ -7104,40 +5923,16 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	              className="kg-font-toolbar"
 	            />
             {isRefreshing ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
-              </div>
+              <GraphLoadingState />
             ) : (isProcessingData && stableGraph.nodes.length === 0) ? (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
-                <p className="text-lg">This domain is empty.</p>
-                <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
-                {!canEdit && (
-                  <p className="mt-1 text-sm text-gray-400">Only domain owners or editors can create nodes.</p>
-                )}
-                <div className="mt-4 flex items-center gap-2">
-                  <Button
-                    onClick={() => createNewNode('definition')}
-                    size="sm"
-                    disabled={!canEdit}
-                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
-                  >
-                    Create Definition
-                  </Button>
-                  <Button
-                    onClick={() => createNewNode('exercise')}
-                    variant="outline"
-                    size="sm"
-                    disabled={!canEdit}
-                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
-                  >
-                    Create Exercise
-                  </Button>
-                </div>
-              </div>
+              <EmptyDomainState
+                title="This domain is empty."
+                canEdit={canEdit}
+                onCreateDefinition={() => createNewNode('definition')}
+                onCreateExercise={() => createNewNode('exercise')}
+              />
             ) : isProcessingData ? (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Loading graph data... <RefreshCw className="ml-2 animate-spin" size={18} />
-              </div>
+              <GraphLoadingState />
             ) : stableGraph.nodes.length > 0 ? (
               <GraphContainer
                 graphRef={graphRef}
@@ -7171,35 +5966,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                 isNightMode={isNightMode}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
-                <p className="text-lg">No graph data to display for this domain.</p>
-                <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
-                {!canEdit && (
-                  <p className="mt-1 text-sm text-gray-400">Only domain owners or editors can create nodes.</p>
+              <EmptyDomainState
+                title="No graph data to display for this domain."
+                canEdit={canEdit}
+                onCreateDefinition={() => createNewNode('definition')}
+                onCreateExercise={() => createNewNode('exercise')}
+                footer={(
+                  <Button onClick={refreshGraphAndSRSData} variant="ghost" size="sm" className="mt-3">
+                    <RefreshCw size={14} className="mr-1.5" /> Refresh
+                  </Button>
                 )}
-                <div className="mt-4 flex items-center gap-2">
-                  <Button
-                    onClick={() => createNewNode('definition')}
-                    size="sm"
-                    disabled={!canEdit}
-                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
-                  >
-                    Create Definition
-                  </Button>
-                  <Button
-                    onClick={() => createNewNode('exercise')}
-                    variant="outline"
-                    size="sm"
-                    disabled={!canEdit}
-                    title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
-                  >
-                    Create Exercise
-                  </Button>
-                </div>
-                <Button onClick={refreshGraphAndSRSData} variant="ghost" size="sm" className="mt-3">
-                  <RefreshCw size={14} className="mr-1.5" /> Refresh
-                </Button>
-              </div>
+              />
             )}
 
             {isBoxSelectionMode && !isProcessingData && !isRefreshing && stableGraph.nodes.length > 0 && (
@@ -7274,346 +6051,46 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
             )}
 
 	            {frenzyNote && (
-	              <div
-	                ref={frenzyNoteRef}
-	                className="kg-font-ui frenzy-note-theme absolute z-40 w-[420px] min-w-[320px] min-h-[240px] max-w-[calc(100vw-1rem)] max-h-[80vh] bg-yellow-100 border border-yellow-300 rounded-md shadow-xl flex flex-col overflow-hidden"
-	                style={{
-                    left: frenzyNotePosition.x,
-                    top: frenzyNotePosition.y,
-                    width: frenzyNoteSize?.width,
-                    height: frenzyNoteSize?.height,
-                  }}
-	              >
-                <div className="frenzy-note-theme-header px-3 pt-3 pb-2 border-b border-yellow-300 bg-yellow-100/95">
-                  <div
-                    className="flex items-start justify-between gap-2 cursor-move select-none"
-                    onMouseDown={handleFrenzyNoteMouseDown}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-yellow-900 truncate">
-                        {frenzyNoteNameDraft.trim() || frenzyNote.nodeName}
-                      </div>
-                      {isFrenzyCodeEditing ? (
-                        <input
-                          value={frenzyNoteCodeDraft}
-                          onChange={(e) => setFrenzyNoteCodeDraft(e.target.value)}
-                          onBlur={() => {
-                            const hasConflict = frenzyCodeConflict;
-                            void saveFrenzyNote();
-                            if (!hasConflict) setIsFrenzyCodeEditing(false);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              const hasConflict = frenzyCodeConflict;
-                              void saveFrenzyNote();
-                              if (!hasConflict) setIsFrenzyCodeEditing(false);
-                            } else if (event.key === 'Escape') {
-                              event.preventDefault();
-                              setIsFrenzyCodeEditing(false);
-                            }
-                          }}
-                          autoFocus
-                          disabled={frenzyNoteIsNewVersion}
-                          className={`mt-0.5 h-6 w-full max-w-[140px] bg-yellow-50 border rounded px-1.5 text-[11px] focus:outline-none focus:ring-2 ${
-                            frenzyCodeConflict
-                              ? 'border-red-400 focus:ring-red-200 text-red-700'
-                              : 'border-yellow-200 focus:ring-yellow-300 text-gray-800'
-                          } ${frenzyNoteIsNewVersion ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          aria-invalid={frenzyCodeConflict}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (frenzyNoteIsNewVersion || isSavingFrenzyNote) return;
-                            setIsFrenzyCodeEditing(true);
-                          }}
-                          disabled={frenzyNoteIsNewVersion || isSavingFrenzyNote}
-                          className={`mt-0.5 text-[11px] text-left truncate ${
-                            frenzyNoteIsNewVersion || isSavingFrenzyNote
-                              ? 'text-yellow-700/70 cursor-default'
-                              : 'text-yellow-700 hover:underline'
-                          }`}
-                          title="Click to edit code"
-                        >
-                          {frenzyNoteCodeDraft.trim() || frenzyNote.nodeId}
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-start gap-2">
-                      {frenzyNote.nodeType !== 'source' && frenzyNote.allVersions.length > 0 && (
-                        <div className="flex items-center gap-1">
-                          <VersionHeaderControls
-                            index={frenzyNote.versionIndex}
-                            count={frenzyNote.allVersions.length}
-                            onPrevious={() => {
-                              void handleFrenzyVersionNavigation(frenzyNote.versionIndex - 1);
-                            }}
-                            onNext={() => {
-                              void handleFrenzyVersionNavigation(frenzyNote.versionIndex + 1);
-                            }}
-                            onAdd={() => {
-                              void handleFrenzyAddVersion();
-                            }}
-                            onDelete={() => {
-                              void handleFrenzyDeleteVersion();
-                            }}
-                            addDisabled={isSavingFrenzyNote || frenzyNoteIsNewVersion}
-                            deleteDisabled={isSavingFrenzyNote || frenzyNoteIsNewVersion || frenzyNote.allVersions.length <= 1}
-                            compact
-                            className="rounded-md border border-yellow-300 bg-yellow-50/70 px-0.5 py-0"
-                          />
-                          {frenzyNoteIsNewVersion && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={cancelFrenzyNewVersion}
-                              className="h-7 px-2 text-[11px] text-red-600"
-                            >
-                              Cancel draft
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={closeFrenzyNote}
-                        disabled={isSavingFrenzyNote}
-                        className="h-7 w-7"
-                        title="Close"
-                      >
-                        <X size={14} />
-                      </Button>
-                      </div>
-                    </div>
-                  </div>
-                  {frenzyCodeConflict && (
-                    <div className="mt-1 text-xs text-red-600">
-                      Code already exists in this domain.
-                    </div>
-                  )}
-
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
-                  <div className="mb-2">
-                    <label className="block text-xs text-yellow-800 mb-1">Name</label>
-                    <input
-                      value={frenzyNoteNameDraft}
-                      onChange={(e) => setFrenzyNoteNameDraft(e.target.value)}
-                      onBlur={() => saveFrenzyNote()}
-                      disabled={frenzyNoteIsNewVersion}
-                      className={`w-full bg-yellow-50 border border-yellow-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800 ${frenzyNoteIsNewVersion ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    />
-                  </div>
-                  {frenzyNote.nodeType === 'definition' && (
-                    <div className="mb-2">
-                      <label className="block text-xs text-yellow-800 mb-1">Review Prompt</label>
-                      {frenzyNotePreview ? (
-                        <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-32 overflow-y-auto">
-                          <MarkdownKatex className="whitespace-pre-wrap">
-                            {frenzyNotePromptDraft || frenzyNote.defaultPrompt}
-                          </MarkdownKatex>
-                        </div>
-                      ) : (
-                        <textarea
-                          value={frenzyNotePromptDraft}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setFrenzyNotePromptDraft(value);
-                            if (frenzyNote.isAutoPrompt && value !== frenzyNote.defaultPrompt) {
-                              setFrenzyNote(prev => prev ? { ...prev, isAutoPrompt: false } : prev);
-                            }
-                          }}
-                          onPaste={(e) => handleFrenzyPaste(e, 'prompt')}
-                          onFocus={(e) => {
-                            if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
-                              e.currentTarget.select();
-                            }
-                          }}
-                          onClick={(e) => {
-                            if (frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt) {
-                              e.currentTarget.select();
-                            }
-                          }}
-	                          onBlur={() => saveFrenzyNote()}
-	                          rows={3}
-	                          className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
-	                            frenzyNote.isAutoPrompt && frenzyNotePromptDraft === frenzyNote.defaultPrompt ? 'text-gray-500' : 'text-gray-800'
-	                          }`}
-	                        />
-                      )}
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        {frenzyNotePromptImagePath ? (
-                          <ZoomableImage src={frenzyNotePromptImagePath} alt="Prompt image" maxHeightClass="max-h-24" className="max-w-[180px]" />
-                        ) : (
-                          <span className="text-[11px] text-yellow-700">No prompt image</span>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <input
-                            ref={frenzyPromptImageInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) uploadFrenzyImage(file, 'prompt');
-                              if (e.currentTarget) e.currentTarget.value = '';
-                            }}
-                          />
-                          <Button size="sm" variant="outline" onClick={() => frenzyPromptImageInputRef.current?.click()}>
-                            Upload Image
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="mb-2">
-                    <label className="block text-xs text-yellow-800 mb-1">
-                      {frenzyNote.nodeType === 'definition'
-                        ? 'Definition'
-                        : frenzyNote.nodeType === 'source'
-                          ? 'Source'
-                          : 'Statement'}
-                    </label>
-                    {frenzyNotePreview ? (
-                      <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-56 overflow-y-auto">
-                        <MarkdownKatex className="whitespace-pre-wrap">
-                          {frenzyNoteDraft || frenzyNote.defaultContent}
-                        </MarkdownKatex>
-                      </div>
-                    ) : (
-                      <textarea
-                        value={frenzyNoteDraft}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setFrenzyNoteDraft(value);
-                          if (frenzyNote.isAutoContent && value !== frenzyNote.defaultContent) {
-                            setFrenzyNote(prev => prev ? { ...prev, isAutoContent: false } : prev);
-                          }
-                        }}
-                        onPaste={(e) => handleFrenzyPaste(e, 'content')}
-                        onFocus={(e) => {
-                          if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
-                            e.currentTarget.select();
-                          }
-                        }}
-                        onClick={(e) => {
-                          if (frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent) {
-                            e.currentTarget.select();
-                          }
-                        }}
-	                        onBlur={() => saveFrenzyNote()}
-	                        rows={6}
-	                        placeholder={frenzyNote.defaultContent}
-	                        className={`w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-yellow-300 ${
-	                          frenzyNote.isAutoContent && frenzyNoteDraft === frenzyNote.defaultContent ? 'text-gray-500' : 'text-gray-800'
-	                        }`}
-	                      />
-                    )}
-                    {frenzyNote.nodeType !== 'source' && (
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        {frenzyNoteContentImagePath ? (
-                          <ZoomableImage src={frenzyNoteContentImagePath} alt="Content image" maxHeightClass="max-h-24" className="max-w-[180px]" />
-                        ) : (
-                          <span className="text-[11px] text-yellow-700">No image attached</span>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <input
-                            ref={frenzyContentImageInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) uploadFrenzyImage(file, 'content');
-                              if (e.currentTarget) e.currentTarget.value = '';
-                            }}
-                          />
-                          <Button size="sm" variant="outline" onClick={() => frenzyContentImageInputRef.current?.click()}>
-                            Upload Image
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {frenzyNote.nodeType === 'exercise' && (
-                    <div className="mb-2">
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs text-yellow-800">Solution</label>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setShowFrenzySolution(prev => !prev)}
-                          className="text-[11px]"
-                        >
-                          {showFrenzySolution ? 'Hide' : 'Show'}
-                        </Button>
-                      </div>
-                      {showFrenzySolution && (
-                        <>
-                          {frenzyNotePreview ? (
-                            <div className="bg-white border border-yellow-200 rounded p-2 text-sm max-h-40 overflow-y-auto">
-                              <MarkdownKatex className="whitespace-pre-wrap">
-                                {frenzyNoteSolutionDraft || 'No solution'}
-                              </MarkdownKatex>
-                            </div>
-                          ) : (
-                            <textarea
-                              value={frenzyNoteSolutionDraft}
-                              onChange={(e) => setFrenzyNoteSolutionDraft(e.target.value)}
-                              onPaste={(e) => handleFrenzyPaste(e, 'solution')}
-	                              onBlur={() => saveFrenzyNote()}
-	                              rows={4}
-	                              placeholder="Solution or explanation..."
-	                              className="w-full bg-yellow-50 border border-yellow-200 rounded p-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-yellow-300 text-gray-800"
-	                            />
-	                          )}
-                          <div className="mt-2 flex items-center justify-between gap-2">
-                            {frenzyNoteSolutionImagePath ? (
-                              <ZoomableImage src={frenzyNoteSolutionImagePath} alt="Solution image" maxHeightClass="max-h-24" className="max-w-[180px]" />
-                            ) : (
-                              <span className="text-[11px] text-yellow-700">No solution image</span>
-                            )}
-                            <div className="flex items-center gap-2">
-                              <input
-                                ref={frenzySolutionImageInputRef}
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) uploadFrenzyImage(file, 'solution');
-                                  if (e.currentTarget) e.currentTarget.value = '';
-                                }}
-                              />
-                              <Button size="sm" variant="outline" onClick={() => frenzySolutionImageInputRef.current?.click()}>
-                                Upload Image
-                              </Button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  <div className="mt-2 flex items-center justify-between">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setFrenzyNotePreview(prev => !prev)}
-                    >
-                      {frenzyNotePreview ? 'Edit' : 'Preview'}
-                    </Button>
-                    {isSavingFrenzyNote && (
-                      <span className="text-xs text-gray-600">Saving...</span>
-                    )}
-	                  </div>
-	                </div>
-                {renderFrenzyResizeHandles()}
-	              </div>
+              <FrenzyNoteCard
+                note={frenzyNote}
+                noteRef={frenzyNoteRef}
+                position={frenzyNotePosition}
+                size={frenzyNoteSize}
+                codeDraft={frenzyNoteCodeDraft}
+                nameDraft={frenzyNoteNameDraft}
+                promptDraft={frenzyNotePromptDraft}
+                contentDraft={frenzyNoteDraft}
+                solutionDraft={frenzyNoteSolutionDraft}
+                promptImagePath={frenzyNotePromptImagePath}
+                contentImagePath={frenzyNoteContentImagePath}
+                solutionImagePath={frenzyNoteSolutionImagePath}
+                isCodeEditing={isFrenzyCodeEditing}
+                isNewVersion={frenzyNoteIsNewVersion}
+                isSaving={isSavingFrenzyNote}
+                isPreview={frenzyNotePreview}
+                showSolution={showFrenzySolution}
+                codeConflict={frenzyCodeConflict}
+                onCodeDraftChange={setFrenzyNoteCodeDraft}
+                onNameDraftChange={setFrenzyNoteNameDraft}
+                onPromptDraftChange={setFrenzyNotePromptDraft}
+                onContentDraftChange={setFrenzyNoteDraft}
+                onSolutionDraftChange={setFrenzyNoteSolutionDraft}
+                onSetCodeEditing={setIsFrenzyCodeEditing}
+                onTogglePreview={() => setFrenzyNotePreview(prev => !prev)}
+                onToggleSolution={() => setShowFrenzySolution(prev => !prev)}
+                onAutoPromptDismissed={() => setFrenzyNote(prev => prev ? { ...prev, isAutoPrompt: false } : prev)}
+                onAutoContentDismissed={() => setFrenzyNote(prev => prev ? { ...prev, isAutoContent: false } : prev)}
+                onSave={() => void saveFrenzyNote()}
+                onClose={() => void closeFrenzyNote()}
+                onVersionNavigate={(index) => void handleFrenzyVersionNavigation(index)}
+                onAddVersion={() => void handleFrenzyAddVersion()}
+                onDeleteVersion={() => void handleFrenzyDeleteVersion()}
+                onCancelNewVersion={cancelFrenzyNewVersion}
+                onPaste={handleFrenzyPaste}
+                onUploadImage={uploadFrenzyImage}
+                onHeaderMouseDown={handleFrenzyNoteMouseDown}
+                resizeHandles={renderFrenzyResizeHandles()}
+              />
 	            )}
 	            {frenzyQuestNote && (
 	              <div
@@ -7701,7 +6178,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   currentUser={currentUser}
                   domainData={domainData}
                   onUpdateNodeData={handleSurgicalNodeUpdate}
-                  onInsertNode={handleSurgicalInsertNode}
+                  onInsertNode={insertCreatedNode}
                   onRefresh={refreshGraphAndSRSData}
                   externalPrerequisites={externalPrerequisites}
                   onExternalChanged={() => refreshExternalPrerequisites(domainData?.id)}
@@ -7709,23 +6186,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   groupMembersById={groupMembersById}
                   onUpdateGroup={updateGroupData}
                   onDeleteGroup={deleteGroupById}
-                  onQuestCreated={(quest, relation) => {
-                    setCurrentStructuralGraphData(prev => {
-                      const nextQuests = { ...(prev.quests || {}) };
-                      nextQuests[quest.code] = {
-                        ...(nextQuests[quest.code] || {}),
-                        ...quest,
-                        type: 'quest',
-                      };
-                      const nextRelations = [...(prev.relations || [])];
-                      nextRelations.push({
-                        fromCode: relation.fromCode,
-                        toCode: relation.toCode,
-                        relationType: relation.relationType,
-                      });
-                      return { ...prev, quests: nextQuests, relations: nextRelations };
-                    });
-                  }}
+                  onQuestCreated={handleQuestCreated}
                   onCopyYaml={handleWindowCopyYaml}
                   isCopyingYaml={isCopyingYaml}
                 />
@@ -7772,23 +6233,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                     removeAuxNodeFromGraph('source', code);
                   }}
                   onRelevantLinksUpdated={refreshDomainRelations}
-                  onQuestCreated={(quest, relation) => {
-                    setCurrentStructuralGraphData(prev => {
-                      const nextQuests = { ...(prev.quests || {}) };
-                      nextQuests[quest.code] = {
-                        ...(nextQuests[quest.code] || {}),
-                        ...quest,
-                        type: 'quest',
-                      };
-                      const nextRelations = [...(prev.relations || [])];
-                      nextRelations.push({
-                        fromCode: relation.fromCode,
-                        toCode: relation.toCode,
-                        relationType: relation.relationType,
-                      });
-                      return { ...prev, quests: nextQuests, relations: nextRelations };
-                    });
-                  }}
+                  onQuestCreated={handleQuestCreated}
                   onCopyYaml={handleWindowCopyYaml}
                   isCopyingYaml={isCopyingYaml}
                 />
@@ -7830,10 +6275,4 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   );
 };
 
-const KnowledgeGraphWrapper: FC<KnowledgeGraphProps> = (props) => (
-  <MathJaxProvider>
-    <KnowledgeGraph {...props} />
-  </MathJaxProvider>
-);
-
-export default KnowledgeGraphWrapper;
+export default KnowledgeGraph;

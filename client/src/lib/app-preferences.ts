@@ -70,7 +70,7 @@ export const loadAppPreferences = (): AppPreferences => {
   }
 };
 
-export const saveAppPreferences = (preferences: AppPreferences) => {
+const saveAppPreferences = (preferences: AppPreferences) => {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));

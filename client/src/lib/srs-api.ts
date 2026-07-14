@@ -10,7 +10,6 @@ import {
   DomainStats,
   DueReview,
   ReviewHistoryItem,
-  CreditUpdate,
   SessionType,
   DueView,
   NodeStatus,
@@ -285,15 +284,6 @@ export const endStudySession = async (sessionId: number): Promise<StudySession> 
   return handleSRSResponse(response);
 };
 
-// Get user's study sessions
-export const getUserSessions = async (limit: number = 20): Promise<StudySession[]> => {
-  const response = await observedFetch(`${API_URL}/api/srs/sessions?limit=${limit}`, {
-    headers: getAuthHeaders(),
-  });
-  const data = await handleSRSResponse(response);
-  return data?.sessions || [];
-};
-
 // =============================================================================
 // PREREQUISITES ENDPOINTS
 // =============================================================================
@@ -352,40 +342,6 @@ export const deletePrerequisite = async (prerequisiteId: number): Promise<void> 
   return handleSRSResponse(response);
 };
 
-// =============================================================================
-// UTILITY FUNCTIONS
-// =============================================================================
-
-// Test credit propagation (for debugging)
-export const testCreditPropagation = async (
-  domainId: number,
-  nodeId: number,
-  success: boolean
-): Promise<CreditUpdate[]> => {
-  const response = await observedFetch(`${API_URL}/api/srs/debug/test-propagation`, {
-    method: 'POST',
-    headers: { 
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ domainId, nodeId, success }),
-  });
-  const data = await handleSRSResponse(response);
-  return data?.credits || [];
-};
-
-// Calculate review impact for a node
-export const calculateReviewImpact = async (
-  domainId: number,
-  nodeId: number
-): Promise<{ impact: number; affectedNodes: number[] }> => {
-  const response = await observedFetch(`${API_URL}/api/srs/nodes/${nodeId}/impact?domainId=${domainId}`, {
-    headers: getAuthHeaders(),
-  });
-  return handleSRSResponse(response);
-};
-
-// FIX: Add getVisualGraph function that was referenced in other files
 export { getVisualGraph };
 
 // =============================================================================

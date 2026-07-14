@@ -527,3 +527,52 @@ export const buildRenderGraphLinks = (
     return !questNodeIds.has(sourceId) && !questNodeIds.has(targetId);
   });
 };
+
+// Counts of all (recursive) prerequisite ancestors per node code. Cycles are
+// tolerated: a node currently being visited contributes an empty set.
+export const buildRecursivePrereqCounts = (
+  definitions: GraphData['definitions'],
+  exercises: GraphData['exercises'],
+): Map<string, number> => {
+  const prereqByCode = new Map<string, string[]>();
+  Object.values(definitions || {}).forEach(def => {
+    prereqByCode.set(def.code, (def.prerequisites || []).filter(Boolean));
+  });
+  Object.values(exercises || {}).forEach(ex => {
+    prereqByCode.set(ex.code, (ex.prerequisites || []).filter(Boolean));
+  });
+
+  const memo = new Map<string, Set<string>>();
+  const visiting = new Set<string>();
+
+  const collectAncestors = (code: string): Set<string> => {
+    const cached = memo.get(code);
+    if (cached) return cached;
+    if (visiting.has(code)) return new Set<string>();
+
+    visiting.add(code);
+    const result = new Set<string>();
+    const prereqs = prereqByCode.get(code) || [];
+
+    prereqs.forEach(prereqCode => {
+      if (!prereqCode || prereqCode === code) return;
+      result.add(prereqCode);
+      const nested = collectAncestors(prereqCode);
+      nested.forEach(parentCode => result.add(parentCode));
+    });
+
+    visiting.delete(code);
+    memo.set(code, result);
+    return result;
+  };
+
+  prereqByCode.forEach((_, code) => {
+    collectAncestors(code);
+  });
+
+  const countMap = new Map<string, number>();
+  memo.forEach((ancestorSet, code) => {
+    countMap.set(code, ancestorSet.size);
+  });
+  return countMap;
+};

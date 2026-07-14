@@ -58,13 +58,13 @@ function looksLikeTeX(text: string): boolean {
   return false;
 }
 
-export interface RenderedLabelBackground {
+interface RenderedLabelBackground {
   source: CanvasImageSource;
   width: number;
   height: number;
 }
 
-export interface RenderedLabel {
+interface RenderedLabel {
   image: HTMLImageElement;
   width: number;
   height: number;
@@ -95,7 +95,7 @@ type LabelTheme = {
  * Never breaks inside math delimiters ($...$, $$...$$, \(...\), \[...\]) or inline code (`...`).
  * Truncates only at whitespace/punctuation outside atomic tokens.
  */
-export function smartTruncateTeXGfm(
+function smartTruncateTeXGfm(
   input: string,
   maxChars = LEGACY_MAX_LABEL_CHARS
 ): { text: string; wasTruncated: boolean } {

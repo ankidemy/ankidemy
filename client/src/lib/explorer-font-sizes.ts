@@ -14,13 +14,6 @@ const FONT_SCALE_STEP = 0.08;
 const FONT_STEP_MIN = -4;
 const FONT_STEP_MAX = 8;
 
-const DEFAULT_EXPLORER_FONT_SIZE_STEPS: ExplorerFontSizeSteps = {
-  tags: 0,
-  markdown: 0,
-  ui: 0,
-  toolbar: 0,
-};
-
 const clampStep = (value: unknown): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) return 0;
@@ -28,7 +21,7 @@ const clampStep = (value: unknown): number => {
   return Math.min(FONT_STEP_MAX, Math.max(FONT_STEP_MIN, rounded));
 };
 
-export const normalizeExplorerFontSizeSteps = (
+const normalizeExplorerFontSizeSteps = (
   input?: Partial<ExplorerFontSizeSteps> | null
 ): ExplorerFontSizeSteps => ({
   tags: clampStep(input?.tags),
@@ -42,7 +35,7 @@ export const getExplorerFontSizeSteps = (preferences?: AppPreferences): Explorer
     preferences?.general?.explorerFontSizeSteps ?? loadAppPreferences().general?.explorerFontSizeSteps
   );
 
-export const updateExplorerFontSizeSteps = (patch: Partial<ExplorerFontSizeSteps>): ExplorerFontSizeSteps => {
+const updateExplorerFontSizeSteps = (patch: Partial<ExplorerFontSizeSteps>): ExplorerFontSizeSteps => {
   const current = getExplorerFontSizeSteps();
   const next = normalizeExplorerFontSizeSteps({
     ...current,
@@ -83,5 +76,3 @@ export const formatExplorerFontSizeStep = (step: number): string => {
   if (normalized === 0) return 'Default';
   return normalized > 0 ? `+${normalized}` : `${normalized}`;
 };
-
-export const EXPLORER_FONT_SIZE_DEFAULTS = DEFAULT_EXPLORER_FONT_SIZE_STEPS;

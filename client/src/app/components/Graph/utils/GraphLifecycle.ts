@@ -3,7 +3,7 @@
 
 import type { GraphNode } from './types';
 
-export type GraphLifecycleDeps = {
+type GraphLifecycleDeps = {
   loadDomain: (domainId: number) => Promise<void>;
   checkEnrollmentAndInit: (domainId: number) => Promise<void>;
   setIsProcessingData: (value: boolean) => void;
@@ -13,7 +13,7 @@ export type GraphLifecycleDeps = {
   focusNodeById: (nodeId: string) => void;
 };
 
-export type GraphLifecycleSnapshot = {
+type GraphLifecycleSnapshot = {
   subjectMatterId: string;
   stableGraphNodes: GraphNode[];
   isProcessingData: boolean;
