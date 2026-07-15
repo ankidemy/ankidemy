@@ -36,7 +36,10 @@ token, an allowed-root list, and a host firewall."
     (mapcar #'file-name-as-directory
             (mapcar #'expand-file-name (split-string value path-separator t))))
   "Optional allowlist of roots the authenticated bridge may serve.
-An unset list still limits access to the active `org-roam-directory'."
+An unset list still limits access to the active `org-roam-directory'.  When an
+allowlist is configured and the active root is outside it, scanning, presence,
+notifications, and root metadata disclosure are suspended until an approved
+root becomes active again."
   :type '(repeat directory))
 
 (defcustom ankidemy-org-bridge-save-debounce 0.1
@@ -70,24 +73,32 @@ An unset list still limits access to the active `org-roam-directory'."
 
 (defun ankidemy-org-bridge--allowed-root-p (root)
   "Return non-nil when ROOT is permitted by the optional allowlist."
-  (or (null ankidemy-org-bridge-allowed-roots)
-      (cl-some (lambda (allowed)
-                 (let ((true-root (file-truename root))
-                       (true-allowed (file-name-as-directory
-                                      (file-truename allowed))))
-                   (or (file-equal-p true-root true-allowed)
-                       (file-in-directory-p true-root true-allowed))))
-               ankidemy-org-bridge-allowed-roots)))
+  (and root
+       (or (null ankidemy-org-bridge-allowed-roots)
+           (cl-some (lambda (allowed)
+                      (let ((true-root (file-truename root))
+                            (true-allowed (file-name-as-directory
+                                           (file-truename allowed))))
+                        (or (file-equal-p true-root true-allowed)
+                            (file-in-directory-p true-root true-allowed))))
+                    ankidemy-org-bridge-allowed-roots))))
+
+(defun ankidemy-org-bridge--active-allowed-root ()
+  "Return the active root only when it is inside the configured allowlist."
+  (when-let ((root (ankidemy-org-bridge--root)))
+    (when (ankidemy-org-bridge--allowed-root-p root)
+      root)))
 
 (defun ankidemy-org-bridge--root-info (&optional root)
-  "Return protocol root metadata for ROOT or the active root."
+  "Return protocol metadata for an allowed ROOT or the active root.
+Disallowed roots are represented without their path or any manifest data."
   (let* ((root (or root (ankidemy-org-bridge--root)))
          (allowed (and root (ankidemy-org-bridge--allowed-root-p root)))
          (manifest-file (and allowed (expand-file-name "ankidemy.org" root)))
          (result (and manifest-file (file-readable-p manifest-file)
                       (ankidemy-org--read-manifest manifest-file)))
          (manifest (car-safe result)))
-    `((root . ,(or root ""))
+    `((root . ,(if allowed root ""))
       (hasManifest . ,(if manifest t :json-false))
       ,@(when manifest
           `((providerNotebookId . ,(plist-get manifest :id))
@@ -105,16 +116,23 @@ An unset list still limits access to the active `org-roam-directory'."
 (defun ankidemy-org-bridge--json-send (websocket value)
   "Send VALUE as one JSON text frame to WEBSOCKET."
   (when (and websocket (eq (websocket-ready-state websocket) 'open))
-    (websocket-send-text
-     websocket
-     (json-serialize value :null-object nil :false-object :json-false))))
+    ;; The socket may close between the ready-state check and the write.  Timer
+    ;; callbacks must not surface that benign race in the user's Emacs session.
+    (condition-case nil
+        (websocket-send-text
+         websocket
+         (json-serialize value :null-object nil :false-object :json-false))
+      (error nil))))
 
 (defun ankidemy-org-bridge--notify (type params)
   "Send notification TYPE with PARAMS to authenticated clients."
-  (dolist (websocket (copy-sequence ankidemy-org-bridge--clients))
-    (when (gethash websocket ankidemy-org-bridge--authenticated)
-      (ankidemy-org-bridge--json-send
-       websocket `((type . ,type) (params . ,params))))))
+  ;; Notifications are entirely suspended outside the explicit root boundary.
+  ;; This check also protects callbacks queued just before a root switch.
+  (when (ankidemy-org-bridge--active-allowed-root)
+    (dolist (websocket (copy-sequence ankidemy-org-bridge--clients))
+      (when (gethash websocket ankidemy-org-bridge--authenticated)
+        (ankidemy-org-bridge--json-send
+         websocket `((type . ,type) (params . ,params)))))))
 
 (defun ankidemy-org-bridge--response (websocket id result)
   "Send successful request ID with RESULT to WEBSOCKET."
@@ -210,19 +228,20 @@ An unset list still limits access to the active `org-roam-directory'."
     (condition-case err
         (pcase method
           ("health.get"
-           (ankidemy-org-bridge--response
-            websocket id
-            `((protocolVersion . 1)
-              (instanceId . ,ankidemy-org-bridge--instance-id)
-              (emacsVersion . ,emacs-version)
-              (orgVersion . ,(org-version))
-              (orgRoamVersion . ,(or (and (fboundp 'org-roam-version)
-                                          (org-roam-version)) "unknown"))
-              (currentDb . ,(if (boundp 'org-roam-db-location)
-                                org-roam-db-location ""))
-              (sourceRevision . ,(when-let ((active (ankidemy-org-bridge--root)))
-                                   (ankidemy-org-bridge--signature active)))
-              (root . ,(ankidemy-org-bridge--root-info)))))
+           (let ((active (ankidemy-org-bridge--active-allowed-root)))
+             (ankidemy-org-bridge--response
+              websocket id
+              `((protocolVersion . 1)
+                (instanceId . ,ankidemy-org-bridge--instance-id)
+                (emacsVersion . ,emacs-version)
+                (orgVersion . ,(org-version))
+                (orgRoamVersion . ,(or (and (fboundp 'org-roam-version)
+                                            (org-roam-version)) "unknown"))
+                (currentDb . ,(if (and active (boundp 'org-roam-db-location))
+                                  org-roam-db-location ""))
+                (sourceRevision . ,(and active
+                                        (ankidemy-org-bridge--signature active)))
+                (root . ,(ankidemy-org-bridge--root-info active))))))
           ("snapshot.get"
            (ankidemy-org-bridge--response
             websocket id (ankidemy-org-bridge--snapshot root)))
@@ -248,9 +267,10 @@ An unset list still limits access to the active `org-roam-directory'."
           (ankidemy-org-bridge--json-send
            websocket `((type . "authenticated") (ok . t)
                        (instanceId . ,ankidemy-org-bridge--instance-id)))
-          (ankidemy-org-bridge--json-send
-           websocket `((type . "root.changed")
-                       (params . ((root . ,(ankidemy-org-bridge--root-info)))))))
+          (when (ankidemy-org-bridge--active-allowed-root)
+            (ankidemy-org-bridge--json-send
+             websocket `((type . "root.changed")
+                         (params . ((root . ,(ankidemy-org-bridge--root-info))))))))
       (ankidemy-org-bridge--json-send
        websocket '((type . "authenticated") (ok . :json-false)
                    (error . "Authentication rejected")))
@@ -300,20 +320,30 @@ An unset list still limits access to the active `org-roam-directory'."
     (remhash websocket ankidemy-org-bridge--auth-timers)))
 
 (defun ankidemy-org-bridge--root-watcher (_symbol new-value operation _where)
-  "Notify clients when `org-roam-directory' receives NEW-VALUE."
+  "Suspend outside the allowlist or notify clients of an allowed NEW-VALUE."
   (when (and ankidemy-org-bridge-mode (eq operation 'set) new-value)
+    (when ankidemy-org-bridge--save-timer
+      (cancel-timer ankidemy-org-bridge--save-timer))
+    (when ankidemy-org-bridge--presence-timer
+      (cancel-timer ankidemy-org-bridge--presence-timer))
     (setq ankidemy-org-bridge--cache nil
+          ankidemy-org-bridge--save-timer nil
+          ankidemy-org-bridge--presence-timer nil
           ankidemy-org-bridge--last-presence nil
           ankidemy-org-bridge--last-filesystem-state nil)
-    (run-at-time
-     0 nil
-     (lambda ()
-       (ankidemy-org-bridge--notify
-        "root.changed" `((root . ,(ankidemy-org-bridge--root-info))))))))
+    ;; Variable watchers run before the new value is necessarily observable.
+    ;; Decide against NEW-VALUE now, then re-check the active root in the timer.
+    (when (ankidemy-org-bridge--allowed-root-p new-value)
+      (run-at-time
+       0 nil
+       (lambda ()
+         (when (ankidemy-org-bridge--active-allowed-root)
+           (ankidemy-org-bridge--notify
+            "root.changed" `((root . ,(ankidemy-org-bridge--root-info))))))))))
 
 (defun ankidemy-org-bridge--after-save ()
   "Debounce a semantic change notification for saved Org files."
-  (let ((root (ankidemy-org-bridge--root)))
+  (let ((root (ankidemy-org-bridge--active-allowed-root)))
     (when (and root buffer-file-name
                (string= (downcase (or (file-name-extension buffer-file-name) "")) "org")
                (file-in-directory-p (file-truename buffer-file-name) root))
@@ -326,7 +356,8 @@ An unset list still limits access to the active `org-roam-directory'."
 
 (defun ankidemy-org-bridge--schedule-snapshot-change (&rest _ignored)
   "Debounce a complete snapshot notification after Org-roam DB work."
-  (when ankidemy-org-bridge-mode
+  (when (and ankidemy-org-bridge-mode
+             (ankidemy-org-bridge--active-allowed-root))
     (when ankidemy-org-bridge--save-timer
       (cancel-timer ankidemy-org-bridge--save-timer))
     (setq ankidemy-org-bridge--save-timer
@@ -334,15 +365,16 @@ An unset list still limits access to the active `org-roam-directory'."
            ankidemy-org-bridge-save-debounce nil
            (lambda ()
              (setq ankidemy-org-bridge--save-timer nil)
-             (let ((info (ankidemy-org-bridge--root-info)))
-               (when (eq (alist-get 'hasManifest info) t)
-                 (ankidemy-org-bridge--notify
-                  "snapshot.changed" `((root . ,info))))))))))
+             (when (ankidemy-org-bridge--active-allowed-root)
+               (let ((info (ankidemy-org-bridge--root-info)))
+                 (when (eq (alist-get 'hasManifest info) t)
+                   (ankidemy-org-bridge--notify
+                    "snapshot.changed" `((root . ,info)))))))))))
 
 (defun ankidemy-org-bridge--presence-at-point ()
   "Return current managed Org source ID without modifying the buffer."
   (when (and (derived-mode-p 'org-mode) buffer-file-name)
-    (let ((root (ankidemy-org-bridge--root)))
+    (let ((root (ankidemy-org-bridge--active-allowed-root)))
       (when (and root (file-in-directory-p (file-truename buffer-file-name) root))
         (or (and (fboundp 'org-roam-id-at-point) (org-roam-id-at-point))
             (org-entry-get nil "ID" t))))))
@@ -350,24 +382,27 @@ An unset list still limits access to the active `org-roam-directory'."
 (defun ankidemy-org-bridge--queue-presence ()
   "Coalesce point motion before publishing editor presence."
   (when ankidemy-org-bridge--presence-timer
-    (cancel-timer ankidemy-org-bridge--presence-timer))
-  (setq ankidemy-org-bridge--presence-timer
-        (run-with-idle-timer
-         ankidemy-org-bridge-presence-debounce nil
-         (lambda ()
-           (setq ankidemy-org-bridge--presence-timer nil)
-           (let* ((root-info (ankidemy-org-bridge--root-info))
-                  (source-id (or (ankidemy-org-bridge--presence-at-point) ""))
-                  (presence (cons (alist-get 'root root-info) source-id)))
-             (unless (equal presence ankidemy-org-bridge--last-presence)
-               (setq ankidemy-org-bridge--last-presence presence)
-               (ankidemy-org-bridge--notify
-                "presence.changed"
-                `((root . ,root-info) (sourceId . ,source-id)))))))))
+    (cancel-timer ankidemy-org-bridge--presence-timer)
+    (setq ankidemy-org-bridge--presence-timer nil))
+  (when (ankidemy-org-bridge--active-allowed-root)
+    (setq ankidemy-org-bridge--presence-timer
+          (run-with-idle-timer
+           ankidemy-org-bridge-presence-debounce nil
+           (lambda ()
+             (setq ankidemy-org-bridge--presence-timer nil)
+             (when (ankidemy-org-bridge--active-allowed-root)
+               (let* ((root-info (ankidemy-org-bridge--root-info))
+                      (source-id (or (ankidemy-org-bridge--presence-at-point) ""))
+                      (presence (cons (alist-get 'root root-info) source-id)))
+                 (unless (equal presence ankidemy-org-bridge--last-presence)
+                   (setq ankidemy-org-bridge--last-presence presence)
+                   (ankidemy-org-bridge--notify
+                    "presence.changed"
+                    `((root . ,root-info) (sourceId . ,source-id)))))))))))
 
 (defun ankidemy-org-bridge--poll-filesystem ()
   "Detect rename/delete changes that do not pass through `after-save-hook'."
-  (when-let ((root (ankidemy-org-bridge--root)))
+  (when-let ((root (ankidemy-org-bridge--active-allowed-root)))
     (condition-case nil
         (let ((state (cons root (ankidemy-org-bridge--signature root))))
           (when (and ankidemy-org-bridge--last-filesystem-state
