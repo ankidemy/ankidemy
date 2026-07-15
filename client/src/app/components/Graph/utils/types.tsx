@@ -203,6 +203,8 @@ export interface KnowledgeGraphProps {
   subjectMatterId: string; // This is the domainId
   onBack: () => void;
   onPositionUpdate?: (positions: Record<string, { x: number; y: number }>) => void;
+  isContentManaged?: boolean;
+  livePresenceCode?: string | null;
 }
 
 // Type definitions for ID conversion functions

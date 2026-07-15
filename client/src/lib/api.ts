@@ -76,6 +76,54 @@ export interface Domain {
   exercises?: Exercise[];
 }
 
+export interface ContentBinding {
+  id: number;
+  provider: string;
+  providerNotebookId: string;
+  domainId: number;
+  ownerId: number;
+  canonicalLocator: string;
+  displayName: string;
+  authorizationState: 'attached' | 'detached';
+  connectionState: 'online' | 'connecting' | 'offline';
+  lastRevision: string;
+  lastAcceptedAt?: string;
+  lastError?: { message?: string; at?: string };
+}
+
+export interface OrgBridgeRoot {
+  root: string;
+  hasManifest: boolean;
+  providerNotebookId?: string;
+  title?: string;
+  schema?: number;
+}
+
+export interface LiveImportStatus {
+  enabled: boolean;
+  connectionState: 'online' | 'connecting' | 'offline';
+  currentRoot: OrgBridgeRoot;
+  bindings: ContentBinding[];
+}
+
+export interface LiveImportEvent {
+  type: 'connection.changed' | 'root.available' | 'sync.accepted' | 'sync.rejected' | 'presence.changed' | 'binding.detached';
+  at: string;
+  bindingId?: number;
+  domainId?: number;
+  providerNotebookId?: string;
+  displayName?: string;
+  connectionState?: 'online' | 'connecting' | 'offline';
+  sourceId?: string;
+  nodeType?: 'definition' | 'exercise' | 'source' | 'quest';
+  nodeId?: number;
+  code?: string;
+  revision?: string;
+  counts?: Record<string, number>;
+  diagnostics?: Array<{ severity: string; code: string; message: string }>;
+  message?: string;
+}
+
 export interface DomainReviewPreferences {
   exercisesPerDefinition?: number;
   srs?: DomainSRSPreferences;
@@ -2403,4 +2451,121 @@ export const getDomainLinks = async (domainIds?: number[]): Promise<DomainLink[]
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
+};
+
+// DEVELOPMENT LIVE IMPORT API
+
+const disabledLiveImportStatus = (): LiveImportStatus => ({
+  enabled: false,
+  connectionState: 'offline',
+  currentRoot: { root: '', hasManifest: false },
+  bindings: [],
+});
+
+export const getLiveImportStatus = async (): Promise<LiveImportStatus> => {
+  const response = await observedFetch(`${API_URL}/api/live-import/status`, {
+    headers: getAuthHeaders(),
+  });
+  // The route does not exist outside explicitly enabled development servers.
+  if (response.status === 404) return disabledLiveImportStatus();
+  return handleResponse(response);
+};
+
+export const getLiveImportDomainBinding = async (domainId: number): Promise<{
+  managed: boolean;
+  binding?: ContentBinding;
+}> => {
+  const response = await observedFetch(`${API_URL}/api/live-import/domains/${domainId}`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) return { managed: false };
+  return handleResponse(response);
+};
+
+export const attachCurrentLiveImportRoot = async (): Promise<{
+  binding: ContentBinding;
+  result: { revision: string; noOp?: boolean; counts: Record<string, number> };
+}> => {
+  const response = await observedFetch(`${API_URL}/api/live-import/attach-current`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const resyncLiveImportBinding = async (bindingId: number) => {
+  const response = await observedFetch(`${API_URL}/api/live-import/bindings/${bindingId}/resync`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const detachLiveImportBinding = async (bindingId: number): Promise<void> => {
+  const response = await observedFetch(`${API_URL}/api/live-import/bindings/${bindingId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  await handleResponse(response);
+};
+
+export const subscribeLiveImportEvents = (
+  onEvent: (event: LiveImportEvent) => void,
+  onConnectionState?: (state: 'connected' | 'reconnecting' | 'closed') => void,
+): (() => void) => {
+  const controller = new AbortController();
+  let stopped = false;
+
+  const run = async () => {
+    let retryMs = 500;
+    while (!stopped) {
+      try {
+        const response = await fetch(`${API_URL}/api/live-import/events`, {
+          headers: { ...getAuthHeaders(), Accept: 'text/event-stream' },
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`Live-import event stream returned ${response.status}`);
+        }
+        onConnectionState?.('connected');
+        retryMs = 500;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = '';
+        while (!stopped) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          pending += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+          let boundary = pending.indexOf('\n\n');
+          while (boundary >= 0) {
+            const frame = pending.slice(0, boundary);
+            pending = pending.slice(boundary + 2);
+            const data = frame
+              .split('\n')
+              .filter(line => line.startsWith('data:'))
+              .map(line => line.slice(5).trimStart())
+              .join('\n');
+            if (data) {
+              try { onEvent(JSON.parse(data) as LiveImportEvent); } catch {}
+            }
+            boundary = pending.indexOf('\n\n');
+          }
+        }
+      } catch (error) {
+        if (stopped || controller.signal.aborted) break;
+        console.warn('Live-import event stream disconnected', error);
+      }
+      if (stopped) break;
+      onConnectionState?.('reconnecting');
+      await new Promise(resolve => window.setTimeout(resolve, retryMs));
+      retryMs = Math.min(5000, retryMs * 2);
+    }
+    onConnectionState?.('closed');
+  };
+  void run();
+  return () => {
+    stopped = true;
+    controller.abort();
+  };
 };

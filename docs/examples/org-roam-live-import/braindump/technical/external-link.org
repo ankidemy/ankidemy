@@ -1,0 +1,10 @@
+#+title: Nested notebook link fixture
+
+* Research handoff
+:PROPERTIES:
+:ID: technical-research-handoff
+:ANKIDEMY_TYPE: source
+:ANKIDEMY_CODE: research.handoff
+:END:
+The linked node lives below a nested manifest and must be an external relation,
+not a duplicate local source: [[id:research-external-node][research result]].

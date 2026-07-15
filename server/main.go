@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -139,6 +140,32 @@ func main() {
 	userDomainSettingsHandler := handlers.NewUserDomainSettingsHandler(domainDAO, permissionDAO, userDomainSettingsDAO, queryCache)
 	adminObservabilityHandler := handlers.NewAdminObservabilityHandler(pgStatStatementsDAO)
 
+	// The Org live-import bridge is intentionally unavailable in production and
+	// requires both an explicit feature flag and a shared local token.
+	var contentLiveImportHandler *handlers.ContentLiveImportHandler
+	if os.Getenv("APP_ENV") != "production" && (envEnabled("ANKIDEMY_ORG_ROAM_ENABLED") || envEnabled("ANKIDEMY_LIVE_IMPORT_ENABLED")) {
+		bridgeToken := firstEnv("ANKIDEMY_ORG_ROAM_BRIDGE_TOKEN", "ANKIDEMY_ORG_BRIDGE_TOKEN")
+		if bridgeToken == "" {
+			log.Printf("Warning: live import requested but ANKIDEMY_ORG_ROAM_BRIDGE_TOKEN is empty; bridge disabled")
+		} else {
+			bridgeURL := firstEnv("ANKIDEMY_ORG_ROAM_BRIDGE_URL", "ANKIDEMY_ORG_BRIDGE_URL")
+			if bridgeURL == "" {
+				bridgeURL = "ws://host.docker.internal:35905"
+			}
+			hub := services.NewContentEventHub()
+			bridge, bridgeErr := services.NewOrgBridgeClient(bridgeURL, bridgeToken, nil)
+			if bridgeErr != nil {
+				log.Printf("Warning: invalid live-import bridge configuration: %v", bridgeErr)
+			} else {
+				liveImportService := services.NewContentLiveImportService(db, bridge, hub)
+				bridge.SetListener(liveImportService)
+				bridge.Start(context.Background())
+				contentLiveImportHandler = handlers.NewContentLiveImportHandler(liveImportService, hub)
+				log.Printf("Development live import enabled via %s", bridgeURL)
+			}
+		}
+	}
+
 	// Initialize router
 	router := gin.Default()
 	router.Use(middleware.RequestObservability())
@@ -208,10 +235,24 @@ func main() {
 		// Routes requiring authentication
 		authorized := api.Group("/")
 		authorized.Use(middleware.AuthMiddleware())
+		authorized.Use(middleware.ContentManagedReadOnly(db))
 		{
 			// User routes
 			authorized.GET("/users/me", userHandler.GetCurrentUser)
 			authorized.PUT("/users/me", userHandler.UpdateCurrentUser)
+
+			if contentLiveImportHandler != nil {
+				liveImport := authorized.Group("/live-import")
+				{
+					liveImport.GET("/status", contentLiveImportHandler.Status)
+					liveImport.GET("/events", contentLiveImportHandler.Events)
+					liveImport.GET("/domains/:domainId", contentLiveImportHandler.DomainBinding)
+					liveImport.POST("/attach-current", contentLiveImportHandler.AttachCurrent)
+					liveImport.POST("/bindings/:bindingId/resync", contentLiveImportHandler.Resync)
+					liveImport.DELETE("/bindings/:bindingId", contentLiveImportHandler.Detach)
+					liveImport.GET("/bindings/:bindingId/diagnostics", contentLiveImportHandler.Diagnostics)
+				}
+			}
 
 			// Domain routes (now with import support)
 			domains := authorized.Group("/domains")
@@ -467,6 +508,24 @@ func main() {
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+func envEnabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // runTestImportWithService imports test JSON data using ImportService

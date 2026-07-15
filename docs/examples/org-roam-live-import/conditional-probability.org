@@ -1,0 +1,74 @@
+:PROPERTIES:
+:ID: 019ba6c6-490d-7c97-a7f2-e812f6415865
+:END:
+#+title: Conditional probability reading notes
+
+Notes from chapter 2.
+
+* TODO Distill chapter 2
+SCHEDULED: <2026-07-15 Wed 09:00>
+:PROPERTIES:
+:ID: 019ba6d1-20ba-7716-a67b-9e3374263459
+:END:
+Turn these notes into durable prompts.
+
+** Conditional probability
+:PROPERTIES:
+:ID:            019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8
+:ANKIDEMY_TYPE: definition
+:ANKIDEMY_CODE: probability.conditional
+:END:
+
+*** What is conditional probability? :version:
+:PROPERTIES:
+:ID:           019ba6c8-6504-70a5-8b16-e5753108653b
+:ROAM_EXCLUDE: t
+:END:
+For events $A$ and $B$ with $P(B)>0$,
+$P(A\mid B)=P(A\cap B)/P(B)$.
+
+**** Notes :notes:
+Conditioning restricts the sample space to $B$.
+
+*** How does conditioning change a sample space? :version:
+:PROPERTIES:
+:ID:           019ba6c9-a918-774e-9486-bb9e44fdc64e
+:ROAM_EXCLUDE: t
+:END:
+It restricts possible outcomes to the conditioning event and renormalizes them.
+
+*** Compute a conditional probability
+:PROPERTIES:
+:ID:            019ba6cc-37d2-7cb9-83da-4a9ffefc7146
+:ANKIDEMY_TYPE: exercise
+:ANKIDEMY_CODE: probability.conditional.die
+:END:
+
+**** A fair die was even. What is the probability it was a six? :version:
+:PROPERTIES:
+:ID:                   019ba6ce-1073-7afa-b661-540f655dd807
+:ROAM_EXCLUDE:         t
+:ANKIDEMY_DIFFICULTY:  2
+:ANKIDEMY_VERIFIABLE:  t
+:END:
+Give a reduced fraction.
+
+***** Hints :hints:
+Use [[id:019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8][conditional probability]].
+
+***** Solution :solution:
+1/3
+
+** Bayes' theorem
+:PROPERTIES:
+:ID:            019ba6d5-bca6-7a80-8f59-bbf2ba7542c1
+:ANKIDEMY_TYPE: definition
+:END:
+
+*** State Bayes' theorem. :version:
+:PROPERTIES:
+:ID:           019ba6d7-a617-78d7-b619-5e20b747a229
+:ROAM_EXCLUDE: t
+:END:
+Using [[id:019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8][conditional probability]],
+$P(A\mid B)=P(B\mid A)P(A)/P(B)$.

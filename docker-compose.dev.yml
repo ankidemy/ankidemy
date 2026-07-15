@@ -21,6 +21,8 @@ services:
   # Server Service - Development with Air hot reload
   server:
     working_dir: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./server:/app:cached
       - media_data:/app/media

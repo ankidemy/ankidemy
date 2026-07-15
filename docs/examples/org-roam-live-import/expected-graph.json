@@ -1,0 +1,68 @@
+{
+  "providerNotebookId": "019ba6be-0c03-7dc8-a6d8-42f936da1df7",
+  "nodes": [
+    {
+      "sourceId": "019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8",
+      "type": "definition",
+      "versionSourceIds": [
+        "019ba6c8-6504-70a5-8b16-e5753108653b",
+        "019ba6c9-a918-774e-9486-bb9e44fdc64e"
+      ]
+    },
+    {
+      "sourceId": "019ba6c6-490d-7c97-a7f2-e812f6415865",
+      "type": "source"
+    },
+    {
+      "sourceId": "019ba6cc-37d2-7cb9-83da-4a9ffefc7146",
+      "type": "exercise",
+      "versionSourceIds": [
+        "019ba6ce-1073-7afa-b661-540f655dd807"
+      ]
+    },
+    {
+      "sourceId": "019ba6d1-20ba-7716-a67b-9e3374263459",
+      "type": "quest"
+    },
+    {
+      "sourceId": "019ba6d5-bca6-7a80-8f59-bbf2ba7542c1",
+      "type": "definition",
+      "versionSourceIds": [
+        "019ba6d7-a617-78d7-b619-5e20b747a229"
+      ]
+    }
+  ],
+  "edgeEvidence": [
+    {
+      "fromSourceId": "019ba6c6-490d-7c97-a7f2-e812f6415865",
+      "toSourceId": "019ba6d1-20ba-7716-a67b-9e3374263459",
+      "evidence": "hierarchy"
+    },
+    {
+      "fromSourceId": "019ba6d1-20ba-7716-a67b-9e3374263459",
+      "toSourceId": "019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8",
+      "evidence": "hierarchy"
+    },
+    {
+      "fromSourceId": "019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8",
+      "toSourceId": "019ba6cc-37d2-7cb9-83da-4a9ffefc7146",
+      "evidence": "hierarchy"
+    },
+    {
+      "fromSourceId": "019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8",
+      "toSourceId": "019ba6cc-37d2-7cb9-83da-4a9ffefc7146",
+      "evidence": "link"
+    },
+    {
+      "fromSourceId": "019ba6d1-20ba-7716-a67b-9e3374263459",
+      "toSourceId": "019ba6d5-bca6-7a80-8f59-bbf2ba7542c1",
+      "evidence": "hierarchy"
+    },
+    {
+      "fromSourceId": "019ba6c3-9a4a-7cf2-b4af-f4bf6895fbf8",
+      "toSourceId": "019ba6d5-bca6-7a80-8f59-bbf2ba7542c1",
+      "evidence": "link"
+    }
+  ],
+  "materializedEdgeCount": 5
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="220" viewBox="0 0 320 220" role="img" aria-labelledby="title desc">
+  <title id="title">Right triangle</title>
+  <desc id="desc">A right triangle with sides a, b, and c.</desc>
+  <rect width="320" height="220" fill="#f8fafc"/>
+  <path d="M55 175 L55 45 L270 175 Z" fill="#dbeafe" stroke="#1d4ed8" stroke-width="5"/>
+  <path d="M55 155 L75 155 L75 175" fill="none" stroke="#1d4ed8" stroke-width="3"/>
+  <g fill="#172554" font-family="sans-serif" font-size="22">
+    <text x="28" y="112">a</text>
+    <text x="158" y="205">b</text>
+    <text x="175" y="99" transform="rotate(31 175 99)">c</text>
+  </g>
+</svg>

@@ -1,0 +1,3 @@
+#+title: Invalid Technical Fixture
+#+ankidemy_notebook_id: fixture-technical-invalid-notebook
+#+ankidemy_schema: 1

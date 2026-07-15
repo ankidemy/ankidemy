@@ -263,6 +263,9 @@ func serveMediaFile(c *gin.Context, filePath, filename string) error {
 
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Type", contentType)
+	if contentType == "image/svg+xml" {
+		c.Header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+	}
 	disposition := fmt.Sprintf("inline; filename=%q", sanitizeMediaFilename(filename))
 	if !services.IsImageContentType(contentType) {
 		disposition = fmt.Sprintf("attachment; filename=%q", sanitizeMediaFilename(filename))

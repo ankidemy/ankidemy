@@ -1,0 +1,3 @@
+#+title: Nested Research Fixture
+#+ankidemy_notebook_id: fixture-research-notebook
+#+ankidemy_schema: 1

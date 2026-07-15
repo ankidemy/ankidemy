@@ -1,0 +1,24 @@
+#+title: Technical Index
+
+* Technical Index
+:PROPERTIES:
+:ID: technical-empty-index
+:ANKIDEMY_TYPE: source
+:ANKIDEMY_IMPORT: nil
+:END:
+This navigation-only source must not be imported.
+
+** Bayes definition survives its excluded parent
+:PROPERTIES:
+:ID: technical-bayes
+:ANKIDEMY_TYPE: definition
+:ANKIDEMY_CODE: probability.bayes
+:END:
+
+*** State Bayes' theorem :version:
+:PROPERTIES:
+:ID: technical-bayes-v1
+:ROAM_EXCLUDE: t
+:END:
+For events with non-zero evidence probability,
+\[P(A\mid B)=\frac{P(B\mid A)P(A)}{P(B)}.\]

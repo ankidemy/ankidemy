@@ -81,6 +81,12 @@ func InitDB() (*gorm.DB, error) {
 		&models.UserDailyQuestDraw{},
 		&models.ReadModelEvent{},
 		&models.UserDomainDueProjection{},
+		&models.ContentBinding{},
+		&models.ContentEntity{},
+		&models.ContentManagedEdge{},
+		&models.ContentAsset{},
+		&models.ContentSyncRun{},
+		&models.ExternalNodeRelation{},
 	}
 
 	// AutoMigrate all models - note that in production you might want more controlled migrations

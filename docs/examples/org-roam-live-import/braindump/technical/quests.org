@@ -1,0 +1,25 @@
+#+title: Quest schedule fixtures
+
+* TODO Read the import contract once
+SCHEDULED: <2026-07-15 Wed 09:00>
+:PROPERTIES:
+:ID: technical-quest-todo
+:ANKIDEMY_CODE: quest.import.once
+:END:
+One active timestamp without a repeater maps to an Ankidemy one-time TODO.
+
+* TODO Review today's technical prompts
+SCHEDULED: <2026-07-15 Wed 09:00 +1d>
+:PROPERTIES:
+:ID: technical-quest-daily
+:ANKIDEMY_CODE: quest.import.daily
+:END:
+An exact daily repeater maps to the daily pool.
+
+* TODO Refactor technical notes
+SCHEDULED: <2026-07-15 Wed 09:00 .+1w>
+:PROPERTIES:
+:ID: technical-quest-habit
+:ANKIDEMY_CODE: quest.import.habit
+:END:
+A non-daily repeater maps to a habit and retains the =.+= repeater mode.

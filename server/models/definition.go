@@ -21,6 +21,7 @@ type Definition struct {
 	DomainID    uint      `gorm:"column:domain_id;not null" json:"domainId"`
 	OwnerID     uint      `gorm:"column:owner_id;not null" json:"ownerId"`
 	MetaDefinitionID uint `gorm:"column:meta_definition_id;index" json:"metaDefinitionId,omitempty"`
+	DisplayOrder int      `gorm:"column:display_order;not null;default:0" json:"displayOrder"`
 	XPosition   float64   `gorm:"column:x_position;default:0" json:"xPosition"`
 	YPosition   float64   `gorm:"column:y_position;default:0" json:"yPosition"`
 	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
@@ -93,6 +94,7 @@ type DefinitionResponse struct {
     DomainID      uint      `json:"domainId"`
     OwnerID       uint      `json:"ownerId"`
     MetaDefinitionID uint   `json:"metaDefinitionId,omitempty"`
+    DisplayOrder int        `json:"displayOrder"`
     XPosition     float64   `json:"xPosition,omitempty"`
     YPosition     float64   `json:"yPosition,omitempty"`
     CreatedAt     time.Time `json:"createdAt"`

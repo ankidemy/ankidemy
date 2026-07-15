@@ -17,7 +17,7 @@ import { Eye, Loader2, CheckCircle, MapPin } from 'lucide-react';
 import { showToast } from '@/app/components/core/ToastNotification';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 import { getSessionItem, gradeSession } from '@/lib/srs-api';
-import { REVIEW_ITEM_CONTENT_UPDATED_EVENT, type ReviewItemContentUpdatedDetail } from '../utils/reviewSyncEvents';
+import { dispatchReviewSubmissionState, REVIEW_ITEM_CONTENT_UPDATED_EVENT, type ReviewItemContentUpdatedDetail } from '../utils/reviewSyncEvents';
 
 interface ReviewWindowContentProps {
   domainId: number;
@@ -259,6 +259,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
 
     const timeTaken = startTime !== null ? Math.round((Date.now() - startTime) / 1000) : 0;
     setIsGrading(true);
+    dispatchReviewSubmissionState(true);
     try {
       const nextItem = await gradeSession(session.id, { quality, skip, timeTaken });
       applyEngineItem(nextItem);
@@ -270,6 +271,7 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
       showToast("Failed to submit review", "error");
     } finally {
       setIsGrading(false);
+      dispatchReviewSubmissionState(false);
     }
   }, [applyEngineItem, currentItem, isFrenzyMode, isGrading, srs.state.currentSession, startTime]);
 

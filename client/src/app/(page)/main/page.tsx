@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck, Wrench } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck, Wrench, Radio, Unplug } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
@@ -36,7 +36,13 @@ import {
   downloadJsonFile,
   copyDomain
 } from '@/lib/api';
-import { archiveDomain } from '@/lib/api';
+import {
+  archiveDomain,
+  attachCurrentLiveImportRoot,
+  getLiveImportStatus,
+  subscribeLiveImportEvents,
+  LiveImportStatus,
+} from '@/lib/api';
 
 export default function MainPage() {
   const { domainDueCounts } = useNotifications();
@@ -70,6 +76,8 @@ export default function MainPage() {
   // NEW: Create/Import dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [liveImportStatus, setLiveImportStatus] = useState<LiveImportStatus | null>(null);
+  const [isAttachingLiveRoot, setIsAttachingLiveRoot] = useState(false);
 
   const router = useRouter();
   const explorerFontStyle = useMemo(
@@ -140,6 +148,45 @@ export default function MainPage() {
     };
     
     fetchDomains();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setLiveImportStatus(null);
+      return;
+    }
+    let active = true;
+    let stopEvents: (() => void) | undefined;
+    const refresh = async () => {
+      try {
+        const status = await getLiveImportStatus();
+        if (!active) return;
+        setLiveImportStatus(status);
+        if (status.enabled && !stopEvents) {
+          stopEvents = subscribeLiveImportEvents(event => {
+            if (!active) return;
+            if (event.type === 'connection.changed' && event.connectionState) {
+              setLiveImportStatus(previous => previous ? { ...previous, connectionState: event.connectionState! } : previous);
+            }
+            if (event.type === 'root.available' || event.type === 'binding.detached') {
+              void refresh();
+            }
+            if (event.type === 'sync.accepted') {
+              void getMyDomains().then(domains => {
+                if (active) setMyDomains(domains || []);
+              });
+            }
+          });
+        }
+      } catch (liveImportError) {
+        console.warn('Development live import is unavailable', liveImportError);
+      }
+    };
+    void refresh();
+    return () => {
+      active = false;
+      stopEvents?.();
+    };
   }, [currentUser]);
 
   // Compute enrolledNonOwned (defensive client-side filter until server is deployed)
@@ -415,6 +462,36 @@ export default function MainPage() {
     }
   };
 
+  const handleAttachLiveRoot = async () => {
+    if (!liveImportStatus?.currentRoot.hasManifest || isAttachingLiveRoot) return;
+    setIsAttachingLiveRoot(true);
+    try {
+      const attached = await attachCurrentLiveImportRoot();
+      const [status, domains] = await Promise.all([getLiveImportStatus(), getMyDomains()]);
+      setLiveImportStatus(status);
+      setMyDomains(domains || []);
+      setActiveTab('my');
+      showToast(`Attached "${attached.binding.displayName}"`, 'success');
+      router.push(`/main/domains/${attached.binding.domainId}/study`);
+    } catch (attachError: any) {
+      showToast(attachError?.message || 'Failed to attach the current Org-roam root', 'error');
+    } finally {
+      setIsAttachingLiveRoot(false);
+    }
+  };
+
+  const managedDomainIds = useMemo(
+    () => new Set((liveImportStatus?.bindings || [])
+      .filter(binding => binding.authorizationState === 'attached')
+      .map(binding => binding.domainId)),
+    [liveImportStatus?.bindings],
+  );
+
+  const currentRootAlreadyAttached = !!liveImportStatus?.bindings.some(binding =>
+    binding.authorizationState === 'attached' &&
+    binding.providerNotebookId === liveImportStatus.currentRoot.providerNotebookId
+  );
+
   return (
     <div className={`${isDarkMode ? 'kg-night-mode dark' : ''} kg-font-root`} style={explorerFontStyle}>
       {/* Use Navbar's built-in hamburger dropdown (no slide-over sidebar) */}
@@ -430,6 +507,44 @@ export default function MainPage() {
       <div className="min-h-screen bg-white w-full mt-16">
         {/* Use consistent padding like dashboard */}
         <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8" onClick={() => setMenuOpenId(null)}>
+          {liveImportStatus?.enabled && (
+            <div className={`mb-6 rounded-xl border p-4 ${
+              liveImportStatus.connectionState === 'online'
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-amber-200 bg-amber-50'
+            }`}>
+              <div className="flex flex-wrap items-center gap-3">
+                {liveImportStatus.connectionState === 'online'
+                  ? <Radio size={18} className="text-emerald-700" />
+                  : <Unplug size={18} className="text-amber-700" />}
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-gray-900">
+                    Org live import · {liveImportStatus.connectionState}
+                  </div>
+                  <div className="text-sm text-gray-700 truncate">
+                    {liveImportStatus.currentRoot.hasManifest
+                      ? `Current notebook: ${liveImportStatus.currentRoot.title || liveImportStatus.currentRoot.providerNotebookId}`
+                      : liveImportStatus.connectionState === 'online'
+                        ? 'The current Org-roam root has no ankidemy.org manifest.'
+                        : 'Emacs is unreachable. Managed domains remain readable using the last accepted snapshot.'}
+                  </div>
+                </div>
+                {liveImportStatus.connectionState === 'online' &&
+                  liveImportStatus.currentRoot.hasManifest &&
+                  !currentRootAlreadyAttached && (
+                    <Button onClick={handleAttachLiveRoot} disabled={isAttachingLiveRoot}>
+                      {isAttachingLiveRoot ? 'Attaching…' : 'Attach notebook'}
+                    </Button>
+                  )}
+                {currentRootAlreadyAttached && (
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-800">
+                    Attached
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Domain Network Visualization (moved above tabs) */}
           <div className="mb-8">
             <h2 className="text-xl font-bold mb-6 text-gray-800">Domain Network</h2>
@@ -604,6 +719,7 @@ export default function MainPage() {
                 const isOwned = !!currentUserId && domain.ownerId === currentUserId;
                 const isShared = !!domain.permissionRole && !isOwned;
                 const isEnrolled = enrolledNonOwnedIds.has(domain.id);
+                const isManaged = managedDomainIds.has(domain.id);
 
                 return (
                   <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm relative">
@@ -618,7 +734,7 @@ export default function MainPage() {
                       </button>
                       {menuOpenId === domain.id && (
                         <div className="kg-font-ui absolute right-0 mt-2 w-44 bg-white border rounded-md shadow-lg" onClick={(e) => e.stopPropagation()}>
-                          {isOwned && (
+                          {isOwned && !isManaged && (
                             <button
                               className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                               onClick={() => { setMenuOpenId(null); handleArchive(domain); }}
@@ -632,12 +748,14 @@ export default function MainPage() {
                           >
                             Open
                           </button>
-                          <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                            onClick={() => { setMenuOpenId(null); openCopyDialog(domain); }}
-                          >
-                            Copy
-                          </button>
+                          {!isManaged && (
+                            <button
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                              onClick={() => { setMenuOpenId(null); openCopyDialog(domain); }}
+                            >
+                              Copy
+                            </button>
+                          )}
                           <button
                             className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                             onClick={() => { setMenuOpenId(null); handleExport(domain); }}
@@ -665,6 +783,11 @@ export default function MainPage() {
                           {statusInfo.icon}
                           <span className="ml-1">{statusInfo.label}</span>
                         </span>
+                        {isManaged && (
+                          <span className="kg-font-tag text-sm px-2 py-1 rounded-full flex items-center bg-cyan-100 text-cyan-800">
+                            <Radio size={14} className="mr-1" /> Managed
+                          </span>
+                        )}
                       </div>
                       
                       <div className="flex items-center space-x-2">

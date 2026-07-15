@@ -286,7 +286,9 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   graphData: initialGraphData,
   subjectMatterId,
   onBack: _onBack,
-  onPositionUpdate
+  onPositionUpdate,
+  isContentManaged = false,
+  livePresenceCode = null,
 }) => {
   const ui = useUI();
   const srs = useSRS();
@@ -376,6 +378,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const canEdit = !!(
     currentUser &&
     domainData &&
+    !isContentManaged &&
     (currentUser.isAdmin || isDomainOwner || domainData.permissionRole === 'editor' || domainData.permissionRole === 'owner')
   );
 
@@ -804,10 +807,11 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   const dagMode = dagModeEnabled && expandedCycleIds.size === 0 ? dagOrientation : null;
 
-  const graphHighlightedNodes = useMemo(
-    () => buildGraphHighlightedNodes(activeNodeIds, highlightNodes, pendingLinkSourceId),
-    [activeNodeIds, highlightNodes, pendingLinkSourceId],
-  );
+  const graphHighlightedNodes = useMemo(() => {
+    const highlighted = buildGraphHighlightedNodes(activeNodeIds, highlightNodes, pendingLinkSourceId);
+    if (livePresenceCode) highlighted.add(livePresenceCode);
+    return highlighted;
+  }, [activeNodeIds, highlightNodes, pendingLinkSourceId, livePresenceCode]);
 
   const questNodeIds = useMemo(
     () => buildQuestNodeIds(stableGraph.nodes, questVisibilityMode === 'on' ? 'on' : 'off'),
@@ -4528,8 +4532,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const currentDomainId = domainData?.id;
   const currentDomainName = domainName;
   const isOwner = !!(currentUser && domainData && domainData.ownerId === currentUser.id);
-  const canImport = !!(currentDomainId && isOwner && hasAccess);
-  const canBackup = !!(currentDomainId && isOwner);
+  const canImport = !!(currentDomainId && isOwner && hasAccess && !isContentManaged);
+  const canBackup = !!(currentDomainId && isOwner && !isContentManaged);
   const canShare = !!(currentDomainId && isOwner);
   const canExport = !!currentDomainId;
 

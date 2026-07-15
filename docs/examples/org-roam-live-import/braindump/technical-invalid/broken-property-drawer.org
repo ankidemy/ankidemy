@@ -1,0 +1,8 @@
+#+title: Malformed property drawer
+
+* Broken definition
+:PROPERTIES:
+:ID: technical-broken
+:ANKIDEMY_TYPE: definition
+This drawer intentionally has no :END:. The adapter must report
+`file.parse_failed` at line 4 and leave the last-known-good snapshot untouched.

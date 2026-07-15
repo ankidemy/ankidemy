@@ -1,0 +1,9 @@
+#+title: External research result
+
+* Research result
+:PROPERTIES:
+:ID: research-external-node
+:ANKIDEMY_TYPE: source
+:ANKIDEMY_CODE: research.external
+:END:
+This node belongs only to the nested research notebook.

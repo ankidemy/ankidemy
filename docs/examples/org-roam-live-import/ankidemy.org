@@ -1,0 +1,3 @@
+#+title: Probability
+#+ankidemy_notebook_id: 019ba6be-0c03-7dc8-a6d8-42f936da1df7
+#+ankidemy_schema: 1

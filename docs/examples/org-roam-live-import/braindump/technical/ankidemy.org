@@ -1,0 +1,3 @@
+#+title: Technical Import Fixture
+#+ankidemy_notebook_id: fixture-technical-notebook
+#+ankidemy_schema: 1

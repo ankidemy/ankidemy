@@ -23,6 +23,7 @@ type Exercise struct {
 	DomainID             uint      `gorm:"column:domain_id;not null" json:"domainId"`
 	OwnerID              uint      `gorm:"column:owner_id;not null" json:"ownerId"`
 	MetaExerciseID       uint      `gorm:"column:meta_exercise_id;not null;index" json:"metaExerciseId"`
+	DisplayOrder         int       `gorm:"column:display_order;not null;default:0" json:"displayOrder"`
 	Verifiable           bool      `gorm:"column:verifiable;default:false" json:"verifiable"`
 	Result               string    `gorm:"column:result" json:"result"`
 	Difficulty           int       `gorm:"column:difficulty" json:"difficulty"`
@@ -81,6 +82,7 @@ type ExerciseResponse struct {
 	Hints                string   `json:"hints,omitempty"`
 	DomainID             uint     `json:"domainId"`
 	OwnerID              uint     `json:"ownerId"`
+	DisplayOrder         int      `json:"displayOrder"`
 	Verifiable           bool     `json:"verifiable"`
 	Result               string   `json:"result,omitempty"`
 	Difficulty           int      `json:"difficulty,omitempty"`
