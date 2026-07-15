@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 
@@ -135,7 +134,7 @@ func BenchmarkOptimizeReviewOrder(b *testing.B) {
 		r := NewReviewOptimizationService()
 		graph := r.creditService.BuildGraph(prereqs)
 		due := dueNodesForGraph(tc.layers, tc.width, tc.everyNth)
-		b.Run(fmt.Sprintf("%s", tc.name), func(b *testing.B) {
+		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				ordered := r.OptimizeReviewOrder(due, graph)

@@ -7,17 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"ankidemy/server/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"ankidemy/server/models"
 )
 
 type DomainBackup struct {
-	SchemaVersion int                `json:"schemaVersion"`
-	ExportedAt    time.Time          `json:"exportedAt"`
-	Domain        DomainBackupDomain `json:"domain"`
-	OwnerUsername string             `json:"ownerUsername"`
-	Data          ImportData         `json:"data"`
+	SchemaVersion int                    `json:"schemaVersion"`
+	ExportedAt    time.Time              `json:"exportedAt"`
+	Domain        DomainBackupDomain     `json:"domain"`
+	OwnerUsername string                 `json:"ownerUsername"`
+	Data          ImportData             `json:"data"`
 	UserState     *DomainUserStateBackup `json:"userState,omitempty"`
 	SRS           *DomainSRSBackup       `json:"srs,omitempty"`
 }
@@ -34,21 +34,21 @@ type DomainSRSBackup struct {
 }
 
 type DomainUserStateBackup struct {
-	Username           string                 `json:"username"`
-	PrivateSources     map[string]ImportSourceNode `json:"privateSources,omitempty"`
+	Username           string                         `json:"username"`
+	PrivateSources     map[string]ImportSourceNode    `json:"privateSources,omitempty"`
 	PrivateQuests      map[string]ImportMetaQuestNode `json:"privateQuests,omitempty"`
-	PrivateRelations   []ImportRelation       `json:"privateRelations,omitempty"`
-	QuestStates        []QuestStateBackup     `json:"questStates,omitempty"`
-	QuestEvents        []QuestEventBackup     `json:"questEvents,omitempty"`
-	UserDomainSettings *UserDomainSettingsBackup `json:"userDomainSettings,omitempty"`
-	SRSProgress        []SRSProgress          `json:"srsProgress,omitempty"`
+	PrivateRelations   []ImportRelation               `json:"privateRelations,omitempty"`
+	QuestStates        []QuestStateBackup             `json:"questStates,omitempty"`
+	QuestEvents        []QuestEventBackup             `json:"questEvents,omitempty"`
+	UserDomainSettings *UserDomainSettingsBackup      `json:"userDomainSettings,omitempty"`
+	SRSProgress        []SRSProgress                  `json:"srsProgress,omitempty"`
 }
 
 type UserDomainSettingsBackup struct {
-	Timezone              string `json:"timezone"`
-	DailyQuestLimit       int    `json:"dailyQuestLimit"`
-	DailyQuestCooldownDays int   `json:"dailyQuestCooldownDays"`
-	Preferences           json.RawMessage `json:"preferences,omitempty"`
+	Timezone               string          `json:"timezone"`
+	DailyQuestLimit        int             `json:"dailyQuestLimit"`
+	DailyQuestCooldownDays int             `json:"dailyQuestCooldownDays"`
+	Preferences            json.RawMessage `json:"preferences,omitempty"`
 }
 
 type QuestStateBackup struct {
@@ -58,18 +58,18 @@ type QuestStateBackup struct {
 	SnoozedUntil       *time.Time `json:"snoozedUntil,omitempty"`
 	LastPresentedAt    *time.Time `json:"lastPresentedAt,omitempty"`
 	LastCompletedAt    *time.Time `json:"lastCompletedAt,omitempty"`
-	CurrentStreak       int       `json:"currentStreak"`
-	CurrentPeriodKey    *string   `json:"currentPeriodKey,omitempty"`
-	CurrentPeriodCount  int       `json:"currentPeriodCount"`
-	LastShownAt         *time.Time `json:"lastShownAt,omitempty"`
+	CurrentStreak      int        `json:"currentStreak"`
+	CurrentPeriodKey   *string    `json:"currentPeriodKey,omitempty"`
+	CurrentPeriodCount int        `json:"currentPeriodCount"`
+	LastShownAt        *time.Time `json:"lastShownAt,omitempty"`
 }
 
 type QuestEventBackup struct {
-	MetaQuestCode     string     `json:"metaQuestCode"`
-	QuestVersionIndex *int       `json:"questVersionIndex,omitempty"`
-	EventType         string     `json:"eventType"`
-	HappenedAt        time.Time  `json:"happenedAt"`
-	Note              *string    `json:"note,omitempty"`
+	MetaQuestCode     string          `json:"metaQuestCode"`
+	QuestVersionIndex *int            `json:"questVersionIndex,omitempty"`
+	EventType         string          `json:"eventType"`
+	HappenedAt        time.Time       `json:"happenedAt"`
+	Note              *string         `json:"note,omitempty"`
 	Payload           json.RawMessage `json:"payload,omitempty"`
 }
 
@@ -288,16 +288,16 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 	state.QuestStates = make([]QuestStateBackup, 0, len(rows))
 	for _, row := range rows {
 		state.QuestStates = append(state.QuestStates, QuestStateBackup{
-			MetaQuestCode:     row.Code,
-			Active:            row.Active,
-			NextDueAt:         row.NextDueAt,
-			SnoozedUntil:      row.SnoozedUntil,
-			LastPresentedAt:   row.LastPresentedAt,
-			LastCompletedAt:   row.LastCompletedAt,
-			CurrentStreak:     row.CurrentStreak,
-			CurrentPeriodKey:  row.CurrentPeriodKey,
+			MetaQuestCode:      row.Code,
+			Active:             row.Active,
+			NextDueAt:          row.NextDueAt,
+			SnoozedUntil:       row.SnoozedUntil,
+			LastPresentedAt:    row.LastPresentedAt,
+			LastCompletedAt:    row.LastCompletedAt,
+			CurrentStreak:      row.CurrentStreak,
+			CurrentPeriodKey:   row.CurrentPeriodKey,
 			CurrentPeriodCount: row.CurrentPeriodCount,
-			LastShownAt:       row.LastShownAt,
+			LastShownAt:        row.LastShownAt,
 		})
 	}
 
@@ -482,12 +482,12 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 		// User domain settings
 		if state.UserDomainSettings != nil {
 			settings := &models.UserDomainSettings{
-				UserID:                userID,
-				DomainID:              domainID,
-				Timezone:              state.UserDomainSettings.Timezone,
-				DailyQuestLimit:       state.UserDomainSettings.DailyQuestLimit,
+				UserID:                 userID,
+				DomainID:               domainID,
+				Timezone:               state.UserDomainSettings.Timezone,
+				DailyQuestLimit:        state.UserDomainSettings.DailyQuestLimit,
 				DailyQuestCooldownDays: state.UserDomainSettings.DailyQuestCooldownDays,
-				Preferences:           state.UserDomainSettings.Preferences,
+				Preferences:            state.UserDomainSettings.Preferences,
 			}
 			if err := tx.Save(settings).Error; err != nil {
 				return err
@@ -505,17 +505,17 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				continue
 			}
 			stateRow := &models.UserMetaQuestState{
-				UserID:            userID,
-				MetaQuestID:       entry.NodeID,
-				Active:            qs.Active,
-				NextDueAt:         qs.NextDueAt,
-				SnoozedUntil:      qs.SnoozedUntil,
-				LastPresentedAt:   qs.LastPresentedAt,
-				LastCompletedAt:   qs.LastCompletedAt,
-				CurrentStreak:     qs.CurrentStreak,
-				CurrentPeriodKey:  qs.CurrentPeriodKey,
+				UserID:             userID,
+				MetaQuestID:        entry.NodeID,
+				Active:             qs.Active,
+				NextDueAt:          qs.NextDueAt,
+				SnoozedUntil:       qs.SnoozedUntil,
+				LastPresentedAt:    qs.LastPresentedAt,
+				LastCompletedAt:    qs.LastCompletedAt,
+				CurrentStreak:      qs.CurrentStreak,
+				CurrentPeriodKey:   qs.CurrentPeriodKey,
 				CurrentPeriodCount: qs.CurrentPeriodCount,
-				LastShownAt:       qs.LastShownAt,
+				LastShownAt:        qs.LastShownAt,
 			}
 			if err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "user_id"}, {Name: "meta_quest_id"}},
@@ -546,13 +546,13 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				}
 			}
 			event := &models.QuestEvent{
-				UserID:        userID,
-				MetaQuestID:   entry.NodeID,
+				UserID:         userID,
+				MetaQuestID:    entry.NodeID,
 				QuestVersionID: versionID,
-				EventType:     ev.EventType,
-				HappenedAt:    ev.HappenedAt,
-				Note:          ev.Note,
-				Payload:       ev.Payload,
+				EventType:      ev.EventType,
+				HappenedAt:     ev.HappenedAt,
+				Note:           ev.Note,
+				Payload:        ev.Payload,
 			}
 			if err := tx.Create(event).Error; err != nil {
 				return err

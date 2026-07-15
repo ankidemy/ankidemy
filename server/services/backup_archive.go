@@ -120,7 +120,7 @@ func readZipFileWithLimit(file *zip.File, maxSize uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	limited := io.LimitReader(reader, int64(maxSize)+1)
 	data, err := io.ReadAll(limited)

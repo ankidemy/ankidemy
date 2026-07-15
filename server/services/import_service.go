@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -868,9 +868,10 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		seedsByGroup := make(map[uint][]ImportGroupNodeRef)
 		for _, s := range seeds {
 			ref := ImportGroupNodeRef{NodeType: s.NodeType}
-			if s.NodeType == "definition" {
+			switch s.NodeType {
+			case "definition":
 				ref.Code = metaDefCodes[s.NodeID]
-			} else if s.NodeType == "exercise" {
+			case "exercise":
 				ref.Code = metaExCodes[s.NodeID]
 			}
 			if ref.Code != "" {
@@ -880,9 +881,10 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		membersByGroup := make(map[uint][]ImportGroupNodeRef)
 		for _, m := range members {
 			ref := ImportGroupNodeRef{NodeType: m.NodeType}
-			if m.NodeType == "definition" {
+			switch m.NodeType {
+			case "definition":
 				ref.Code = metaDefCodes[m.NodeID]
-			} else if m.NodeType == "exercise" {
+			case "exercise":
 				ref.Code = metaExCodes[m.NodeID]
 			}
 			if ref.Code != "" {
@@ -931,11 +933,11 @@ func (s *ImportService) ReadImportFileFromPath(filePath string) (*ImportData, er
 	if jsonFile == nil {
 		return nil, fmt.Errorf("import file not found in any of these locations: %v", possiblePaths)
 	}
-	defer jsonFile.Close()
+	defer func() { _ = jsonFile.Close() }()
 
 	log.Printf("Reading import data from: %s", usedPath)
 
-	byteValue, err := ioutil.ReadAll(jsonFile)
+	byteValue, err := io.ReadAll(jsonFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read import file: %v", err)
 	}
@@ -1518,7 +1520,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			baseCode = code
 		}
 		assigned := baseCode
-		if !(strategy == DuplicateStrategyUpdate && existingMetaDefs[baseCode] != nil) {
+		if strategy != DuplicateStrategyUpdate || existingMetaDefs[baseCode] == nil {
 			assigned = uniqueCodeFor(baseCode, codesInUse)
 		}
 		metaDefAssigned[code] = assigned
@@ -1543,7 +1545,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			baseCode = code
 		}
 		assignedCode := baseCode
-		if !(strategy == DuplicateStrategyUpdate && existingMetaExs[baseCode] != nil) {
+		if strategy != DuplicateStrategyUpdate || existingMetaExs[baseCode] == nil {
 			assignedCode = uniqueCodeFor(baseCode, codesInUse)
 		}
 		metaAssigned[code] = assignedCode

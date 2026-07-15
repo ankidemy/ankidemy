@@ -107,7 +107,7 @@ func snapshotReadyForAttachment(snapshot ContentSnapshot) ContentSnapshotValidat
 func (s *ContentLiveImportService) AttachCurrent(ctx context.Context, ownerID uint) (*models.ContentBinding, *ContentReconcileResult, error) {
 	root := s.bridge.CurrentRoot()
 	if s.bridge.ConnectionState() != "online" {
-		return nil, nil, errors.New("Org bridge is offline")
+		return nil, nil, errors.New("org bridge is offline")
 	}
 	if !root.HasManifest || root.ProviderNotebookID == "" {
 		return nil, nil, errors.New("current Org-roam root has no valid ankidemy.org manifest")
@@ -448,7 +448,7 @@ func writeContentAddressedFile(path string, data []byte) error {
 		return err
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	defer func() { _ = os.Remove(temporaryPath) }()
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
 		return err

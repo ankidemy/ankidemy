@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"ankidemy/server/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"ankidemy/server/models"
 )
 
 var DB *gorm.DB

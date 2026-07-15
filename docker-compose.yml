@@ -40,7 +40,7 @@ services:
 
   # Server Service (Go)
   server:
-    image: golang:1.25-alpine
+    image: golang:1.25.12-alpine
     restart: unless-stopped
     working_dir: /app
     env_file:

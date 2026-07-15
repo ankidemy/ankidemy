@@ -3,8 +3,8 @@
 package dao
 
 import (
-	"errors"
 	"ankidemy/server/models"
+	"errors"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +25,7 @@ func (d *DefinitionDAO) Create(definition *models.Definition, references []strin
 		if err := tx.Create(definition).Error; err != nil {
 			return err
 		}
-		
+
 		// Add references
 		if len(references) > 0 {
 			for _, ref := range references {
@@ -38,7 +38,7 @@ func (d *DefinitionDAO) Create(definition *models.Definition, references []strin
 				}
 			}
 		}
-		
+
 		return nil
 	})
 }
@@ -50,12 +50,12 @@ func (d *DefinitionDAO) Update(definition *models.Definition, references []strin
 		if err := tx.Save(definition).Error; err != nil {
 			return err
 		}
-		
+
 		// Update references (delete old ones, add new ones)
 		if err := tx.Where("definition_id = ?", definition.ID).Delete(&models.Reference{}).Error; err != nil {
 			return err
 		}
-		
+
 		if len(references) > 0 {
 			for _, ref := range references {
 				reference := models.Reference{
@@ -67,7 +67,7 @@ func (d *DefinitionDAO) Update(definition *models.Definition, references []strin
 				}
 			}
 		}
-		
+
 		return nil
 	})
 }
@@ -79,7 +79,7 @@ func (d *DefinitionDAO) Delete(id uint) error {
 		if err := tx.Where("definition_id = ?", id).Delete(&models.Reference{}).Error; err != nil {
 			return err
 		}
-		
+
 		// Delete the definition
 		return tx.Delete(&models.Definition{}, id).Error
 	})
@@ -89,14 +89,14 @@ func (d *DefinitionDAO) Delete(id uint) error {
 func (d *DefinitionDAO) FindByID(id uint) (*models.Definition, error) {
 	var definition models.Definition
 	result := d.db.Preload("References").First(&definition, id)
-	
+
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, errors.New("definition not found")
 		}
 		return nil, result.Error
 	}
-	
+
 	return &definition, nil
 }
 
@@ -106,12 +106,12 @@ func (d *DefinitionDAO) FindByIDWithPrerequisites(id uint) (*models.DefinitionWi
 	if err != nil {
 		return nil, err
 	}
-	
+
 	prerequisiteCodes, err := d.getPrerequisiteCodes(id, "definition")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &models.DefinitionWithPrerequisites{
 		Definition:        *definition,
 		PrerequisiteCodes: prerequisiteCodes,
@@ -122,15 +122,15 @@ func (d *DefinitionDAO) FindByIDWithPrerequisites(id uint) (*models.DefinitionWi
 func (d *DefinitionDAO) FindByCode(code string) ([]*models.DefinitionWithPrerequisites, error) {
 	var definitions []models.Definition
 	result := d.db.Preload("References").Where("code = ?", code).Find(&definitions)
-	
+
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	
+
 	if len(definitions) == 0 {
 		return nil, errors.New("definitions not found")
 	}
-	
+
 	// Load prerequisites for each definition
 	var results []*models.DefinitionWithPrerequisites
 	for _, def := range definitions {
@@ -138,13 +138,13 @@ func (d *DefinitionDAO) FindByCode(code string) ([]*models.DefinitionWithPrerequ
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results = append(results, &models.DefinitionWithPrerequisites{
 			Definition:        def,
 			PrerequisiteCodes: prerequisiteCodes,
 		})
 	}
-	
+
 	return results, nil
 }
 
@@ -152,19 +152,19 @@ func (d *DefinitionDAO) FindByCode(code string) ([]*models.DefinitionWithPrerequ
 func (d *DefinitionDAO) FindByCodeAndDomain(code string, domainID uint) (*models.DefinitionWithPrerequisites, error) {
 	var definition models.Definition
 	result := d.db.Preload("References").Where("code = ? AND domain_id = ?", code, domainID).First(&definition)
-	
+
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, errors.New("definition not found")
 		}
 		return nil, result.Error
 	}
-	
+
 	prerequisiteCodes, err := d.getPrerequisiteCodes(definition.ID, "definition")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &models.DefinitionWithPrerequisites{
 		Definition:        definition,
 		PrerequisiteCodes: prerequisiteCodes,
@@ -175,11 +175,11 @@ func (d *DefinitionDAO) FindByCodeAndDomain(code string, domainID uint) (*models
 func (d *DefinitionDAO) GetByDomainID(domainID uint) ([]models.DefinitionWithPrerequisites, error) {
 	var definitions []models.Definition
 	result := d.db.Preload("References").Where("domain_id = ?", domainID).Find(&definitions)
-	
+
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	
+
 	// Load prerequisites for each definition
 	var results []models.DefinitionWithPrerequisites
 	for _, def := range definitions {
@@ -187,13 +187,13 @@ func (d *DefinitionDAO) GetByDomainID(domainID uint) ([]models.DefinitionWithPre
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results = append(results, models.DefinitionWithPrerequisites{
 			Definition:        def,
 			PrerequisiteCodes: prerequisiteCodes,
 		})
 	}
-	
+
 	return results, nil
 }
 
@@ -209,25 +209,25 @@ func (d *DefinitionDAO) ConvertToResponse(definition *models.DefinitionWithPrere
 	weights, _ := d.getPrerequisiteWeights(definition.ID, "definition")
 
 	return models.DefinitionResponse{
-		ID:                  definition.ID,
-		Code:                definition.Code,
-		Name:                definition.Name,
-		Prompt:              definition.Prompt,
-		PromptImagePath:     definition.PromptImagePath,
+		ID:                   definition.ID,
+		Code:                 definition.Code,
+		Name:                 definition.Name,
+		Prompt:               definition.Prompt,
+		PromptImagePath:      definition.PromptImagePath,
 		DescriptionImagePath: definition.DescriptionImagePath,
-		Type:                definition.Type,
-		Description:         definition.Description,
-		Notes:               definition.Notes,
-		References:          references,
-		Prerequisites:       definition.PrerequisiteCodes,
-		PrerequisiteWeights: weights,
-		DomainID:            definition.DomainID,
-		OwnerID:             definition.OwnerID,
-		MetaDefinitionID:    definition.MetaDefinitionID,
-		XPosition:           definition.XPosition,
-		YPosition:           definition.YPosition,
-		CreatedAt:           definition.CreatedAt,
-		UpdatedAt:           definition.UpdatedAt,
+		Type:                 definition.Type,
+		Description:          definition.Description,
+		Notes:                definition.Notes,
+		References:           references,
+		Prerequisites:        definition.PrerequisiteCodes,
+		PrerequisiteWeights:  weights,
+		DomainID:             definition.DomainID,
+		OwnerID:              definition.OwnerID,
+		MetaDefinitionID:     definition.MetaDefinitionID,
+		XPosition:            definition.XPosition,
+		YPosition:            definition.YPosition,
+		CreatedAt:            definition.CreatedAt,
+		UpdatedAt:            definition.UpdatedAt,
 	}
 }
 
@@ -240,18 +240,18 @@ func (d *DefinitionDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]st
 		WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
 		ORDER BY d.code
 	`
-	
+
 	var codes []string
 	if err := d.db.Raw(query, nodeID, nodeType).Scan(&codes).Error; err != nil {
 		return nil, err
 	}
-	
+
 	return codes, nil
 }
 
 // getPrerequisiteWeights returns map[code]weight for a node's prerequisites
 func (d *DefinitionDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
-    query := `
+	query := `
         SELECT d.code, np.weight 
         FROM node_prerequisites np
         JOIN definitions d ON np.prerequisite_id = d.id 
@@ -259,19 +259,19 @@ func (d *DefinitionDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (ma
         ORDER BY d.code
     `
 
-    type row struct {
-        Code   string
-        Weight float64
-    }
-    var rows []row
-    if err := d.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
-        return nil, err
-    }
-    res := make(map[string]float64, len(rows))
-    for _, r := range rows {
-        res[r.Code] = r.Weight
-    }
-    return res, nil
+	type row struct {
+		Code   string
+		Weight float64
+	}
+	var rows []row
+	if err := d.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	res := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		res[r.Code] = r.Weight
+	}
+	return res, nil
 }
 
 // UpdatePositions updates the x,y positions of multiple definitions

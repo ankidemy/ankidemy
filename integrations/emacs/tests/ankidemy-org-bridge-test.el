@@ -12,6 +12,7 @@
   `(let* ((root (file-name-as-directory
                  (make-temp-file "ankidemy-bridge-root-" t)))
           (org-roam-directory root)
+          (ankidemy-org-bridge-allowed-roots (list root))
           (ankidemy-org-bridge--cache nil))
      (unwind-protect
          (progn

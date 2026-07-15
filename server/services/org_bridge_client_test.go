@@ -42,7 +42,7 @@ func TestOrgBridgeClientAuthenticatesAndDispatchesRPC(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer connection.Close()
+		defer func() { _ = connection.Close() }()
 		var auth map[string]any
 		if connection.ReadJSON(&auth) != nil || auth["type"] != "auth" || auth["token"] != token {
 			return
@@ -112,18 +112,13 @@ func TestOrgBridgeClientAuthenticatesAndDispatchesRPC(t *testing.T) {
 
 func TestOrgBridgeClientMarksConnectionOfflineAfterMissedHeartbeats(t *testing.T) {
 	const token = "test-token-at-least-24-characters"
-	originalInterval, originalTimeout := orgBridgeHeartbeatInterval, orgBridgeHeartbeatTimeout
-	orgBridgeHeartbeatInterval, orgBridgeHeartbeatTimeout = 10*time.Millisecond, 30*time.Millisecond
-	defer func() {
-		orgBridgeHeartbeatInterval, orgBridgeHeartbeatTimeout = originalInterval, originalTimeout
-	}()
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connection, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer connection.Close()
+		defer func() { _ = connection.Close() }()
 		var auth map[string]any
 		if connection.ReadJSON(&auth) != nil {
 			return
@@ -142,6 +137,8 @@ func TestOrgBridgeClientMarksConnectionOfflineAfterMissedHeartbeats(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.heartbeatInterval = 10 * time.Millisecond
+	client.heartbeatTimeout = 30 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client.Start(ctx)

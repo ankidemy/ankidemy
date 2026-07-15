@@ -3,8 +3,8 @@
 package dao
 
 import (
-	"errors"
 	"ankidemy/server/models"
+	"errors"
 	"gorm.io/gorm"
 )
 
@@ -37,14 +37,14 @@ func (d *ExerciseDAO) Delete(id uint) error {
 func (d *ExerciseDAO) FindByID(id uint) (*models.Exercise, error) {
 	var exercise models.Exercise
 	result := d.db.First(&exercise, id)
-	
+
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, errors.New("exercise not found")
 		}
 		return nil, result.Error
 	}
-	
+
 	return &exercise, nil
 }
 
@@ -54,12 +54,12 @@ func (d *ExerciseDAO) FindByIDWithPrerequisites(id uint) (*models.ExerciseWithPr
 	if err != nil {
 		return nil, err
 	}
-	
+
 	prerequisiteCodes, err := d.getPrerequisiteCodes(id, "exercise")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &models.ExerciseWithPrerequisites{
 		Exercise:          *exercise,
 		PrerequisiteCodes: prerequisiteCodes,
@@ -70,15 +70,15 @@ func (d *ExerciseDAO) FindByIDWithPrerequisites(id uint) (*models.ExerciseWithPr
 func (d *ExerciseDAO) FindByCode(code string) ([]*models.ExerciseWithPrerequisites, error) {
 	var exercises []models.Exercise
 	result := d.db.Where("code = ?", code).Find(&exercises)
-	
+
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	
+
 	if len(exercises) == 0 {
 		return nil, errors.New("exercises not found")
 	}
-	
+
 	// Load prerequisites for each exercise
 	var results []*models.ExerciseWithPrerequisites
 	for _, ex := range exercises {
@@ -86,13 +86,13 @@ func (d *ExerciseDAO) FindByCode(code string) ([]*models.ExerciseWithPrerequisit
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results = append(results, &models.ExerciseWithPrerequisites{
 			Exercise:          ex,
 			PrerequisiteCodes: prerequisiteCodes,
 		})
 	}
-	
+
 	return results, nil
 }
 
@@ -100,19 +100,19 @@ func (d *ExerciseDAO) FindByCode(code string) ([]*models.ExerciseWithPrerequisit
 func (d *ExerciseDAO) FindByCodeAndDomain(code string, domainID uint) (*models.ExerciseWithPrerequisites, error) {
 	var exercise models.Exercise
 	result := d.db.Where("code = ? AND domain_id = ?", code, domainID).First(&exercise)
-	
+
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, errors.New("exercise not found")
 		}
 		return nil, result.Error
 	}
-	
+
 	prerequisiteCodes, err := d.getPrerequisiteCodes(exercise.ID, "exercise")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &models.ExerciseWithPrerequisites{
 		Exercise:          exercise,
 		PrerequisiteCodes: prerequisiteCodes,
@@ -123,11 +123,11 @@ func (d *ExerciseDAO) FindByCodeAndDomain(code string, domainID uint) (*models.E
 func (d *ExerciseDAO) GetByDomainID(domainID uint) ([]models.ExerciseWithPrerequisites, error) {
 	var exercises []models.Exercise
 	result := d.db.Where("domain_id = ?", domainID).Find(&exercises)
-	
+
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	
+
 	// Load prerequisites for each exercise
 	var results []models.ExerciseWithPrerequisites
 	for _, ex := range exercises {
@@ -135,43 +135,43 @@ func (d *ExerciseDAO) GetByDomainID(domainID uint) ([]models.ExerciseWithPrerequ
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results = append(results, models.ExerciseWithPrerequisites{
 			Exercise:          ex,
 			PrerequisiteCodes: prerequisiteCodes,
 		})
 	}
-	
+
 	return results, nil
 }
 
 // ConvertToResponse converts an ExerciseWithPrerequisites to an ExerciseResponse
 func (d *ExerciseDAO) ConvertToResponse(exercise *models.ExerciseWithPrerequisites) models.ExerciseResponse {
-    // Load weights per prerequisite code
-    weights, _ := d.getPrerequisiteWeights(exercise.ID, "exercise")
+	// Load weights per prerequisite code
+	weights, _ := d.getPrerequisiteWeights(exercise.ID, "exercise")
 
-    return models.ExerciseResponse{
-        ID:            exercise.ID,
-        Code:          exercise.Code,
-        Name:          exercise.Name,
-        Statement:     exercise.Statement,
-        Description:   exercise.Description,
-        StatementImagePath:   exercise.StatementImagePath,
-        DescriptionImagePath: exercise.DescriptionImagePath,
-        Notes:         exercise.Notes,
-        Hints:         exercise.Hints,
-        DomainID:      exercise.DomainID,
-        OwnerID:       exercise.OwnerID,
-        Verifiable:    exercise.Verifiable,
-        Result:        exercise.Result,
-        Difficulty:    exercise.Difficulty,
-        Prerequisites: exercise.PrerequisiteCodes,
-        PrerequisiteWeights: weights,
-        XPosition:     exercise.XPosition,
-        YPosition:     exercise.YPosition,
-        CreatedAt:     exercise.CreatedAt,
-        UpdatedAt:     exercise.UpdatedAt,
-    }
+	return models.ExerciseResponse{
+		ID:                   exercise.ID,
+		Code:                 exercise.Code,
+		Name:                 exercise.Name,
+		Statement:            exercise.Statement,
+		Description:          exercise.Description,
+		StatementImagePath:   exercise.StatementImagePath,
+		DescriptionImagePath: exercise.DescriptionImagePath,
+		Notes:                exercise.Notes,
+		Hints:                exercise.Hints,
+		DomainID:             exercise.DomainID,
+		OwnerID:              exercise.OwnerID,
+		Verifiable:           exercise.Verifiable,
+		Result:               exercise.Result,
+		Difficulty:           exercise.Difficulty,
+		Prerequisites:        exercise.PrerequisiteCodes,
+		PrerequisiteWeights:  weights,
+		XPosition:            exercise.XPosition,
+		YPosition:            exercise.YPosition,
+		CreatedAt:            exercise.CreatedAt,
+		UpdatedAt:            exercise.UpdatedAt,
+	}
 }
 
 // Helper function to get prerequisite codes for a node
@@ -183,18 +183,18 @@ func (d *ExerciseDAO) getPrerequisiteCodes(nodeID uint, nodeType string) ([]stri
 		WHERE np.node_id = ? AND np.node_type = ? AND np.prerequisite_type = 'definition'
 		ORDER BY d.code
 	`
-	
+
 	var codes []string
 	if err := d.db.Raw(query, nodeID, nodeType).Scan(&codes).Error; err != nil {
 		return nil, err
 	}
-	
+
 	return codes, nil
 }
 
 // getPrerequisiteWeights returns map[code]weight for a node's prerequisites
 func (d *ExerciseDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[string]float64, error) {
-    query := `
+	query := `
         SELECT d.code, np.weight 
         FROM node_prerequisites np
         JOIN definitions d ON np.prerequisite_id = d.id 
@@ -202,19 +202,19 @@ func (d *ExerciseDAO) getPrerequisiteWeights(nodeID uint, nodeType string) (map[
         ORDER BY d.code
     `
 
-    type row struct {
-        Code   string
-        Weight float64
-    }
-    var rows []row
-    if err := d.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
-        return nil, err
-    }
-    res := make(map[string]float64, len(rows))
-    for _, r := range rows {
-        res[r.Code] = r.Weight
-    }
-    return res, nil
+	type row struct {
+		Code   string
+		Weight float64
+	}
+	var rows []row
+	if err := d.db.Raw(query, nodeID, nodeType).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	res := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		res[r.Code] = r.Weight
+	}
+	return res, nil
 }
 
 // UpdatePositions updates the x,y positions of multiple exercises
@@ -238,11 +238,11 @@ func (d *ExerciseDAO) VerifyExerciseAnswer(exerciseID uint, answer string) (bool
 	if err := d.db.First(&exercise, exerciseID).Error; err != nil {
 		return false, err
 	}
-	
+
 	if !exercise.Verifiable {
 		return false, errors.New("exercise is not automatically verifiable")
 	}
-	
+
 	// Simple string comparison - can be enhanced for more complex verification
 	return answer == exercise.Result, nil
 }

@@ -232,7 +232,7 @@ func (h *DomainHandler) CreateDomain(c *gin.Context) {
 
 		// Enroll the owner in the domain
 		if err := h.progressDAO.EnrollUserInDomain(userID.(uint), domain.ID); err != nil {
-			// Just log the error, don't fail the request
+			log.Printf("Failed to enroll domain owner %d in domain %d: %v", userID.(uint), domain.ID, err)
 		}
 	}
 
@@ -465,14 +465,14 @@ func (h *DomainHandler) ImportBackup(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read uploaded file"})
 		return
 	}
-	defer os.Remove(archivePath)
+	defer func() { _ = os.Remove(archivePath) }()
 
 	archive, err := zip.OpenReader(archivePath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid backup archive"})
 		return
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 
 	validated, err := services.ValidateBackupArchive(&archive.Reader)
 	if err != nil {
@@ -604,7 +604,7 @@ func (h *DomainHandler) CopyDomain(c *gin.Context) {
 	_ = h.domainDAO.Update(newDomain)
 
 	if err := h.copyUserProgress(userID, sourceDomain.ID, newDomain.ID); err != nil {
-		// Progress copy is best-effort; the domain copy itself is already created.
+		log.Printf("Failed to copy progress from domain %d to domain %d for user %d: %v", sourceDomain.ID, newDomain.ID, userID, err)
 	}
 
 	domainWithStats, err := h.domainDAO.FindByIDWithStats(newDomain.ID)
@@ -956,7 +956,7 @@ func extractBackupMediaEntry(prepared *preparedBackupMediaImport, entry *zip.Fil
 	if err != nil {
 		return "", "", err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	contentType, sample, err := services.DetectContentTypeFromReader(reader)
 	if err != nil {
@@ -1040,22 +1040,26 @@ func copyUploadedBackupToTemp(fileHeader *multipart.FileHeader, maxSize int64) (
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	tempFile, err := os.CreateTemp("", "ankidemy-backup-*.zip")
 	if err != nil {
 		return "", err
 	}
-	defer tempFile.Close()
-
 	written, err := io.Copy(tempFile, io.LimitReader(file, maxSize+1))
 	if err != nil {
+		_ = tempFile.Close()
 		_ = os.Remove(tempFile.Name())
 		return "", err
 	}
 	if written > maxSize {
+		_ = tempFile.Close()
 		_ = os.Remove(tempFile.Name())
 		return "", fmt.Errorf("request body too large")
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempFile.Name())
+		return "", err
 	}
 	return tempFile.Name(), nil
 }

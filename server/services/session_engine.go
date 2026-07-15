@@ -36,23 +36,23 @@ type sessionVersionStats struct {
 }
 
 type sessionRuntimeState struct {
-	Mode                   string                          `json:"mode"`
-	SessionType            string                          `json:"sessionType"`
-	Order                  string                          `json:"order"`
-	ExercisesPerDefinition int                             `json:"exercisesPerDefinition"`
-	Round                  int                             `json:"round"`
-	Queue                  []models.ReviewQueueItem        `json:"queue"`
+	Mode                   string                            `json:"mode"`
+	SessionType            string                            `json:"sessionType"`
+	Order                  string                            `json:"order"`
+	ExercisesPerDefinition int                               `json:"exercisesPerDefinition"`
+	Round                  int                               `json:"round"`
+	Queue                  []models.ReviewQueueItem          `json:"queue"`
 	Pool                   map[string]models.ReviewQueueItem `json:"pool,omitempty"`
-	PoolByNode             map[string][]string             `json:"poolByNode,omitempty"`
-	Credits                map[string]float64              `json:"credits,omitempty"`
-	Persisted              map[string]bool                 `json:"persisted"`
-	SessionSeen            map[string]*sessionVersionStats `json:"sessionSeen,omitempty"`
-	SessionDifficulty      map[uint]int                    `json:"sessionDifficulty,omitempty"`
-	Completed              int                             `json:"completed"`
-	Correct                int                             `json:"correct"`
-	TotalPlanned           int                             `json:"totalPlanned"`
-	CurrentVersionID       *uint                           `json:"currentVersionId,omitempty"`
-	Done                   bool                            `json:"done"`
+	PoolByNode             map[string][]string               `json:"poolByNode,omitempty"`
+	Credits                map[string]float64                `json:"credits,omitempty"`
+	Persisted              map[string]bool                   `json:"persisted"`
+	SessionSeen            map[string]*sessionVersionStats   `json:"sessionSeen,omitempty"`
+	SessionDifficulty      map[uint]int                      `json:"sessionDifficulty,omitempty"`
+	Completed              int                               `json:"completed"`
+	Correct                int                               `json:"correct"`
+	TotalPlanned           int                               `json:"totalPlanned"`
+	CurrentVersionID       *uint                             `json:"currentVersionId,omitempty"`
+	Done                   bool                              `json:"done"`
 }
 
 // SessionEngineItem is what the client renders: the current queue item with

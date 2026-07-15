@@ -220,7 +220,7 @@ func sniffContentType(file *multipart.FileHeader) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	contentType, _, err := services.DetectContentTypeFromReader(f)
 	return contentType, err
 }
@@ -246,7 +246,7 @@ func serveMediaFile(c *gin.Context, filePath, filename string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	info, err := file.Stat()
 	if err != nil {

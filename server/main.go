@@ -503,7 +503,9 @@ func main() {
 	log.Printf("Server starting on port %s", port)
 
 	// Only trust localhost and loopback address
-	router.SetTrustedProxies([]string{"127.0.0.1", "localhost"})
+	if err := router.SetTrustedProxies([]string{"127.0.0.1", "localhost"}); err != nil {
+		log.Fatalf("Failed to configure trusted proxies: %v", err)
+	}
 
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

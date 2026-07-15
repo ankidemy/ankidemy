@@ -121,14 +121,6 @@ func (h *SRSHandler) resolveReviewNodeDomainID(nodeType string, nodeID uint) (ui
 	return resolved.DomainID, nil
 }
 
-func (h *SRSHandler) getMetaDomainInfo(nodeType string, nodeID uint) (uint, uint, error) {
-	resolved, err := h.nodeAccessResolver.ResolveNodeAccess(nodeType, nodeID)
-	if err != nil {
-		return 0, 0, err
-	}
-	return resolved.DomainID, resolved.OwnerID, nil
-}
-
 func (h *SRSHandler) resolvePrerequisitePair(nodeType string, nodeID uint, prerequisiteType string, prerequisiteID uint) (*resolvedNodeAccess, *resolvedNodeAccess, error) {
 	node, err := h.nodeAccessResolver.ResolveNodeAccess(nodeType, nodeID)
 	if err != nil {

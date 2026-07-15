@@ -85,4 +85,14 @@ func TestContentManagedReadOnlyBlocksContentButAllowsLearningState(t *testing.T)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("detached domain remained read-only: %d %s", response.Code, response.Body.String())
 	}
+
+	if err := db.Migrator().DropTable(&models.ContentBinding{}); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/domains/"+strconv.FormatUint(uint64(domain.ID), 10)+"/definitions", strings.NewReader(`{}`))
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("binding lookup failure was not closed: %d %s", response.Code, response.Body.String())
+	}
 }

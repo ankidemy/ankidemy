@@ -1,12 +1,12 @@
 package services
 
 import (
-	"errors"
-	"math/rand"
-	"time"
-	"gorm.io/gorm"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"errors"
+	"gorm.io/gorm"
+	"math/rand"
+	"time"
 )
 
 type MetaDefinitionService struct {
@@ -78,7 +78,6 @@ func (s *MetaDefinitionService) SuggestVersion(userID uint, metaDefinitionID uin
 	}
 
 	// Random selection among ties
-	rand.Seed(time.Now().UnixNano())
 	chosen := pool[rand.Intn(len(pool))]
 
 	// Mark as seen (presentation) - increment seen count

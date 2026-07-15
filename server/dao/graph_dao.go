@@ -5,9 +5,10 @@ package dao
 import (
 	"errors"
 	"fmt"
-	"ankidemy/server/models"
 	"strconv"
 	"strings"
+
+	"ankidemy/server/models"
 
 	"gorm.io/gorm"
 )
@@ -398,8 +399,8 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 	visible := map[string]map[uint]bool{
 		"definition": {},
 		"exercise":   {},
-		"source":          {},
-		"meta_quest":      {},
+		"source":     {},
+		"meta_quest": {},
 	}
 	for _, md := range metaDefs {
 		visible["definition"][md.ID] = true
@@ -633,11 +634,12 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		seedsByGroup := make(map[uint][]GroupNodeRef)
 		for _, s := range seeds {
 			ref := GroupNodeRef{NodeType: s.NodeType}
-			if s.NodeType == "definition" {
+			switch s.NodeType {
+			case "definition":
 				if code, ok := metaDefCodes[s.NodeID]; ok {
 					ref.Code = code
 				}
-			} else if s.NodeType == "exercise" {
+			case "exercise":
 				if code, ok := metaExCodes[s.NodeID]; ok {
 					ref.Code = code
 				}
@@ -650,11 +652,12 @@ func (d *GraphDAO) ExportDomain(domainID uint) (*GraphData, error) {
 		membersByGroup := make(map[uint][]GroupNodeRef)
 		for _, m := range members {
 			ref := GroupNodeRef{NodeType: m.NodeType}
-			if m.NodeType == "definition" {
+			switch m.NodeType {
+			case "definition":
 				if code, ok := metaDefCodes[m.NodeID]; ok {
 					ref.Code = code
 				}
-			} else if m.NodeType == "exercise" {
+			case "exercise":
 				if code, ok := metaExCodes[m.NodeID]; ok {
 					ref.Code = code
 				}

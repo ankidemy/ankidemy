@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"gorm.io/gorm"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"gorm.io/gorm"
 )
 
 type SurveyQueueItem struct {
@@ -41,7 +41,6 @@ type SurveyService struct {
 }
 
 func NewSurveyService(db *gorm.DB) *SurveyService {
-	rand.Seed(time.Now().UnixNano())
 	return &SurveyService{
 		db:              db,
 		metaQuestDAO:    dao.NewMetaQuestDAO(db),
@@ -313,25 +312,6 @@ func (s *SurveyService) resolveCode(domainID uint, nodeType string, nodeID uint)
 		return "", err
 	}
 	return entry.Code, nil
-}
-
-func (s *SurveyService) computeAndPersistNextDue(meta *models.MetaQuest, state *models.UserMetaQuestState, now time.Time, userLoc *time.Location) (*models.UserMetaQuestState, error) {
-	nextDue, err := s.computeNextDue(meta, state, now, userLoc)
-	if err != nil {
-		return nil, err
-	}
-	if nextDue == nil && state.NextDueAt == nil {
-		return state, nil
-	}
-	changed := (nextDue == nil && state.NextDueAt != nil) ||
-		(nextDue != nil && (state.NextDueAt == nil || !nextDue.Equal(*state.NextDueAt)))
-	if changed {
-		state.NextDueAt = nextDue
-		if err := s.metaQuestDAO.UpdateUserState(state); err != nil {
-			return nil, err
-		}
-	}
-	return state, nil
 }
 
 func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.UserMetaQuestState, now time.Time, userLoc *time.Location) (*time.Time, error) {

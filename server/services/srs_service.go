@@ -1354,7 +1354,6 @@ func (s *SRSService) buildReviewQueue(userID uint, domainID uint, sessionType st
 	}
 
 	if usingGrasped && len(defs) > 1 {
-		rand.Seed(time.Now().UnixNano())
 		rand.Shuffle(len(defs), func(i, j int) { defs[i], defs[j] = defs[j], defs[i] })
 	}
 

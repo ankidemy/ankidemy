@@ -26,7 +26,7 @@ func DetectFileContentType(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	contentType, _, err := DetectContentTypeFromReader(file)
 	return contentType, err

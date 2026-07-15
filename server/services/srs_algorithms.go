@@ -180,11 +180,12 @@ func (s *SpacedRepetitionService) CalculateNextInterval(
 	} else {
 		// Successful review
 		reps++
-		if reps == 1 {
+		switch reps {
+		case 1:
 			interval = config.FirstIntervalDays
-		} else if reps == 2 {
+		case 2:
 			interval = config.SecondIntervalDays
-		} else {
+		default:
 			interval = math.Round(interval * ef)
 		}
 	}

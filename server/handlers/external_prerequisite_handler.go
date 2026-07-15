@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type ExternalPrerequisiteHandler struct {
@@ -432,15 +432,15 @@ func (h *ExternalPrerequisiteHandler) validateNodeInDomain(domainID, nodeID uint
 	case "definition":
 		meta, _, err := h.metaDefinitionDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
-			return errors.New("Node not found in domain")
+			return errors.New("node not found in domain")
 		}
 	case "exercise":
 		meta, _, err := h.metaExerciseDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
-			return errors.New("Node not found in domain")
+			return errors.New("node not found in domain")
 		}
 	default:
-		return errors.New("Invalid node type")
+		return errors.New("invalid node type")
 	}
 	return nil
 }
@@ -450,16 +450,16 @@ func (h *ExternalPrerequisiteHandler) resolveExternalNode(domainID, nodeID uint,
 	case "definition":
 		meta, _, err := h.metaDefinitionDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
-			return "", "", errors.New("External node not found")
+			return "", "", errors.New("external node not found")
 		}
 		return meta.Code, meta.Name, nil
 	case "exercise":
 		meta, _, err := h.metaExerciseDAO.FindByID(nodeID)
 		if err != nil || meta.DomainID != domainID {
-			return "", "", errors.New("External node not found")
+			return "", "", errors.New("external node not found")
 		}
 		return meta.Code, meta.Name, nil
 	default:
-		return "", "", errors.New("Invalid node type")
+		return "", "", errors.New("invalid node type")
 	}
 }

@@ -31,7 +31,11 @@ func ContentManagedReadOnly(db *gorm.DB) gin.HandlerFunc {
 		var count int64
 		if err := db.Model(&models.ContentBinding{}).
 			Where("domain_id = ? AND authorization_state = ?", domainID, "attached").
-			Count(&count).Error; err != nil || count == 0 {
+			Count(&count).Error; err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify content management state"})
+			return
+		}
+		if count == 0 {
 			c.Next()
 			return
 		}
@@ -54,7 +58,7 @@ func managedMutationIsLocalOnly(c *gin.Context) bool {
 		return false
 	}
 	pattern := c.FullPath()
-	allowed := map[string]bool{}
+	var allowed map[string]bool
 	switch pattern {
 	case "/api/meta-definitions/:id", "/api/meta-exercises/:id":
 		allowed = map[string]bool{"xPosition": true, "yPosition": true}

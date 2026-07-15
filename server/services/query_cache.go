@@ -475,7 +475,7 @@ func (c *redisRESPClient) callBytes(ctx context.Context, args []string) (respVal
 	if err != nil {
 		return zero, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)

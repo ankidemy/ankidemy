@@ -13,38 +13,6 @@ import (
 	"gorm.io/gorm"
 )
 
-type fakeProgressStore struct{}
-
-func (f *fakeProgressStore) GetUserDomainProgress(userID uint) ([]models.UserDomainProgress, error) {
-	return nil, nil
-}
-
-type fakeDefinitionFinder struct {
-	definition *models.Definition
-	err        error
-}
-
-func (f fakeDefinitionFinder) FindByID(id uint) (*models.Definition, error) {
-	return f.definition, f.err
-}
-
-type fakeExerciseStore struct {
-	exercise     *models.Exercise
-	err          error
-	verifyCalled bool
-	verifyResult bool
-	verifyErr    error
-}
-
-func (f *fakeExerciseStore) FindByID(id uint) (*models.Exercise, error) {
-	return f.exercise, f.err
-}
-
-func (f *fakeExerciseStore) VerifyExerciseAnswer(exerciseID uint, answer string) (bool, error) {
-	f.verifyCalled = true
-	return f.verifyResult, f.verifyErr
-}
-
 type fakeSRSService struct {
 	submitReviewCalled     bool
 	getDueReviewsCalled    bool

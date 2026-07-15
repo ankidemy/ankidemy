@@ -1,11 +1,11 @@
 package services
 
 import (
+	"ankidemy/server/dao"
+	"ankidemy/server/models"
 	"errors"
 	"gorm.io/gorm"
 	"math/rand"
-	"ankidemy/server/dao"
-	"ankidemy/server/models"
 	"sort"
 	"time"
 )
@@ -77,7 +77,6 @@ func (s *MetaExerciseService) SuggestVersion(userID uint, metaExerciseID uint) (
 		}
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	chosen := pool[rand.Intn(len(pool))]
 
 	// Mark as seen (presentation)
@@ -378,7 +377,6 @@ func (s *MetaExerciseService) SelectExercisesForDefinition(userID uint, definiti
 		return nil, nil
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	selected := make([]candidate, 0, count)
 	remaining := append([]candidate(nil), diffCandidates...)
 

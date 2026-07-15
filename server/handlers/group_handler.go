@@ -6,9 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/models"
+
+	"github.com/gin-gonic/gin"
 )
 
 type GroupHandler struct {
@@ -191,12 +192,13 @@ func (h *GroupHandler) ListByDomain(c *gin.Context) {
 	seedsByGroup := make(map[uint][]groupNodeRef)
 	for _, s := range seeds {
 		ref := groupNodeRef{NodeID: s.NodeID, NodeType: s.NodeType}
-		if s.NodeType == "definition" {
+		switch s.NodeType {
+		case "definition":
 			if def, ok := defs[s.NodeID]; ok {
 				ref.NodeCode = def.Code
 				ref.NodeName = def.Name
 			}
-		} else if s.NodeType == "exercise" {
+		case "exercise":
 			if ex, ok := exs[s.NodeID]; ok {
 				ref.NodeCode = ex.Code
 				ref.NodeName = ex.Name
@@ -208,12 +210,13 @@ func (h *GroupHandler) ListByDomain(c *gin.Context) {
 	membersByGroup := make(map[uint][]groupNodeRef)
 	for _, m := range members {
 		ref := groupNodeRef{NodeID: m.NodeID, NodeType: m.NodeType}
-		if m.NodeType == "definition" {
+		switch m.NodeType {
+		case "definition":
 			if def, ok := defs[m.NodeID]; ok {
 				ref.NodeCode = def.Code
 				ref.NodeName = def.Name
 			}
-		} else if m.NodeType == "exercise" {
+		case "exercise":
 			if ex, ok := exs[m.NodeID]; ok {
 				ref.NodeCode = ex.Code
 				ref.NodeName = ex.Name
@@ -456,12 +459,13 @@ func (h *GroupHandler) Update(c *gin.Context) {
 				continue
 			}
 			ref := groupNodeRef{NodeID: s.NodeID, NodeType: s.NodeType}
-			if s.NodeType == "definition" {
+			switch s.NodeType {
+			case "definition":
 				if def, ok := defs[s.NodeID]; ok {
 					ref.NodeCode = def.Code
 					ref.NodeName = def.Name
 				}
-			} else if s.NodeType == "exercise" {
+			case "exercise":
 				if ex, ok := exs[s.NodeID]; ok {
 					ref.NodeCode = ex.Code
 					ref.NodeName = ex.Name
@@ -475,12 +479,13 @@ func (h *GroupHandler) Update(c *gin.Context) {
 				continue
 			}
 			ref := groupNodeRef{NodeID: m.NodeID, NodeType: m.NodeType}
-			if m.NodeType == "definition" {
+			switch m.NodeType {
+			case "definition":
 				if def, ok := defs[m.NodeID]; ok {
 					ref.NodeCode = def.Code
 					ref.NodeName = def.Name
 				}
-			} else if m.NodeType == "exercise" {
+			case "exercise":
 				if ex, ok := exs[m.NodeID]; ok {
 					ref.NodeCode = ex.Code
 					ref.NodeName = ex.Name

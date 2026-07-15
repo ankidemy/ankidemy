@@ -1,10 +1,10 @@
 package dao
 
 import (
-	"errors"
-	"strings"
-	"gorm.io/gorm"
 	"ankidemy/server/models"
+	"errors"
+	"gorm.io/gorm"
+	"strings"
 )
 
 // MetaExerciseDAO handles DB operations for meta exercises and versions

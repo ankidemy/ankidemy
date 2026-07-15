@@ -65,7 +65,7 @@ type StudySession struct {
 	ID                uint            `gorm:"primaryKey" json:"id"`
 	UserID            uint            `gorm:"column:user_id;not null" json:"userId"`
 	DomainID          uint            `gorm:"column:domain_id;not null" json:"domainId"`
-	SessionType       string          `gorm:"column:session_type;not null" json:"sessionType"` // definition, exercise, mixed
+	SessionType       string          `gorm:"column:session_type;not null" json:"sessionType"`   // definition, exercise, mixed
 	Mode              string          `gorm:"column:mode;not null;default:'normal'" json:"mode"` // normal, frenzy
 	StartTime         time.Time       `gorm:"column:start_time;autoCreateTime" json:"startTime"`
 	EndTime           *time.Time      `gorm:"column:end_time" json:"endTime"`

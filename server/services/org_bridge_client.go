@@ -44,9 +44,9 @@ type OrgBridge interface {
 	RequestAsset(context.Context, string, string) (OrgBridgeAsset, error)
 }
 
-var (
-	orgBridgeHeartbeatInterval = 2 * time.Second
-	orgBridgeHeartbeatTimeout  = 6 * time.Second
+const (
+	defaultOrgBridgeHeartbeatInterval = 2 * time.Second
+	defaultOrgBridgeHeartbeatTimeout  = 6 * time.Second
 )
 
 type orgBridgeEnvelope struct {
@@ -73,16 +73,18 @@ type OrgBridgeClient struct {
 	token    string
 	listener OrgBridgeListener
 
-	stateMu    sync.RWMutex
-	state      string
-	instanceID string
-	root       OrgBridgeRoot
-	conn       *websocket.Conn
-	writeMu    sync.Mutex
-	pendingMu  sync.Mutex
-	pending    map[string]chan orgBridgeResponse
-	nextID     atomic.Uint64
-	lastPong   atomic.Int64
+	stateMu           sync.RWMutex
+	state             string
+	instanceID        string
+	root              OrgBridgeRoot
+	conn              *websocket.Conn
+	writeMu           sync.Mutex
+	pendingMu         sync.Mutex
+	pending           map[string]chan orgBridgeResponse
+	nextID            atomic.Uint64
+	lastPong          atomic.Int64
+	heartbeatInterval time.Duration
+	heartbeatTimeout  time.Duration
 }
 
 func NewOrgBridgeClient(endpoint, token string, listener OrgBridgeListener) (*OrgBridgeClient, error) {
@@ -91,11 +93,13 @@ func NewOrgBridgeClient(endpoint, token string, listener OrgBridgeListener) (*Or
 		return nil, fmt.Errorf("invalid Org bridge URL %q", endpoint)
 	}
 	if len(token) < 24 {
-		return nil, errors.New("Org bridge token must be at least 24 characters")
+		return nil, errors.New("org bridge token must be at least 24 characters")
 	}
 	return &OrgBridgeClient{
 		endpoint: endpoint, token: token, listener: listener,
 		state: "offline", pending: make(map[string]chan orgBridgeResponse),
+		heartbeatInterval: defaultOrgBridgeHeartbeatInterval,
+		heartbeatTimeout:  defaultOrgBridgeHeartbeatTimeout,
 	}, nil
 }
 
@@ -149,7 +153,7 @@ func (b *OrgBridgeClient) serveConnection(ctx context.Context, conn *websocket.C
 			b.conn = nil
 		}
 		b.stateMu.Unlock()
-		b.failPending(errors.New("Org bridge disconnected"))
+		b.failPending(errors.New("org bridge disconnected"))
 	}()
 
 	if err := b.writeJSON(conn, map[string]any{"type": "auth", "token": b.token, "protocolVersion": ContentSnapshotProtocolVersion}); err != nil {
@@ -184,7 +188,7 @@ func (b *OrgBridgeClient) serveConnection(ctx context.Context, conn *websocket.C
 }
 
 func (b *OrgBridgeClient) heartbeatLoop(ctx context.Context, conn *websocket.Conn) error {
-	ticker := time.NewTicker(orgBridgeHeartbeatInterval)
+	ticker := time.NewTicker(b.heartbeatInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -192,9 +196,9 @@ func (b *OrgBridgeClient) heartbeatLoop(ctx context.Context, conn *websocket.Con
 			return ctx.Err()
 		case <-ticker.C:
 			lastPong := time.Unix(0, b.lastPong.Load())
-			if time.Since(lastPong) > orgBridgeHeartbeatTimeout {
+			if time.Since(lastPong) > b.heartbeatTimeout {
 				_ = conn.Close()
-				return errors.New("Org bridge missed three heartbeats")
+				return errors.New("org bridge missed three heartbeats")
 			}
 			if err := b.writeJSON(conn, map[string]any{"type": "ping", "at": time.Now().UTC()}); err != nil {
 				return err
@@ -266,7 +270,7 @@ func (b *OrgBridgeClient) request(ctx context.Context, method string, params any
 	state := b.state
 	b.stateMu.RUnlock()
 	if conn == nil || state != "online" {
-		return errors.New("Org bridge is offline")
+		return errors.New("org bridge is offline")
 	}
 	id := strconv.FormatUint(b.nextID.Add(1), 10)
 	response := make(chan orgBridgeResponse, 1)

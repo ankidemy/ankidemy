@@ -118,7 +118,11 @@ func TestContentLiveImportVerifiesAndStoresAssets(t *testing.T) {
 	if err := os.Chdir(temporary); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(workingDirectory)
+	t.Cleanup(func() {
+		if err := os.Chdir(workingDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	hydrated, err := service.hydrateAssets(context.Background(), binding, snapshot)
 	if err != nil {
@@ -163,7 +167,11 @@ func TestContentLiveImportFailedFirstSyncLeavesNoHalfAttachedDomain(t *testing.T
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(workingDirectory)
+	t.Cleanup(func() {
+		if err := os.Chdir(workingDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 	snapshot := validContentSnapshot()
 	id := "sha256:" + strings.Repeat("a", 64)
 	snapshot.Assets = []ContentSnapshotAsset{{

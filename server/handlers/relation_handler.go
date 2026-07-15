@@ -200,8 +200,8 @@ func (h *RelationHandler) buildVisibleNodeSet(domainID uint, userID uint) map[st
 	visible := map[string]map[uint]bool{
 		"definition": {},
 		"exercise":   {},
-		"source":          {},
-		"meta_quest":      {},
+		"source":     {},
+		"meta_quest": {},
 	}
 	metaDefs, _ := h.metaDefDAO.ListByDomain(domainID)
 	for _, md := range metaDefs {
