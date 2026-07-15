@@ -271,11 +271,15 @@ func (s *ContentLiveImportService) syncSnapshot(ctx context.Context, binding *mo
 		s.hub.Publish(event)
 		return nil, err
 	}
+	changes := result.Changes
+	if changes == nil {
+		changes = []ContentNodeChange{}
+	}
 	s.hub.Publish(ContentEvent{
 		OwnerID: binding.OwnerID, Type: "sync.accepted", BindingID: binding.ID,
 		DomainID: binding.DomainID, Provider: binding.Provider,
 		ProviderNotebookID: binding.ProviderNotebookID, DisplayName: snapshot.Notebook.Title,
-		Revision: result.Revision, Counts: result.Counts,
+		Revision: result.Revision, Counts: result.Counts, Changes: changes,
 	})
 	return result, nil
 }

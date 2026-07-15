@@ -15,10 +15,11 @@ import {
   getLiveImportStatus,
   resyncLiveImportBinding,
   subscribeLiveImportEvents,
+  LiveImportEvent,
 } from '@/lib/api';
 import { useAppDarkMode } from '@/lib/use-app-dark-mode';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { Radio, RefreshCw, Unplug, Unlink } from 'lucide-react';
+import { ChevronDown, ChevronUp, Radio, RefreshCw, Unplug, Unlink } from 'lucide-react';
 import { REVIEW_SUBMISSION_STATE_EVENT } from '@/app/components/Graph/utils/reviewSyncEvents';
 
 // Add correct typing for params
@@ -42,6 +43,8 @@ export default function StudyPage({ params }: StudyPageProps) {
   const [bridgeConnection, setBridgeConnection] = useState<'online' | 'connecting' | 'offline'>('offline');
   const [livePresenceCode, setLivePresenceCode] = useState<string | null>(null);
   const [isResyncing, setIsResyncing] = useState(false);
+  const [liveContentUpdate, setLiveContentUpdate] = useState<LiveImportEvent | null>(null);
+  const [isOrgNoticeCollapsed, setIsOrgNoticeCollapsed] = useState(false);
   const reviewSubmissionInFlightRef = useRef(false);
   const pendingRootDomainRef = useRef<number | null>(null);
 
@@ -109,7 +112,13 @@ export default function StudyPage({ params }: StudyPageProps) {
             if (event.domainId === domainId) setLivePresenceCode(event.code || null);
           }
           if (event.type === 'sync.accepted' && event.domainId === domainId) {
-            void loadGraph(false);
+            if (event.changes) {
+              setLiveContentUpdate(previous => previous?.revision === event.revision ? previous : event);
+            } else {
+              // Compatibility with development servers that predate surgical
+              // change identities.
+              void loadGraph(false);
+            }
           }
           if (event.type === 'sync.rejected' && event.domainId === domainId) {
             showToast(event.message || 'Org changes were rejected; the previous snapshot remains active.', 'error');
@@ -134,8 +143,19 @@ export default function StudyPage({ params }: StudyPageProps) {
     if (!liveBinding || isResyncing) return;
     setIsResyncing(true);
     try {
-      await resyncLiveImportBinding(liveBinding.id);
-      await loadGraph(false);
+      const result = await resyncLiveImportBinding(liveBinding.id);
+      if (result.changes) {
+        setLiveContentUpdate(previous => previous?.revision === result.revision ? previous : {
+          type: 'sync.accepted',
+          at: new Date().toISOString(),
+          domainId: Number.parseInt(id, 10),
+          revision: result.revision,
+          counts: result.counts,
+          changes: result.changes,
+        });
+      } else {
+        await loadGraph(false);
+      }
       showToast('Org notebook synchronized', 'success');
     } catch (syncError: any) {
       showToast(syncError?.message || 'Live import failed', 'error');
@@ -207,36 +227,67 @@ export default function StudyPage({ params }: StudyPageProps) {
   return (
     <div className={`h-screen relative ${isDarkMode ? 'bg-slate-950' : ''}`}>
       {liveBinding && (
-        <div className={`absolute top-2 left-1/2 z-[80] -translate-x-1/2 rounded-lg border px-3 py-2 shadow-lg flex items-center gap-3 text-sm ${
-          bridgeConnection === 'online'
-            ? 'border-cyan-300 bg-cyan-50 text-cyan-950'
-            : 'border-amber-300 bg-amber-50 text-amber-950'
-        }`}>
-          {bridgeConnection === 'online' ? <Radio size={16} /> : <Unplug size={16} />}
-          <span>
-            <strong>Org-managed</strong>
-            {bridgeConnection === 'online'
-              ? ' · edit content in Emacs'
-              : ' · Emacs offline; showing the last accepted snapshot'}
-          </span>
+        isOrgNoticeCollapsed ? (
           <button
             type="button"
-            onClick={handleResync}
-            disabled={bridgeConnection !== 'online' || isResyncing}
-            className="rounded px-2 py-1 hover:bg-black/5 disabled:opacity-40"
-            title="Request a complete snapshot now"
+            onClick={() => setIsOrgNoticeCollapsed(false)}
+            aria-label="Expand Org-managed status"
+            aria-expanded="false"
+            title="Expand Org-managed status"
+            className={`absolute bottom-3 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold shadow-lg transition-colors ${
+              bridgeConnection === 'online'
+                ? 'border-cyan-300 bg-cyan-50 text-cyan-950 hover:bg-cyan-100'
+                : 'border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100'
+            }`}
           >
-            <RefreshCw size={14} className={isResyncing ? 'animate-spin' : ''} />
+            {bridgeConnection === 'online' ? <Radio size={13} /> : <Unplug size={13} />}
+            <span>Org</span>
+            <ChevronUp size={13} />
           </button>
-          <button
-            type="button"
-            onClick={handleDetach}
-            className="rounded px-2 py-1 hover:bg-black/5"
-            title="Detach notebook"
-          >
-            <Unlink size={14} />
-          </button>
-        </div>
+        ) : (
+          <div className={`absolute bottom-3 left-1/2 z-[80] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-3 rounded-lg border px-3 py-2 text-sm shadow-lg ${
+            bridgeConnection === 'online'
+              ? 'border-cyan-300 bg-cyan-50 text-cyan-950'
+              : 'border-amber-300 bg-amber-50 text-amber-950'
+          }`}>
+            {bridgeConnection === 'online' ? <Radio size={16} className="shrink-0" /> : <Unplug size={16} className="shrink-0" />}
+            <span className="min-w-0 truncate whitespace-nowrap">
+              <strong>Org-managed</strong>
+              {bridgeConnection === 'online'
+                ? ' · edit content in Emacs'
+                : ' · Emacs offline; showing the last accepted snapshot'}
+            </span>
+            <button
+              type="button"
+              onClick={handleResync}
+              disabled={bridgeConnection !== 'online' || isResyncing}
+              className="shrink-0 rounded px-2 py-1 hover:bg-black/5 disabled:opacity-40"
+              title="Request a complete snapshot now"
+              aria-label="Resync Org notebook"
+            >
+              <RefreshCw size={14} className={isResyncing ? 'animate-spin' : ''} />
+            </button>
+            <button
+              type="button"
+              onClick={handleDetach}
+              className="shrink-0 rounded px-2 py-1 hover:bg-black/5"
+              title="Detach notebook"
+              aria-label="Detach Org notebook"
+            >
+              <Unlink size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsOrgNoticeCollapsed(true)}
+              className="shrink-0 rounded px-1.5 py-1 hover:bg-black/5"
+              title="Collapse Org-managed status"
+              aria-label="Collapse Org-managed status"
+              aria-expanded="true"
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        )
       )}
       <KnowledgeGraph
         graphData={graphData}
@@ -245,6 +296,7 @@ export default function StudyPage({ params }: StudyPageProps) {
         onPositionUpdate={handlePositionUpdate}
         isContentManaged={!!liveBinding}
         livePresenceCode={livePresenceCode}
+        liveContentUpdate={liveContentUpdate}
       />
     </div>
   );

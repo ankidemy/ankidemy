@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,17 +18,48 @@ import (
 )
 
 type ContentReconcileResult struct {
-	Revision string         `json:"revision"`
-	NoOp     bool           `json:"noOp"`
-	Counts   map[string]int `json:"counts"`
+	Revision string              `json:"revision"`
+	NoOp     bool                `json:"noOp"`
+	Counts   map[string]int      `json:"counts"`
+	Changes  []ContentNodeChange `json:"changes,omitempty"`
 }
+
+// ContentNodeChange is intentionally content-free. Browser clients use these
+// stable row identities to fetch and surgically replace only affected nodes.
+type ContentNodeChange struct {
+	SourceID         string `json:"sourceId"`
+	NodeType         string `json:"nodeType"`
+	NodeID           uint   `json:"nodeId"`
+	Code             string `json:"code,omitempty"`
+	State            string `json:"state"`
+	PreviousNodeType string `json:"previousNodeType,omitempty"`
+	PreviousNodeID   uint   `json:"previousNodeId,omitempty"`
+}
+
+type contentPosition struct{ X, Y float64 }
 
 type ContentReconcileError struct {
 	Validation ContentSnapshotValidation
 }
 
 func (e *ContentReconcileError) Error() string {
-	return "content snapshot is not reconciliable"
+	for _, diagnostic := range e.Validation.Diagnostics {
+		if diagnostic.Severity != "error" || diagnostic.Code == "snapshot.incomplete" {
+			continue
+		}
+		location := ""
+		if diagnostic.Location.File != "" {
+			location = filepath.Base(diagnostic.Location.File)
+			if diagnostic.Location.Line > 0 {
+				location = fmt.Sprintf("%s:%d", location, diagnostic.Location.Line)
+			}
+		}
+		if location != "" {
+			return fmt.Sprintf("Org sync rejected: %s (%s)", diagnostic.Message, location)
+		}
+		return "Org sync rejected: " + diagnostic.Message
+	}
+	return "Org sync rejected because the content snapshot is incomplete"
 }
 
 // ContentReconciler applies one complete semantic snapshot in a single
@@ -45,6 +79,120 @@ func contentSemanticHash(value any) string {
 	encoded, _ := json.Marshal(value)
 	digest := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+// planContentNodePositions assigns layout only to genuinely new provider
+// nodes. Existing rows are never included, so provider resyncs cannot overwrite
+// positions chosen in Ankidemy. New nodes prefer connected local neighbors and
+// use deterministic radial probing to avoid an occupied coordinate.
+func planContentNodePositions(tx *gorm.DB, binding *models.ContentBinding, snapshot ContentSnapshot, entities map[string]*models.ContentEntity) (map[string]*contentPosition, error) {
+	occupied := make([]contentPosition, 0)
+	bySource := make(map[string]contentPosition)
+	type positionedRow struct {
+		ID                   uint
+		XPosition, YPosition float64
+	}
+	load := func(table string) (map[uint]contentPosition, error) {
+		var rows []positionedRow
+		if err := tx.Table(table).Select("id, x_position, y_position").Where("domain_id = ? AND deleted_at IS NULL", binding.DomainID).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		result := make(map[uint]contentPosition, len(rows))
+		for _, row := range rows {
+			position := contentPosition{X: row.XPosition, Y: row.YPosition}
+			result[row.ID] = position
+			occupied = append(occupied, position)
+		}
+		return result, nil
+	}
+	tables := map[string]string{"source": "sources", "definition": "meta_definitions", "exercise": "meta_exercises", "quest": "meta_quests"}
+	positionsByType := map[string]map[uint]contentPosition{}
+	for nodeType, table := range tables {
+		positions, err := load(table)
+		if err != nil {
+			return nil, err
+		}
+		positionsByType[nodeType] = positions
+	}
+	for _, entity := range entities {
+		if entity.Role != "node" || entity.State != "active" {
+			continue
+		}
+		if position, ok := positionsByType[entity.NodeType][entity.RowID]; ok {
+			bySource[entity.ProviderEntityID] = position
+		}
+	}
+
+	neighbors := make(map[string][]string)
+	for _, edge := range snapshot.Edges {
+		if edge.FromSourceID == "" || edge.ToSourceID == "" {
+			continue
+		}
+		neighbors[edge.FromSourceID] = append(neighbors[edge.FromSourceID], edge.ToSourceID)
+		neighbors[edge.ToSourceID] = append(neighbors[edge.ToSourceID], edge.FromSourceID)
+	}
+	planned := make(map[string]*contentPosition)
+	for _, node := range snapshot.Nodes {
+		entity := entities[contentEntityKey(node.SourceID, "node")]
+		if entity != nil && entity.State == "active" && entity.NodeType == node.Type {
+			continue
+		}
+		if entity != nil && entity.State == "active" {
+			if previous, ok := bySource[node.SourceID]; ok {
+				planned[node.SourceID] = &contentPosition{X: previous.X, Y: previous.Y}
+				bySource[node.SourceID] = previous
+				continue
+			}
+		}
+		var anchor contentPosition
+		count := 0
+		for _, neighbor := range neighbors[node.SourceID] {
+			if position, ok := bySource[neighbor]; ok {
+				anchor.X += position.X
+				anchor.Y += position.Y
+				count++
+			}
+		}
+		if count > 0 {
+			anchor.X /= float64(count)
+			anchor.Y /= float64(count)
+		} else if len(occupied) > 0 {
+			for _, position := range occupied {
+				anchor.X += position.X
+				anchor.Y += position.Y
+			}
+			anchor.X /= float64(len(occupied))
+			anchor.Y /= float64(len(occupied))
+		}
+		position := findFreeContentPosition(anchor, node.SourceID, occupied)
+		planned[node.SourceID] = &contentPosition{X: position.X, Y: position.Y}
+		bySource[node.SourceID] = position
+		occupied = append(occupied, position)
+	}
+	return planned, nil
+}
+
+func findFreeContentPosition(anchor contentPosition, sourceID string, occupied []contentPosition) contentPosition {
+	digest := sha256.Sum256([]byte(sourceID))
+	baseAngle := float64(uint16(digest[0])<<8|uint16(digest[1])) / 65535 * 2 * math.Pi
+	const minimumDistance = 88.0
+	for probe := 0; probe < 256; probe++ {
+		ring := 1 + probe/12
+		angle := baseAngle + float64(probe%12)*(2*math.Pi/12) + float64(ring)*0.17
+		radius := 72.0 + float64(ring-1)*minimumDistance
+		candidate := contentPosition{X: anchor.X + math.Cos(angle)*radius, Y: anchor.Y + math.Sin(angle)*radius}
+		free := true
+		for _, current := range occupied {
+			if math.Hypot(candidate.X-current.X, candidate.Y-current.Y) < minimumDistance {
+				free = false
+				break
+			}
+		}
+		if free {
+			return candidate
+		}
+	}
+	return contentPosition{X: anchor.X + math.Cos(baseAngle)*minimumDistance*24, Y: anchor.Y + math.Sin(baseAngle)*minimumDistance*24}
 }
 
 func (r *ContentReconciler) recordRejectedRun(bindingID uint, revision string, diagnostics []ContentDiagnostic) {
@@ -76,10 +224,11 @@ func (r *ContentReconciler) Reconcile(bindingID uint, snapshot ContentSnapshot) 
 		return nil, errors.New("snapshot provider/notebook does not match binding")
 	}
 	if binding.LastRevision == validation.Revision {
-		return &ContentReconcileResult{Revision: validation.Revision, NoOp: true, Counts: map[string]int{}}, nil
+		return &ContentReconcileResult{Revision: validation.Revision, NoOp: true, Counts: map[string]int{}, Changes: []ContentNodeChange{}}, nil
 	}
 
 	counts := map[string]int{}
+	changes := map[string]ContentNodeChange{}
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var lockedBinding models.ContentBinding
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&lockedBinding, bindingID).Error; err != nil {
@@ -100,17 +249,36 @@ func (r *ContentReconciler) Reconcile(bindingID uint, snapshot ContentSnapshot) 
 		}
 		seenEntities := map[uint]bool{}
 		nodeEntities := make(map[string]*models.ContentEntity, len(snapshot.Nodes))
+		plannedPositions, err := planContentNodePositions(tx, &lockedBinding, snapshot, entities)
+		if err != nil {
+			return err
+		}
 
 		for _, node := range snapshot.Nodes {
-			entity, err := reconcileContentNode(tx, &lockedBinding, node, validation.Revision, entities, seenEntities, counts)
+			previous := entities[contentEntityKey(node.SourceID, "node")]
+			previousType, previousID := "", uint(0)
+			if previous != nil && previous.State == "active" {
+				previousType, previousID = previous.NodeType, previous.RowID
+			}
+			entity, changed, err := reconcileContentNode(tx, &lockedBinding, node, validation.Revision, entities, seenEntities, counts, plannedPositions[node.SourceID])
 			if err != nil {
 				return fmt.Errorf("reconcile node %s: %w", node.SourceID, err)
 			}
 			nodeEntities[node.SourceID] = entity
+			if changed {
+				change := ContentNodeChange{SourceID: node.SourceID, NodeType: entity.NodeType, NodeID: entity.RowID, Code: node.Code, State: "active"}
+				if previousType != "" && (previousType != entity.NodeType || previousID != entity.RowID) {
+					change.PreviousNodeType, change.PreviousNodeID = previousType, previousID
+				}
+				changes[node.SourceID] = change
+			}
 		}
 		for i := range existing {
 			entity := &existing[i]
 			if entity.State == "active" && !seenEntities[entity.ID] {
+				if entity.Role == "node" {
+					changes[entity.ProviderEntityID] = ContentNodeChange{SourceID: entity.ProviderEntityID, NodeType: entity.NodeType, NodeID: entity.RowID, State: "missing"}
+				}
 				if err := retireContentEntity(tx, entity); err != nil {
 					return err
 				}
@@ -118,8 +286,21 @@ func (r *ContentReconciler) Reconcile(bindingID uint, snapshot ContentSnapshot) 
 			}
 		}
 
-		if err := reconcileContentEdges(tx, &lockedBinding, snapshot.Edges, nodeEntities, validation.Revision, counts); err != nil {
+		edgeChangedNodes := map[string]bool{}
+		if err := reconcileContentEdges(tx, &lockedBinding, snapshot.Edges, nodeEntities, validation.Revision, counts, edgeChangedNodes); err != nil {
 			return err
+		}
+		codes := make(map[string]string, len(snapshot.Nodes))
+		for _, node := range snapshot.Nodes {
+			codes[node.SourceID] = node.Code
+		}
+		for sourceID := range edgeChangedNodes {
+			if _, already := changes[sourceID]; already {
+				continue
+			}
+			if entity := nodeEntities[sourceID]; entity != nil {
+				changes[sourceID] = ContentNodeChange{SourceID: sourceID, NodeType: entity.NodeType, NodeID: entity.RowID, Code: codes[sourceID], State: "active"}
+			}
 		}
 		if err := reconcileContentAssets(tx, &lockedBinding, snapshot.Assets, entities, validation.Revision, counts); err != nil {
 			return err
@@ -149,10 +330,15 @@ func (r *ContentReconciler) Reconcile(bindingID uint, snapshot ContentSnapshot) 
 	if err != nil {
 		return nil, err
 	}
-	return &ContentReconcileResult{Revision: validation.Revision, Counts: counts}, nil
+	changeList := make([]ContentNodeChange, 0, len(changes))
+	for _, change := range changes {
+		changeList = append(changeList, change)
+	}
+	sort.Slice(changeList, func(i, j int) bool { return changeList[i].SourceID < changeList[j].SourceID })
+	return &ContentReconcileResult{Revision: validation.Revision, Counts: counts, Changes: changeList}, nil
 }
 
-func reconcileContentNode(tx *gorm.DB, binding *models.ContentBinding, node ContentSnapshotNode, revision string, entities map[string]*models.ContentEntity, seen map[uint]bool, counts map[string]int) (*models.ContentEntity, error) {
+func reconcileContentNode(tx *gorm.DB, binding *models.ContentBinding, node ContentSnapshotNode, revision string, entities map[string]*models.ContentEntity, seen map[uint]bool, counts map[string]int, planned *contentPosition) (*models.ContentEntity, bool, error) {
 	key := contentEntityKey(node.SourceID, "node")
 	entity := entities[key]
 	nodeHash := contentSemanticHash(node)
@@ -165,23 +351,23 @@ func reconcileContentNode(tx *gorm.DB, binding *models.ContentBinding, node Cont
 				seen[candidate.ID] = true
 			}
 		}
-		return entity, nil
+		return entity, false, nil
 	}
 	rowEntity := entity
 	if entity != nil && entity.NodeType != node.Type {
 		if entity.NodeType != "source" {
-			return nil, fmt.Errorf("unsafe managed type change %s -> %s", entity.NodeType, node.Type)
+			return nil, false, fmt.Errorf("unsafe managed type change %s -> %s", entity.NodeType, node.Type)
 		}
 		if err := retireContentEntity(tx, entity); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		// Keep the identity mapping but create a row in the new target table.
 		rowEntity = nil
 	}
 
-	rowID, tableName, created, err := upsertContentNodeRow(tx, binding, node, rowEntity)
+	rowID, tableName, created, err := upsertContentNodeRow(tx, binding, node, rowEntity, planned)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if entity == nil {
 		entity = &models.ContentEntity{
@@ -198,7 +384,7 @@ func reconcileContentNode(tx *gorm.DB, binding *models.ContentBinding, node Cont
 	entity.State = "active"
 	entity.LastSeenRevision = revision
 	if err := tx.Save(entity).Error; err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	entities[key] = entity
 	seen[entity.ID] = true
@@ -208,28 +394,28 @@ func reconcileContentNode(tx *gorm.DB, binding *models.ContentBinding, node Cont
 		counts["nodesUpdated"]++
 	}
 	if err := upsertContentCode(tx, binding.DomainID, node.Type, rowID, node.Code); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	switch node.Type {
 	case "definition":
 		for _, version := range node.Definition.Versions {
 			if err := reconcileDefinitionVersion(tx, binding, node, version, revision, entities, seen, counts); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 	case "exercise":
 		for _, version := range node.Exercise.Versions {
 			if err := reconcileExerciseVersion(tx, binding, node, version, revision, entities, seen, counts); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 	case "quest":
 		if err := reconcileQuestVersion(tx, binding, node, revision, entities, seen, counts); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return entity, nil
+	return entity, true, nil
 }
 
 func restoreContentRow(tx *gorm.DB, table string, rowID uint) error {
@@ -255,10 +441,14 @@ func restoreContentRow(tx *gorm.DB, table string, rowID uint) error {
 	return tx.Unscoped().Model(model).Where("id = ?", rowID).Update("deleted_at", nil).Error
 }
 
-func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node ContentSnapshotNode, entity *models.ContentEntity) (uint, string, bool, error) {
+func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node ContentSnapshotNode, entity *models.ContentEntity, planned *contentPosition) (uint, string, bool, error) {
+	x, y := 0.0, 0.0
+	if planned != nil {
+		x, y = planned.X, planned.Y
+	}
 	switch node.Type {
 	case "source":
-		row := models.Source{DomainID: binding.DomainID, OwnerID: binding.OwnerID, Code: node.Code, Title: node.Name, ContentMd: node.Source.ContentMD, Visibility: "private"}
+		row := models.Source{DomainID: binding.DomainID, OwnerID: binding.OwnerID, Code: node.Code, Title: node.Name, ContentMd: node.Source.ContentMD, Visibility: "private", XPosition: x, YPosition: y}
 		if entity == nil {
 			if err := tx.Create(&row).Error; err != nil {
 				return 0, "", false, err
@@ -271,13 +461,13 @@ func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node Cont
 		}
 		if err := tx.Model(&models.Source{}).Where("id = ?", row.ID).Updates(map[string]any{
 			"domain_id": binding.DomainID, "owner_id": binding.OwnerID, "code": node.Code,
-			"title": node.Name, "content_md": node.Source.ContentMD, "visibility": "private",
+			"title": node.Name, "content_md": node.Source.ContentMD,
 		}).Error; err != nil {
 			return 0, "", false, err
 		}
 		return row.ID, "sources", false, nil
 	case "definition":
-		row := models.MetaDefinition{Code: node.Code, Name: node.Name, DomainID: binding.DomainID, OwnerID: binding.OwnerID}
+		row := models.MetaDefinition{Code: node.Code, Name: node.Name, DomainID: binding.DomainID, OwnerID: binding.OwnerID, XPosition: x, YPosition: y}
 		if entity == nil {
 			if err := tx.Create(&row).Error; err != nil {
 				return 0, "", false, err
@@ -295,7 +485,7 @@ func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node Cont
 		}
 		return row.ID, "meta_definitions", false, nil
 	case "exercise":
-		row := models.MetaExercise{Code: node.Code, Name: node.Name, DomainID: binding.DomainID, OwnerID: binding.OwnerID}
+		row := models.MetaExercise{Code: node.Code, Name: node.Name, DomainID: binding.DomainID, OwnerID: binding.OwnerID, XPosition: x, YPosition: y}
 		if entity == nil {
 			if err := tx.Create(&row).Error; err != nil {
 				return 0, "", false, err
@@ -313,7 +503,7 @@ func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node Cont
 		}
 		return row.ID, "meta_exercises", false, nil
 	case "quest":
-		row := models.MetaQuest{DomainID: binding.DomainID, OwnerID: binding.OwnerID, Code: node.Code, Name: node.Name, Kind: node.Quest.Kind, Schedule: node.Quest.Schedule, Visibility: "private"}
+		row := models.MetaQuest{DomainID: binding.DomainID, OwnerID: binding.OwnerID, Code: node.Code, Name: node.Name, Kind: node.Quest.Kind, Schedule: node.Quest.Schedule, Visibility: "private", XPosition: x, YPosition: y}
 		if entity == nil {
 			if err := tx.Create(&row).Error; err != nil {
 				return 0, "", false, err
@@ -326,7 +516,7 @@ func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node Cont
 		}
 		if err := tx.Model(&models.MetaQuest{}).Where("id = ?", row.ID).Updates(map[string]any{
 			"domain_id": binding.DomainID, "owner_id": binding.OwnerID, "code": node.Code,
-			"name": node.Name, "kind": node.Quest.Kind, "schedule": node.Quest.Schedule, "visibility": "private",
+			"name": node.Name, "kind": node.Quest.Kind, "schedule": node.Quest.Schedule,
 		}).Error; err != nil {
 			return 0, "", false, err
 		}
@@ -491,7 +681,7 @@ func retireContentEntity(tx *gorm.DB, entity *models.ContentEntity) error {
 	return tx.Model(&models.ContentEntity{}).Where("id = ?", entity.ID).Update("state", "missing").Error
 }
 
-func reconcileContentEdges(tx *gorm.DB, binding *models.ContentBinding, edges []ContentSnapshotEdge, nodes map[string]*models.ContentEntity, revision string, counts map[string]int) error {
+func reconcileContentEdges(tx *gorm.DB, binding *models.ContentBinding, edges []ContentSnapshotEdge, nodes map[string]*models.ContentEntity, revision string, counts map[string]int, changedNodes map[string]bool) error {
 	var existing []models.ContentManagedEdge
 	if err := tx.Where("binding_id = ?", binding.ID).Find(&existing).Error; err != nil {
 		return err
@@ -516,6 +706,12 @@ func reconcileContentEdges(tx *gorm.DB, binding *models.ContentBinding, edges []
 			managed.FromProviderEntityID == expectedFrom && managed.ToProviderEntityID == expectedTo && managed.MaterializedRowID != nil {
 			seen[managed.ID] = true
 			continue
+		}
+		if edge.FromSourceID != "" {
+			changedNodes[edge.FromSourceID] = true
+		}
+		if edge.ToSourceID != "" {
+			changedNodes[edge.ToSourceID] = true
 		}
 		var oldTable string
 		var oldRowID uint
@@ -562,6 +758,12 @@ func reconcileContentEdges(tx *gorm.DB, binding *models.ContentBinding, edges []
 		managed := &existing[i]
 		if managed.State != "active" || seen[managed.ID] {
 			continue
+		}
+		if _, local := nodes[managed.FromProviderEntityID]; local {
+			changedNodes[managed.FromProviderEntityID] = true
+		}
+		if _, local := nodes[managed.ToProviderEntityID]; local {
+			changedNodes[managed.ToProviderEntityID] = true
 		}
 		if err := tx.Model(&models.ContentManagedEdge{}).Where("id = ?", managed.ID).Update("state", "missing").Error; err != nil {
 			return err

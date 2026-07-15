@@ -20,7 +20,7 @@ func TestContentManagedReadOnlyBlocksContentButAllowsLearningState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Domain{}, &models.ContentBinding{}, &models.MetaDefinition{}); err != nil {
+	if err := db.AutoMigrate(&models.Domain{}, &models.ContentBinding{}, &models.MetaDefinition{}, &models.Source{}); err != nil {
 		t.Fatal(err)
 	}
 	domain := models.Domain{Name: "Managed", Privacy: "private", OwnerID: 1}
@@ -39,23 +39,36 @@ func TestContentManagedReadOnlyBlocksContentButAllowsLearningState(t *testing.T)
 	if err := db.Create(&definition).Error; err != nil {
 		t.Fatal(err)
 	}
+	source := models.Source{DomainID: domain.ID, OwnerID: 1, Code: "managed.source", Title: "Managed source", Visibility: "private"}
+	if err := db.Create(&source).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	router := gin.New()
 	router.Use(ContentManagedReadOnly(db))
 	router.POST("/api/domains/:id/definitions", func(c *gin.Context) { c.Status(http.StatusCreated) })
+	router.PUT("/api/domains/:id/graph/positions", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.PUT("/api/domains/:id/external-prerequisites/positions", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.PUT("/api/meta-definitions/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.PATCH("/api/sources/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.POST("/api/srs/reviews", func(c *gin.Context) { c.Status(http.StatusCreated) })
 
 	for _, test := range []struct {
 		method string
 		path   string
 		want   int
+		body   string
 	}{
-		{http.MethodPost, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/definitions", http.StatusConflict},
-		{http.MethodPut, "/api/meta-definitions/" + strconv.FormatUint(uint64(definition.ID), 10), http.StatusConflict},
-		{http.MethodPost, "/api/srs/reviews", http.StatusCreated},
+		{http.MethodPost, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/definitions", http.StatusConflict, `{}`},
+		{http.MethodPut, "/api/meta-definitions/" + strconv.FormatUint(uint64(definition.ID), 10), http.StatusConflict, `{}`},
+		{http.MethodPut, "/api/meta-definitions/" + strconv.FormatUint(uint64(definition.ID), 10), http.StatusNoContent, `{"xPosition":12,"yPosition":34}`},
+		{http.MethodPatch, "/api/sources/" + strconv.FormatUint(uint64(source.ID), 10), http.StatusNoContent, `{"visibility":"domain"}`},
+		{http.MethodPatch, "/api/sources/" + strconv.FormatUint(uint64(source.ID), 10), http.StatusConflict, `{"title":"blocked"}`},
+		{http.MethodPut, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/graph/positions", http.StatusNoContent, `{}`},
+		{http.MethodPut, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/external-prerequisites/positions", http.StatusNoContent, `{}`},
+		{http.MethodPost, "/api/srs/reviews", http.StatusCreated, `{}`},
 	} {
-		request := httptest.NewRequest(test.method, test.path, strings.NewReader(`{}`))
+		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
 		if response.Code != test.want {

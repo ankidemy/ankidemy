@@ -14,6 +14,7 @@ export type ToolbarSection = {
 export type ToolbarLayout = {
   id: string;
   label: string;
+  disabled?: boolean;
   handleIcon?: React.ReactNode;
   sections: ToolbarSection[];
 };
@@ -316,7 +317,9 @@ const ContextToolbar: React.FC<ContextToolbarProps> = ({
                       "flex h-3.5 w-3.5 items-center justify-center rounded-sm transition-colors",
                       entry.id === activeLayoutId
                         ? "bg-gray-900 text-white"
-                        : "hover:text-gray-700"
+                        : entry.disabled
+                          ? "text-gray-300 opacity-50"
+                          : "hover:text-gray-700"
                     )}
                   >
                     {entry.handleIcon ?? entry.label.slice(0, 1)}

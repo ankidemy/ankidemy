@@ -205,6 +205,18 @@ export interface KnowledgeGraphProps {
   onPositionUpdate?: (positions: Record<string, { x: number; y: number }>) => void;
   isContentManaged?: boolean;
   livePresenceCode?: string | null;
+  liveContentUpdate?: {
+    revision?: string;
+    changes?: Array<{
+      sourceId: string;
+      nodeType: 'definition' | 'exercise' | 'source' | 'quest';
+      nodeId: number;
+      code?: string;
+      state: 'active' | 'missing';
+      previousNodeType?: 'definition' | 'exercise' | 'source' | 'quest';
+      previousNodeId?: number;
+    }>;
+  } | null;
 }
 
 // Type definitions for ID conversion functions

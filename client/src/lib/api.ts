@@ -120,8 +120,19 @@ export interface LiveImportEvent {
   code?: string;
   revision?: string;
   counts?: Record<string, number>;
+  changes?: LiveImportNodeChange[];
   diagnostics?: Array<{ severity: string; code: string; message: string }>;
   message?: string;
+}
+
+export interface LiveImportNodeChange {
+  sourceId: string;
+  nodeType: 'definition' | 'exercise' | 'source' | 'quest';
+  nodeId: number;
+  code?: string;
+  state: 'active' | 'missing';
+  previousNodeType?: 'definition' | 'exercise' | 'source' | 'quest';
+  previousNodeId?: number;
 }
 
 export interface DomainReviewPreferences {
@@ -2496,7 +2507,12 @@ export const attachCurrentLiveImportRoot = async (): Promise<{
   return handleResponse(response);
 };
 
-export const resyncLiveImportBinding = async (bindingId: number) => {
+export const resyncLiveImportBinding = async (bindingId: number): Promise<{
+  revision: string;
+  noOp?: boolean;
+  counts: Record<string, number>;
+  changes?: LiveImportNodeChange[];
+}> => {
   const response = await observedFetch(`${API_URL}/api/live-import/bindings/${bindingId}/resync`, {
     method: 'POST',
     headers: getAuthHeaders(),

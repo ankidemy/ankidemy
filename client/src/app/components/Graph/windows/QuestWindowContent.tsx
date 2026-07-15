@@ -54,6 +54,8 @@ interface QuestWindowContentProps {
   onHeaderMouseDown?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCopyYaml?: () => void;
   isCopyingYaml?: boolean;
+  isContentManaged?: boolean;
+  liveContentRevision?: string;
 }
 
 type RelationDraft = { relationType: string; toType: 'definition' | 'exercise' | 'source' | 'meta_quest'; toCode: string };
@@ -99,6 +101,8 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   onHeaderMouseDown,
   onCopyYaml,
   isCopyingYaml = false,
+  isContentManaged = false,
+  liveContentRevision,
 }) => {
   const ui = useUI();
   const [quest, setQuest] = useState<MetaQuestDTO | null>(null);
@@ -335,7 +339,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setDurationCountDraft(drafts.durationCount);
       setUntilDateDraft(drafts.untilDate);
     }
-  }, [questData, questData?.id, questData?.code, loadQuest]);
+  }, [questData, questData?.id, questData?.code, loadQuest, liveContentRevision]);
 
   useEffect(() => {
     const drafts: Record<number, QuestVersionDraft> = {};
@@ -943,12 +947,16 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
       setViewMode('details');
       return;
     }
+    if (isContentManaged) {
+      showToast('This node is managed by Org. Edit its file in Emacs.', 'warning');
+      return;
+    }
     if (!quest?.id) return;
     setViewMode('details');
     setIsHeaderCodeEditing(false);
     setIsRelevantLinksExpanded(false);
     setIsEditMode(true);
-  }, [handleCancelEdit, isEditMode, isFrenzyEditMode, quest?.id]);
+  }, [handleCancelEdit, isContentManaged, isEditMode, isFrenzyEditMode, quest?.id]);
 
   const handleToggleViewMode = useCallback(() => {
     if (isFrenzyEditMode) return;
@@ -1510,8 +1518,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   variant={isEditMode ? 'outline' : 'ghost'}
                   onClick={handleToggleEditMode}
                   disabled={!quest?.id}
-                  className="h-8 w-8"
-                  title={isEditMode ? 'View Mode' : 'Edit Mode'}
+                  aria-disabled={isContentManaged}
+                  className={`h-8 w-8 ${isContentManaged ? 'opacity-50 text-gray-400' : ''}`}
+                  title={isContentManaged ? 'Edit this Org-managed node in Emacs' : isEditMode ? 'View Mode' : 'Edit Mode'}
                 >
                   <Edit size={16} />
                 </Button>

@@ -154,8 +154,8 @@ Return a plist with root manifest, files, nested manifests, and diagnostics."
             :diagnostics (nreverse diagnostics)))))
 
 (defun ankidemy-org--drawer-errors (file)
-  "Return diagnostics for unclosed property drawers in FILE."
-  (let (errors open-line)
+  "Return diagnostics for malformed or misplaced property drawers in FILE."
+  (let (errors open-line heading-line content-seen)
     (with-temp-buffer
       (insert-file-contents file)
       (goto-char (point-min))
@@ -165,21 +165,36 @@ Return a plist with root manifest, files, nested manifests, and diagnostics."
           (let ((text (buffer-substring-no-properties
                        (line-beginning-position) (line-end-position))))
             (cond
+             ((string-match-p "^\\*+ " text)
+              (when open-line
+                (push (ankidemy-org--diag "error" "file.parse_failed"
+                                          "Property drawer has no :END: before the next heading"
+                                          file open-line 1)
+                      errors))
+              (setq open-line nil
+                    heading-line line
+                    content-seen nil))
              ((string-match-p "^[ \t]*:PROPERTIES:[ \t]*$" text)
               (when open-line
                 (push (ankidemy-org--diag "error" "file.parse_failed"
                                           "Nested/unclosed property drawer"
                                           file open-line 1)
                       errors))
+              (when (and heading-line content-seen)
+                (push (ankidemy-org--diag
+                       "error" "property_drawer.misplaced"
+                       "Property drawer must immediately follow its heading and planning line; move it above the node body"
+                       file line 1)
+                      errors))
               (setq open-line line))
              ((and open-line (string-match-p "^[ \t]*:END:[ \t]*$" text))
               (setq open-line nil))
-             ((and open-line (string-match-p "^\\*+ " text))
-              (push (ankidemy-org--diag "error" "file.parse_failed"
-                                        "Property drawer has no :END: before the next heading"
-                                        file open-line 1)
-                    errors)
-              (setq open-line nil))))
+             (open-line)
+             ((or (string-match-p "^[ \t]*$" text)
+                  (string-match-p
+                   "^[ \t]*\\(?:SCHEDULED\\|DEADLINE\\|CLOSED\\):" text)))
+             (heading-line
+              (setq content-seen t))))
           (forward-line 1))))
     (when open-line
       (push (ankidemy-org--diag "error" "file.parse_failed"

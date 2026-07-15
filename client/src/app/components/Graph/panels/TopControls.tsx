@@ -77,6 +77,7 @@ interface TopControlsProps {
   currentDomainId?: number;
   onNavigateToNode?: (nodeCode: string) => void;
   canEdit?: boolean;
+  isContentManaged?: boolean;
   domainSettings?: UserDomainSettings | null;
   onUpdateDomainSettings?: (updates: UserDomainSettingsUpdate) => Promise<UserDomainSettings | void>;
   isNightMode?: boolean;
@@ -112,6 +113,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   currentDomainId,
   onNavigateToNode,
   canEdit: canEditProp,
+  isContentManaged = false,
   domainSettings,
   onUpdateDomainSettings,
   isNightMode = false,
@@ -824,10 +826,11 @@ const TopControls: React.FC<TopControlsProps> = ({
         <Button
           variant="outline"
           size="sm"
-          onClick={onCreateDefinition}
-          disabled={!canEdit}
-          title={!canEdit ? "Only domain owners or editors can create definitions" : "Add Definition"}
-          className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
+          onClick={() => isContentManaged ? showToast('Create Org-managed nodes in Emacs.', 'warning') : onCreateDefinition()}
+          disabled={!canEdit && !isContentManaged}
+          aria-disabled={!canEdit}
+          title={isContentManaged ? "Create this node in Emacs" : !canEdit ? "Only domain owners or editors can create definitions" : "Add Definition"}
+          className={`flex items-center disabled:bg-gray-100 disabled:text-gray-400 ${isContentManaged ? 'bg-gray-100 text-gray-400 opacity-60' : ''}`}
         >
           <Plus size={14} className="mr-1" /> Def
         </Button>
@@ -835,10 +838,11 @@ const TopControls: React.FC<TopControlsProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={onCreateExercise}
-            disabled={!canEdit}
-            title={!canEdit ? "Only domain owners or editors can create exercises" : "Add Exercise"}
-            className="flex items-center disabled:bg-gray-100 disabled:text-gray-400"
+            onClick={() => isContentManaged ? showToast('Create Org-managed nodes in Emacs.', 'warning') : onCreateExercise()}
+            disabled={!canEdit && !isContentManaged}
+            aria-disabled={!canEdit}
+            title={isContentManaged ? "Create this node in Emacs" : !canEdit ? "Only domain owners or editors can create exercises" : "Add Exercise"}
+            className={`flex items-center disabled:bg-gray-100 disabled:text-gray-400 ${isContentManaged ? 'bg-gray-100 text-gray-400 opacity-60' : ''}`}
           >
             <Plus size={14} className="mr-1" /> Ex
           </Button>

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"math"
 	"testing"
 
 	"ankidemy/server/models"
@@ -65,6 +66,25 @@ func TestContentReconcilerPreservesIdentityProgressAndVersionStats(t *testing.T)
 	if first.NoOp || first.Counts["nodesCreated"] != 4 || first.Counts["versionsCreated"] != 4 {
 		t.Fatalf("unexpected first reconcile: %#v", first)
 	}
+	if len(first.Changes) != 4 {
+		t.Fatalf("initial reconcile did not report surgical node changes: %#v", first.Changes)
+	}
+	var definitionPosition, exercisePosition contentPosition
+	var definitionRow models.MetaDefinition
+	var exerciseRow models.MetaExercise
+	definitionEntity := contentEntityFor(t, db, binding.ID, "definition-1", "node")
+	exerciseEntity := contentEntityFor(t, db, binding.ID, "exercise-1", "node")
+	if err := db.First(&definitionRow, definitionEntity.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&exerciseRow, exerciseEntity.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	definitionPosition = contentPosition{X: definitionRow.XPosition, Y: definitionRow.YPosition}
+	exercisePosition = contentPosition{X: exerciseRow.XPosition, Y: exerciseRow.YPosition}
+	if math.Hypot(definitionPosition.X-exercisePosition.X, definitionPosition.Y-exercisePosition.Y) < 88 {
+		t.Fatalf("connected imported nodes overlap: definition=%#v exercise=%#v", definitionPosition, exercisePosition)
+	}
 
 	definition := contentEntityFor(t, db, binding.ID, "definition-1", "node")
 	versionA := contentEntityFor(t, db, binding.ID, "definition-version-a", "definition_version")
@@ -88,6 +108,9 @@ func TestContentReconcilerPreservesIdentityProgressAndVersionStats(t *testing.T)
 	}
 	if second.NoOp {
 		t.Fatal("changed snapshot reported as no-op")
+	}
+	if len(second.Changes) != 1 || second.Changes[0].SourceID != "definition-1" || second.Changes[0].State != "active" {
+		t.Fatalf("content update did not produce a focused surgical change: %#v", second.Changes)
 	}
 	if second.Counts["nodesUpdated"] != 1 || second.Counts["versionsUpdated"] != 2 {
 		t.Fatalf("unchanged entities were rewritten: %#v", second.Counts)
@@ -133,6 +156,89 @@ func TestContentReconcilerPreservesIdentityProgressAndVersionStats(t *testing.T)
 	noOp, err := reconciler.Reconcile(binding.ID, snapshot)
 	if err != nil || !noOp.NoOp {
 		t.Fatalf("identical snapshot should no-op: %#v %v", noOp, err)
+	}
+}
+
+func TestContentReconcilerPlacesNewConnectedNodeWithoutMovingExistingLayout(t *testing.T) {
+	db := contentReconcilerTestDB(t)
+	reconciler, binding, snapshot := contentReconcilerFixture(t, db)
+	if _, err := reconciler.Reconcile(binding.ID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	definition := contentEntityFor(t, db, binding.ID, "definition-1", "node")
+	if err := db.Model(&models.MetaDefinition{}).Where("id = ?", definition.RowID).
+		Updates(map[string]any{"x_position": 420.0, "y_position": -170.0}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot.Nodes = append(snapshot.Nodes, ContentSnapshotNode{
+		SourceID: "definition-2", Type: "definition", Code: "definition.two", Name: "Second definition",
+		Location:   ContentSourceLocation{File: "knowledge.org", Line: 40},
+		Definition: &ContentDefinitionPayload{Versions: []ContentDefinitionVersion{{SourceID: "definition-version-2", Prompt: "Second prompt"}}},
+	})
+	snapshot.Edges = append(snapshot.Edges, ContentSnapshotEdge{
+		FromSourceID: "definition-1", ToSourceID: "definition-2", Evidence: "link",
+		OwnerSourceID: "definition-2", EvidenceKey: "link:definition-2:definition-1:1",
+	})
+	result, err := reconciler.Reconcile(binding.ID, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Changes) != 2 { // new node plus its existing edge endpoint
+		t.Fatalf("expected only relevant node changes, got %#v", result.Changes)
+	}
+	created := contentEntityFor(t, db, binding.ID, "definition-2", "node")
+	var existingRow, createdRow models.MetaDefinition
+	if err := db.First(&existingRow, definition.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&createdRow, created.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if existingRow.XPosition != 420 || existingRow.YPosition != -170 {
+		t.Fatalf("new-node placement moved existing layout: %#v", existingRow)
+	}
+	distance := math.Hypot(createdRow.XPosition-existingRow.XPosition, createdRow.YPosition-existingRow.YPosition)
+	if distance < 88 || distance > 400 {
+		t.Fatalf("new connected node was not placed nearby without overlap: distance=%f row=%#v", distance, createdRow)
+	}
+}
+
+func TestContentReconcilerPreservesAnkidemyOnlySourceAndQuestFields(t *testing.T) {
+	db := contentReconcilerTestDB(t)
+	reconciler, binding, snapshot := contentReconcilerFixture(t, db)
+	if _, err := reconciler.Reconcile(binding.ID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	source := contentEntityFor(t, db, binding.ID, "source-1", "node")
+	quest := contentEntityFor(t, db, binding.ID, "quest-1", "node")
+	bibtex := "knuth1984"
+	if err := db.Model(&models.Source{}).Where("id = ?", source.RowID).
+		Updates(map[string]any{"visibility": "domain", "bibtex_key": bibtex}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.MetaQuest{}).Where("id = ?", quest.RowID).
+		Update("visibility", "domain").Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Nodes[0].Source.ContentMD = "Changed Org source body"
+	snapshot.Nodes[3].Quest.DescriptionMD = "Changed Org quest body"
+	if _, err := reconciler.Reconcile(binding.ID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var sourceRow models.Source
+	var questRow models.MetaQuest
+	if err := db.First(&sourceRow, source.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&questRow, quest.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if sourceRow.Visibility != "domain" || sourceRow.BibtexKey == nil || *sourceRow.BibtexKey != bibtex {
+		t.Fatalf("source sync overwrote Ankidemy-only fields: %#v", sourceRow)
+	}
+	if questRow.Visibility != "domain" {
+		t.Fatalf("quest sync overwrote Ankidemy-only visibility: %#v", questRow)
 	}
 }
 
@@ -274,6 +380,16 @@ func TestContentReconcilerAllowsSourcePromotionButRejectsReviewableRetype(t *tes
 	after := contentEntityFor(t, db, binding.ID, "source-1", "node")
 	if after.NodeType != "definition" || contentBindingRevision(t, db, binding.ID) != beforeRevision {
 		t.Fatalf("unsafe retype partially committed: %#v", after)
+	}
+}
+
+func TestContentReconcileErrorReportsFirstActionableLocation(t *testing.T) {
+	err := (&ContentReconcileError{Validation: ContentSnapshotValidation{Diagnostics: []ContentDiagnostic{
+		{Severity: "error", Code: "snapshot.incomplete", Message: "an incomplete snapshot cannot be reconciled"},
+		{Severity: "error", Code: "property_drawer.misplaced", Message: "Move the property drawer above the node body", Location: ContentSourceLocation{File: "/notebook/topic.org", Line: 17}},
+	}}}).Error()
+	if err != "Org sync rejected: Move the property drawer above the node body (topic.org:17)" {
+		t.Fatalf("unexpected reconcile error: %q", err)
 	}
 }
 

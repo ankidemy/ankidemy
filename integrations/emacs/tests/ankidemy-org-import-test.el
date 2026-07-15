@@ -135,6 +135,21 @@
                              (plist-get (plist-get diagnostic :location) :file)))
     (should (= 4 (plist-get (plist-get diagnostic :location) :line)))))
 
+(ert-deftest ankidemy-org-reports-property-drawer-after-node-body ()
+  (let* ((root (ankidemy-org-test--temp-notebook
+                '(("late-drawer.org" .
+                   "* Definition\n:PROPERTIES:\n:ID: definition-id\n:ANKIDEMY_TYPE: definition\n:END:\n** Prompt :version:\nAnswer before metadata.\n:PROPERTIES:\n:ID: version-id\n:ROAM_EXCLUDE: t\n:END:\n"))))
+         (snapshot (unwind-protect (ankidemy-org-parse-root root)
+                     (delete-directory root t)))
+         (diagnostic (cl-find "property_drawer.misplaced"
+                              (plist-get snapshot :diagnostics)
+                              :key (lambda (item) (plist-get item :code))
+                              :test #'string=)))
+    (should-not (plist-get snapshot :complete))
+    (should-not (plist-get snapshot :nodes))
+    (should diagnostic)
+    (should (= 8 (plist-get (plist-get diagnostic :location) :line)))))
+
 (ert-deftest ankidemy-org-requires-explicit-manifest ()
   (let ((root (make-temp-file "ankidemy-org-unattached-" t)))
     (unwind-protect

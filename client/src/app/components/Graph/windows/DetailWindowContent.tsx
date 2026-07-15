@@ -73,6 +73,8 @@ interface DetailWindowContentProps {
   onQuestCreated?: (quest: { id?: number; code: string }, relation: { fromCode: string; toCode: string; relationType: string }) => void;
   onCopyYaml?: () => void;
   isCopyingYaml?: boolean;
+  isContentManaged?: boolean;
+  liveContentRevision?: string;
 }
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
@@ -130,6 +132,8 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   onQuestCreated,
   onCopyYaml,
   isCopyingYaml = false,
+  isContentManaged = false,
+  liveContentRevision,
 }) => {
   const srs = useSRS();
   const ui = useUI();
@@ -358,6 +362,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
     currentNode,
     targetVersionId,
     targetVersionToken,
+    liveContentRevision,
   ]);
   useEffect(() => {
     setActiveTab('details');
@@ -611,6 +616,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
   }, [showHistory, numericId, fetchHistory]);
 
   const canEdit = useMemo(() => {
+    if (isContentManaged) return false;
     const ownerId = domainData?.ownerId;
     const userId = currentUser?.id;
     if (ownerId == null || userId == null) {
@@ -623,7 +629,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       return true;
     }
     return domainData?.permissionRole === 'editor' || domainData?.permissionRole === 'owner';
-  }, [domainData?.ownerId, domainData?.permissionRole, currentUser?.id, currentUser?.isAdmin]);
+  }, [domainData?.ownerId, domainData?.permissionRole, currentUser?.id, currentUser?.isAdmin, isContentManaged]);
 
   // Edit mode toggle
   const toggleEditMode = useCallback(() => {
@@ -632,13 +638,17 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       setActiveTab('details');
       return;
     }
+    if (isContentManaged) {
+      showToast('This node is managed by Org. Edit its file in Emacs.', 'warning');
+      return;
+    }
     if (!canEdit) {
       showToast('Only domain owners or editors can edit nodes.', 'warning');
       return;
     }
     setActiveTab('details');
     setIsEditMode(true);
-  }, [canEdit, isEditMode]);
+  }, [canEdit, isContentManaged, isEditMode]);
 
   const toggleViewTab = useCallback((tab: 'advanced' | 'statistics') => {
     setIsEditMode(false);
@@ -1335,10 +1345,13 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
               variant={isEditMode ? "outline" : "ghost"}
               size="icon"
               onClick={toggleEditMode}
-              disabled={!canEdit && !isEditMode}
-              className="h-8 w-8"
+              disabled={!canEdit && !isEditMode && !isContentManaged}
+              aria-disabled={!canEdit}
+              className={`h-8 w-8 ${isContentManaged ? 'opacity-50 text-gray-400' : ''}`}
               title={
-                !canEdit
+                isContentManaged
+                  ? "Edit this Org-managed node in Emacs"
+                  : !canEdit
                   ? "Only domain owners or editors can edit nodes"
                   : isEditMode
                   ? "View Mode"

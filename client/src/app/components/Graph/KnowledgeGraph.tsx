@@ -104,6 +104,7 @@ import {
   GraphLink,
   Definition,
   Exercise,
+  GraphData,
   AppMode,
   FilteredNodeType,
   KnowledgeGraphProps,
@@ -121,6 +122,7 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import EnrollmentModal from './EnrollmentModal';
 import DomainAccessModal from '@/app/components/Domain/DomainAccessModal';
 import { PositionManager } from './utils/PositionManager';
+import { dispatchReviewItemContentUpdated } from './utils/reviewSyncEvents';
 import {
   getNextDotCode as getNextDotCodeFromUtils,
   getNextExerciseCode as getNextExerciseCodeFromUtils,
@@ -241,22 +243,25 @@ const GraphLoadingState: FC = () => (
 const EmptyDomainState: FC<{
   title: string;
   canEdit: boolean;
+  isContentManaged?: boolean;
   onCreateDefinition: () => void;
   onCreateExercise: () => void;
   footer?: React.ReactNode;
-}> = ({ title, canEdit, onCreateDefinition, onCreateExercise, footer }) => (
+}> = ({ title, canEdit, isContentManaged = false, onCreateDefinition, onCreateExercise, footer }) => (
   <div className="flex flex-col items-center justify-center h-full text-center text-gray-600">
     <p className="text-lg">{title}</p>
     <p className="mt-1 text-sm text-gray-500">Create your first definition or exercise to get started.</p>
     {!canEdit && (
-      <p className="mt-1 text-sm text-gray-400">Only domain owners or editors can create nodes.</p>
+      <p className="mt-1 text-sm text-gray-400">{isContentManaged ? 'Create Org-managed nodes in Emacs.' : 'Only domain owners or editors can create nodes.'}</p>
     )}
     <div className="mt-4 flex items-center gap-2">
       <Button
         onClick={onCreateDefinition}
         size="sm"
-        disabled={!canEdit}
-        title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
+        disabled={!canEdit && !isContentManaged}
+        aria-disabled={!canEdit}
+        className={isContentManaged ? 'opacity-50' : ''}
+        title={isContentManaged ? 'Create this node in Emacs' : !canEdit ? 'Only domain owners or editors can create nodes' : 'Create Definition'}
       >
         Create Definition
       </Button>
@@ -264,8 +269,10 @@ const EmptyDomainState: FC<{
         onClick={onCreateExercise}
         variant="outline"
         size="sm"
-        disabled={!canEdit}
-        title={!canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
+        disabled={!canEdit && !isContentManaged}
+        aria-disabled={!canEdit}
+        className={isContentManaged ? 'opacity-50' : ''}
+        title={isContentManaged ? 'Create this node in Emacs' : !canEdit ? 'Only domain owners or editors can create nodes' : 'Create Exercise'}
       >
         Create Exercise
       </Button>
@@ -289,6 +296,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   onPositionUpdate,
   isContentManaged = false,
   livePresenceCode = null,
+  liveContentUpdate = null,
 }) => {
   const ui = useUI();
   const srs = useSRS();
@@ -355,10 +363,164 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Data state
   const [currentStructuralGraphData, setCurrentStructuralGraphData] = useState(initialGraphData);
+  const lastExternalGraphDataRef = useRef(initialGraphData);
   const [codeToNumericIdMap, setCodeToNumericIdMap] = useState<Map<string, number>>(new Map());
   const [nodeDataCache, setNodeDataCache] = useState<Map<string, ApiDefinition | ApiExercise | MetaDefinition | MetaExercise>>(new Map());
   const [externalPrerequisites, setExternalPrerequisites] = useState<ExternalPrerequisiteLink[]>([]);
   const [domainGroups, setDomainGroups] = useState<GroupData[]>([]);
+
+  // Legacy live-import servers do not emit per-node changes. Keep their full
+  // graph refresh functional as a compatibility fallback.
+  useEffect(() => {
+    if (lastExternalGraphDataRef.current === initialGraphData) return;
+    lastExternalGraphDataRef.current = initialGraphData;
+    setCurrentStructuralGraphData(initialGraphData);
+  }, [initialGraphData]);
+
+  // Apply Org bridge changes as a small graph patch. Content is fetched through
+  // the normal authenticated node APIs; the SSE envelope contains identities
+  // only. This deliberately avoids rebuilding the complete domain graph.
+  useEffect(() => {
+    const changes = liveContentUpdate?.changes;
+    if (!changes || changes.length === 0) return;
+    let cancelled = false;
+    const domainId = Number.parseInt(subjectMatterId, 10);
+    if (!Number.isFinite(domainId)) return;
+
+    const applyLivePatch = async () => {
+      try {
+        const activeChanges = changes.filter(change => change.state === 'active');
+        const [loaded, relations, externalLinks] = await Promise.all([
+          Promise.all(activeChanges.map(async change => {
+            if (change.nodeType === 'definition') return { change, value: await getMetaDefinition(change.nodeId) };
+            if (change.nodeType === 'exercise') return { change, value: await getMetaExercise(change.nodeId) };
+            if (change.nodeType === 'source') return { change, value: await getSource(change.nodeId) };
+            return { change, value: await getQuest(change.nodeId) };
+          })),
+          getDomainRelations(domainId),
+          getExternalPrerequisites(domainId),
+        ]);
+        if (cancelled) return;
+
+        const loadedByIdentity = new Map(loaded.map(entry => [`${entry.change.nodeType}:${entry.change.nodeId}`, entry]));
+        setCodeToNumericIdMap(previous => {
+          const next = new Map(previous);
+          for (const change of changes) {
+            for (const [code, id] of next) {
+              if (id === change.nodeId || (change.previousNodeId && id === change.previousNodeId)) next.delete(code);
+            }
+            const entry = loadedByIdentity.get(`${change.nodeType}:${change.nodeId}`);
+            if (entry && (change.nodeType === 'definition' || change.nodeType === 'exercise')) {
+              next.set((entry.value as MetaDefinition | MetaExercise).code, change.nodeId);
+            }
+          }
+          return next;
+        });
+
+        setNodeDataCache(previous => {
+          const next = new Map(previous);
+          for (const change of changes) {
+            for (const [code, value] of next) {
+              if (value.id === change.nodeId || (change.previousNodeId && value.id === change.previousNodeId)) next.delete(code);
+            }
+            const entry = loadedByIdentity.get(`${change.nodeType}:${change.nodeId}`);
+            if (entry && (change.nodeType === 'definition' || change.nodeType === 'exercise')) {
+              const value = entry.value as MetaDefinition | MetaExercise;
+              next.set(value.code, value);
+            }
+          }
+          return next;
+        });
+
+        setCurrentStructuralGraphData(previous => {
+          const next: GraphData = {
+            ...previous,
+            definitions: { ...(previous.definitions || {}) },
+            exercises: { ...(previous.exercises || {}) },
+            sources: { ...(previous.sources || {}) },
+            quests: { ...(previous.quests || {}) },
+          };
+          const retainedPositions = new Map<string, { x: number; y: number }>();
+          const identityKey = (nodeType: string | undefined, nodeId: number | undefined) =>
+            nodeType && nodeId ? `${nodeType}:${nodeId}` : '';
+          const removeIdentity = (nodeType: string | undefined, nodeId: number | undefined) => {
+            if (!nodeType || !nodeId) return;
+            const collection = nodeType === 'definition' ? next.definitions
+              : nodeType === 'exercise' ? next.exercises
+              : nodeType === 'source' ? next.sources
+              : next.quests;
+            if (!collection) return;
+            for (const [code, value] of Object.entries(collection) as Array<[string, { id?: number; xPosition?: number; yPosition?: number }]>) {
+              if (value.id === nodeId) {
+                retainedPositions.set(
+                  identityKey(nodeType, nodeId),
+                  positionManagerRef.current.getPosition(code) || {
+                    x: value.xPosition || 0,
+                    y: value.yPosition || 0,
+                  },
+                );
+                delete collection[code];
+                positionManagerRef.current.removePosition(code);
+              }
+            }
+          };
+
+          for (const change of changes) {
+            removeIdentity(change.previousNodeType, change.previousNodeId);
+            removeIdentity(change.nodeType, change.nodeId);
+            if (change.state !== 'active') continue;
+            const entry = loadedByIdentity.get(`${change.nodeType}:${change.nodeId}`);
+            if (!entry) continue;
+            const retainedPosition = retainedPositions.get(identityKey(change.nodeType, change.nodeId))
+              || retainedPositions.get(identityKey(change.previousNodeType, change.previousNodeId));
+            if (change.nodeType === 'definition') {
+              const value = entry.value as MetaDefinition;
+              const position = retainedPosition || { x: value.xPosition || 0, y: value.yPosition || 0 };
+              next.definitions[value.code] = {
+                id: value.id, code: value.code, name: value.name, description: '', notes: '', references: [],
+                prerequisites: value.prerequisites || [], prerequisiteWeights: value.prerequisiteWeights || {},
+                xPosition: position.x, yPosition: position.y, domainId: value.domainId, type: 'definition',
+              };
+              positionManagerRef.current.fixPosition(value.code, position.x, position.y);
+            } else if (change.nodeType === 'exercise') {
+              const value = entry.value as MetaExercise;
+              const position = retainedPosition || { x: value.xPosition || 0, y: value.yPosition || 0 };
+              next.exercises[value.code] = {
+                id: value.id, code: value.code, name: value.name, statement: '', description: '', notes: '', hints: '',
+                prerequisites: value.prerequisites || [], prerequisiteWeights: value.prerequisiteWeights || {},
+                xPosition: position.x, yPosition: position.y, domainId: value.domainId, type: 'exercise',
+              };
+              positionManagerRef.current.fixPosition(value.code, position.x, position.y);
+            } else if (change.nodeType === 'source') {
+              const value = entry.value as SourceDTO;
+              const position = retainedPosition || { x: value.xPosition || 0, y: value.yPosition || 0 };
+              next.sources![value.code] = { ...value, xPosition: position.x, yPosition: position.y, type: 'source' };
+              positionManagerRef.current.fixPosition(value.code, position.x, position.y);
+            } else {
+              const value = entry.value as MetaQuestDTO;
+              const position = retainedPosition || { x: value.xPosition || 0, y: value.yPosition || 0 };
+              next.quests![value.code] = { ...value, xPosition: position.x, yPosition: position.y, type: 'quest' };
+              positionManagerRef.current.fixPosition(value.code, position.x, position.y);
+            }
+          }
+          const identityMap = buildIdToCodeByTypeFromGraphData(next);
+          next.relations = buildRelationEdgesFromDomainRelations(relations, identityMap);
+          return next;
+        });
+        setExternalPrerequisites(Array.isArray(externalLinks) ? externalLinks : []);
+        loaded.forEach(entry => {
+          if (entry.change.nodeType === 'definition' || entry.change.nodeType === 'exercise') {
+            dispatchReviewItemContentUpdated({ nodeType: entry.change.nodeType, metaId: entry.change.nodeId });
+          }
+        });
+      } catch (error) {
+        console.error('Failed to apply live Org content patch:', error);
+        showToast('An Org update arrived but could not be displayed. Use Resync to retry.', 'error');
+      }
+    };
+    void applyLivePatch();
+    return () => { cancelled = true; };
+  }, [liveContentUpdate, subjectMatterId]);
 
   // Modal and form state
   const [showNodeCreationModal, setShowNodeCreationModal] = useState(false);
@@ -375,12 +537,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const [domainSettings, setDomainSettings] = useState<UserDomainSettings | null>(null);
   const isDomainOwner = !!(currentUser && domainData && domainData.ownerId === currentUser.id);
-  const canEdit = !!(
+  const canEditLayout = !!(
     currentUser &&
     domainData &&
-    !isContentManaged &&
     (currentUser.isAdmin || isDomainOwner || domainData.permissionRole === 'editor' || domainData.permissionRole === 'owner')
   );
+  const canEdit = canEditLayout && !isContentManaged;
 
   const applyExplorerPrefs = useCallback((patch: ExplorerUIPreferencesPatch) => {
     if (!hasNumericDomainId) return;
@@ -1384,12 +1546,17 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const handleEngineStop = useCallback(() => {
     positionManagerRef.current.markStable();
 
+    if (dagModeEnabled && stableGraph.nodes.length > 0) {
+      positionManagerRef.current.extractPositions(stableGraph.nodes);
+      setPositionsChanged(true);
+    }
+
     if (isProcessingData && graphRef.current && stableGraph.nodes.length > 0) {
       setTimeout(() => {
         zoomToFitVisibleNodes(400);
       }, 100);
     }
-  }, [isProcessingData, stableGraph.nodes.length, zoomToFitVisibleNodes]);
+  }, [dagModeEnabled, isProcessingData, stableGraph.nodes, zoomToFitVisibleNodes]);
 
   // Calculate smart placement for detail windows (opposite side of clicked node, with boundary checks)
   const getDetailWindowPlacement = useCallback((node: GraphNode, windowCount: number) => {
@@ -1783,7 +1950,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   // Create new node with enhanced positioning
   const createNewNode = useCallback((type: 'definition' | 'exercise') => {
     if (!canEdit) {
-      showToast('Only domain owners or editors can create nodes.', 'warning');
+      showToast(isContentManaged ? 'This content is managed by Org. Create the node in Emacs.' : 'Only domain owners or editors can create nodes.', 'warning');
       return;
     }
 
@@ -1793,7 +1960,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     setNodeCreationType(type);
     setNodeCreationPosition(position);
     setShowNodeCreationModal(true);
-  }, [canEdit, getGraphCenter]);
+  }, [canEdit, getGraphCenter, isContentManaged]);
 
   const insertCreatedNode = useCallback((
     nodeCode: string,
@@ -2319,7 +2486,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
 	  const toggleFrenzyEditMode = useCallback(async () => {
 	    if (!canEdit) {
-	      showToast('Only domain owners or editors can edit nodes.', 'warning');
+	      showToast(isContentManaged ? 'This content is managed by Org. Edit nodes and links in Emacs.' : 'Only domain owners or editors can edit nodes.', 'warning');
 	      return;
 	    }
 	    if (!isFrenzyEditMode) {
@@ -2329,7 +2496,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	      resetFrenzyEditState();
 	    }
 	    setIsFrenzyEditMode(prev => !prev);
-	  }, [canEdit, isFrenzyEditMode, loadFrenzyPrerequisites, resetFrenzyEditState, ui]);
+	  }, [canEdit, isContentManaged, isFrenzyEditMode, loadFrenzyPrerequisites, resetFrenzyEditState, ui]);
 
 	  const toggleFrenzyEnabled = useCallback(() => {
 	    setIsFrenzyEnabled(prev => !prev);
@@ -5073,6 +5240,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
   const toolboxLayouts: ToolbarLayout[] = useMemo(() => buildToolboxLayouts({
     toolboxButton,
     canEdit,
+    canEditLayout,
     canUseEditTools,
     selectedCount: selectedNodeIds.size,
     selectionTool,
@@ -5177,6 +5345,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     canExport,
     canShare,
     canEdit,
+    canEditLayout,
     selectableGroupCodes.length,
     toolbarGroupId,
     selectedNodeIds.size,
@@ -5859,6 +6028,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onSurveyQuestUpdated={applyQuestUpdateToGraph}
           currentDomainId={parseInt(subjectMatterId, 10)}
           canEdit={canEdit}
+          isContentManaged={isContentManaged}
           isEnrolled={hasAccess ?? undefined}
           onNavigateToNode={(nodeCode) => navigateToNodeById(nodeCode, 'study')}
           domainSettings={domainSettings}
@@ -5931,6 +6101,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               <EmptyDomainState
                 title="This domain is empty."
                 canEdit={canEdit}
+                isContentManaged={isContentManaged}
                 onCreateDefinition={() => createNewNode('definition')}
                 onCreateExercise={() => createNewNode('exercise')}
               />
@@ -5972,6 +6143,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               <EmptyDomainState
                 title="No graph data to display for this domain."
                 canEdit={canEdit}
+                isContentManaged={isContentManaged}
                 onCreateDefinition={() => createNewNode('definition')}
                 onCreateExercise={() => createNewNode('exercise')}
                 footer={(
@@ -6192,6 +6364,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   onQuestCreated={handleQuestCreated}
                   onCopyYaml={handleWindowCopyYaml}
                   isCopyingYaml={isCopyingYaml}
+                  isContentManaged={isContentManaged}
+                  liveContentRevision={liveContentUpdate?.revision}
                 />
               )}
               {window.type === 'review' && (
@@ -6239,6 +6413,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   onQuestCreated={handleQuestCreated}
                   onCopyYaml={handleWindowCopyYaml}
                   isCopyingYaml={isCopyingYaml}
+                  isContentManaged={isContentManaged}
+                  liveContentRevision={liveContentUpdate?.revision}
                 />
               )}
               {window.type === 'quest' && (
@@ -6257,6 +6433,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
                   onRelevantLinksUpdated={refreshDomainRelations}
                   onCopyYaml={handleWindowCopyYaml}
                   isCopyingYaml={isCopyingYaml}
+                  isContentManaged={isContentManaged}
+                  liveContentRevision={liveContentUpdate?.revision}
                 />
               )}
               {window.type === 'survey' && (

@@ -26,6 +26,8 @@ interface SourceWindowContentProps {
   onNavigateToNode?: (nodeId: string) => void;
   onCopyYaml?: () => void;
   isCopyingYaml?: boolean;
+  isContentManaged?: boolean;
+  liveContentRevision?: string;
 }
 
 type RelationDraft = { id?: number; relationType: string; toType: 'definition' | 'exercise'; toCode: string };
@@ -96,6 +98,8 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   onNavigateToNode,
   onCopyYaml,
   isCopyingYaml = false,
+  isContentManaged = false,
+  liveContentRevision,
 }) => {
   const ui = useUI();
   const [source, setSource] = useState<SourceDTO | null>(null);
@@ -186,7 +190,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
 
   useEffect(() => {
     if (!sourceData?.id) return;
-    if (sourceData.contentMd && sourceData.title) return;
+    if (sourceData.contentMd && sourceData.title && !liveContentRevision) return;
     setIsLoading(true);
     getSource(sourceData.id)
       .then(fresh => {
@@ -203,7 +207,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
         console.warn('Failed to load source:', err);
       })
       .finally(() => setIsLoading(false));
-  }, [sourceData?.id, sourceData?.contentMd, sourceData?.title, isDirty]);
+  }, [sourceData?.id, sourceData?.contentMd, sourceData?.title, isDirty, liveContentRevision]);
 
   const loadRelevantLinks = useCallback(async () => {
     if (!source?.id) {
@@ -318,12 +322,16 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       handleCancelEdit();
       return;
     }
+    if (isContentManaged) {
+      showToast('This node is managed by Org. Edit its file in Emacs.', 'warning');
+      return;
+    }
     if (!source?.id) return;
     setShowReminderForm(false);
     setIsEditMode(true);
     setIsHeaderCodeEditing(false);
     setIsRelevantLinksExpanded(false);
-  }, [handleCancelEdit, isEditMode, source?.id]);
+  }, [handleCancelEdit, isContentManaged, isEditMode, source?.id]);
 
   const handleDelete = useCallback(async () => {
     if (!source?.id) return;
@@ -552,8 +560,9 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               variant={isEditMode ? 'outline' : 'ghost'}
               onClick={handleToggleEditMode}
               disabled={!source?.id}
-              className="h-8 w-8"
-              title={isEditMode ? 'View Mode' : 'Edit Mode'}
+              aria-disabled={isContentManaged}
+              className={`h-8 w-8 ${isContentManaged ? 'opacity-50 text-gray-400' : ''}`}
+              title={isContentManaged ? 'Edit this Org-managed node in Emacs' : isEditMode ? 'View Mode' : 'Edit Mode'}
             >
               <Edit size={16} />
             </Button>

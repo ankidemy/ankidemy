@@ -83,6 +83,7 @@ export const createToolboxButtonRenderer = (
 export type ToolboxLayoutContext = {
   toolboxButton: ToolboxButtonRenderer;
   canEdit: boolean;
+  canEditLayout: boolean;
   canUseEditTools: boolean;
   selectedCount: number;
   selectionTool: 'none' | 'add' | 'remove' | 'move';
@@ -146,6 +147,7 @@ export const buildToolboxLayouts = (ctx: ToolboxLayoutContext): ToolbarLayout[] 
     {
       id: 'edit',
       label: 'Edit',
+      disabled: !ctx.canEdit,
       handleIcon: <Pencil size={9} />,
       sections: [
         {
@@ -475,7 +477,7 @@ export const buildToolboxLayouts = (ctx: ToolboxLayoutContext): ToolbarLayout[] 
             [
               toolboxButton('Save', <Save size={10} />, {
                 onClick: ctx.savePositions,
-                enabled: ctx.positionsChanged && !ctx.isSavingPositions && ctx.canEdit,
+                enabled: ctx.positionsChanged && !ctx.isSavingPositions && ctx.canEditLayout,
                 variant: ctx.positionsChanged ? 'secondary' : 'outline',
               }),
             ],

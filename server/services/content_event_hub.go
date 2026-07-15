@@ -23,6 +23,7 @@ type ContentEvent struct {
 	Code               string              `json:"code,omitempty"`
 	Revision           string              `json:"revision,omitempty"`
 	Counts             map[string]int      `json:"counts,omitempty"`
+	Changes            []ContentNodeChange `json:"changes"`
 	Diagnostics        []ContentDiagnostic `json:"diagnostics,omitempty"`
 	Message            string              `json:"message,omitempty"`
 }

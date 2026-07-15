@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,11 +35,51 @@ func ContentManagedReadOnly(db *gorm.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if managedMutationIsLocalOnly(c) {
+			c.Next()
+			return
+		}
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 			"error":   "This domain is managed by an attached content provider; edit it in the provider or detach it first.",
 			"managed": true,
 		})
 	}
+}
+
+// managedMutationIsLocalOnly permits fields that have no provider
+// representation. Content/meta fields remain protected, while layout and
+// Ankidemy access/user-state fields stay editable.
+func managedMutationIsLocalOnly(c *gin.Context) bool {
+	if c.Request.Method != http.MethodPut && c.Request.Method != http.MethodPatch {
+		return false
+	}
+	pattern := c.FullPath()
+	allowed := map[string]bool{}
+	switch pattern {
+	case "/api/meta-definitions/:id", "/api/meta-exercises/:id":
+		allowed = map[string]bool{"xPosition": true, "yPosition": true}
+	case "/api/sources/:id":
+		allowed = map[string]bool{"xPosition": true, "yPosition": true, "visibility": true, "bibtexKey": true, "filePath": true}
+	case "/api/quests/:id":
+		allowed = map[string]bool{"xPosition": true, "yPosition": true, "visibility": true, "active": true}
+	default:
+		return false
+	}
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return false
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || len(fields) == 0 {
+		return false
+	}
+	for field := range fields {
+		if !allowed[field] {
+			return false
+		}
+	}
+	return true
 }
 
 func managedContentMutationDomain(c *gin.Context, db *gorm.DB) (uint, bool) {
@@ -88,6 +131,13 @@ func managedContentMutationDomain(c *gin.Context, db *gorm.DB) (uint, bool) {
 }
 
 func protectedDomainRoute(pattern, method string) bool {
+	// Layout is Ankidemy-owned state even when node content is provider-owned.
+	// These routes only persist visual coordinates and must remain writable.
+	if pattern == "/api/domains/:id/graph/positions" ||
+		pattern == "/api/domains/:id/external-prerequisites/positions" ||
+		pattern == "/api/domains/:id/groups/positions" {
+		return false
+	}
 	if pattern == "/api/domains/:id" || pattern == "/api/domains/:id/purge" || pattern == "/api/domains/:id/restore" {
 		return true
 	}
