@@ -2455,6 +2455,8 @@ export const getDomainLinks = async (domainIds?: number[]): Promise<DomainLink[]
 
 // DEVELOPMENT LIVE IMPORT API
 
+const LIVE_IMPORT_MUTATION_TIMEOUT_MS = 35_000;
+
 const disabledLiveImportStatus = (): LiveImportStatus => ({
   enabled: false,
   connectionState: 'offline',
@@ -2489,6 +2491,7 @@ export const attachCurrentLiveImportRoot = async (): Promise<{
   const response = await observedFetch(`${API_URL}/api/live-import/attach-current`, {
     method: 'POST',
     headers: getAuthHeaders(),
+    signal: AbortSignal.timeout(LIVE_IMPORT_MUTATION_TIMEOUT_MS),
   });
   return handleResponse(response);
 };
@@ -2497,6 +2500,7 @@ export const resyncLiveImportBinding = async (bindingId: number) => {
   const response = await observedFetch(`${API_URL}/api/live-import/bindings/${bindingId}/resync`, {
     method: 'POST',
     headers: getAuthHeaders(),
+    signal: AbortSignal.timeout(LIVE_IMPORT_MUTATION_TIMEOUT_MS),
   });
   return handleResponse(response);
 };

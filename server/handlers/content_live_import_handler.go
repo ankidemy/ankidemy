@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+const liveImportMutationTimeout = 30 * time.Second
 
 type ContentLiveImportHandler struct {
 	service *services.ContentLiveImportService
@@ -77,7 +80,9 @@ func (h *ContentLiveImportHandler) AttachCurrent(c *gin.Context) {
 	if !ok {
 		return
 	}
-	binding, result, err := h.service.AttachCurrent(c.Request.Context(), userID)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), liveImportMutationTimeout)
+	defer cancel()
+	binding, result, err := h.service.AttachCurrent(ctx, userID)
 	if errors.Is(err, services.ErrContentBindingExists) {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
@@ -85,6 +90,10 @@ func (h *ContentLiveImportHandler) AttachCurrent(c *gin.Context) {
 	var reconcileErr *services.ContentReconcileError
 	if errors.As(err, &reconcileErr) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "validation": reconcileErr.Validation})
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "Timed out waiting for the Org snapshot"})
 		return
 	}
 	if err != nil {
@@ -103,7 +112,9 @@ func (h *ContentLiveImportHandler) Resync(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.Resync(c.Request.Context(), userID, bindingID)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), liveImportMutationTimeout)
+	defer cancel()
+	result, err := h.service.Resync(ctx, userID, bindingID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Content binding not found"})
 		return
@@ -111,6 +122,10 @@ func (h *ContentLiveImportHandler) Resync(c *gin.Context) {
 	var reconcileErr *services.ContentReconcileError
 	if errors.As(err, &reconcileErr) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "validation": reconcileErr.Validation})
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "Timed out waiting for the Org snapshot"})
 		return
 	}
 	if err != nil {

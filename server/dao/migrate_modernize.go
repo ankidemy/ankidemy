@@ -20,63 +20,14 @@ import (
 //     solved exercises expire on the same 90+rand(1..90) day schedule as new
 //     solves.
 //
-// Every statement is idempotent so the migration can run on every startup.
+// Recurring statements are idempotent.  The prerequisite endpoint rewrite is
+// only run while historical meta_* rows still exist: after the first rewrite,
+// definition/exercise are canonical pool-level types and must never be treated
+// as legacy version-level rows again.
 func ensureModernSchema(db *gorm.DB) {
+	migrateLegacyPrerequisites(db)
+
 	stmts := []string{
-		// --- node_prerequisites -------------------------------------------
-		// Remap legacy version-level endpoints to their pool nodes (spelled
-		// meta_* for now so they cannot collide with rows already renamed).
-		`UPDATE node_prerequisites np
-		 SET prerequisite_id = d.meta_definition_id, prerequisite_type = 'meta_definition'
-		 FROM definitions d
-		 WHERE np.prerequisite_type = 'definition' AND d.id = np.prerequisite_id
-		   AND d.meta_definition_id IS NOT NULL AND d.meta_definition_id <> 0
-		   AND NOT EXISTS (
-		     SELECT 1 FROM node_prerequisites x
-		     WHERE x.node_id = np.node_id AND x.node_type = np.node_type
-		       AND x.prerequisite_id = d.meta_definition_id AND x.prerequisite_type = 'meta_definition'
-		   );`,
-		`UPDATE node_prerequisites np
-		 SET prerequisite_id = e.meta_exercise_id, prerequisite_type = 'meta_exercise'
-		 FROM exercises e
-		 WHERE np.prerequisite_type = 'exercise' AND e.id = np.prerequisite_id
-		   AND e.meta_exercise_id IS NOT NULL AND e.meta_exercise_id <> 0
-		   AND NOT EXISTS (
-		     SELECT 1 FROM node_prerequisites x
-		     WHERE x.node_id = np.node_id AND x.node_type = np.node_type
-		       AND x.prerequisite_id = e.meta_exercise_id AND x.prerequisite_type = 'meta_exercise'
-		   );`,
-		`UPDATE node_prerequisites np
-		 SET node_id = d.meta_definition_id, node_type = 'meta_definition'
-		 FROM definitions d
-		 WHERE np.node_type = 'definition' AND d.id = np.node_id
-		   AND d.meta_definition_id IS NOT NULL AND d.meta_definition_id <> 0
-		   AND NOT EXISTS (
-		     SELECT 1 FROM node_prerequisites x
-		     WHERE x.prerequisite_id = np.prerequisite_id AND x.prerequisite_type = np.prerequisite_type
-		       AND x.node_id = d.meta_definition_id AND x.node_type = 'meta_definition'
-		   );`,
-		`UPDATE node_prerequisites np
-		 SET node_id = e.meta_exercise_id, node_type = 'meta_exercise'
-		 FROM exercises e
-		 WHERE np.node_type = 'exercise' AND e.id = np.node_id
-		   AND e.meta_exercise_id IS NOT NULL AND e.meta_exercise_id <> 0
-		   AND NOT EXISTS (
-		     SELECT 1 FROM node_prerequisites x
-		     WHERE x.prerequisite_id = np.prerequisite_id AND x.prerequisite_type = np.prerequisite_type
-		       AND x.node_id = e.meta_exercise_id AND x.node_type = 'meta_exercise'
-		   );`,
-		// Remaining plain-typed rows are unmappable legacy leftovers.
-		`DELETE FROM node_prerequisites
-		 WHERE node_type IN ('definition','exercise') OR prerequisite_type IN ('definition','exercise');`,
-		// Rename the modern spellings to the canonical ones. Constraints are
-		// (re)created afterwards, so drop the old CHECKs first.
-		`ALTER TABLE node_prerequisites DROP CONSTRAINT IF EXISTS node_prerequisites_node_type_check;`,
-		`ALTER TABLE node_prerequisites DROP CONSTRAINT IF EXISTS node_prerequisites_prerequisite_type_check;`,
-		`UPDATE node_prerequisites SET node_type = 'definition' WHERE node_type = 'meta_definition';`,
-		`UPDATE node_prerequisites SET node_type = 'exercise' WHERE node_type = 'meta_exercise';`,
-		`UPDATE node_prerequisites SET prerequisite_type = 'definition' WHERE prerequisite_type = 'meta_definition';`,
-		`UPDATE node_prerequisites SET prerequisite_type = 'exercise' WHERE prerequisite_type = 'meta_exercise';`,
 		`ALTER TABLE node_prerequisites DROP COLUMN IF EXISTS is_manual;`,
 
 		// --- other tables carrying node-type strings ----------------------
@@ -139,5 +90,90 @@ func ensureModernSchema(db *gorm.DB) {
 		if err := db.Exec(stmt).Error; err != nil {
 			log.Printf("Modernization migration note: %v (stmt: %s)", err, stmt)
 		}
+	}
+}
+
+// migrateLegacyPrerequisites performs the destructive, one-way endpoint
+// rewrite from the pre-2026 graph vocabulary.  The presence of at least one
+// meta_* endpoint is the migration marker used by those databases.  Once all
+// endpoints are canonical, this function is a strict no-op; in particular it
+// never deletes newly-created canonical prerequisite rows on later startups.
+func migrateLegacyPrerequisites(db *gorm.DB) {
+	var legacyCount int64
+	if err := db.Raw(`SELECT COUNT(*) FROM node_prerequisites
+		WHERE node_type IN ('meta_definition','meta_exercise')
+		   OR prerequisite_type IN ('meta_definition','meta_exercise')`).
+		Scan(&legacyCount).Error; err != nil {
+		log.Printf("Modernization migration note: failed to inspect legacy prerequisites: %v", err)
+		return
+	}
+	if legacyCount == 0 {
+		return
+	}
+
+	stmts := []string{
+		// Remap historical version-level endpoints to their pool nodes.  The
+		// temporary meta_* spelling keeps them distinguishable until cleanup.
+		`UPDATE node_prerequisites np
+		 SET prerequisite_id = d.meta_definition_id, prerequisite_type = 'meta_definition'
+		 FROM definitions d
+		 WHERE np.prerequisite_type = 'definition' AND d.id = np.prerequisite_id
+		   AND d.meta_definition_id IS NOT NULL AND d.meta_definition_id <> 0
+		   AND NOT EXISTS (
+		     SELECT 1 FROM node_prerequisites x
+		     WHERE x.node_id = np.node_id AND x.node_type = np.node_type
+		       AND x.prerequisite_id = d.meta_definition_id AND x.prerequisite_type = 'meta_definition'
+		   );`,
+		`UPDATE node_prerequisites np
+		 SET prerequisite_id = e.meta_exercise_id, prerequisite_type = 'meta_exercise'
+		 FROM exercises e
+		 WHERE np.prerequisite_type = 'exercise' AND e.id = np.prerequisite_id
+		   AND e.meta_exercise_id IS NOT NULL AND e.meta_exercise_id <> 0
+		   AND NOT EXISTS (
+		     SELECT 1 FROM node_prerequisites x
+		     WHERE x.node_id = np.node_id AND x.node_type = np.node_type
+		       AND x.prerequisite_id = e.meta_exercise_id AND x.prerequisite_type = 'meta_exercise'
+		   );`,
+		`UPDATE node_prerequisites np
+		 SET node_id = d.meta_definition_id, node_type = 'meta_definition'
+		 FROM definitions d
+		 WHERE np.node_type = 'definition' AND d.id = np.node_id
+		   AND d.meta_definition_id IS NOT NULL AND d.meta_definition_id <> 0
+		   AND NOT EXISTS (
+		     SELECT 1 FROM node_prerequisites x
+		     WHERE x.prerequisite_id = np.prerequisite_id AND x.prerequisite_type = np.prerequisite_type
+		       AND x.node_id = d.meta_definition_id AND x.node_type = 'meta_definition'
+		   );`,
+		`UPDATE node_prerequisites np
+		 SET node_id = e.meta_exercise_id, node_type = 'meta_exercise'
+		 FROM exercises e
+		 WHERE np.node_type = 'exercise' AND e.id = np.node_id
+		   AND e.meta_exercise_id IS NOT NULL AND e.meta_exercise_id <> 0
+		   AND NOT EXISTS (
+		     SELECT 1 FROM node_prerequisites x
+		     WHERE x.prerequisite_id = np.prerequisite_id AND x.prerequisite_type = np.prerequisite_type
+		       AND x.node_id = e.meta_exercise_id AND x.node_type = 'meta_exercise'
+		   );`,
+		// Plain endpoints left after the remap are version-level rows that do
+		// not have a pool mapping and cannot be represented by the modern graph.
+		`DELETE FROM node_prerequisites
+		 WHERE node_type IN ('definition','exercise') OR prerequisite_type IN ('definition','exercise');`,
+		`ALTER TABLE node_prerequisites DROP CONSTRAINT IF EXISTS node_prerequisites_node_type_check;`,
+		`ALTER TABLE node_prerequisites DROP CONSTRAINT IF EXISTS node_prerequisites_prerequisite_type_check;`,
+		`UPDATE node_prerequisites SET node_type = 'definition' WHERE node_type = 'meta_definition';`,
+		`UPDATE node_prerequisites SET node_type = 'exercise' WHERE node_type = 'meta_exercise';`,
+		`UPDATE node_prerequisites SET prerequisite_type = 'definition' WHERE prerequisite_type = 'meta_definition';`,
+		`UPDATE node_prerequisites SET prerequisite_type = 'exercise' WHERE prerequisite_type = 'meta_exercise';`,
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		for _, stmt := range stmts {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Printf("Modernization migration note: legacy prerequisite rewrite failed: %v", err)
 	}
 }

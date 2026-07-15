@@ -1,8 +1,12 @@
 package services
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+
+	"ankidemy/server/models"
 )
 
 func TestNormalizeImportDataUsesMapKeyForDuplicateCodes(t *testing.T) {
@@ -38,6 +42,66 @@ func TestNormalizeImportDataUsesMapKeyForDuplicateCodes(t *testing.T) {
 
 	if err := service.ValidateImportData(data); err != nil {
 		t.Fatalf("expected normalized import to validate, got error: %v", err)
+	}
+}
+
+func TestImportPrerequisiteWeightDefaultsToOne(t *testing.T) {
+	if got := importPrerequisiteWeight(nil, "A"); got != 1.0 {
+		t.Fatalf("expected omitted weight to default to 1.0, got %v", got)
+	}
+	if got := importPrerequisiteWeight(map[string]float64{"A": 0}, "A"); got != 0.01 {
+		t.Fatalf("expected explicit zero to clamp to 0.01, got %v", got)
+	}
+	if got := importPrerequisiteWeight(map[string]float64{"A": 2}, "A"); got != 1.0 {
+		t.Fatalf("expected oversized weight to clamp to 1.0, got %v", got)
+	}
+}
+
+func TestSamePrerequisiteSetIsOrderIndependentAndRejectsLoss(t *testing.T) {
+	first := models.NodePrerequisite{
+		NodeID: 2, NodeType: models.NodeTypeDefinition,
+		PrerequisiteID: 1, PrerequisiteType: models.NodeTypeDefinition, Weight: 1,
+	}
+	second := models.NodePrerequisite{
+		NodeID: 4, NodeType: models.NodeTypeExercise,
+		PrerequisiteID: 2, PrerequisiteType: models.NodeTypeDefinition, Weight: 0.5,
+	}
+	if !samePrerequisiteSet([]models.NodePrerequisite{first, second}, []models.NodePrerequisite{second, first}) {
+		t.Fatal("expected equivalent prerequisite sets to match regardless of row order")
+	}
+	if samePrerequisiteSet([]models.NodePrerequisite{first}, []models.NodePrerequisite{first, second}) {
+		t.Fatal("expected a missing prerequisite to require repair")
+	}
+	changed := second
+	changed.Weight = 0.75
+	if samePrerequisiteSet([]models.NodePrerequisite{first, second}, []models.NodePrerequisite{first, changed}) {
+		t.Fatal("expected a changed prerequisite weight to require repair")
+	}
+}
+
+func TestTutorialFixtureRetainsCompleteModernGraph(t *testing.T) {
+	raw, err := os.ReadFile("../tutorial.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data ImportData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	service := &ImportService{}
+	service.NormalizeImportData(&data)
+	if err := service.ValidateImportData(&data); err != nil {
+		t.Fatalf("tutorial fixture is not import-compatible: %v", err)
+	}
+	edges := 0
+	for _, node := range data.MetaDefinitions {
+		edges += len(node.Prerequisites)
+	}
+	for _, node := range data.MetaExercises {
+		edges += len(node.Prerequisites)
+	}
+	if edges != 25 {
+		t.Fatalf("expected the tutorial's complete 25-edge graph, got %d", edges)
 	}
 }
 

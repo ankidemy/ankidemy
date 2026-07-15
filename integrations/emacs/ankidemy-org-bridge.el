@@ -72,7 +72,11 @@ An unset list still limits access to the active `org-roam-directory'."
   "Return non-nil when ROOT is permitted by the optional allowlist."
   (or (null ankidemy-org-bridge-allowed-roots)
       (cl-some (lambda (allowed)
-                 (file-equal-p (file-truename root) (file-truename allowed)))
+                 (let ((true-root (file-truename root))
+                       (true-allowed (file-name-as-directory
+                                      (file-truename allowed))))
+                   (or (file-equal-p true-root true-allowed)
+                       (file-in-directory-p true-root true-allowed))))
                ankidemy-org-bridge-allowed-roots)))
 
 (defun ankidemy-org-bridge--root-info (&optional root)
@@ -139,16 +143,17 @@ An unset list still limits access to the active `org-roam-directory'."
 (defun ankidemy-org-bridge--build-asset-map (snapshot root)
   "Build authorized digest metadata from SNAPSHOT below ROOT."
   (let ((assets (make-hash-table :test #'equal)))
-    (dolist (item (alist-get 'assets snapshot))
-      (let* ((id (alist-get 'id item))
-             (relative (alist-get 'sourceLocator item))
-             (file (and relative (expand-file-name relative root))))
-        (when (and id file (file-readable-p file)
-                   (file-in-directory-p (file-truename file) root))
-          (puthash id `((file . ,(file-truename file))
-                        (mime . ,(alist-get 'mime item))
-                        (size . ,(alist-get 'byteSize item)))
-                   assets))))
+    (mapc (lambda (item)
+            (let* ((id (alist-get 'id item))
+                   (relative (alist-get 'sourceLocator item))
+                   (file (and relative (expand-file-name relative root))))
+              (when (and id file (file-readable-p file)
+                         (file-in-directory-p (file-truename file) root))
+                (puthash id `((file . ,(file-truename file))
+                              (mime . ,(alist-get 'mime item))
+                              (size . ,(alist-get 'byteSize item)))
+                         assets))))
+          (alist-get 'assets snapshot))
     assets))
 
 (defun ankidemy-org-bridge--snapshot (root)
@@ -162,7 +167,10 @@ An unset list still limits access to the active `org-roam-directory'."
         (plist-get ankidemy-org-bridge--cache :snapshot)
       (let* ((json (ankidemy-org-snapshot-json root))
              (snapshot (json-parse-string json :object-type 'alist
-                                          :array-type 'list
+                                          ;; Retain the array/object
+                                          ;; distinction when the snapshot is
+                                          ;; embedded in a response envelope.
+                                          :array-type 'array
                                           :null-object nil
                                           :false-object :json-false)))
         (setq ankidemy-org-bridge--cache

@@ -731,7 +731,11 @@ first outline node when a file has no document-level drawer."
   (condition-case err
       (with-temp-buffer
         (insert-file-contents file)
-        (setq buffer-file-name file)
+        ;; Keep this an anonymous parsing buffer.  Setting `buffer-file-name'
+        ;; activates file-aware Doom/Org machinery unrelated to import and can
+        ;; block indefinitely (for example project/local-variable hooks).
+        ;; Relative links still resolve from the explicit source directory.
+        (setq default-directory (file-name-directory file))
         (org-mode)
         (let ((tree (org-element-parse-buffer)) records)
           (when-let ((file-id (ankidemy-org--file-property "ID")))
@@ -812,7 +816,7 @@ When EXTERNAL-NOTEBOOK-ID is non-nil, IDs map to that notebook boundary."
   (condition-case err
       (with-temp-buffer
         (insert-file-contents file)
-        (setq buffer-file-name file)
+        (setq default-directory (file-name-directory file))
         (org-mode)
         (let* ((tree (org-element-parse-buffer))
                (file-id (ankidemy-org--file-property "ID"))

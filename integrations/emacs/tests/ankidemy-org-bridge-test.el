@@ -53,7 +53,7 @@
 (ert-deftest ankidemy-org-bridge-serves-only-snapshot-owned-assets ()
   (ankidemy-org-bridge-test--with-root
    (let* ((snapshot (ankidemy-org-bridge--snapshot root))
-          (id (alist-get 'id (car (alist-get 'assets snapshot))))
+          (id (alist-get 'id (aref (alist-get 'assets snapshot) 0)))
           (asset (ankidemy-org-bridge--asset root id)))
      (should (equal id (alist-get 'sha256 asset)))
      (should (equal "image/png" (alist-get 'mime asset)))
@@ -61,6 +61,19 @@
                 (length (base64-decode-string (alist-get 'base64 asset)))))
      (should-error (ankidemy-org-bridge--asset
                     root (concat "sha256:" (make-string 64 ?0)))))))
+
+(ert-deftest ankidemy-org-bridge-snapshot-remains-json-serializable-with-nodes ()
+  (ankidemy-org-bridge-test--with-root
+   (let* ((snapshot (ankidemy-org-bridge--snapshot root))
+          (nodes (alist-get 'nodes snapshot))
+          (wire (json-serialize
+                 `((type . "response") (id . "snapshot-test")
+                   (ok . t) (result . ,snapshot))
+                 :null-object nil :false-object :json-false)))
+     (should (vectorp nodes))
+     (should (> (length nodes) 0))
+     (should (string-match-p
+              (regexp-quote "\"sourceId\":\"bridge-node\"") wire)))))
 
 (ert-deftest ankidemy-org-bridge-authenticates-before-root-disclosure ()
   (ankidemy-org-bridge-test--with-root
@@ -90,6 +103,21 @@
         (ankidemy-org-bridge-host "127.0.0.1"))
     (should-error (ankidemy-org-bridge-mode 1) :type 'user-error)
     (should-not ankidemy-org-bridge-mode)))
+
+(ert-deftest ankidemy-org-bridge-allowlist-is-a-symlink-safe-boundary ()
+  (let* ((allowed (file-name-as-directory
+                   (make-temp-file "ankidemy-allowed-root-" t)))
+         (child (expand-file-name "Algorithms" allowed))
+         (sibling (make-temp-file "ankidemy-disallowed-root-" t))
+         (ankidemy-org-bridge-allowed-roots (list allowed)))
+    (unwind-protect
+        (progn
+          (make-directory child)
+          (should (ankidemy-org-bridge--allowed-root-p allowed))
+          (should (ankidemy-org-bridge--allowed-root-p child))
+          (should-not (ankidemy-org-bridge--allowed-root-p sibling)))
+      (delete-directory allowed t)
+      (delete-directory sibling t))))
 
 (ert-deftest ankidemy-org-bridge-mode-starts-and-cleans-up ()
   (let ((ankidemy-org-bridge-mode nil)

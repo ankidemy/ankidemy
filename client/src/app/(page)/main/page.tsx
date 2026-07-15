@@ -507,6 +507,19 @@ export default function MainPage() {
       <div className="min-h-screen bg-white w-full mt-16">
         {/* Use consistent padding like dashboard */}
         <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 lg:px-16 py-8" onClick={() => setMenuOpenId(null)}>
+          {process.env.NODE_ENV === 'development' && liveImportStatus && !liveImportStatus.enabled && (
+            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-3">
+                <Unplug size={18} className="mt-0.5 shrink-0 text-amber-700" />
+                <div>
+                  <div className="font-semibold text-gray-900">Org live import is disabled in the server process</div>
+                  <div className="mt-1 text-sm text-gray-700">
+                    Restart <code>make dev</code> from a shell that exports the bridge enable flag, URL, and token.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {liveImportStatus?.enabled && (
             <div className={`mb-6 rounded-xl border p-4 ${
               liveImportStatus.connectionState === 'online'

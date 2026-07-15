@@ -588,8 +588,8 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 	exported := map[string]map[string]bool{
 		"definition": {},
 		"exercise":   {},
-		"source":          {},
-		"meta_quest":      {},
+		"source":     {},
+		"meta_quest": {},
 	}
 
 	// Bulk-load prerequisites, versions, and references for the whole domain
@@ -1155,11 +1155,23 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 // ImportTutorialIfNotExists imports the tutorial domain if it doesn't already exist
 func (s *ImportService) ImportTutorialIfNotExists() error {
 	tutorialDomainName := "Tutorial: Introduction to Learning"
+	tutorialData, err := s.ReadImportFileFromPath("tutorial.json")
+	if err != nil {
+		return fmt.Errorf("failed to read tutorial file: %v", err)
+	}
 
 	// Check if tutorial domain already exists
 	existingDomain, err := s.domainDAO.FindByName(tutorialDomainName)
 	if err == nil && existingDomain != nil {
-		log.Printf("Tutorial domain already exists (ID: %d), skipping import", existingDomain.ID)
+		repaired, repairErr := s.ensureTutorialPrerequisites(existingDomain.ID, tutorialData)
+		if repairErr != nil {
+			return fmt.Errorf("failed to verify tutorial prerequisite graph: %v", repairErr)
+		}
+		if repaired {
+			log.Printf("Tutorial domain prerequisite graph repaired (ID: %d)", existingDomain.ID)
+		} else {
+			log.Printf("Tutorial domain already exists and is current (ID: %d)", existingDomain.ID)
+		}
 		return nil
 	}
 
@@ -1187,12 +1199,6 @@ func (s *ImportService) ImportTutorialIfNotExists() error {
 		}
 	}
 
-	// Read tutorial data
-	tutorialData, err := s.ReadImportFileFromPath("tutorial.json")
-	if err != nil {
-		return fmt.Errorf("failed to read tutorial file: %v", err)
-	}
-
 	// Create tutorial domain with imported data
 	tutorialDescription := "Interactive tutorial introducing key concepts in learning science and knowledge management. Perfect for understanding how this spaced repetition system works!"
 
@@ -1210,6 +1216,132 @@ func (s *ImportService) ImportTutorialIfNotExists() error {
 
 	log.Println("Tutorial import completed successfully!")
 	return nil
+}
+
+// ensureTutorialPrerequisites repairs the built-in tutorial's canonical graph
+// without recreating content versions.  That distinction matters because
+// deleting/reinserting versions would invalidate per-version study history.
+func (s *ImportService) ensureTutorialPrerequisites(domainID uint, data *ImportData) (bool, error) {
+	s.NormalizeImportData(data)
+	if err := s.ValidateImportData(data); err != nil {
+		return false, err
+	}
+
+	var definitions []models.MetaDefinition
+	if err := s.db.Where("domain_id = ?", domainID).Find(&definitions).Error; err != nil {
+		return false, err
+	}
+	var exercises []models.MetaExercise
+	if err := s.db.Where("domain_id = ?", domainID).Find(&exercises).Error; err != nil {
+		return false, err
+	}
+
+	definitionByCode := make(map[string]models.MetaDefinition, len(definitions))
+	definitionIDs := make([]uint, 0, len(data.MetaDefinitions))
+	for _, definition := range definitions {
+		definitionByCode[definition.Code] = definition
+	}
+	exerciseByCode := make(map[string]models.MetaExercise, len(exercises))
+	exerciseIDs := make([]uint, 0, len(data.MetaExercises))
+	for _, exercise := range exercises {
+		exerciseByCode[exercise.Code] = exercise
+	}
+
+	expected := make([]models.NodePrerequisite, 0)
+	for _, node := range data.MetaDefinitions {
+		definition, ok := definitionByCode[node.Code]
+		if !ok {
+			return false, fmt.Errorf("tutorial definition %s is missing", node.Code)
+		}
+		definitionIDs = append(definitionIDs, definition.ID)
+		for _, prerequisiteCode := range node.Prerequisites {
+			prerequisite, ok := definitionByCode[prerequisiteCode]
+			if !ok {
+				return false, fmt.Errorf("tutorial prerequisite %s is missing", prerequisiteCode)
+			}
+			expected = append(expected, models.NodePrerequisite{
+				NodeID: definition.ID, NodeType: models.NodeTypeDefinition,
+				PrerequisiteID: prerequisite.ID, PrerequisiteType: models.NodeTypeDefinition,
+				Weight: importPrerequisiteWeight(node.PrerequisiteWeights, prerequisiteCode),
+			})
+		}
+	}
+	for _, node := range data.MetaExercises {
+		exercise, ok := exerciseByCode[node.Code]
+		if !ok {
+			return false, fmt.Errorf("tutorial exercise %s is missing", node.Code)
+		}
+		exerciseIDs = append(exerciseIDs, exercise.ID)
+		for _, prerequisiteCode := range node.Prerequisites {
+			prerequisiteType := models.NodeTypeDefinition
+			prerequisiteID := uint(0)
+			if prerequisite, ok := definitionByCode[prerequisiteCode]; ok {
+				prerequisiteID = prerequisite.ID
+			} else if prerequisite, ok := exerciseByCode[prerequisiteCode]; ok {
+				prerequisiteID = prerequisite.ID
+				prerequisiteType = models.NodeTypeExercise
+			} else {
+				return false, fmt.Errorf("tutorial prerequisite %s is missing", prerequisiteCode)
+			}
+			expected = append(expected, models.NodePrerequisite{
+				NodeID: exercise.ID, NodeType: models.NodeTypeExercise,
+				PrerequisiteID: prerequisiteID, PrerequisiteType: prerequisiteType,
+				Weight: importPrerequisiteWeight(node.PrerequisiteWeights, prerequisiteCode),
+			})
+		}
+	}
+
+	var actual []models.NodePrerequisite
+	if err := s.db.Where(
+		"(node_type = ? AND node_id IN ?) OR (node_type = ? AND node_id IN ?)",
+		models.NodeTypeDefinition, definitionIDs, models.NodeTypeExercise, exerciseIDs,
+	).Find(&actual).Error; err != nil {
+		return false, err
+	}
+	if samePrerequisiteSet(actual, expected) {
+		return false, nil
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("node_type = ? AND node_id IN ?", models.NodeTypeDefinition, definitionIDs).
+			Delete(&models.NodePrerequisite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("node_type = ? AND node_id IN ?", models.NodeTypeExercise, exerciseIDs).
+			Delete(&models.NodePrerequisite{}).Error; err != nil {
+			return err
+		}
+		if len(expected) > 0 {
+			return tx.CreateInBatches(expected, 100).Error
+		}
+		return nil
+	})
+	return err == nil, err
+}
+
+func prerequisiteSetKey(row models.NodePrerequisite) string {
+	return fmt.Sprintf("%s:%d>%s:%d", row.NodeType, row.NodeID, row.PrerequisiteType, row.PrerequisiteID)
+}
+
+func samePrerequisiteSet(actual, expected []models.NodePrerequisite) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	weights := make(map[string]float64, len(actual))
+	for _, row := range actual {
+		key := prerequisiteSetKey(row)
+		if _, duplicate := weights[key]; duplicate {
+			return false
+		}
+		weights[key] = row.Weight
+	}
+	for _, row := range expected {
+		weight, ok := weights[prerequisiteSetKey(row)]
+		if !ok || weight != row.Weight {
+			return false
+		}
+	}
+	return true
 }
 
 // loadExistingCodeMap loads all existing codes from a domain (across code-bearing node types).
@@ -1789,7 +1921,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 							NodeType:         "exercise",
 							PrerequisiteID:   pair.prereqID,
 							PrerequisiteType: pair.prereqType,
-							Weight:           clamp01(me.PrerequisiteWeights[pcode]),
+							Weight:           importPrerequisiteWeight(me.PrerequisiteWeights, pcode),
 						})
 					}
 					continue
@@ -1805,7 +1937,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 							NodeType:         "exercise",
 							PrerequisiteID:   pair.prereqID,
 							PrerequisiteType: pair.prereqType,
-							Weight:           clamp01(me.PrerequisiteWeights[pcode]),
+							Weight:           importPrerequisiteWeight(me.PrerequisiteWeights, pcode),
 						})
 					}
 					continue
@@ -2311,6 +2443,14 @@ func clamp01(w float64) float64 {
 		return 1.0
 	}
 	return w
+}
+
+func importPrerequisiteWeight(weights map[string]float64, code string) float64 {
+	weight, ok := weights[code]
+	if !ok {
+		return 1.0
+	}
+	return clamp01(weight)
 }
 
 func keys(m map[string]float64) []string {

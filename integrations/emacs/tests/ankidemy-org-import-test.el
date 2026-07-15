@@ -190,6 +190,19 @@
     (should (= 1 (length (plist-get snapshot :nodes))))
     (should (ankidemy-org-test--node snapshot "first-heading"))))
 
+(ert-deftest ankidemy-org-parses-in-anonymous-buffers ()
+  (let* ((root (ankidemy-org-test--temp-notebook
+                '(("note.org" .
+                   "* Note\n:PROPERTIES:\n:ID: anonymous-buffer-note\n:END:\nBody.\n"))))
+         (org-mode-hook
+          (list (lambda ()
+                  (when buffer-file-name
+                    (error "Importer exposed a real file buffer to org-mode hooks")))))
+         (snapshot (unwind-protect (ankidemy-org-parse-root root)
+                     (delete-directory root t))))
+    (should (plist-get snapshot :complete))
+    (should (ankidemy-org-test--node snapshot "anonymous-buffer-note"))))
+
 (ert-deftest ankidemy-org-semantic-cache-reparses-only-changed-file ()
   (let* ((root (ankidemy-org-test--temp-notebook
                 '(("one.org" .
