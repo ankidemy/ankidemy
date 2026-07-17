@@ -113,11 +113,14 @@ services:
 
   # Development utility service - Database admin
   pgadmin:
-    image: dpage/pgadmin4:latest
+    image: dpage/pgadmin4:9.16
     environment:
       - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@example.com}
       - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
       - PGADMIN_LISTEN_PORT=5050
+      # sshtunnel 0.4.0 triggers this harmless warning under Python 3.14.
+      # Keep other Python warnings visible while pgAdmin waits for an upstream fix.
+      - "PYTHONWARNINGS=ignore:'return' in a 'finally' block:SyntaxWarning"
     ports:
       - "${PGADMIN_PORT:-5050}:5050"
     volumes:

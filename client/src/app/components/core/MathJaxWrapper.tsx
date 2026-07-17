@@ -2,15 +2,17 @@
 "use client";
 
 import React, { ReactNode, memo, useEffect, useRef, useState } from 'react';
-import { MathJaxContext, type MathJax3Config } from 'better-react-mathjax';
+import { MathJaxContext } from 'better-react-mathjax';
+import type { MathJaxConfig } from '@mathjax/src/cjs/components/startup.js';
 import { latexMacrosMathJax } from './latexMacros';
 import { announceMathJaxReadyOnce } from './mathjaxReady';
 
-const MATHJAX_V3_SVG_SRC =
-  'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg-full.js';
+const MATHJAX_V4_SVG_SRC =
+  'https://cdn.jsdelivr.net/npm/mathjax@4/tex-svg.js';
 
 // ---- Default config ----
-const defaultConfig: MathJax3Config = {
+const defaultConfig: MathJaxConfig = {
+  loader: { load: ['[tex]/noerrors'] },
   tex: {
     // Ensure common TeX packages are enabled without relying on runtime loading.
     packages: { '[+]': ['ams', 'noerrors', 'noundefined'] },
@@ -25,6 +27,7 @@ const defaultConfig: MathJax3Config = {
   // Labels call `MathJax.typesetPromise([el])` manually as needed.
   startup: {
     typeset: false,
+    loadAllFontFiles: false,
     ready: () => {
       const mj = (window as any)?.MathJax;
       if (mj?.startup?.defaultReady) mj.startup.defaultReady();
@@ -39,7 +42,7 @@ const defaultConfig: MathJax3Config = {
   },
 };
 
-interface MathJaxProviderProps { children: ReactNode; config?: MathJax3Config }
+interface MathJaxProviderProps { children: ReactNode; config?: MathJaxConfig }
 
 // ---- Provider ----
 export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ children, config = defaultConfig }) => {
@@ -67,8 +70,8 @@ export const MathJaxProvider: React.FC<MathJaxProviderProps> = memo(({ children,
 
   return (
     <MathJaxContext
-      version={3}
-      src={MATHJAX_V3_SVG_SRC}
+      version={4}
+      src={MATHJAX_V4_SVG_SRC}
       config={config}
     >
       {children}

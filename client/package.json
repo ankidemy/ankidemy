@@ -17,7 +17,7 @@
     "@mathjax/src": "^4.1.0",
     "@radix-ui/react-slot": "^1.1.2",
     "@radix-ui/react-tabs": "latest",
-    "better-react-mathjax": "latest",
+    "better-react-mathjax": "^3.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3": "latest",
@@ -53,6 +53,9 @@
     "typescript-v6": "npm:typescript@^6.0.3"
   },
   "overrides": {
+    "better-react-mathjax": {
+      "mathjax-full": "npm:@mathjax/src@^4.1.0"
+    },
     "next": {
       "postcss": "^8.5.10"
     }
