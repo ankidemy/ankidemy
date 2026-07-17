@@ -1,12 +1,14 @@
 # Detect which docker compose command is available
 DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
+# Hosts may supply an additional Compose file for private network topology
+DEV_COMPOSE := $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml $(if $(strip $(ANKIDEMY_DEV_COMPOSE_OVERRIDE)),-f "$(ANKIDEMY_DEV_COMPOSE_OVERRIDE)",)
 
 # Development and Production Commands
 .PHONY: dev prod prod-build down logs clean purge nuke wipe-db
 
 # Start development environment with logs (without -d)
 dev:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DEV_COMPOSE) up
 
 # Start production environment with logs (without -d)
 prod:
@@ -18,11 +20,11 @@ prod-build:
 
 # Build and start dev environment
 dev-build:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up --build
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DEV_COMPOSE) up --build
 
 # Stop all services (dev or prod)
 down:
-	$(DOCKER_COMPOSE) down --remove-orphans
+	$(DEV_COMPOSE) down --remove-orphans
 
 # View logs for all services
 logs:
