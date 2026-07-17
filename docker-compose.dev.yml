@@ -94,21 +94,15 @@ services:
       - NEXT_DISABLE_SOURCEMAPS=true
     command: >
       sh -c "
-        # Check if package.json has changed since last install
-        if [ ! -f /tmp/package.json.md5sum ] || ! md5sum -c /tmp/package.json.md5sum >/dev/null 2>&1; then
+        # Reinstall when either manifest or npm configuration changes.
+        if [ ! -f /tmp/client-dependencies.md5sum ] || ! md5sum -c /tmp/client-dependencies.md5sum >/dev/null 2>&1; then
           echo 'Dependencies changed, updating...' &&
-          npm install &&
-          md5sum package.json > /tmp/package.json.md5sum;
+          npm ci &&
+          md5sum package.json package-lock.json .npmrc > /tmp/client-dependencies.md5sum;
         fi &&
         
-        # Check if package-lock.json exists, regenerate if missing
-        if [ ! -f package-lock.json ]; then
-          echo 'Generating package-lock.json...' &&
-          npm install;
-        fi &&
-        
-        # Run Next.js dev server with turbo
-        npx next dev --turbo
+        # Run the lockfile-pinned Next.js development server.
+        npm run dev
       "
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]

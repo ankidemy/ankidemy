@@ -166,9 +166,10 @@ func main() {
 		}
 	}
 
-	// Initialize router
-	router := gin.Default()
-	router.Use(middleware.RequestObservability())
+	// Initialize the development router explicitly. This is equivalent to
+	// gin.Default(), without Gin's noisy "middleware already attached" warning.
+	router := gin.New()
+	router.Use(gin.Logger(), gin.Recovery(), middleware.RequestObservability())
 	abuseLimiter := middleware.NewAbuseLimiter()
 
 	// Configure CORS for direct client-server communication
@@ -502,14 +503,19 @@ func main() {
 	}
 	log.Printf("Server starting on port %s", port)
 
-	// Only trust localhost and loopback address
-	if err := router.SetTrustedProxies([]string{"127.0.0.1", "localhost"}); err != nil {
+	// Gin only accepts IP addresses or CIDRs here, not hostnames such as
+	// "localhost". Trust the IPv4 and IPv6 loopback addresses explicitly.
+	if err := configureTrustedProxies(router); err != nil {
 		log.Fatalf("Failed to configure trusted proxies: %v", err)
 	}
 
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+func configureTrustedProxies(router *gin.Engine) error {
+	return router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 }
 
 func envEnabled(name string) bool {

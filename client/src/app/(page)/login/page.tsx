@@ -200,6 +200,8 @@ export default function ImprovedLoginPage() {
               src="/img/login.jpeg"
               alt="Decorative"
               fill
+              sizes="60vw"
+              loading="eager"
               className="flex items-center w-full object-cover content-start rounded-2xl"
             />
           </div>
