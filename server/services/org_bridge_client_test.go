@@ -158,3 +158,20 @@ func TestOrgBridgeClientMarksConnectionOfflineAfterMissedHeartbeats(t *testing.T
 		}
 	}
 }
+
+func TestOrgBridgeClientClearsRedactedRootAndIgnoresStaleSnapshotRoot(t *testing.T) {
+	client := &OrgBridgeClient{root: OrgBridgeRoot{
+		Root: "/approved/Algorithms/", HasManifest: true,
+		ProviderNotebookID: "algorithms", Title: "Algorithms",
+	}}
+	client.handleNotification("root.changed", json.RawMessage(`{"root":{"root":"","hasManifest":false}}`))
+	if root := client.CurrentRoot(); root.Root != "" || root.HasManifest || root.ProviderNotebookID != "" {
+		t.Fatalf("redacted root did not clear cached root: %#v", root)
+	}
+
+	client.handleNotification("root.changed", json.RawMessage(`{"root":{"root":"/approved/Strive/","hasManifest":true,"providerNotebookId":"strive","title":"Strive"}}`))
+	client.handleNotification("snapshot.changed", json.RawMessage(`{"root":{"root":"/approved/Algorithms/","hasManifest":true,"providerNotebookId":"algorithms","title":"Algorithms"}}`))
+	if root := client.CurrentRoot(); root.ProviderNotebookID != "strive" {
+		t.Fatalf("stale snapshot notification replaced current root: %#v", root)
+	}
+}

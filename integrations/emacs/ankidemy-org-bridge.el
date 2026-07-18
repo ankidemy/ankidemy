@@ -1,8 +1,8 @@
 ;;; ankidemy-org-bridge.el --- Authenticated local live-import bridge -*- lexical-binding: t; -*-
 
-;; This development bridge listens on loopback only.  A caller must prove
-;; knowledge of the shared token in its first frame before it can inspect a
-;; root, request a snapshot, or read an asset.
+;; This development bridge requires a caller to prove knowledge of the shared
+;; token in its first frame.  Even then, it cannot inspect a root, request a
+;; snapshot, or read an asset until the exact active root has a valid manifest.
 
 (require 'cl-lib)
 (require 'json)
@@ -22,7 +22,8 @@
   (or (getenv "ANKIDEMY_ORG_ROAM_BRIDGE_BIND") "127.0.0.1")
   "Address on which Emacs accepts bridge connections.
 Use 0.0.0.0 only for a containerized development server, together with a long
-token, an allowed-root list, and a host firewall."
+token and a host firewall.  A valid manifest at the exact active Org-roam root
+is always required before notebook data can be inspected."
   :type 'string)
 
 (defcustom ankidemy-org-bridge-token
@@ -30,17 +31,6 @@ token, an allowed-root list, and a host firewall."
       (getenv "ANKIDEMY_ORG_BRIDGE_TOKEN"))
   "Shared bridge token, normally supplied through the environment."
   :type '(choice (const :tag "Unset" nil) string))
-
-(defcustom ankidemy-org-bridge-allowed-roots
-  (when-let ((value (getenv "ANKIDEMY_CONTENT_ALLOWED_ROOTS")))
-    (mapcar #'file-name-as-directory
-            (mapcar #'expand-file-name (split-string value path-separator t))))
-  "Optional allowlist of roots the authenticated bridge may serve.
-An unset list still limits access to the active `org-roam-directory'.  When an
-allowlist is configured and the active root is outside it, scanning, presence,
-notifications, and root metadata disclosure are suspended until an approved
-root becomes active again."
-  :type '(repeat directory))
 
 (defcustom ankidemy-org-bridge-save-debounce 0.1
   "Seconds to debounce snapshot change notifications after saves."
@@ -54,6 +44,12 @@ root becomes active again."
   "Seconds between rename/delete fallback checks."
   :type 'number)
 
+(defcustom ankidemy-org-bridge-manifest-poll-interval 0.25
+  "Seconds between checks of the active root's exact manifest path.
+This fast poll reads no notebook content.  It exists so a manifest created or
+removed outside Emacs changes authorization promptly."
+  :type 'number)
+
 (defvar ankidemy-org-bridge--server nil)
 (defvar ankidemy-org-bridge--clients nil)
 (defvar ankidemy-org-bridge--authenticated (make-hash-table :test #'eq))
@@ -61,7 +57,9 @@ root becomes active again."
 (defvar ankidemy-org-bridge--save-timer nil)
 (defvar ankidemy-org-bridge--presence-timer nil)
 (defvar ankidemy-org-bridge--filesystem-timer nil)
+(defvar ankidemy-org-bridge--manifest-timer nil)
 (defvar ankidemy-org-bridge--last-filesystem-state nil)
+(defvar ankidemy-org-bridge--last-manifest-state nil)
 (defvar ankidemy-org-bridge--last-presence nil)
 (defvar ankidemy-org-bridge--cache nil)
 (defvar ankidemy-org-bridge--instance-id nil)
@@ -71,34 +69,30 @@ root becomes active again."
   (when (and (boundp 'org-roam-directory) org-roam-directory)
     (file-name-as-directory (file-truename org-roam-directory))))
 
-(defun ankidemy-org-bridge--allowed-root-p (root)
-  "Return non-nil when ROOT is permitted by the optional allowlist."
-  (and root
-       (or (null ankidemy-org-bridge-allowed-roots)
-           (cl-some (lambda (allowed)
-                      (let ((true-root (file-truename root))
-                            (true-allowed (file-name-as-directory
-                                           (file-truename allowed))))
-                        (or (file-equal-p true-root true-allowed)
-                            (file-in-directory-p true-root true-allowed))))
-                    ankidemy-org-bridge-allowed-roots))))
+(defun ankidemy-org-bridge--manifest (root)
+  "Return ROOT's valid exact manifest, or nil.
+No directory traversal or notebook-content read occurs here."
+  (when root
+    (let ((file (expand-file-name "ankidemy.org" root)))
+      (when (file-readable-p file)
+        (car-safe (ankidemy-org--read-manifest file))))))
 
-(defun ankidemy-org-bridge--active-allowed-root ()
-  "Return the active root only when it is inside the configured allowlist."
+(defun ankidemy-org-bridge--approved-root-p (root)
+  "Return non-nil when ROOT contains a valid exact manifest."
+  (and root (ankidemy-org-bridge--manifest root) t))
+
+(defun ankidemy-org-bridge--active-approved-root ()
+  "Return the active root only after its exact manifest grants consent."
   (when-let ((root (ankidemy-org-bridge--root)))
-    (when (ankidemy-org-bridge--allowed-root-p root)
+    (when (ankidemy-org-bridge--approved-root-p root)
       root)))
 
 (defun ankidemy-org-bridge--root-info (&optional root)
-  "Return protocol metadata for an allowed ROOT or the active root.
-Disallowed roots are represented without their path or any manifest data."
+  "Return protocol metadata for manifested ROOT or the active root.
+Unmanifested roots are represented without their path or metadata."
   (let* ((root (or root (ankidemy-org-bridge--root)))
-         (allowed (and root (ankidemy-org-bridge--allowed-root-p root)))
-         (manifest-file (and allowed (expand-file-name "ankidemy.org" root)))
-         (result (and manifest-file (file-readable-p manifest-file)
-                      (ankidemy-org--read-manifest manifest-file)))
-         (manifest (car-safe result)))
-    `((root . ,(if allowed root ""))
+         (manifest (ankidemy-org-bridge--manifest root)))
+    `((root . ,(if manifest root ""))
       (hasManifest . ,(if manifest t :json-false))
       ,@(when manifest
           `((providerNotebookId . ,(plist-get manifest :id))
@@ -106,12 +100,12 @@ Disallowed roots are represented without their path or any manifest data."
             (schema . ,(plist-get manifest :schema)))))))
 
 (defun ankidemy-org-bridge--same-root-p (requested)
-  "Return non-nil when REQUESTED names the active root."
+  "Return non-nil when REQUESTED names the approved active root."
   (and (stringp requested)
        (ankidemy-org-bridge--root)
        (file-equal-p (file-truename requested)
                      (ankidemy-org-bridge--root))
-       (ankidemy-org-bridge--allowed-root-p requested)))
+       (ankidemy-org-bridge--approved-root-p requested)))
 
 (defun ankidemy-org-bridge--json-send (websocket value)
   "Send VALUE as one JSON text frame to WEBSOCKET."
@@ -126,9 +120,11 @@ Disallowed roots are represented without their path or any manifest data."
 
 (defun ankidemy-org-bridge--notify (type params)
   "Send notification TYPE with PARAMS to authenticated clients."
-  ;; Notifications are entirely suspended outside the explicit root boundary.
-  ;; This check also protects callbacks queued just before a root switch.
-  (when (ankidemy-org-bridge--active-allowed-root)
+  ;; A root change must always clear the server's previous root.  For an
+  ;; unmanifested root PARAMS is redacted by `ankidemy-org-bridge--root-info'.
+  ;; All data-bearing notifications remain suspended without a manifest.
+  (when (or (string= type "root.changed")
+            (ankidemy-org-bridge--active-approved-root))
     (dolist (websocket (copy-sequence ankidemy-org-bridge--clients))
       (when (gethash websocket ankidemy-org-bridge--authenticated)
         (ankidemy-org-bridge--json-send
@@ -228,7 +224,7 @@ Disallowed roots are represented without their path or any manifest data."
     (condition-case err
         (pcase method
           ("health.get"
-           (let ((active (ankidemy-org-bridge--active-allowed-root)))
+           (let ((active (ankidemy-org-bridge--active-approved-root)))
              (ankidemy-org-bridge--response
               websocket id
               `((protocolVersion . 1)
@@ -267,10 +263,9 @@ Disallowed roots are represented without their path or any manifest data."
           (ankidemy-org-bridge--json-send
            websocket `((type . "authenticated") (ok . t)
                        (instanceId . ,ankidemy-org-bridge--instance-id)))
-          (when (ankidemy-org-bridge--active-allowed-root)
-            (ankidemy-org-bridge--json-send
-             websocket `((type . "root.changed")
-                         (params . ((root . ,(ankidemy-org-bridge--root-info))))))))
+          (ankidemy-org-bridge--json-send
+           websocket `((type . "root.changed")
+                       (params . ((root . ,(ankidemy-org-bridge--root-info)))))))
       (ankidemy-org-bridge--json-send
        websocket '((type . "authenticated") (ok . :json-false)
                    (error . "Authentication rejected")))
@@ -320,8 +315,9 @@ Disallowed roots are represented without their path or any manifest data."
     (remhash websocket ankidemy-org-bridge--auth-timers)))
 
 (defun ankidemy-org-bridge--root-watcher (_symbol new-value operation _where)
-  "Suspend outside the allowlist or notify clients of an allowed NEW-VALUE."
-  (when (and ankidemy-org-bridge-mode (eq operation 'set) new-value)
+  "Clear cached access and report a redacted or approved NEW-VALUE promptly."
+  (when (and ankidemy-org-bridge-mode
+             (memq operation '(set let unlet makunbound)))
     (when ankidemy-org-bridge--save-timer
       (cancel-timer ankidemy-org-bridge--save-timer))
     (when ankidemy-org-bridge--presence-timer
@@ -330,34 +326,42 @@ Disallowed roots are represented without their path or any manifest data."
           ankidemy-org-bridge--save-timer nil
           ankidemy-org-bridge--presence-timer nil
           ankidemy-org-bridge--last-presence nil
-          ankidemy-org-bridge--last-filesystem-state nil)
-    ;; Variable watchers run before the new value is necessarily observable.
-    ;; Decide against NEW-VALUE now, then re-check the active root in the timer.
-    (when (ankidemy-org-bridge--allowed-root-p new-value)
-      (run-at-time
-       0 nil
-       (lambda ()
-         (when (ankidemy-org-bridge--active-allowed-root)
-           (ankidemy-org-bridge--notify
-            "root.changed" `((root . ,(ankidemy-org-bridge--root-info))))))))))
+          ankidemy-org-bridge--last-filesystem-state nil
+          ankidemy-org-bridge--last-manifest-state nil)
+    ;; Variable watchers run before the new value is necessarily observable,
+    ;; so re-check the active root on the next timer turn.
+    (run-at-time
+     0 nil
+     (lambda ()
+       (ankidemy-org-bridge--notify
+        "root.changed" `((root . ,(ankidemy-org-bridge--root-info))))))))
 
 (defun ankidemy-org-bridge--after-save ()
   "Debounce a semantic change notification for saved Org files."
-  (let ((root (ankidemy-org-bridge--active-allowed-root)))
-    (when (and root buffer-file-name
-               (string= (downcase (or (file-name-extension buffer-file-name) "")) "org")
-               (file-in-directory-p (file-truename buffer-file-name) root))
+  (let* ((active-root (ankidemy-org-bridge--root))
+         (approved-root (ankidemy-org-bridge--active-approved-root))
+         (manifest-file (and active-root
+                             (expand-file-name "ankidemy.org" active-root))))
+    (when (and active-root buffer-file-name manifest-file
+               (file-equal-p (file-truename buffer-file-name)
+                             (file-truename manifest-file)))
       (setq ankidemy-org-bridge--cache nil)
       (setq ankidemy-org-bridge--last-filesystem-state nil)
-      (when (string= (file-name-nondirectory buffer-file-name) "ankidemy.org")
-        (ankidemy-org-bridge--notify
-         "root.changed" `((root . ,(ankidemy-org-bridge--root-info)))))
+      (setq ankidemy-org-bridge--last-manifest-state nil)
+      (ankidemy-org-bridge--notify
+       "root.changed" `((root . ,(ankidemy-org-bridge--root-info)))))
+    (when (and approved-root buffer-file-name
+               (string= (downcase (or (file-name-extension buffer-file-name) "")) "org")
+               (file-in-directory-p (file-truename buffer-file-name)
+                                    approved-root))
+      (setq ankidemy-org-bridge--cache nil)
+      (setq ankidemy-org-bridge--last-filesystem-state nil)
       (ankidemy-org-bridge--schedule-snapshot-change))))
 
 (defun ankidemy-org-bridge--schedule-snapshot-change (&rest _ignored)
   "Debounce a complete snapshot notification after Org-roam DB work."
   (when (and ankidemy-org-bridge-mode
-             (ankidemy-org-bridge--active-allowed-root))
+             (ankidemy-org-bridge--active-approved-root))
     (when ankidemy-org-bridge--save-timer
       (cancel-timer ankidemy-org-bridge--save-timer))
     (setq ankidemy-org-bridge--save-timer
@@ -365,7 +369,7 @@ Disallowed roots are represented without their path or any manifest data."
            ankidemy-org-bridge-save-debounce nil
            (lambda ()
              (setq ankidemy-org-bridge--save-timer nil)
-             (when (ankidemy-org-bridge--active-allowed-root)
+             (when (ankidemy-org-bridge--active-approved-root)
                (let ((info (ankidemy-org-bridge--root-info)))
                  (when (eq (alist-get 'hasManifest info) t)
                    (ankidemy-org-bridge--notify
@@ -374,7 +378,7 @@ Disallowed roots are represented without their path or any manifest data."
 (defun ankidemy-org-bridge--presence-at-point ()
   "Return current managed Org source ID without modifying the buffer."
   (when (and (derived-mode-p 'org-mode) buffer-file-name)
-    (let ((root (ankidemy-org-bridge--active-allowed-root)))
+    (let ((root (ankidemy-org-bridge--active-approved-root)))
       (when (and root (file-in-directory-p (file-truename buffer-file-name) root))
         (or (and (fboundp 'org-roam-id-at-point) (org-roam-id-at-point))
             (org-entry-get nil "ID" t))))))
@@ -384,13 +388,13 @@ Disallowed roots are represented without their path or any manifest data."
   (when ankidemy-org-bridge--presence-timer
     (cancel-timer ankidemy-org-bridge--presence-timer)
     (setq ankidemy-org-bridge--presence-timer nil))
-  (when (ankidemy-org-bridge--active-allowed-root)
+  (when (ankidemy-org-bridge--active-approved-root)
     (setq ankidemy-org-bridge--presence-timer
           (run-with-idle-timer
            ankidemy-org-bridge-presence-debounce nil
            (lambda ()
              (setq ankidemy-org-bridge--presence-timer nil)
-             (when (ankidemy-org-bridge--active-allowed-root)
+             (when (ankidemy-org-bridge--active-approved-root)
                (let* ((root-info (ankidemy-org-bridge--root-info))
                       (source-id (or (ankidemy-org-bridge--presence-at-point) ""))
                       (presence (cons (alist-get 'root root-info) source-id)))
@@ -402,7 +406,7 @@ Disallowed roots are represented without their path or any manifest data."
 
 (defun ankidemy-org-bridge--poll-filesystem ()
   "Detect rename/delete changes that do not pass through `after-save-hook'."
-  (when-let ((root (ankidemy-org-bridge--active-allowed-root)))
+  (when-let ((root (ankidemy-org-bridge--active-approved-root)))
     (condition-case nil
         (let ((state (cons root (ankidemy-org-bridge--signature root))))
           (when (and ankidemy-org-bridge--last-filesystem-state
@@ -413,6 +417,30 @@ Disallowed roots are represented without their path or any manifest data."
             (ankidemy-org-bridge--schedule-snapshot-change))
           (setq ankidemy-org-bridge--last-filesystem-state state))
       (file-error nil))))
+
+(defun ankidemy-org-bridge--manifest-state ()
+  "Return a fingerprint of only the active root and its exact manifest."
+  (when-let ((root (ankidemy-org-bridge--root)))
+    (let ((manifest-file (expand-file-name "ankidemy.org" root)))
+      (cons root
+            (when (file-readable-p manifest-file)
+              (with-temp-buffer
+                (insert-file-contents manifest-file)
+                (secure-hash 'sha256 (current-buffer))))))))
+
+(defun ankidemy-org-bridge--poll-manifest ()
+  "Detect external creation, removal, or edits of the consent manifest."
+  (condition-case nil
+      (let ((state (ankidemy-org-bridge--manifest-state)))
+        (when (and ankidemy-org-bridge--last-manifest-state
+                   (not (equal state ankidemy-org-bridge--last-manifest-state)))
+          (setq ankidemy-org-bridge--cache nil
+                ankidemy-org-bridge--last-filesystem-state nil)
+          (ankidemy-org-bridge--notify
+           "root.changed" `((root . ,(ankidemy-org-bridge--root-info))))
+          (ankidemy-org-bridge--schedule-snapshot-change))
+        (setq ankidemy-org-bridge--last-manifest-state state))
+    (file-error nil)))
 
 ;;;###autoload
 (define-minor-mode ankidemy-org-bridge-mode
@@ -425,11 +453,6 @@ Disallowed roots are represented without their path or any manifest data."
                      (>= (length ankidemy-org-bridge-token) 24))
           (setq ankidemy-org-bridge-mode nil)
           (user-error "ANKIDEMY_ORG_ROAM_BRIDGE_TOKEN must contain at least 24 characters"))
-        (when (and (not (member ankidemy-org-bridge-host
-                                '("127.0.0.1" "localhost" "::1")))
-                   (null ankidemy-org-bridge-allowed-roots))
-          (setq ankidemy-org-bridge-mode nil)
-          (user-error "Non-loopback bridge binding requires ANKIDEMY_CONTENT_ALLOWED_ROOTS"))
         (unless (require 'websocket nil t)
           (setq ankidemy-org-bridge-mode nil)
           (user-error "The Emacs websocket package is required"))
@@ -458,6 +481,10 @@ Disallowed roots are represented without their path or any manifest data."
               (run-at-time ankidemy-org-bridge-filesystem-poll-interval
                            ankidemy-org-bridge-filesystem-poll-interval
                            #'ankidemy-org-bridge--poll-filesystem))
+        (setq ankidemy-org-bridge--manifest-timer
+              (run-at-time ankidemy-org-bridge-manifest-poll-interval
+                           ankidemy-org-bridge-manifest-poll-interval
+                           #'ankidemy-org-bridge--poll-manifest))
         (message "Ankidemy Org bridge listening on %s:%d"
                  ankidemy-org-bridge-host ankidemy-org-bridge-port))
     (remove-hook 'after-save-hook #'ankidemy-org-bridge--after-save)
@@ -476,6 +503,8 @@ Disallowed roots are represented without their path or any manifest data."
       (cancel-timer ankidemy-org-bridge--presence-timer))
     (when ankidemy-org-bridge--filesystem-timer
       (cancel-timer ankidemy-org-bridge--filesystem-timer))
+    (when ankidemy-org-bridge--manifest-timer
+      (cancel-timer ankidemy-org-bridge--manifest-timer))
     (when ankidemy-org-bridge--server
       (websocket-server-close ankidemy-org-bridge--server))
     (setq ankidemy-org-bridge--server nil
@@ -484,7 +513,9 @@ Disallowed roots are represented without their path or any manifest data."
           ankidemy-org-bridge--save-timer nil
           ankidemy-org-bridge--presence-timer nil
           ankidemy-org-bridge--filesystem-timer nil
-          ankidemy-org-bridge--last-filesystem-state nil)
+          ankidemy-org-bridge--manifest-timer nil
+          ankidemy-org-bridge--last-filesystem-state nil
+          ankidemy-org-bridge--last-manifest-state nil)
     (clrhash ankidemy-org-bridge--authenticated)
     (clrhash ankidemy-org-bridge--auth-timers)
     (message "Ankidemy Org bridge stopped")))

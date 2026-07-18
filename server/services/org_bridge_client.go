@@ -246,7 +246,11 @@ func (b *OrgBridgeClient) handleNotification(kind string, raw json.RawMessage) {
 	if json.Unmarshal(raw, &params) != nil {
 		return
 	}
-	if params.Root.Root != "" {
+	// Only root.changed owns current-root state.  In particular, an empty root
+	// is a deliberate privacy-preserving clear when the newly active root has no
+	// manifest.  Snapshot/presence notifications can race a later root switch
+	// and must never restore the old root.
+	if kind == "root.changed" {
 		b.stateMu.Lock()
 		b.root = params.Root
 		b.stateMu.Unlock()
@@ -320,6 +324,9 @@ func (b *OrgBridgeClient) setConnectionState(state, instanceID string) {
 	b.stateMu.Lock()
 	changed := b.state != state || (instanceID != "" && b.instanceID != instanceID)
 	b.state = state
+	if state != "online" {
+		b.root = OrgBridgeRoot{}
+	}
 	if instanceID != "" {
 		b.instanceID = instanceID
 	}

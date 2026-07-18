@@ -464,13 +464,18 @@ func writeContentAddressedFile(path string, data []byte) error {
 }
 
 func (s *ContentLiveImportService) OrgBridgeConnectionChanged(state string, instanceID string) {
-	updates := map[string]any{"connection_state": state}
+	// The WebSocket can be online while most attached notebooks are inactive.
+	// Start with every Org-roam binding offline; root.changed promotes only the
+	// binding whose manifested root is currently active.
+	updates := map[string]any{"connection_state": "offline"}
 	if instanceID != "" {
 		updates["bridge_instance_id"] = instanceID
 	}
-	_ = s.db.Model(&models.ContentBinding{}).Where("authorization_state = ?", "attached").Updates(updates).Error
+	_ = s.db.Model(&models.ContentBinding{}).
+		Where("provider = ? AND authorization_state = ?", "org-roam", "attached").
+		Updates(updates).Error
 	var bindings []models.ContentBinding
-	if s.db.Where("authorization_state = ?", "attached").Find(&bindings).Error == nil {
+	if s.db.Where("provider = ? AND authorization_state = ?", "org-roam", "attached").Find(&bindings).Error == nil {
 		for _, binding := range bindings {
 			s.hub.Publish(ContentEvent{OwnerID: binding.OwnerID, Type: "connection.changed", BindingID: binding.ID, DomainID: binding.DomainID, ConnectionState: state})
 		}
@@ -478,6 +483,26 @@ func (s *ContentLiveImportService) OrgBridgeConnectionChanged(state string, inst
 }
 
 func (s *ContentLiveImportService) OrgBridgeRootChanged(root OrgBridgeRoot) {
+	// Listener callbacks are dispatched asynchronously.  A fast second switch
+	// can overtake the first callback, so discard any event that is no longer the
+	// bridge client's current root.
+	if root != s.bridge.CurrentRoot() {
+		return
+	}
+	// Authorization persists across root switches, but only the currently active
+	// manifested notebook is connected.  This supports any number of approved
+	// notebooks without letting an inactive binding trigger reads.
+	_ = s.db.Model(&models.ContentBinding{}).
+		Where("provider = ? AND authorization_state = ?", "org-roam", "attached").
+		Update("connection_state", "offline").Error
+	if root.HasManifest && root.ProviderNotebookID != "" {
+		_ = s.db.Model(&models.ContentBinding{}).
+			Where("provider = ? AND provider_notebook_id = ? AND authorization_state = ?", "org-roam", root.ProviderNotebookID, "attached").
+			Updates(map[string]any{
+				"connection_state": "online", "canonical_locator": root.Root,
+				"display_name": root.Title, "schema_version": root.Schema,
+			}).Error
+	}
 	// OwnerID zero broadcasts only non-sensitive availability metadata. Browser
 	// clients then refresh their own authenticated status view; the local path is
 	// never included in the event.
@@ -496,7 +521,7 @@ func (s *ContentLiveImportService) OrgBridgeRootChanged(root OrgBridgeRoot) {
 }
 
 func (s *ContentLiveImportService) OrgBridgeSnapshotChanged(root OrgBridgeRoot) {
-	if !root.HasManifest || root.ProviderNotebookID == "" {
+	if root != s.bridge.CurrentRoot() || !root.HasManifest || root.ProviderNotebookID == "" {
 		return
 	}
 	s.snapshotMu.Lock()
@@ -520,7 +545,7 @@ func (s *ContentLiveImportService) OrgBridgeSnapshotChanged(root OrgBridgeRoot) 
 }
 
 func (s *ContentLiveImportService) OrgBridgePresenceChanged(root OrgBridgeRoot, sourceID string) {
-	if root.ProviderNotebookID == "" {
+	if root != s.bridge.CurrentRoot() || root.ProviderNotebookID == "" {
 		return
 	}
 	var bindings []models.ContentBinding

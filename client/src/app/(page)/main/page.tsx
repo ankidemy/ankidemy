@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link';
 import { Button } from "@/app/components/core/button";
 import { Card } from "@/app/components/core/card";
-import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck, Wrench, Radio, Unplug } from 'lucide-react';
+import { Plus, ArrowRight, Lock, Users, Globe, Upload, X, MoreVertical, Download, UserCheck, Wrench, Radio, Unplug, Unlink } from 'lucide-react';
 import SubjectMatterGraph from '@/app/components/Graph/SubjectMatterGraph';
 import { useRouter } from 'next/navigation';
 import Navbar from "@/app/components/Navbar";
@@ -39,6 +39,7 @@ import {
 import {
   archiveDomain,
   attachCurrentLiveImportRoot,
+  detachLiveImportBinding,
   getLiveImportStatus,
   subscribeLiveImportEvents,
   LiveImportStatus,
@@ -78,6 +79,7 @@ export default function MainPage() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [liveImportStatus, setLiveImportStatus] = useState<LiveImportStatus | null>(null);
   const [isAttachingLiveRoot, setIsAttachingLiveRoot] = useState(false);
+  const [isDetachingLiveRoot, setIsDetachingLiveRoot] = useState(false);
 
   const router = useRouter();
   const explorerFontStyle = useMemo(
@@ -480,6 +482,26 @@ export default function MainPage() {
     }
   };
 
+  const currentRootAttachedBinding = liveImportStatus?.bindings.find(binding =>
+    binding.authorizationState === 'attached' &&
+    binding.providerNotebookId === liveImportStatus.currentRoot.providerNotebookId
+  );
+
+  const handleDetachLiveRoot = async () => {
+    if (!currentRootAttachedBinding || isDetachingLiveRoot) return;
+    if (!window.confirm(`Detach "${currentRootAttachedBinding.displayName}"? The imported domain and learning history will remain intact.`)) return;
+    setIsDetachingLiveRoot(true);
+    try {
+      await detachLiveImportBinding(currentRootAttachedBinding.id);
+      setLiveImportStatus(await getLiveImportStatus());
+      showToast(`Detached "${currentRootAttachedBinding.displayName}"`, 'success');
+    } catch (detachError: any) {
+      showToast(detachError?.message || 'Could not detach the current notebook', 'error');
+    } finally {
+      setIsDetachingLiveRoot(false);
+    }
+  };
+
   const managedDomainIds = useMemo(
     () => new Set((liveImportStatus?.bindings || [])
       .filter(binding => binding.authorizationState === 'attached')
@@ -487,10 +509,7 @@ export default function MainPage() {
     [liveImportStatus?.bindings],
   );
 
-  const currentRootAlreadyAttached = !!liveImportStatus?.bindings.some(binding =>
-    binding.authorizationState === 'attached' &&
-    binding.providerNotebookId === liveImportStatus.currentRoot.providerNotebookId
-  );
+  const currentRootAlreadyAttached = !!currentRootAttachedBinding;
 
   return (
     <div className={`${isDarkMode ? 'kg-night-mode dark' : ''} kg-font-root`} style={explorerFontStyle}>
@@ -550,9 +569,20 @@ export default function MainPage() {
                     </Button>
                   )}
                 {currentRootAlreadyAttached && (
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-800">
-                    Attached
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-800">
+                      Attached
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDetachLiveRoot}
+                      disabled={isDetachingLiveRoot}
+                    >
+                      <Unlink size={14} className="mr-1.5" />
+                      {isDetachingLiveRoot ? 'Detaching…' : 'Detach'}
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

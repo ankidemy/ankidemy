@@ -88,6 +88,59 @@ func TestContentLiveImportRequiresExplicitAttachment(t *testing.T) {
 	}
 }
 
+func TestContentLiveImportRootSwitchConnectsOnlyCurrentAttachedNotebook(t *testing.T) {
+	db := contentReconcilerTestDB(t)
+	bridge := &fakeOrgBridge{state: "online"}
+	service := NewContentLiveImportService(db, bridge, NewContentEventHub())
+	bindings := []models.ContentBinding{
+		{Provider: "org-roam", ProviderNotebookID: "algorithms", DomainID: 11, OwnerID: 42, Config: []byte(`{}`), AuthorizationState: "attached", ConnectionState: "online"},
+		{Provider: "org-roam", ProviderNotebookID: "strive", DomainID: 12, OwnerID: 42, Config: []byte(`{}`), AuthorizationState: "attached", ConnectionState: "offline"},
+	}
+	for i := range bindings {
+		if err := db.Create(&bindings[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bridge.root = OrgBridgeRoot{
+		Root: "/vault/Strive/", HasManifest: true,
+		ProviderNotebookID: "strive", Title: "Strive", Schema: 1,
+	}
+	service.OrgBridgeRootChanged(bridge.root)
+	var got []models.ContentBinding
+	if err := db.Order("id ASC").Find(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got[0].AuthorizationState != "attached" || got[0].ConnectionState != "offline" {
+		t.Fatalf("inactive notebook lost authorization or stayed online: %#v", got[0])
+	}
+	if got[1].AuthorizationState != "attached" || got[1].ConnectionState != "online" || got[1].CanonicalLocator != "/vault/Strive/" {
+		t.Fatalf("active notebook was not connected: %#v", got[1])
+	}
+
+	bridge.root = OrgBridgeRoot{}
+	service.OrgBridgeRootChanged(bridge.root)
+	got = nil
+	if err := db.Order("id ASC").Find(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got[0].ConnectionState != "offline" || got[1].ConnectionState != "offline" {
+		t.Fatalf("unmanifested root did not disconnect all notebooks: %#v", got)
+	}
+
+	service.OrgBridgeRootChanged(OrgBridgeRoot{
+		Root: "/vault/Strive/", HasManifest: true,
+		ProviderNotebookID: "strive", Title: "Strive", Schema: 1,
+	})
+	got = nil
+	if err := db.Order("id ASC").Find(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got[1].ConnectionState != "offline" {
+		t.Fatalf("late callback restored an inactive notebook: %#v", got[1])
+	}
+}
+
 func TestContentLiveImportVerifiesAndStoresAssets(t *testing.T) {
 	db := contentReconcilerTestDB(t)
 	_, binding, snapshot := contentReconcilerFixture(t, db)
