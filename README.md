@@ -137,13 +137,22 @@ La aplicación utiliza los siguientes puertos para evitar conflictos con otras a
 make dev
 
 # Iniciar en modo producción
-make up
+make prod
+
+# Reconstruir imágenes después de cambiar un Dockerfile o dependencias base
+make dev-build
+make prod-build
 
 # Detener todos los servicios
 make down
 
+# Detener solamente un entorno
+make dev-down
+make prod-down
+
 # Ver logs en tiempo real
-docker-compose logs -f
+make logs
+make prod-logs
 
 # Ver logs de un servicio específico
 docker-compose logs -f server
@@ -233,8 +242,11 @@ ankidemy/
 ```bash
 # Desarrollo
 make dev              # Iniciar en modo desarrollo
-make test             # Ejecutar tests
 make logs             # Ver logs de contenedores
+
+# Producción (usa un proyecto y volúmenes separados)
+make prod              # Iniciar en modo producción
+make prod-logs         # Ver logs de producción
 
 # Docker Compose
 docker-compose -f docker-compose.yml -f docker-compose.dev.yml up

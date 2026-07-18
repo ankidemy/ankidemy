@@ -1,10 +1,13 @@
 # Detect which docker compose command is available
 DOCKER_COMPOSE := $(shell if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
+DEV_PROJECT_NAME ?= ankidemy
+PROD_PROJECT_NAME ?= ankidemy-prod
 # Hosts may supply an additional Compose file for private network topology
-DEV_COMPOSE := $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml $(if $(strip $(ANKIDEMY_DEV_COMPOSE_OVERRIDE)),-f "$(ANKIDEMY_DEV_COMPOSE_OVERRIDE)",)
+DEV_COMPOSE := $(DOCKER_COMPOSE) --project-name $(DEV_PROJECT_NAME) -f docker-compose.yml -f docker-compose.dev.yml $(if $(strip $(ANKIDEMY_DEV_COMPOSE_OVERRIDE)),-f "$(ANKIDEMY_DEV_COMPOSE_OVERRIDE)",)
+PROD_COMPOSE := $(DOCKER_COMPOSE) --project-name $(PROD_PROJECT_NAME) -f docker-compose.yml -f docker-compose.prod.yml
 
 # Development and Production Commands
-.PHONY: dev prod prod-build down logs clean purge nuke wipe-db
+.PHONY: dev prod prod-build dev-build down dev-down prod-down logs prod-logs clean purge nuke wipe-db
 
 # Start development environment with logs (without -d)
 dev:
@@ -12,33 +15,45 @@ dev:
 
 # Start production environment with logs (without -d)
 prod:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(PROD_COMPOSE) up
 
 # Build and start production environment
 prod-build:
-	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up --build
+	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(PROD_COMPOSE) up --build
 
 # Build and start dev environment
 dev-build:
 	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DEV_COMPOSE) up --build
 
-# Stop all services (dev or prod)
+# Stop both environments without deleting their data volumes
 down:
 	$(DEV_COMPOSE) down --remove-orphans
+	$(PROD_COMPOSE) down --remove-orphans
+
+dev-down:
+	$(DEV_COMPOSE) down --remove-orphans
+
+prod-down:
+	$(PROD_COMPOSE) down --remove-orphans
 
 # View logs for all services
 logs:
-	$(DOCKER_COMPOSE) logs -f
+	$(DEV_COMPOSE) logs -f
 
-# Clean up containers and volumes
+prod-logs:
+	$(PROD_COMPOSE) logs -f
+
+# Remove project containers and their volumes (including database data)
 clean:
-	$(DOCKER_COMPOSE) down
-	docker volume prune -f
+	$(DEV_COMPOSE) down --volumes --remove-orphans
+	$(PROD_COMPOSE) down --volumes --remove-orphans
 
 # Remove project images
 purge:
-	$(DOCKER_COMPOSE) down
-	docker rmi $$(docker images -q ankidemy-* 2>/dev/null) 2>/dev/null || true
+	$(DEV_COMPOSE) down --remove-orphans
+	$(PROD_COMPOSE) down --remove-orphans
+	docker image rm ankidemy-server:development ankidemy-client:development \
+		ankidemy-server:production ankidemy-client:production 2>/dev/null || true
 	@echo "Removed all project containers and images."
 
 # Complete system reset
@@ -48,7 +63,8 @@ nuke:
 	@read confirmation; \
 	if [ "$$confirmation" = "NUKE" ]; then \
 		echo "Stopping all containers..."; \
-		$(DOCKER_COMPOSE) down; \
+		$(DEV_COMPOSE) down --remove-orphans; \
+		$(PROD_COMPOSE) down --remove-orphans; \
 		echo "Stopping Docker service..."; \
 		sudo systemctl stop docker; \
 		echo "Starting Docker service..."; \
@@ -68,8 +84,10 @@ wipe-db:
 	@echo "Type 'yes' to confirm: "
 	@read confirmation; \
 	if [ "$$confirmation" = "yes" ]; then \
-		$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml down; \
-		docker volume rm $$(docker volume ls -q | grep postgres_data) || true; \
+		$(DEV_COMPOSE) down; \
+		docker volume rm $$(docker volume ls -q \
+			--filter label=com.docker.compose.project=$(DEV_PROJECT_NAME) \
+			--filter label=com.docker.compose.volume=postgres_data) || true; \
 		echo "Database reset complete."; \
 	else \
 		echo "Operation canceled."; \

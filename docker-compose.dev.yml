@@ -18,6 +18,12 @@ services:
 
   # Server Service - Development with Air hot reload
   server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+      args:
+        AIR_VERSION: v1.66.0
+    image: ankidemy-server:development
     working_dir: /app
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -26,7 +32,7 @@ services:
       - media_data:/app/media
       - server_go_mod_cache:/go/pkg/mod
       - server_go_build_cache:/root/.cache/go-build
-      - server_apk_cache:/etc/apk/cache
+      - server_dev_state:/var/lib/ankidemy-dev
     ports:
       - "${ANKIDEMY_BIND_ADDRESS:-127.0.0.1}:${DEBUG_EXTERNAL_PORT:-45176}:2345"
     environment:
@@ -35,33 +41,6 @@ services:
       - LOG_LEVEL=debug
       - GOGC=off                      # Disable GC during development for faster builds
       - GOFLAGS=-mod=readonly         # Don't update go.mod during development
-    command: >
-      sh -c "
-        # Install git only if not already installed
-        if ! command -v git >/dev/null 2>&1; then
-          echo 'Installing git...' &&
-          apk add --no-cache git;
-        fi &&
-
-        # Check if go.mod has changed since last build
-        if [ ! -f /tmp/go.mod.md5sum ] || ! md5sum -c /tmp/go.mod.md5sum >/dev/null 2>&1; then
-          echo 'Dependencies changed, updating...' &&
-          cd /app &&
-          go mod download &&
-          go mod tidy &&
-          md5sum go.mod > /tmp/go.mod.md5sum;
-        fi &&
-
-        # Install Air if not already installed
-        if ! command -v air >/dev/null 2>&1; then
-          echo 'Installing Air...' &&
-          go install github.com/air-verse/air@latest;
-        fi &&
-
-        # Run Air for live reloading
-        cd /app &&
-        air
-      "
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1"]
       interval: 60s
@@ -71,6 +50,10 @@ services:
 
   # Client Service - Development with hot reload and optimized startup
   client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    image: ankidemy-client:development
     working_dir: /app
     volumes:
       - ./client:/app:delegated
@@ -89,18 +72,6 @@ services:
       - NEXT_OPTIMIZE_FONTS=false
       - NEXT_OPTIMIZE_IMAGES=false
       - NEXT_DISABLE_SOURCEMAPS=true
-    command: >
-      sh -c "
-        # Reinstall when either manifest or npm configuration changes.
-        if [ ! -f /tmp/client-dependencies.md5sum ] || ! md5sum -c /tmp/client-dependencies.md5sum >/dev/null 2>&1; then
-          echo 'Dependencies changed, updating...' &&
-          npm ci &&
-          md5sum package.json package-lock.json .npmrc > /tmp/client-dependencies.md5sum;
-        fi &&
-        
-        # Run the lockfile-pinned Next.js development server.
-        npm run dev
-      "
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 10s
@@ -132,7 +103,7 @@ services:
 volumes:
   server_go_mod_cache:
   server_go_build_cache:
-  server_apk_cache:
+  server_dev_state:
   pgadmin_data:
   client_node_modules:
   client_next_cache:

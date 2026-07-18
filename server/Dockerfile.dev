@@ -1,0 +1,13 @@
+FROM golang:1.25.12-alpine
+
+ARG AIR_VERSION=v1.66.0
+
+# Development tools belong in the image, not in the container startup path.
+RUN apk add --no-cache git \
+    && go install github.com/air-verse/air@${AIR_VERSION}
+
+COPY docker/dev-entrypoint.sh /usr/local/bin/ankidemy-dev-entrypoint
+
+WORKDIR /app
+
+CMD ["/usr/local/bin/ankidemy-dev-entrypoint"]

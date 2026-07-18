@@ -1,0 +1,7 @@
+FROM node:22-alpine
+
+COPY docker/dev-entrypoint.sh /usr/local/bin/ankidemy-dev-entrypoint
+
+WORKDIR /app
+
+CMD ["/usr/local/bin/ankidemy-dev-entrypoint"]

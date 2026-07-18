@@ -4,7 +4,6 @@
 services:
   # Database Service - Production configuration
   db:
-    container_name: ankidemy-db-prod
     restart: always
     environment:
       - PGDATA=/var/lib/postgresql/data
@@ -28,7 +27,6 @@ services:
       context: ./server
       dockerfile: Dockerfile
     image: ankidemy-server:production
-    container_name: ankidemy-server-prod
     restart: always
     volumes:
       - media_data:/app/media
@@ -63,7 +61,6 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:45174}
     image: ankidemy-client:production
-    container_name: ankidemy-client-prod
     restart: always
     environment:
       - NODE_ENV=production
