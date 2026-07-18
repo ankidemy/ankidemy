@@ -40,7 +40,7 @@ services:
       - DB_CONNECTION_MAX_LIFETIME=5m
       - SERVER_TIMEOUT=30s
       - CORS_ENABLED=true
-      - CORS_ALLOWED_ORIGIN=${CLIENT_URL:-http://localhost:4500}
+      - CORS_ALLOWED_ORIGIN=${CLIENT_URL:-http://localhost:45173}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${SERVER_PORT:-8765}/health || exit 1"]
       interval: 30s
@@ -60,6 +60,8 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:45174}
     image: ankidemy-client:production
     container_name: ankidemy-client-prod
     restart: always

@@ -4,8 +4,6 @@
 services:
   # Database Service - Development configuration
   db:
-    ports:
-      - "${DB_EXTERNAL_PORT:-5432}:5432"
     volumes:
       - ./db/init-scripts:/docker-entrypoint-initdb.d
       - ./db/dev-config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
@@ -30,8 +28,7 @@ services:
       - server_go_build_cache:/root/.cache/go-build
       - server_apk_cache:/etc/apk/cache
     ports:
-      - "${SERVER_PORT:-8765}:${SERVER_PORT:-8765}"
-      - "2345:2345" # Debugger port
+      - "${ANKIDEMY_BIND_ADDRESS:-127.0.0.1}:${DEBUG_EXTERNAL_PORT:-45176}:2345"
     environment:
       - APP_ENV=development
       - GIN_MODE=debug
@@ -114,15 +111,16 @@ services:
   # Development utility service - Database admin
   pgadmin:
     image: dpage/pgadmin4:9.16
+    profiles: ["tools"]
     environment:
-      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@example.com}
-      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-admin}
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:?Set PGADMIN_EMAIL before enabling the tools profile}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:?Set PGADMIN_PASSWORD before enabling the tools profile}
       - PGADMIN_LISTEN_PORT=5050
       # sshtunnel 0.4.0 triggers this harmless warning under Python 3.14.
       # Keep other Python warnings visible while pgAdmin waits for an upstream fix.
       - "PYTHONWARNINGS=ignore:'return' in a 'finally' block:SyntaxWarning"
     ports:
-      - "${PGADMIN_PORT:-5050}:5050"
+      - "${ANKIDEMY_BIND_ADDRESS:-127.0.0.1}:${PGADMIN_PORT:-45177}:5050"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     depends_on:

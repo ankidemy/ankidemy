@@ -4,8 +4,6 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
-    env_file:
-      - ./.env
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
@@ -15,6 +13,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - app-network
+    expose:
+      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
@@ -26,8 +26,8 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     networks:
@@ -43,8 +43,6 @@ services:
     image: golang:1.25.12-alpine
     restart: unless-stopped
     working_dir: /app
-    env_file:
-      - ./.env
     environment:
       - DB_HOST=db
       - DB_USER=${DB_USER}
@@ -57,11 +55,14 @@ services:
       - REDIS_CACHE_PREFIX=${REDIS_CACHE_PREFIX}
       - SERVER_PORT=${SERVER_PORT:-8765}
       - APP_ENV=${APP_ENV:-production}
+      - CORS_ALLOWED_ORIGIN=${CORS_ALLOWED_ORIGIN:-http://localhost:45173}
       - ANKIDEMY_ORG_ROAM_ENABLED=${ANKIDEMY_ORG_ROAM_ENABLED:-false}
       - ANKIDEMY_ORG_ROAM_BRIDGE_URL=${ANKIDEMY_ORG_ROAM_BRIDGE_URL:-}
       - ANKIDEMY_ORG_ROAM_BRIDGE_TOKEN=${ANKIDEMY_ORG_ROAM_BRIDGE_TOKEN:-}
     ports:
-      - "${SERVER_PORT:-8765}:${SERVER_PORT:-8765}"
+      # Reverse proxies and Cloudflare Tunnel can reach this loopback socket;
+      # it is never published to LAN/WAN interfaces by default.
+      - "${ANKIDEMY_BIND_ADDRESS:-127.0.0.1}:${SERVER_EXTERNAL_PORT:-45174}:${SERVER_PORT:-8765}"
     networks:
       - app-network
     depends_on:
@@ -75,13 +76,14 @@ services:
     image: node:22-alpine
     restart: unless-stopped
     working_dir: /app
-    env_file:
-      - ./.env
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8765}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:45174}
       - NODE_ENV=${NODE_ENV:-production}
+      - NEXT_ALLOWED_DEV_ORIGINS=${NEXT_ALLOWED_DEV_ORIGINS:-localhost,127.0.0.1}
     ports:
-      - "${CLIENT_PORT:-4500}:3000"
+      # Keep the browser entrypoint host-local. Public deployments should use
+      # a reverse proxy or outbound tunnel instead of widening this binding.
+      - "${ANKIDEMY_BIND_ADDRESS:-127.0.0.1}:${CLIENT_PORT:-45173}:3000"
     networks:
       - app-network
     depends_on:
