@@ -89,6 +89,7 @@ export interface SourceNode {
 export interface QuestVersion {
   id?: number;
   questId?: number;
+  displayOrder?: number;
   title: string;
   descriptionMd?: string;
   taskList?: any;

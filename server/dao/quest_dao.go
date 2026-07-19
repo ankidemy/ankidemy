@@ -75,7 +75,7 @@ func (d *QuestDAO) FindByID(id uint) (*models.Quest, []models.QuestVersion, erro
 		return nil, nil, err
 	}
 	var versions []models.QuestVersion
-	if err := d.db.Where("quest_id = ?", meta.ID).Order("id ASC").Find(&versions).Error; err != nil {
+	if err := d.db.Where("quest_id = ?", meta.ID).Order("display_order ASC, id ASC").Find(&versions).Error; err != nil {
 		return &meta, nil, err
 	}
 	return &meta, versions, nil
@@ -99,8 +99,19 @@ func (d *QuestDAO) ListByDomain(domainID uint) ([]models.Quest, error) {
 }
 
 func (d *QuestDAO) AddVersion(questID uint, version *models.QuestVersion) error {
-	version.QuestID = questID
-	return d.db.Create(version).Error
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		var maxOrder *int
+		if err := tx.Model(&models.QuestVersion{}).
+			Where("quest_id = ?", questID).
+			Select("MAX(display_order)").Scan(&maxOrder).Error; err != nil {
+			return err
+		}
+		version.QuestID = questID
+		if maxOrder != nil {
+			version.DisplayOrder = *maxOrder + 1
+		}
+		return tx.Create(version).Error
+	})
 }
 
 func (d *QuestDAO) UpdateVersion(version *models.QuestVersion) error {
@@ -134,7 +145,7 @@ func (d *QuestDAO) FindVersionByID(versionID uint) (*models.QuestVersion, error)
 
 func (d *QuestDAO) FindVersions(questID uint) ([]models.QuestVersion, error) {
 	var versions []models.QuestVersion
-	if err := d.db.Where("quest_id = ?", questID).Order("id ASC").Find(&versions).Error; err != nil {
+	if err := d.db.Where("quest_id = ?", questID).Order("display_order ASC, id ASC").Find(&versions).Error; err != nil {
 		return nil, err
 	}
 	return versions, nil

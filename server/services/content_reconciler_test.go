@@ -195,6 +195,44 @@ func TestContentReconcilerUsesCanonicalQuestCodeAndRelevantLinkDirections(t *tes
 	}
 }
 
+func TestContentReconcilerMaintainsExplicitQuestVersionsByOrgID(t *testing.T) {
+	db := contentReconcilerTestDB(t)
+	reconciler, binding, snapshot := contentReconcilerFixture(t, db)
+	snapshot.Nodes[3].Quest.Versions = []ContentQuestVersion{
+		{SourceID: "quest-version-a", Order: 0, Title: "Notice the urge", DescriptionMD: "Pause."},
+		{SourceID: "quest-version-b", Order: 1, Title: "Use a timer", DescriptionMD: "Wait two minutes."},
+	}
+	if _, err := reconciler.Reconcile(binding.ID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	versionA := contentEntityFor(t, db, binding.ID, "quest-version-a", "quest_version")
+	versionB := contentEntityFor(t, db, binding.ID, "quest-version-b", "quest_version")
+	var rows []models.QuestVersion
+	if err := db.Order("display_order ASC, id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Title != "Notice the urge" || rows[1].Title != "Use a timer" {
+		t.Fatalf("unexpected imported quest versions: %#v", rows)
+	}
+
+	snapshot.Nodes[3].Quest.Versions[0].Order = 1
+	snapshot.Nodes[3].Quest.Versions[1].Order = 0
+	snapshot.Nodes[3].Quest.Versions[1].DescriptionMD = "Wait five minutes."
+	if _, err := reconciler.Reconcile(binding.ID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var rowA, rowB models.QuestVersion
+	if err := db.First(&rowA, versionA.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&rowB, versionB.RowID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rowA.DisplayOrder != 1 || rowB.DisplayOrder != 0 || rowB.DescriptionMd != "Wait five minutes." {
+		t.Fatalf("quest versions were not updated by stable Org ID: A=%#v B=%#v", rowA, rowB)
+	}
+}
+
 func TestContentReconcilerPlacesNewConnectedNodeWithoutMovingExistingLayout(t *testing.T) {
 	db := contentReconcilerTestDB(t)
 	reconciler, binding, snapshot := contentReconcilerFixture(t, db)

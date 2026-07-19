@@ -148,6 +148,33 @@
     (should-not (string-match-p "ANKIDEMY_TYPE" description))
     (should-not (string-match-p "quest-details" description))))
 
+(ert-deftest ankidemy-org-forces-daily-repeater-to-habit-and-parses-versions ()
+  (let* ((ankidemy-org-timezone "America/Mexico_City")
+         (root (ankidemy-org-test--temp-notebook
+                '(("versioned-habit.org" .
+                   "* TODO Do Not Overthink :habit:\nSCHEDULED: <2026-07-19 Sun 07:00 ++1d>\n:PROPERTIES:\n:ID: versioned-habit\n:ANKIDEMY_TYPE: quest\n:END:\n** Notice the urge :version:\n:PROPERTIES:\n:ID: versioned-habit-a\n:ROAM_EXCLUDE: t\n:END:\nPause before acting.\n** Use a timer :version:\n:PROPERTIES:\n:ID: versioned-habit-b\n:ROAM_EXCLUDE: t\n:END:\nWait two minutes.\n"))))
+         (snapshot (unwind-protect (ankidemy-org-parse-root root)
+                     (delete-directory root t)))
+         (quest (plist-get (ankidemy-org-test--node snapshot "versioned-habit")
+                           :quest))
+         (schedule (plist-get quest :schedule))
+         (versions (plist-get quest :versions)))
+    (should (plist-get snapshot :complete))
+    (should (string= "habit" (plist-get quest :kind)))
+    (should (string= "habit" (plist-get schedule :type)))
+    (should (string= "FREQ=DAILY;INTERVAL=1" (plist-get schedule :rrule)))
+    (should (= 2 (length versions)))
+    (should (equal '("versioned-habit-a" "versioned-habit-b")
+                   (mapcar (lambda (version) (plist-get version :source-id))
+                           versions)))
+    (should (equal '("Notice the urge" "Use a timer")
+                   (mapcar (lambda (version) (plist-get version :title))
+                           versions)))
+    (should (string= "Pause before acting."
+                     (plist-get (car versions) :description-md)))
+    (should (string= "Wait two minutes."
+                     (plist-get (cadr versions) :description-md)))))
+
 (ert-deftest ankidemy-org-uses-reference-direction-for-sources-and-quests ()
   (let* ((root (ankidemy-org-test--temp-notebook
                 '(("links.org" .

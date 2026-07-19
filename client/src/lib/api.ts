@@ -390,6 +390,7 @@ export interface SourceDTO {
 export interface QuestVersionDTO {
   id?: number;
   questId?: number;
+  displayOrder?: number;
   title: string;
   descriptionMd?: string;
   taskList?: any;

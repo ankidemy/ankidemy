@@ -211,7 +211,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 	}
 	for _, q := range privateQuests {
 		var versions []models.QuestVersion
-		if err := s.db.Where("quest_id = ?", q.ID).Order("id ASC").Find(&versions).Error; err != nil {
+		if err := s.db.Where("quest_id = ?", q.ID).Order("display_order ASC, id ASC").Find(&versions).Error; err != nil {
 			return nil, err
 		}
 		vnodes := make([]ImportQuestVersion, 0, len(versions))
@@ -334,7 +334,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 	var versions []models.QuestVersion
 	if err := s.db.Joins("JOIN quests mq ON mq.id = quest_versions.quest_id").
 		Where("mq.domain_id = ?", domainID).
-		Order("quest_versions.id ASC").
+		Order("quest_versions.quest_id ASC, quest_versions.display_order ASC, quest_versions.id ASC").
 		Find(&versions).Error; err == nil {
 		for idx, v := range versions {
 			versionIndexByID[v.ID] = idx
@@ -471,9 +471,10 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 			}).Error; err != nil {
 				return err
 			}
-			for _, v := range q.Versions {
+			for order, v := range q.Versions {
 				qv := &models.QuestVersion{
 					QuestID:       meta.ID,
+					DisplayOrder:  order,
 					Title:         v.Title,
 					DescriptionMd: v.DescriptionMd,
 					TaskList:      v.TaskList,
@@ -552,7 +553,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 			var versionID *uint
 			if ev.QuestVersionIndex != nil {
 				var versions []models.QuestVersion
-				if err := tx.Where("quest_id = ?", entry.NodeID).Order("id ASC").Find(&versions).Error; err == nil {
+				if err := tx.Where("quest_id = ?", entry.NodeID).Order("display_order ASC, id ASC").Find(&versions).Error; err == nil {
 					if *ev.QuestVersionIndex >= 0 && *ev.QuestVersionIndex < len(versions) {
 						id := versions[*ev.QuestVersionIndex].ID
 						versionID = &id

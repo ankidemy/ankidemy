@@ -63,12 +63,53 @@ layout, access policy, learning state, and other application-only state.
 
 | Field | Representation/owner |
 | --- | --- |
-| Name and description | TODO/headline text and plain Org body |
+| Quest name | Parent TODO/headline text |
+| Versions | Immediate child headlines tagged `:version:`; when absent, the parent headline/body remains one implicit version for backward compatibility |
+| Version identity | Version headline `:ID:`; version headlines also use `:ROAM_EXCLUDE: t` so org-roam does not expose them as graph nodes |
+| Version title and description | Version headline text and the plain body directly under it |
+| Version order | Org outline order |
 | Kind and schedule | Active `SCHEDULED`/`DEADLINE` timestamp and its repeater; inferred as one-time `todo`, `daily`, or `habit` |
+| Forced habit kind | A local `:habit:` tag on the quest headline forces any repeating timestamp, including an exact daily repeater, to import as `habit` |
 | Code, ID, explicit type/import/parent | Org properties listed above |
 | Active/deactivated state and completion history | Ankidemy per-user state |
 | Visibility/access policy | Ankidemy database; defaults to private and survives later syncs |
 | X/Y position | Ankidemy database |
+
+For example, a daily timestamp can be forced to use habit semantics while the
+two authored presentations remain stable across synchronization:
+
+```org
+* TODO Do Not Overthink :habit:
+SCHEDULED: <2026-07-19 Sun 07:00 ++1d>
+:PROPERTIES:
+:ID: quest-id
+:ANKIDEMY_TYPE: quest
+:END:
+** Notice the urge :version:
+:PROPERTIES:
+:ID: quest-version-notice
+:ROAM_EXCLUDE: t
+:END:
+Pause before acting.
+** Use a timer :version:
+:PROPERTIES:
+:ID: quest-version-timer
+:ROAM_EXCLUDE: t
+:END:
+Wait two minutes.
+```
+
+The quest owns its name and schedule; each version owns its title and body. Once
+explicit `:version:` children exist, content in the parent body is ignored with
+a diagnostic so there is only one unambiguous owner for versioned content. A
+`:habit:` quest still requires a repeating timestamp. The tag changes the
+Ankidemy quest kind, not the Org repeater mode: `+`, `++`, and `.+` retain their
+strict, catch-up, and from-completion behavior.
+
+With point on a quest, `SPC n r y v` inserts another version. On first use, the
+helper preserves the legacy implicit version by moving the existing parent body
+under a generated first `:version:` child, then creates the newly requested
+second version.
 
 Structural version/field tags (`version`, `notes`, `references`, `hints`, and
 `solution`) are content structure, not separate Ankidemy nodes. Database IDs,

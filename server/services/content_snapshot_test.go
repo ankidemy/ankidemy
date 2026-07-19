@@ -81,6 +81,24 @@ func TestValidateContentSnapshotAcceptsProviderNeutralSnapshot(t *testing.T) {
 	}
 }
 
+func TestValidateContentSnapshotAcceptsExplicitQuestVersions(t *testing.T) {
+	snapshot := validContentSnapshot()
+	snapshot.Nodes[3].Quest.Versions = []ContentQuestVersion{
+		{SourceID: "quest-version-a", Order: 0, Title: "First approach", DescriptionMD: "Pause."},
+		{SourceID: "quest-version-b", Order: 1, Title: "Second approach", DescriptionMD: "Use a timer."},
+	}
+	validation := ValidateContentSnapshot(snapshot)
+	if !validation.Reconciliable {
+		t.Fatalf("explicit quest versions should validate: %#v", validation.Diagnostics)
+	}
+
+	snapshot.Nodes[3].Quest.Versions[1].SourceID = "quest-version-a"
+	validation = ValidateContentSnapshot(snapshot)
+	if validation.Reconciliable || !diagnosticCodes(validation.Diagnostics)["id.duplicate"] {
+		t.Fatalf("duplicate quest version IDs should fail validation: %#v", validation.Diagnostics)
+	}
+}
+
 func TestCanonicalContentRevisionIgnoresRootDiagnosticsAndInputOrder(t *testing.T) {
 	first := validContentSnapshot()
 	firstRevision, err := CanonicalContentRevision(first)

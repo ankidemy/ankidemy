@@ -456,7 +456,8 @@ first outline node when a file has no document-level drawer."
   "Return Ankidemy quest payload for HEADLINE, emitting diagnostics on CONTEXT."
   (let* ((scheduled (org-element-property :scheduled headline))
          (deadline (org-element-property :deadline headline))
-         (timestamp (or scheduled deadline)))
+         (timestamp (or scheduled deadline))
+         (force-habit (member "habit" (org-element-property :tags headline))))
     (when (and (not scheduled) deadline)
       (ankidemy-org--push-diag context "warning" "quest.deadline_used_as_start"
                                 "DEADLINE used because SCHEDULED is absent"
@@ -498,12 +499,16 @@ first outline node when a file has no document-level drawer."
                             ('cumulate "+") ('catch-up "++") ('restart ".+") (_ nil))))
         (cond
          ((not repeater-type)
+          (when force-habit
+            (ankidemy-org--push-diag context "error" "quest.habit_repeater_required"
+                                      ":habit: quest requires a repeating timestamp"
+                                      file (ankidemy-org--line headline) 1 source-id))
           (list :kind "todo"
                 :schedule (list :type "rrule" :timezone timezone
                                 :dtstart dtstart :rrule "FREQ=DAILY;COUNT=1"
                                 :exdate [] :rdate [] :default-snooze-minutes 120)
                 :org-repeater-mode nil))
-         ((and (= value 1) (eq unit 'day))
+         ((and (= value 1) (eq unit 'day) (not force-habit))
           (list :kind "daily"
                 :schedule (list :type "daily_pool"
                                 :timezone timezone
@@ -532,6 +537,52 @@ first outline node when a file has no document-level drawer."
                                     :period (symbol-name unit)
                                     :consecutive-periods-to-auto-deactivate 0)
                     :org-repeater-mode mode)))))))))
+
+(defun ankidemy-org--quest-versions-payload (context headline file source-id)
+  "Build explicit or backward-compatible implicit versions for quest HEADLINE."
+  (let* ((version-headlines
+          (cl-remove-if-not
+           (lambda (child)
+             (member "version" (org-element-property :tags child)))
+           (ankidemy-org--immediate-headlines headline)))
+         versions payload assets)
+    (if (not version-headlines)
+        (let ((export (ankidemy-org--export-section
+                       context (ankidemy-org--direct-section headline) file
+                       source-id "quest_version" "descriptionMd")))
+          (setq payload (list :description-md (car export) :task-list [])
+                assets (cadr export)))
+      (when-let* ((section (ankidemy-org--direct-section headline))
+                  (export (ankidemy-org--export-section
+                           context section file source-id "node" "descriptionMd"))
+                  (body (car export))
+                  ((not (string-empty-p body))))
+        (ankidemy-org--push-diag
+         context "warning" "quest.parent_body_ignored"
+         "Quest with :version: children stores descriptions on those children; parent body is ignored"
+         file (ankidemy-org--line headline) 1 source-id))
+      (dolist (version version-headlines)
+        (let* ((version-id (ankidemy-org--headline-property version "ID"))
+               (owner-id (or version-id source-id))
+               (export (ankidemy-org--export-section
+                        context (ankidemy-org--direct-section version) file
+                        owner-id "quest_version" "descriptionMd")))
+          (unless version-id
+            (ankidemy-org--push-diag context "error" "version.id_missing"
+                                      "Quest version requires ID"
+                                      file (ankidemy-org--line version) 1 source-id))
+          (unless (string= (downcase (or (ankidemy-org--headline-property
+                                          version "ROAM_EXCLUDE") "")) "t")
+            (ankidemy-org--push-diag context "error" "version.not_excluded"
+                                      "Quest version requires ROAM_EXCLUDE: t"
+                                      file (ankidemy-org--line version) 1 owner-id))
+          (setq assets (append assets (cadr export)))
+          (push (list :source-id version-id :order (length versions)
+                      :title (org-element-property :raw-value version)
+                      :description-md (car export) :task-list [])
+                versions)))
+      (setq payload (list :versions (nreverse versions))))
+    (list payload assets)))
 
 (defun ankidemy-org--field-by-tag (version tag)
   "Return immediate field child of VERSION having local TAG."
@@ -748,14 +799,11 @@ When LOCAL-FROM-P is non-nil the local node points to the external node."
            (let ((result (ankidemy-org--exercise-payload context headline file id)))
              (setq payload (list :exercise (car result)) assets (cadr result))))
           ("quest"
-           (let* ((export (ankidemy-org--export-section
-                           context (ankidemy-org--direct-section headline) file
-                           id "quest_version" "descriptionMd"))
+           (let* ((version-result
+                   (ankidemy-org--quest-versions-payload context headline file id))
                   (quest (ankidemy-org--quest-payload context headline file id)))
-             (setq payload (list :quest (append quest
-                                                (list :description-md (car export)
-                                                      :task-list [])))
-                   assets (cadr export))))
+             (setq payload (list :quest (append quest (car version-result)))
+                   assets (cadr version-result))))
           (_
            (ankidemy-org--push-diag context "error" "type.invalid"
                                      (format "Unsupported ANKIDEMY_TYPE %s" type)

@@ -68,6 +68,19 @@ func migrateQuestNomenclature(db *gorm.DB) error {
 					ALTER TABLE quest_events RENAME COLUMN meta_quest_id TO quest_id;
 				END IF;
 			END $$`,
+			`DO $$ BEGIN
+				IF to_regclass('public.quest_versions') IS NOT NULL
+				   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_versions' AND column_name='display_order') THEN
+					ALTER TABLE quest_versions ADD COLUMN display_order integer;
+					WITH ranked AS (
+						SELECT id, row_number() OVER (PARTITION BY quest_id ORDER BY id) - 1 AS position
+						FROM quest_versions
+					)
+					UPDATE quest_versions qv SET display_order = ranked.position FROM ranked WHERE qv.id = ranked.id;
+					ALTER TABLE quest_versions ALTER COLUMN display_order SET DEFAULT 0;
+					ALTER TABLE quest_versions ALTER COLUMN display_order SET NOT NULL;
+				END IF;
+			END $$`,
 			`DO $$ BEGIN IF to_regclass('public.domain_node_codes') IS NOT NULL THEN UPDATE domain_node_codes SET node_type = 'quest' WHERE node_type = 'meta_quest'; END IF; END $$`,
 			`DO $$ BEGIN IF to_regclass('public.node_relations') IS NOT NULL THEN UPDATE node_relations SET from_type = 'quest' WHERE from_type = 'meta_quest'; UPDATE node_relations SET to_type = 'quest' WHERE to_type = 'meta_quest'; END IF; END $$`,
 			`DO $$ BEGIN IF to_regclass('public.external_node_relations') IS NOT NULL THEN UPDATE external_node_relations SET local_node_type = 'quest' WHERE local_node_type = 'meta_quest'; UPDATE external_node_relations SET external_node_type = 'quest' WHERE external_node_type = 'meta_quest'; END IF; END $$`,
@@ -91,6 +104,7 @@ func migrateQuestNomenclature(db *gorm.DB) error {
 			`ALTER INDEX IF EXISTS idx_meta_quests_domain_id RENAME TO idx_quests_domain_id`,
 			`ALTER INDEX IF EXISTS idx_meta_quests_owner_id RENAME TO idx_quests_owner_id`,
 			`ALTER INDEX IF EXISTS idx_quest_versions_meta_quest_id RENAME TO idx_quest_versions_quest_id`,
+			`DO $$ BEGIN IF to_regclass('public.quest_versions') IS NOT NULL THEN CREATE INDEX IF NOT EXISTS idx_quest_versions_order ON quest_versions (quest_id, display_order, id); END IF; END $$`,
 			`ALTER INDEX IF EXISTS idx_user_meta_quest RENAME TO idx_user_quest`,
 			`ALTER INDEX IF EXISTS idx_user_meta_quest_state_meta RENAME TO idx_user_quest_state_quest`,
 			`ALTER INDEX IF EXISTS idx_user_meta_quest_state_meta_quest_id RENAME TO idx_user_quest_state_quest_id`,

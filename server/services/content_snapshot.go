@@ -94,11 +94,22 @@ type ContentExerciseVersion struct {
 }
 
 type ContentQuestPayload struct {
-	Kind            string          `json:"kind"`
-	Schedule        json.RawMessage `json:"schedule"`
-	OrgRepeaterMode string          `json:"orgRepeaterMode,omitempty"`
-	DescriptionMD   string          `json:"descriptionMd"`
-	TaskList        json.RawMessage `json:"taskList,omitempty"`
+	Kind            string                `json:"kind"`
+	Schedule        json.RawMessage       `json:"schedule"`
+	OrgRepeaterMode string                `json:"orgRepeaterMode,omitempty"`
+	Versions        []ContentQuestVersion `json:"versions,omitempty"`
+	// Legacy protocol-v1 adapters emitted one implicit version on the quest.
+	// Keep accepting these fields while new adapters emit Versions.
+	DescriptionMD string          `json:"descriptionMd"`
+	TaskList      json.RawMessage `json:"taskList,omitempty"`
+}
+
+type ContentQuestVersion struct {
+	SourceID      string          `json:"sourceId"`
+	Order         int             `json:"order"`
+	Title         string          `json:"title"`
+	DescriptionMD string          `json:"descriptionMd"`
+	TaskList      json.RawMessage `json:"taskList,omitempty"`
 }
 
 type ContentSnapshotEdge struct {
@@ -246,6 +257,12 @@ func ValidateContentSnapshot(snapshot ContentSnapshot) ContentSnapshotValidation
 			}
 		case "quest":
 			validateContentQuest(node, add)
+			for _, version := range node.Quest.Versions {
+				validateContentVersionID(version.SourceID, id, "quest_version", node.Location, allIDs, add)
+				if strings.TrimSpace(version.Title) == "" {
+					add(contentError("version.title_missing", "quest version title is required", version.SourceID, node.Location))
+				}
+			}
 		case "source":
 		default:
 			add(contentError("type.invalid", fmt.Sprintf("unsupported node type %q", node.Type), id, node.Location))
@@ -509,6 +526,12 @@ func CanonicalContentRevision(snapshot ContentSnapshot) (string, error) {
 			payload.Versions = append([]ContentExerciseVersion(nil), payload.Versions...)
 			sort.Slice(payload.Versions, func(a, b int) bool { return payload.Versions[a].SourceID < payload.Versions[b].SourceID })
 			canonical.Nodes[i].Exercise = &payload
+		}
+		if canonical.Nodes[i].Quest != nil {
+			payload := *canonical.Nodes[i].Quest
+			payload.Versions = append([]ContentQuestVersion(nil), payload.Versions...)
+			sort.Slice(payload.Versions, func(a, b int) bool { return payload.Versions[a].SourceID < payload.Versions[b].SourceID })
+			canonical.Nodes[i].Quest = &payload
 		}
 	}
 	sort.Slice(canonical.Nodes, func(i, j int) bool { return canonical.Nodes[i].SourceID < canonical.Nodes[j].SourceID })

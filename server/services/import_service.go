@@ -796,7 +796,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			questIDs = append(questIDs, q.ID)
 		}
 		var allVersions []models.QuestVersion
-		if err := s.db.Where("quest_id IN ?", questIDs).Order("id ASC").Find(&allVersions).Error; err != nil {
+		if err := s.db.Where("quest_id IN ?", questIDs).Order("quest_id ASC, display_order ASC, id ASC").Find(&allVersions).Error; err != nil {
 			return nil, fmt.Errorf("failed to fetch quest versions: %v", err)
 		}
 		for _, v := range allVersions {
@@ -2146,9 +2146,10 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			if err := tx.Where("quest_id = ?", mq.ID).Delete(&models.QuestVersion{}).Error; err != nil {
 				return fmt.Errorf("failed to clear quest versions for %s: %v", assigned, err)
 			}
-			for _, v := range node.Versions {
+			for order, v := range node.Versions {
 				qv := &models.QuestVersion{
 					QuestID:       mq.ID,
+					DisplayOrder:  order,
 					Title:         v.Title,
 					DescriptionMd: v.DescriptionMd,
 					TaskList:      v.TaskList,
@@ -2184,9 +2185,10 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		}).Error; err != nil {
 			return fmt.Errorf("failed to register code for quest %s: %v", assigned, err)
 		}
-		for _, v := range node.Versions {
+		for order, v := range node.Versions {
 			qv := &models.QuestVersion{
 				QuestID:       mq.ID,
+				DisplayOrder:  order,
 				Title:         v.Title,
 				DescriptionMd: v.DescriptionMd,
 				TaskList:      v.TaskList,

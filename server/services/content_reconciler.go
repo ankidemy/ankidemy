@@ -411,8 +411,17 @@ func reconcileContentNode(tx *gorm.DB, binding *models.ContentBinding, node Cont
 			}
 		}
 	case "quest":
-		if err := reconcileQuestVersion(tx, binding, node, revision, entities, seen, counts); err != nil {
-			return nil, false, err
+		versions := node.Quest.Versions
+		if len(versions) == 0 {
+			versions = []ContentQuestVersion{{
+				SourceID: node.SourceID, Title: node.Name,
+				DescriptionMD: node.Quest.DescriptionMD, TaskList: node.Quest.TaskList,
+			}}
+		}
+		for _, version := range versions {
+			if err := reconcileQuestVersion(tx, binding, node, version, revision, entities, seen, counts); err != nil {
+				return nil, false, err
+			}
 		}
 	}
 	return entity, true, nil
@@ -601,18 +610,18 @@ func reconcileExerciseVersion(tx *gorm.DB, binding *models.ContentBinding, node 
 	return saveVersionEntity(tx, binding.ID, version.SourceID, "exercise_version", "exercise", "exercises", row.ID, node.SourceID, node.Location.File, hash, revision, entity, entities, seen, counts)
 }
 
-func reconcileQuestVersion(tx *gorm.DB, binding *models.ContentBinding, node ContentSnapshotNode, revision string, entities map[string]*models.ContentEntity, seen map[uint]bool, counts map[string]int) error {
+func reconcileQuestVersion(tx *gorm.DB, binding *models.ContentBinding, node ContentSnapshotNode, version ContentQuestVersion, revision string, entities map[string]*models.ContentEntity, seen map[uint]bool, counts map[string]int) error {
 	owner := entities[contentEntityKey(node.SourceID, "node")]
-	key := contentEntityKey(node.SourceID, "quest_version")
+	key := contentEntityKey(version.SourceID, "quest_version")
 	entity := entities[key]
 	hash := contentSemanticHash(struct {
-		Name  string
-		Quest *ContentQuestPayload
-	}{node.Name, node.Quest})
+		Name    string
+		Version ContentQuestVersion
+	}{node.Name, version})
 	if unchangedContentVersion(entity, hash, seen) {
 		return nil
 	}
-	row := models.QuestVersion{QuestID: owner.RowID, Title: node.Name, DescriptionMd: node.Quest.DescriptionMD, TaskList: node.Quest.TaskList}
+	row := models.QuestVersion{QuestID: owner.RowID, DisplayOrder: version.Order, Title: version.Title, DescriptionMd: version.DescriptionMD, TaskList: version.TaskList}
 	if entity != nil {
 		row.ID = entity.RowID
 		if err := restoreContentRow(tx, "quest_versions", row.ID); err != nil {
@@ -622,7 +631,7 @@ func reconcileQuestVersion(tx *gorm.DB, binding *models.ContentBinding, node Con
 	if err := tx.Save(&row).Error; err != nil {
 		return err
 	}
-	return saveVersionEntity(tx, binding.ID, node.SourceID, "quest_version", "quest", "quest_versions", row.ID, node.SourceID, node.Location.File, hash, revision, entity, entities, seen, counts)
+	return saveVersionEntity(tx, binding.ID, version.SourceID, "quest_version", "quest", "quest_versions", row.ID, node.SourceID, node.Location.File, hash, revision, entity, entities, seen, counts)
 }
 
 func unchangedContentVersion(entity *models.ContentEntity, hash string, seen map[uint]bool) bool {

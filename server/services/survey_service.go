@@ -264,6 +264,7 @@ func (s *SurveyService) buildQueueItem(meta *models.Quest, state *models.UserQue
 		versionsResp = append(versionsResp, models.QuestVersionResponse{
 			ID:            v.ID,
 			QuestID:       v.QuestID,
+			DisplayOrder:  v.DisplayOrder,
 			Title:         v.Title,
 			DescriptionMd: v.DescriptionMd,
 			TaskList:      v.TaskList,

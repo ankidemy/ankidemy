@@ -298,6 +298,7 @@ CREATE TABLE IF NOT EXISTS quests (
 CREATE TABLE IF NOT EXISTS quest_versions (
     id SERIAL PRIMARY KEY,
     quest_id INT NOT NULL,
+    display_order INT NOT NULL DEFAULT 0,
     title TEXT NOT NULL,
     description_md TEXT NOT NULL DEFAULT '',
     task_list JSONB NULL,
@@ -307,6 +308,9 @@ CREATE TABLE IF NOT EXISTS quest_versions (
     deleted_at TIMESTAMP,
     FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_quest_versions_order
+    ON quest_versions (quest_id, display_order, id);
 
 CREATE TABLE IF NOT EXISTS user_quest_state (
     id SERIAL PRIMARY KEY,

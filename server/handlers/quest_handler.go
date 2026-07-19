@@ -182,6 +182,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 			{
 				ID:            version.ID,
 				QuestID:       meta.ID,
+				DisplayOrder:  version.DisplayOrder,
 				Title:         version.Title,
 				DescriptionMd: version.DescriptionMd,
 				TaskList:      version.TaskList,
@@ -266,6 +267,7 @@ func (h *QuestHandler) GetQuest(c *gin.Context) {
 			resp.Versions = append(resp.Versions, models.QuestVersionResponse{
 				ID:            v.ID,
 				QuestID:       v.QuestID,
+				DisplayOrder:  v.DisplayOrder,
 				Title:         v.Title,
 				DescriptionMd: v.DescriptionMd,
 				TaskList:      v.TaskList,
@@ -473,6 +475,7 @@ func (h *QuestHandler) AddVersion(c *gin.Context) {
 	resp := models.QuestVersionResponse{
 		ID:            version.ID,
 		QuestID:       meta.ID,
+		DisplayOrder:  version.DisplayOrder,
 		Title:         version.Title,
 		DescriptionMd: version.DescriptionMd,
 		TaskList:      version.TaskList,
@@ -528,6 +531,7 @@ func (h *QuestHandler) UpdateVersion(c *gin.Context) {
 	resp := models.QuestVersionResponse{
 		ID:            version.ID,
 		QuestID:       version.QuestID,
+		DisplayOrder:  version.DisplayOrder,
 		Title:         version.Title,
 		DescriptionMd: version.DescriptionMd,
 		TaskList:      version.TaskList,

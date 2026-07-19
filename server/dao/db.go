@@ -153,6 +153,7 @@ func ensureSRSDueIndexes(db *gorm.DB) {
 		"CREATE INDEX IF NOT EXISTS idx_unp_due_exercise ON user_node_progress (user_id, next_review, node_id) WHERE node_type = 'exercise' AND status = 'grasped';",
 		"CREATE INDEX IF NOT EXISTS idx_meta_definitions_domain_id ON meta_definitions (domain_id, id);",
 		"CREATE INDEX IF NOT EXISTS idx_meta_exercises_domain_id ON meta_exercises (domain_id, id);",
+		"CREATE INDEX IF NOT EXISTS idx_quest_versions_order ON quest_versions (quest_id, display_order, id);",
 	}
 	for _, stmt := range stmts {
 		if err := db.Exec(stmt).Error; err != nil {
@@ -168,7 +169,7 @@ func ensureQuestNames(db *gorm.DB) {
 	}
 	for _, quest := range quests {
 		var version models.QuestVersion
-		if err := db.Where("quest_id = ?", quest.ID).Order("id ASC").First(&version).Error; err != nil {
+		if err := db.Where("quest_id = ?", quest.ID).Order("display_order ASC, id ASC").First(&version).Error; err != nil {
 			continue
 		}
 		if strings.TrimSpace(version.Title) == "" {

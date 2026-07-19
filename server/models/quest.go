@@ -30,6 +30,7 @@ func (Quest) TableName() string { return "quests" }
 type QuestVersion struct {
 	ID            uint            `gorm:"primaryKey" json:"id"`
 	QuestID       uint            `gorm:"column:quest_id;not null;index" json:"questId"`
+	DisplayOrder  int             `gorm:"column:display_order;not null;default:0" json:"displayOrder"`
 	Title         string          `gorm:"column:title;not null" json:"title"`
 	DescriptionMd string          `gorm:"column:description_md;not null;default:''" json:"descriptionMd"`
 	TaskList      json.RawMessage `gorm:"column:task_list;type:jsonb" json:"taskList,omitempty"`
@@ -125,6 +126,7 @@ type QuestResponse struct {
 type QuestVersionResponse struct {
 	ID            uint            `json:"id"`
 	QuestID       uint            `json:"questId"`
+	DisplayOrder  int             `json:"displayOrder"`
 	Title         string          `json:"title"`
 	DescriptionMd string          `json:"descriptionMd"`
 	TaskList      json.RawMessage `json:"taskList,omitempty"`
