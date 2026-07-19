@@ -5,6 +5,10 @@ PROD_PROJECT_NAME ?= ankidemy-prod
 # Hosts may supply an additional Compose file for private network topology
 DEV_COMPOSE := $(DOCKER_COMPOSE) --project-name $(DEV_PROJECT_NAME) -f docker-compose.yml -f docker-compose.dev.yml $(if $(strip $(ANKIDEMY_DEV_COMPOSE_OVERRIDE)),-f "$(ANKIDEMY_DEV_COMPOSE_OVERRIDE)",)
 PROD_COMPOSE := $(DOCKER_COMPOSE) --project-name $(PROD_PROJECT_NAME) -f docker-compose.yml -f docker-compose.prod.yml
+# Teardown commands must enable every profile so optional services (for example,
+# pgAdmin in the "tools" profile) are stopped before Compose removes networks.
+DEV_COMPOSE_ALL_PROFILES := $(DEV_COMPOSE) --profile "*"
+PROD_COMPOSE_ALL_PROFILES := $(PROD_COMPOSE) --profile "*"
 
 # Development and Production Commands
 .PHONY: dev prod prod-build dev-build down dev-down prod-down logs prod-logs clean purge nuke wipe-db
@@ -27,14 +31,14 @@ dev-build:
 
 # Stop both environments without deleting their data volumes
 down:
-	$(DEV_COMPOSE) down --remove-orphans
-	$(PROD_COMPOSE) down --remove-orphans
+	$(DEV_COMPOSE_ALL_PROFILES) down --remove-orphans
+	$(PROD_COMPOSE_ALL_PROFILES) down --remove-orphans
 
 dev-down:
-	$(DEV_COMPOSE) down --remove-orphans
+	$(DEV_COMPOSE_ALL_PROFILES) down --remove-orphans
 
 prod-down:
-	$(PROD_COMPOSE) down --remove-orphans
+	$(PROD_COMPOSE_ALL_PROFILES) down --remove-orphans
 
 # View logs for all services
 logs:
@@ -45,13 +49,13 @@ prod-logs:
 
 # Remove project containers and their volumes (including database data)
 clean:
-	$(DEV_COMPOSE) down --volumes --remove-orphans
-	$(PROD_COMPOSE) down --volumes --remove-orphans
+	$(DEV_COMPOSE_ALL_PROFILES) down --volumes --remove-orphans
+	$(PROD_COMPOSE_ALL_PROFILES) down --volumes --remove-orphans
 
 # Remove project images
 purge:
-	$(DEV_COMPOSE) down --remove-orphans
-	$(PROD_COMPOSE) down --remove-orphans
+	$(DEV_COMPOSE_ALL_PROFILES) down --remove-orphans
+	$(PROD_COMPOSE_ALL_PROFILES) down --remove-orphans
 	docker image rm ankidemy-server:development ankidemy-client:development \
 		ankidemy-server:production ankidemy-client:production 2>/dev/null || true
 	@echo "Removed all project containers and images."
@@ -63,8 +67,8 @@ nuke:
 	@read confirmation; \
 	if [ "$$confirmation" = "NUKE" ]; then \
 		echo "Stopping all containers..."; \
-		$(DEV_COMPOSE) down --remove-orphans; \
-		$(PROD_COMPOSE) down --remove-orphans; \
+		$(DEV_COMPOSE_ALL_PROFILES) down --remove-orphans; \
+		$(PROD_COMPOSE_ALL_PROFILES) down --remove-orphans; \
 		echo "Stopping Docker service..."; \
 		sudo systemctl stop docker; \
 		echo "Starting Docker service..."; \
@@ -84,7 +88,7 @@ wipe-db:
 	@echo "Type 'yes' to confirm: "
 	@read confirmation; \
 	if [ "$$confirmation" = "yes" ]; then \
-		$(DEV_COMPOSE) down; \
+		$(DEV_COMPOSE_ALL_PROFILES) down; \
 		docker volume rm $$(docker volume ls -q \
 			--filter label=com.docker.compose.project=$(DEV_PROJECT_NAME) \
 			--filter label=com.docker.compose.volume=postgres_data) || true; \
