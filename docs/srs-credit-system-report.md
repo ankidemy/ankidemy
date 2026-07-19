@@ -180,7 +180,7 @@ Per user per domain (`user_domain_settings`): `timezone`, `dailyQuestLimit`,
 The quest system (`survey_service.go`) is untouched by this refactor: `rrule`, `habit`
 (streaks + auto-deactivate) and `daily` (daily_pool draws honoring cooldown + daily
 limit, persisted per day) schedules; events completed/skipped/snoozed/deactivated/
-reactivated. Quest node-type strings remain `meta_quest` (no legacy duality existed).
+reactivated. Quest node-type strings remain `quest` (no legacy duality existed).
 
 ## 11. What was removed in the modernization
 

@@ -27,29 +27,29 @@ export const playDueReviewNotificationSound = () => {
 
     const masterGain = ctx.createGain();
     masterGain.gain.setValueAtTime(0.0001, now);
-    masterGain.gain.exponentialRampToValueAtTime(0.024, now + 0.015);
-    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    masterGain.gain.exponentialRampToValueAtTime(0.075, now + 0.025);
+    masterGain.gain.setValueAtTime(0.075, now + 0.42);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.82);
     masterGain.connect(ctx.destination);
 
-    const toneA = ctx.createOscillator();
-    toneA.type = 'triangle';
-    toneA.frequency.setValueAtTime(523.25, now);
-    toneA.frequency.exponentialRampToValueAtTime(587.33, now + 0.09);
-    toneA.connect(masterGain);
-    toneA.start(now);
-    toneA.stop(now + 0.1);
+    [
+      { frequency: 523.25, offset: 0, duration: 0.34 },
+      { frequency: 659.25, offset: 0.16, duration: 0.4 },
+      { frequency: 783.99, offset: 0.34, duration: 0.46 },
+    ].forEach(({ frequency, offset, duration }) => {
+      const toneGain = ctx.createGain();
+      toneGain.gain.setValueAtTime(0.0001, now + offset);
+      toneGain.gain.exponentialRampToValueAtTime(0.72, now + offset + 0.018);
+      toneGain.gain.exponentialRampToValueAtTime(0.0001, now + offset + duration);
+      toneGain.connect(masterGain);
 
-    const toneBGain = ctx.createGain();
-    toneBGain.gain.setValueAtTime(0.52, now + 0.11);
-    toneBGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-    toneBGain.connect(masterGain);
-
-    const toneB = ctx.createOscillator();
-    toneB.type = 'triangle';
-    toneB.frequency.setValueAtTime(659.25, now + 0.11);
-    toneB.connect(toneBGain);
-    toneB.start(now + 0.11);
-    toneB.stop(now + 0.25);
+      const tone = ctx.createOscillator();
+      tone.type = 'sine';
+      tone.frequency.setValueAtTime(frequency, now + offset);
+      tone.connect(toneGain);
+      tone.start(now + offset);
+      tone.stop(now + offset + duration);
+    });
   } catch {}
 };
 

@@ -1,10 +1,112 @@
 package dao
 
 import (
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
 )
+
+// migrateQuestNomenclature upgrades the last pre-modern quest vocabulary in
+// place. PostgreSQL carries foreign-key targets across table/column renames, so
+// quest IDs, versions, events, and per-user state retain their identity.
+func migrateQuestNomenclature(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		statements := []string{
+			// A previous partial migration must never leave two authoritative
+			// tables/columns. Refuse to guess which copy owns the data.
+			`DO $$ BEGIN
+				IF to_regclass('public.meta_quests') IS NOT NULL AND to_regclass('public.quests') IS NOT NULL THEN
+					RAISE EXCEPTION 'both legacy meta_quests and canonical quests tables exist';
+				END IF;
+				IF to_regclass('public.user_meta_quest_state') IS NOT NULL AND to_regclass('public.user_quest_state') IS NOT NULL THEN
+					RAISE EXCEPTION 'both legacy user_meta_quest_state and canonical user_quest_state tables exist';
+				END IF;
+			END $$`,
+			`DO $$ BEGIN
+				IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_versions' AND column_name='meta_quest_id')
+				   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_versions' AND column_name='quest_id') THEN
+					RAISE EXCEPTION 'both legacy and canonical quest ID columns exist on quest_versions';
+				END IF;
+				IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='user_quest_state' AND column_name='meta_quest_id')
+				   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='user_quest_state' AND column_name='quest_id') THEN
+					RAISE EXCEPTION 'both legacy and canonical quest ID columns exist on user_quest_state';
+				END IF;
+				IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_events' AND column_name='meta_quest_id')
+				   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_events' AND column_name='quest_id') THEN
+					RAISE EXCEPTION 'both legacy and canonical quest ID columns exist on quest_events';
+				END IF;
+			END $$`,
+			`ALTER TABLE IF EXISTS domain_node_codes DROP CONSTRAINT IF EXISTS domain_node_codes_node_type_check`,
+			`ALTER TABLE IF EXISTS node_relations DROP CONSTRAINT IF EXISTS node_relations_from_type_check`,
+			`ALTER TABLE IF EXISTS node_relations DROP CONSTRAINT IF EXISTS node_relations_to_type_check`,
+			`DO $$ BEGIN
+				IF to_regclass('public.meta_quests') IS NOT NULL AND to_regclass('public.quests') IS NULL THEN
+					ALTER TABLE meta_quests RENAME TO quests;
+				END IF;
+			END $$`,
+			`DO $$ BEGIN
+				IF to_regclass('public.user_meta_quest_state') IS NOT NULL AND to_regclass('public.user_quest_state') IS NULL THEN
+					ALTER TABLE user_meta_quest_state RENAME TO user_quest_state;
+				END IF;
+			END $$`,
+			`DO $$ BEGIN
+				IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_versions' AND column_name='meta_quest_id')
+				   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_versions' AND column_name='quest_id') THEN
+					ALTER TABLE quest_versions RENAME COLUMN meta_quest_id TO quest_id;
+				END IF;
+			END $$`,
+			`DO $$ BEGIN
+				IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='user_quest_state' AND column_name='meta_quest_id')
+				   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='user_quest_state' AND column_name='quest_id') THEN
+					ALTER TABLE user_quest_state RENAME COLUMN meta_quest_id TO quest_id;
+				END IF;
+			END $$`,
+			`DO $$ BEGIN
+				IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_events' AND column_name='meta_quest_id')
+				   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='quest_events' AND column_name='quest_id') THEN
+					ALTER TABLE quest_events RENAME COLUMN meta_quest_id TO quest_id;
+				END IF;
+			END $$`,
+			`DO $$ BEGIN IF to_regclass('public.domain_node_codes') IS NOT NULL THEN UPDATE domain_node_codes SET node_type = 'quest' WHERE node_type = 'meta_quest'; END IF; END $$`,
+			`DO $$ BEGIN IF to_regclass('public.node_relations') IS NOT NULL THEN UPDATE node_relations SET from_type = 'quest' WHERE from_type = 'meta_quest'; UPDATE node_relations SET to_type = 'quest' WHERE to_type = 'meta_quest'; END IF; END $$`,
+			`DO $$ BEGIN IF to_regclass('public.external_node_relations') IS NOT NULL THEN UPDATE external_node_relations SET local_node_type = 'quest' WHERE local_node_type = 'meta_quest'; UPDATE external_node_relations SET external_node_type = 'quest' WHERE external_node_type = 'meta_quest'; END IF; END $$`,
+
+			// Constraint and index names are schema API too; remove the obsolete
+			// vocabulary rather than leaving cosmetic legacy behind after renames.
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='meta_quests_pkey') THEN ALTER TABLE quests RENAME CONSTRAINT meta_quests_pkey TO quests_pkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='meta_quests_domain_id_fkey') THEN ALTER TABLE quests RENAME CONSTRAINT meta_quests_domain_id_fkey TO quests_domain_id_fkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='meta_quests_owner_id_fkey') THEN ALTER TABLE quests RENAME CONSTRAINT meta_quests_owner_id_fkey TO quests_owner_id_fkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='meta_quests_kind_check') THEN ALTER TABLE quests RENAME CONSTRAINT meta_quests_kind_check TO quests_kind_check; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='meta_quests_visibility_check') THEN ALTER TABLE quests RENAME CONSTRAINT meta_quests_visibility_check TO quests_visibility_check; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='quest_versions_meta_quest_id_fkey') THEN ALTER TABLE quest_versions RENAME CONSTRAINT quest_versions_meta_quest_id_fkey TO quest_versions_quest_id_fkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='user_meta_quest_state_pkey') THEN ALTER TABLE user_quest_state RENAME CONSTRAINT user_meta_quest_state_pkey TO user_quest_state_pkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='user_meta_quest_state_user_id_fkey') THEN ALTER TABLE user_quest_state RENAME CONSTRAINT user_meta_quest_state_user_id_fkey TO user_quest_state_user_id_fkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='user_meta_quest_state_meta_quest_id_fkey') THEN ALTER TABLE user_quest_state RENAME CONSTRAINT user_meta_quest_state_meta_quest_id_fkey TO user_quest_state_quest_id_fkey; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='user_meta_quest_state_user_id_meta_quest_id_key') THEN ALTER TABLE user_quest_state RENAME CONSTRAINT user_meta_quest_state_user_id_meta_quest_id_key TO user_quest_state_user_id_quest_id_key; END IF; END $$`,
+			`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='quest_events_meta_quest_id_fkey') THEN ALTER TABLE quest_events RENAME CONSTRAINT quest_events_meta_quest_id_fkey TO quest_events_quest_id_fkey; END IF; END $$`,
+			`ALTER INDEX IF EXISTS idx_meta_quests_code RENAME TO idx_quests_code`,
+			`ALTER INDEX IF EXISTS idx_meta_quests_deleted_at RENAME TO idx_quests_deleted_at`,
+			`ALTER INDEX IF EXISTS idx_meta_quests_domain_code RENAME TO idx_quests_domain_code`,
+			`ALTER INDEX IF EXISTS idx_meta_quests_domain_id RENAME TO idx_quests_domain_id`,
+			`ALTER INDEX IF EXISTS idx_meta_quests_owner_id RENAME TO idx_quests_owner_id`,
+			`ALTER INDEX IF EXISTS idx_quest_versions_meta_quest_id RENAME TO idx_quest_versions_quest_id`,
+			`ALTER INDEX IF EXISTS idx_user_meta_quest RENAME TO idx_user_quest`,
+			`ALTER INDEX IF EXISTS idx_user_meta_quest_state_meta RENAME TO idx_user_quest_state_quest`,
+			`ALTER INDEX IF EXISTS idx_user_meta_quest_state_meta_quest_id RENAME TO idx_user_quest_state_quest_id`,
+			`ALTER INDEX IF EXISTS idx_user_meta_quest_state_next_due RENAME TO idx_user_quest_state_next_due`,
+			`ALTER INDEX IF EXISTS idx_user_meta_quest_state_user_id RENAME TO idx_user_quest_state_user_id`,
+			`ALTER INDEX IF EXISTS idx_quest_events_meta_quest_id RENAME TO idx_quest_events_quest_id`,
+			`ALTER INDEX IF EXISTS idx_quest_events_user_meta RENAME TO idx_quest_events_user_quest`,
+		}
+		for _, statement := range statements {
+			if err := tx.Exec(statement).Error; err != nil {
+				return fmt.Errorf("%w (statement: %s)", err, statement)
+			}
+		}
+		return nil
+	})
+}
 
 // ensureModernSchema migrates existing databases to the standardized SRS
 // schema (2026-07 modernization):
@@ -34,7 +136,7 @@ func ensureModernSchema(db *gorm.DB) {
 		`ALTER TABLE domain_node_codes DROP CONSTRAINT IF EXISTS domain_node_codes_node_type_check;`,
 		`UPDATE domain_node_codes SET node_type = 'definition' WHERE node_type = 'meta_definition';`,
 		`UPDATE domain_node_codes SET node_type = 'exercise' WHERE node_type = 'meta_exercise';`,
-		`ALTER TABLE domain_node_codes ADD CONSTRAINT domain_node_codes_node_type_check CHECK (node_type IN ('definition','exercise','source','meta_quest'));`,
+		`ALTER TABLE domain_node_codes ADD CONSTRAINT domain_node_codes_node_type_check CHECK (node_type IN ('definition','exercise','source','quest'));`,
 
 		`ALTER TABLE node_relations DROP CONSTRAINT IF EXISTS node_relations_from_type_check;`,
 		`ALTER TABLE node_relations DROP CONSTRAINT IF EXISTS node_relations_to_type_check;`,
@@ -42,8 +144,8 @@ func ensureModernSchema(db *gorm.DB) {
 		`UPDATE node_relations SET from_type = 'exercise' WHERE from_type = 'meta_exercise';`,
 		`UPDATE node_relations SET to_type = 'definition' WHERE to_type = 'meta_definition';`,
 		`UPDATE node_relations SET to_type = 'exercise' WHERE to_type = 'meta_exercise';`,
-		`ALTER TABLE node_relations ADD CONSTRAINT node_relations_from_type_check CHECK (from_type IN ('definition','exercise','source','meta_quest'));`,
-		`ALTER TABLE node_relations ADD CONSTRAINT node_relations_to_type_check CHECK (to_type IN ('definition','exercise','source','meta_quest'));`,
+		`ALTER TABLE node_relations ADD CONSTRAINT node_relations_from_type_check CHECK (from_type IN ('definition','exercise','source','quest'));`,
+		`ALTER TABLE node_relations ADD CONSTRAINT node_relations_to_type_check CHECK (to_type IN ('definition','exercise','source','quest'));`,
 
 		`ALTER TABLE node_group_seeds DROP CONSTRAINT IF EXISTS node_group_seeds_node_type_check;`,
 		`ALTER TABLE node_group_members DROP CONSTRAINT IF EXISTS node_group_members_node_type_check;`,

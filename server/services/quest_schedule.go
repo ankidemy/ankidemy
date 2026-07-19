@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -19,6 +20,7 @@ type RRuleSchedule struct {
 	Timezone             string   `json:"timezone"`
 	Dtstart              string   `json:"dtstart"`
 	RRule                string   `json:"rrule"`
+	OrgRepeaterMode      string   `json:"orgRepeaterMode,omitempty"`
 	Exdate               []string `json:"exdate"`
 	Rdate                []string `json:"rdate"`
 	DefaultSnoozeMinutes int      `json:"defaultSnoozeMinutes"`
@@ -29,6 +31,7 @@ type HabitSchedule struct {
 	Timezone                           string `json:"timezone"`
 	Dtstart                            string `json:"dtstart"`
 	RRule                              string `json:"rrule"`
+	OrgRepeaterMode                    string `json:"orgRepeaterMode,omitempty"`
 	RequiredCompletionsPerPeriod       int    `json:"requiredCompletionsPerPeriod"`
 	Period                             string `json:"period"`
 	ConsecutivePeriodsToAutoDeactivate int    `json:"consecutivePeriodsToAutoDeactivate"`
@@ -37,6 +40,9 @@ type HabitSchedule struct {
 type DailyPoolSchedule struct {
 	Type                 string `json:"type"`
 	Timezone             string `json:"timezone"`
+	Dtstart              string `json:"dtstart,omitempty"`
+	RRule                string `json:"rrule,omitempty"`
+	OrgRepeaterMode      string `json:"orgRepeaterMode,omitempty"`
 	CooldownDaysOverride *int   `json:"cooldownDaysOverride"`
 }
 
@@ -78,6 +84,9 @@ func parseDailySchedule(raw json.RawMessage) (*DailyPoolSchedule, error) {
 func parseScheduleTime(value string, loc *time.Location) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, errors.New("dtstart missing")
+	}
+	if loc == nil {
+		return time.Time{}, errors.New("schedule timezone location missing")
 	}
 	if t, err := time.Parse(time.RFC3339, value); err == nil {
 		return t.In(loc), nil
@@ -375,6 +384,45 @@ func nextOccurrence(spec rruleSpec, dtstart time.Time, after time.Time, exdates 
 	return candidate
 }
 
+// nextRestartOccurrence implements Org's .+ repeater: move by one configured
+// interval from the completion date while retaining the authored clock time.
+// Unlike RRULE traversal, the original weekday/day-of-month anchor is ignored.
+func nextRestartOccurrence(spec rruleSpec, dtstart time.Time, completed time.Time) *time.Time {
+	loc := dtstart.Location()
+	completed = completed.In(loc)
+	interval := spec.interval
+	if interval <= 0 {
+		interval = 1
+	}
+	year, month, day := completed.Date()
+	target := time.Date(year, month, day, dtstart.Hour(), dtstart.Minute(), dtstart.Second(), 0, loc)
+	switch strings.ToUpper(strings.TrimSpace(spec.freq)) {
+	case "WEEKLY":
+		target = target.AddDate(0, 0, 7*interval)
+	case "MONTHLY":
+		target = target.AddDate(0, interval, 0)
+	case "YEARLY":
+		target = target.AddDate(interval, 0, 0)
+	default:
+		target = target.AddDate(0, 0, interval)
+	}
+	return &target
+}
+
+func nextScheduledOccurrence(spec rruleSpec, dtstart time.Time, completed time.Time, previousDue *time.Time, mode string, exdates []time.Time, rdates []time.Time) *time.Time {
+	switch mode {
+	case ".+":
+		return nextRestartOccurrence(spec, dtstart, completed)
+	case "+":
+		if previousDue != nil {
+			return nextOccurrence(spec, dtstart, previousDue.In(dtstart.Location()), exdates, rdates)
+		}
+	}
+	// Org ++ and schedules without imported Org semantics catch up to the first
+	// occurrence after completion/current time.
+	return nextOccurrence(spec, dtstart, completed, exdates, rdates)
+}
+
 func parseDateList(values []string, loc *time.Location) []time.Time {
 	out := make([]time.Time, 0, len(values))
 	for _, v := range values {
@@ -393,11 +441,19 @@ func parseDateList(values []string, loc *time.Location) []time.Time {
 	return out
 }
 
-func coalesceTimezone(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "UTC"
+func resolveTimezone(value string, fallback *time.Location) (*time.Location, error) {
+	if fallback == nil {
+		fallback = time.UTC
 	}
-	return value
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "local") {
+		return fallback, nil
+	}
+	loc, err := time.LoadLocation(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timezone %q: %w", value, err)
+	}
+	return loc, nil
 }
 
 func daysBetween(a time.Time, b time.Time) int {

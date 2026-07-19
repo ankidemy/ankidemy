@@ -244,7 +244,7 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 	}
 
 	// Get quests visible to user
-	var quests []models.MetaQuest
+	var quests []models.Quest
 	if err := d.db.Where("domain_id = ? AND (visibility = 'domain' OR owner_id = ?)", domainID, userID).Find(&quests).Error; err != nil {
 		return nil, err
 	}
@@ -400,7 +400,7 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 		"definition": {},
 		"exercise":   {},
 		"source":     {},
-		"meta_quest": {},
+		"quest":      {},
 	}
 	for _, md := range metaDefs {
 		visible["definition"][md.ID] = true
@@ -412,7 +412,7 @@ func (d *GraphDAO) GetVisualGraph(domainID uint, userID uint) (*VisualGraph, err
 		visible["source"][s.ID] = true
 	}
 	for _, q := range quests {
-		visible["meta_quest"][q.ID] = true
+		visible["quest"][q.ID] = true
 	}
 
 	for _, rel := range relations {
@@ -443,7 +443,7 @@ func formatNodeID(nodeType string, nodeID uint) string {
 		return fmt.Sprintf("ex_%d", nodeID)
 	case "source":
 		return fmt.Sprintf("src_%d", nodeID)
-	case "meta_quest":
+	case "quest":
 		return fmt.Sprintf("quest_%d", nodeID)
 	default:
 		return ""
@@ -1085,7 +1085,7 @@ func (d *GraphDAO) UpdateGraphPositions(positionUpdates map[string]struct{ X, Y 
 		"def":   "meta_definitions",
 		"ex":    "meta_exercises",
 		"src":   "sources",
-		"quest": "meta_quests",
+		"quest": "quests",
 	}
 
 	for nodeID, pos := range positionUpdates {

@@ -88,14 +88,14 @@ export interface SourceNode {
 
 export interface QuestVersion {
   id?: number;
-  metaQuestId?: number;
+  questId?: number;
   title: string;
   descriptionMd?: string;
   taskList?: any;
   imagePath?: string | null;
 }
 
-export interface MetaQuest {
+export interface Quest {
   id?: number;
   code: string;
   name?: string;
@@ -115,9 +115,9 @@ export interface MetaQuest {
 export interface NodeRelation {
   id?: number;
   domainId?: number;
-  fromType: 'definition' | 'exercise' | 'source' | 'meta_quest';
+  fromType: 'definition' | 'exercise' | 'source' | 'quest';
   fromId: number;
-  toType: 'definition' | 'exercise' | 'source' | 'meta_quest';
+  toType: 'definition' | 'exercise' | 'source' | 'quest';
   toId: number;
   relationType: string;
   contextKey?: string;
@@ -182,7 +182,7 @@ export interface GraphData {
   definitions: Record<string, Definition>; // Keyed by definition CODE
   exercises: Record<string, Exercise>;   // Keyed by exercise CODE
   sources?: Record<string, SourceNode>;
-  quests?: Record<string, MetaQuest>;
+  quests?: Record<string, Quest>;
   relations?: Array<{ fromCode: string; toCode: string; relationType?: string }>;
 }
 

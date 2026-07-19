@@ -11,7 +11,7 @@ import DomainSelector from './DomainSelector';
 import NotificationCenter from '@/app/components/Notifications/NotificationCenter';
 import { getQuest, getSurveyQueue, postSurveyEvent, SurveyQueueItem } from '@/lib/api';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
-import type { MetaQuestDTO } from '@/lib/api';
+import type { QuestDTO } from '@/lib/api';
 import { showToast } from '@/app/components/core/ToastNotification';
 import { APP_PREFERENCES_UPDATED_EVENT } from '@/lib/app-preferences';
 import ExplorerFontSizeOptionsSection from '@/app/components/core/ExplorerFontSizeOptionsSection';
@@ -70,7 +70,7 @@ interface TopControlsProps {
   surveyDueCount?: number;
   onSurveyDueCountUpdated?: (count: number) => void;
   onSurveyQueueUpdated?: (items: SurveyQueueItem[]) => void;
-  onSurveyQuestUpdated?: (updated: MetaQuestDTO) => void;
+  onSurveyQuestUpdated?: (updated: QuestDTO) => void;
   
   // Graph state info (dev)
   graphDimensions?: { width: number; height: number; availableWidth: number; availableHeight: number };
@@ -371,7 +371,7 @@ const TopControls: React.FC<TopControlsProps> = ({
     setSurveyCompletingQuestId(item.questId);
     try {
       await postSurveyEvent({
-        metaQuestId: item.questId,
+        questId: item.questId,
         eventType: 'completed',
         questVersionId: item.selectedVersionId,
       });

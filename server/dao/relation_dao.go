@@ -3,8 +3,8 @@ package dao
 import (
 	"strconv"
 
-	"gorm.io/gorm"
 	"ankidemy/server/models"
+	"gorm.io/gorm"
 )
 
 // NodeRelationDAO handles typed relations between nodes.
@@ -40,10 +40,10 @@ func (d *NodeRelationDAO) ListByDomain(domainID uint) ([]models.NodeRelation, er
 	return relations, nil
 }
 
-func (d *NodeRelationDAO) ReplaceQuestVersionRelations(domainID uint, metaQuestID uint, versionID uint, relations []models.NodeRelation) error {
+func (d *NodeRelationDAO) ReplaceQuestVersionRelations(domainID uint, questID uint, versionID uint, relations []models.NodeRelation) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		contextKey := "quest_version:" + strconv.FormatUint(uint64(versionID), 10)
-		if err := tx.Where("domain_id = ? AND from_type = ? AND from_id = ? AND context_key = ?", domainID, "meta_quest", metaQuestID, contextKey).
+		if err := tx.Where("domain_id = ? AND from_type = ? AND from_id = ? AND context_key = ?", domainID, "quest", questID, contextKey).
 			Delete(&models.NodeRelation{}).Error; err != nil {
 			return err
 		}
@@ -60,6 +60,18 @@ func (d *NodeRelationDAO) ReplaceQuestVersionRelations(domainID uint, metaQuestI
 func (d *NodeRelationDAO) ListByContext(domainID uint, contextKey string) ([]models.NodeRelation, error) {
 	var relations []models.NodeRelation
 	if err := d.db.Where("domain_id = ? AND context_key = ?", domainID, contextKey).Find(&relations).Error; err != nil {
+		return nil, err
+	}
+	return relations, nil
+}
+
+func (d *NodeRelationDAO) ListQuestRelevant(domainID uint, questID uint, versionID uint) ([]models.NodeRelation, error) {
+	contextKey := "quest_version:" + strconv.FormatUint(uint64(versionID), 10)
+	var relations []models.NodeRelation
+	if err := d.db.Where(
+		"domain_id = ? AND from_type = 'quest' AND from_id = ? AND context_key IN ?",
+		domainID, questID, []string{"", "content-import", contextKey},
+	).Find(&relations).Error; err != nil {
 		return nil, err
 	}
 	return relations, nil

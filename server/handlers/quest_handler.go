@@ -14,7 +14,7 @@ import (
 )
 
 type QuestHandler struct {
-	metaQuestDAO  *dao.MetaQuestDAO
+	questDAO      *dao.QuestDAO
 	domainDAO     *dao.DomainDAO
 	permissionDAO *dao.DomainPermissionDAO
 	codeRegistry  *dao.CodeRegistryDAO
@@ -22,9 +22,9 @@ type QuestHandler struct {
 	surveyService *services.SurveyService
 }
 
-func NewQuestHandler(metaQuestDAO *dao.MetaQuestDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, registry *dao.CodeRegistryDAO, relationDAO *dao.NodeRelationDAO, surveyService *services.SurveyService) *QuestHandler {
+func NewQuestHandler(questDAO *dao.QuestDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, registry *dao.CodeRegistryDAO, relationDAO *dao.NodeRelationDAO, surveyService *services.SurveyService) *QuestHandler {
 	return &QuestHandler{
-		metaQuestDAO:  metaQuestDAO,
+		questDAO:      questDAO,
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
 		codeRegistry:  registry,
@@ -40,16 +40,16 @@ func (h *QuestHandler) ListVisibleQuests(c *gin.Context) {
 		return
 	}
 
-	quests, err := h.metaQuestDAO.ListVisible(access.Domain.ID, access.UserID)
+	quests, err := h.questDAO.ListVisible(access.Domain.ID, access.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load quests"})
 		return
 	}
 
-	responses := make([]models.MetaQuestResponse, 0, len(quests))
+	responses := make([]models.QuestResponse, 0, len(quests))
 	for _, q := range quests {
-		state, _ := h.metaQuestDAO.EnsureUserState(access.UserID, q.ID)
-		resp := models.MetaQuestResponse{
+		state, _ := h.questDAO.EnsureUserState(access.UserID, q.ID)
+		resp := models.QuestResponse{
 			ID:         q.ID,
 			DomainID:   q.DomainID,
 			OwnerID:    q.OwnerID,
@@ -77,7 +77,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		return
 	}
 
-	var req models.MetaQuestCreateRequest
+	var req models.QuestCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -135,7 +135,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		}
 	}
 
-	meta := &models.MetaQuest{
+	meta := &models.Quest{
 		DomainID:   access.Domain.ID,
 		OwnerID:    access.UserID,
 		Code:       code,
@@ -155,7 +155,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		version.TaskList = *req.InitialVersion.TaskList
 	}
 
-	if err := h.metaQuestDAO.Create(meta, version, access.UserID); err != nil {
+	if err := h.questDAO.Create(meta, version, access.UserID); err != nil {
 		if errors.Is(err, dao.ErrCodeConflict) {
 			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", code)})
 			return
@@ -164,7 +164,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		return
 	}
 
-	resp := models.MetaQuestResponse{
+	resp := models.QuestResponse{
 		ID:         meta.ID,
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,
@@ -181,7 +181,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 		Versions: []models.QuestVersionResponse{
 			{
 				ID:            version.ID,
-				MetaQuestID:   meta.ID,
+				QuestID:       meta.ID,
 				Title:         version.Title,
 				DescriptionMd: version.DescriptionMd,
 				TaskList:      version.TaskList,
@@ -193,7 +193,7 @@ func (h *QuestHandler) CreateQuest(c *gin.Context) {
 	}
 	// Populate NextDueAt immediately for the creator.
 	if h.surveyService != nil {
-		if state, err := h.metaQuestDAO.EnsureUserState(access.UserID, meta.ID); err == nil && state != nil {
+		if state, err := h.questDAO.EnsureUserState(access.UserID, meta.ID); err == nil && state != nil {
 			if updated, err := h.surveyService.EnsureQuestNextDue(access.UserID, meta, state); err == nil && updated != nil {
 				resp.NextDueAt = updated.NextDueAt
 			}
@@ -209,7 +209,7 @@ func (h *QuestHandler) GetQuest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	meta, versions, err := h.metaQuestDAO.FindByID(uint(id64))
+	meta, versions, err := h.questDAO.FindByID(uint(id64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -238,13 +238,13 @@ func (h *QuestHandler) GetQuest(c *gin.Context) {
 		return
 	}
 
-	state, _ := h.metaQuestDAO.EnsureUserState(userID, meta.ID)
+	state, _ := h.questDAO.EnsureUserState(userID, meta.ID)
 	if h.surveyService != nil {
 		if updated, err := h.surveyService.EnsureQuestNextDue(userID, meta, state); err == nil && updated != nil {
 			state = updated
 		}
 	}
-	resp := models.MetaQuestResponse{
+	resp := models.QuestResponse{
 		ID:         meta.ID,
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,
@@ -265,7 +265,7 @@ func (h *QuestHandler) GetQuest(c *gin.Context) {
 		for _, v := range versions {
 			resp.Versions = append(resp.Versions, models.QuestVersionResponse{
 				ID:            v.ID,
-				MetaQuestID:   v.MetaQuestID,
+				QuestID:       v.QuestID,
 				Title:         v.Title,
 				DescriptionMd: v.DescriptionMd,
 				TaskList:      v.TaskList,
@@ -285,7 +285,7 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(uint(id64))
+	meta, _, err := h.questDAO.FindByID(uint(id64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -295,7 +295,7 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 		return
 	}
 
-	var req models.MetaQuestUpdateRequest
+	var req models.QuestUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -362,7 +362,7 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 		meta.YPosition = *req.YPosition
 	}
 
-	if err := h.metaQuestDAO.Update(meta, codeChanged); err != nil {
+	if err := h.questDAO.Update(meta, codeChanged); err != nil {
 		if errors.Is(err, dao.ErrCodeConflict) {
 			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("A node with code '%s' already exists in this domain.", meta.Code)})
 			return
@@ -372,23 +372,23 @@ func (h *QuestHandler) UpdateQuest(c *gin.Context) {
 	}
 
 	if req.Active != nil {
-		state, err := h.metaQuestDAO.EnsureUserState(access.UserID, meta.ID)
+		state, err := h.questDAO.EnsureUserState(access.UserID, meta.ID)
 		if err == nil {
 			state.Active = *req.Active
 			if !state.Active {
 				state.NextDueAt = nil
 			}
-			_ = h.metaQuestDAO.UpdateUserState(state)
+			_ = h.questDAO.UpdateUserState(state)
 		}
 	}
 
-	state, _ := h.metaQuestDAO.EnsureUserState(access.UserID, meta.ID)
+	state, _ := h.questDAO.EnsureUserState(access.UserID, meta.ID)
 	if h.surveyService != nil {
 		if updated, err := h.surveyService.EnsureQuestNextDue(access.UserID, meta, state); err == nil && updated != nil {
 			state = updated
 		}
 	}
-	resp := models.MetaQuestResponse{
+	resp := models.QuestResponse{
 		ID:         meta.ID,
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,
@@ -414,7 +414,7 @@ func (h *QuestHandler) DeleteQuest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(uint(id64))
+	meta, _, err := h.questDAO.FindByID(uint(id64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -423,7 +423,7 @@ func (h *QuestHandler) DeleteQuest(c *gin.Context) {
 		return
 	}
 
-	if err := h.metaQuestDAO.Delete(meta); err != nil {
+	if err := h.questDAO.Delete(meta); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete quest"})
 		return
 	}
@@ -437,7 +437,7 @@ func (h *QuestHandler) AddVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(uint(id64))
+	meta, _, err := h.questDAO.FindByID(uint(id64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -458,7 +458,7 @@ func (h *QuestHandler) AddVersion(c *gin.Context) {
 	}
 
 	version := &models.QuestVersion{
-		MetaQuestID:   meta.ID,
+		QuestID:       meta.ID,
 		Title:         title,
 		DescriptionMd: req.DescriptionMd,
 		ImagePath:     req.ImagePath,
@@ -466,13 +466,13 @@ func (h *QuestHandler) AddVersion(c *gin.Context) {
 	if req.TaskList != nil {
 		version.TaskList = *req.TaskList
 	}
-	if err := h.metaQuestDAO.AddVersion(meta.ID, version); err != nil {
+	if err := h.questDAO.AddVersion(meta.ID, version); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create version"})
 		return
 	}
 	resp := models.QuestVersionResponse{
 		ID:            version.ID,
-		MetaQuestID:   meta.ID,
+		QuestID:       meta.ID,
 		Title:         version.Title,
 		DescriptionMd: version.DescriptionMd,
 		TaskList:      version.TaskList,
@@ -490,12 +490,12 @@ func (h *QuestHandler) UpdateVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID"})
 		return
 	}
-	version, err := h.metaQuestDAO.FindVersionByID(uint(versionID64))
+	version, err := h.questDAO.FindVersionByID(uint(versionID64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(version.MetaQuestID)
+	meta, _, err := h.questDAO.FindByID(version.QuestID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -521,13 +521,13 @@ func (h *QuestHandler) UpdateVersion(c *gin.Context) {
 	if req.ImagePath != nil {
 		version.ImagePath = req.ImagePath
 	}
-	if err := h.metaQuestDAO.UpdateVersion(version); err != nil {
+	if err := h.questDAO.UpdateVersion(version); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update version"})
 		return
 	}
 	resp := models.QuestVersionResponse{
 		ID:            version.ID,
-		MetaQuestID:   version.MetaQuestID,
+		QuestID:       version.QuestID,
 		Title:         version.Title,
 		DescriptionMd: version.DescriptionMd,
 		TaskList:      version.TaskList,
@@ -545,12 +545,12 @@ func (h *QuestHandler) DeleteVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID"})
 		return
 	}
-	version, err := h.metaQuestDAO.FindVersionByID(uint(versionID64))
+	version, err := h.questDAO.FindVersionByID(uint(versionID64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(version.MetaQuestID)
+	meta, _, err := h.questDAO.FindByID(version.QuestID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -559,7 +559,7 @@ func (h *QuestHandler) DeleteVersion(c *gin.Context) {
 		return
 	}
 
-	if err := h.metaQuestDAO.DeleteVersion(version.ID); err != nil {
+	if err := h.questDAO.DeleteVersion(version.ID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -578,7 +578,7 @@ func (h *QuestHandler) UpdateRelevantLinks(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID"})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(uint(metaID64))
+	meta, _, err := h.questDAO.FindByID(uint(metaID64))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -616,7 +616,7 @@ func (h *QuestHandler) UpdateRelevantLinks(c *gin.Context) {
 		}
 		relation := models.NodeRelation{
 			DomainID:     meta.DomainID,
-			FromType:     "meta_quest",
+			FromType:     "quest",
 			FromID:       meta.ID,
 			ToType:       entry.NodeType,
 			ToID:         entry.NodeID,
@@ -635,7 +635,7 @@ func (h *QuestHandler) UpdateRelevantLinks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Relations updated"})
 }
 
-func (h *QuestHandler) requireQuestMutationAccess(c *gin.Context, meta *models.MetaQuest) (*domainAccessContext, bool) {
+func (h *QuestHandler) requireQuestMutationAccess(c *gin.Context, meta *models.Quest) (*domainAccessContext, bool) {
 	domain, err := h.domainDAO.FindByID(meta.DomainID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Domain not found"})
@@ -656,7 +656,7 @@ func (h *QuestHandler) requireQuestMutationAccess(c *gin.Context, meta *models.M
 		return nil, false
 	}
 	allowed, err := canMutateVisibilityScopedNode(domain, &resolvedNodeAccess{
-		NodeType:   "meta_quest",
+		NodeType:   "quest",
 		NodeID:     meta.ID,
 		DomainID:   meta.DomainID,
 		OwnerID:    meta.OwnerID,

@@ -105,7 +105,7 @@ func planContentNodePositions(tx *gorm.DB, binding *models.ContentBinding, snaps
 		}
 		return result, nil
 	}
-	tables := map[string]string{"source": "sources", "definition": "meta_definitions", "exercise": "meta_exercises", "quest": "meta_quests"}
+	tables := map[string]string{"source": "sources", "definition": "meta_definitions", "exercise": "meta_exercises", "quest": "quests"}
 	positionsByType := map[string]map[uint]contentPosition{}
 	for nodeType, table := range tables {
 		positions, err := load(table)
@@ -431,8 +431,8 @@ func restoreContentRow(tx *gorm.DB, table string, rowID uint) error {
 		model = &models.MetaExercise{}
 	case "exercises":
 		model = &models.Exercise{}
-	case "meta_quests":
-		model = &models.MetaQuest{}
+	case "quests":
+		model = &models.Quest{}
 	case "quest_versions":
 		model = &models.QuestVersion{}
 	default:
@@ -503,24 +503,24 @@ func upsertContentNodeRow(tx *gorm.DB, binding *models.ContentBinding, node Cont
 		}
 		return row.ID, "meta_exercises", false, nil
 	case "quest":
-		row := models.MetaQuest{DomainID: binding.DomainID, OwnerID: binding.OwnerID, Code: node.Code, Name: node.Name, Kind: node.Quest.Kind, Schedule: node.Quest.Schedule, Visibility: "private", XPosition: x, YPosition: y}
+		row := models.Quest{DomainID: binding.DomainID, OwnerID: binding.OwnerID, Code: node.Code, Name: node.Name, Kind: node.Quest.Kind, Schedule: node.Quest.Schedule, Visibility: "private", XPosition: x, YPosition: y}
 		if entity == nil {
 			if err := tx.Create(&row).Error; err != nil {
 				return 0, "", false, err
 			}
-			return row.ID, "meta_quests", true, nil
+			return row.ID, "quests", true, nil
 		}
 		row.ID = entity.RowID
-		if err := restoreContentRow(tx, "meta_quests", row.ID); err != nil {
+		if err := restoreContentRow(tx, "quests", row.ID); err != nil {
 			return 0, "", false, err
 		}
-		if err := tx.Model(&models.MetaQuest{}).Where("id = ?", row.ID).Updates(map[string]any{
+		if err := tx.Model(&models.Quest{}).Where("id = ?", row.ID).Updates(map[string]any{
 			"domain_id": binding.DomainID, "owner_id": binding.OwnerID, "code": node.Code,
 			"name": node.Name, "kind": node.Quest.Kind, "schedule": node.Quest.Schedule,
 		}).Error; err != nil {
 			return 0, "", false, err
 		}
-		return row.ID, "meta_quests", false, nil
+		return row.ID, "quests", false, nil
 	default:
 		return 0, "", false, fmt.Errorf("unsupported node type %s", node.Type)
 	}
@@ -612,7 +612,7 @@ func reconcileQuestVersion(tx *gorm.DB, binding *models.ContentBinding, node Con
 	if unchangedContentVersion(entity, hash, seen) {
 		return nil
 	}
-	row := models.QuestVersion{MetaQuestID: owner.RowID, Title: node.Name, DescriptionMd: node.Quest.DescriptionMD, TaskList: node.Quest.TaskList}
+	row := models.QuestVersion{QuestID: owner.RowID, Title: node.Name, DescriptionMd: node.Quest.DescriptionMD, TaskList: node.Quest.TaskList}
 	if entity != nil {
 		row.ID = entity.RowID
 		if err := restoreContentRow(tx, "quest_versions", row.ID); err != nil {
@@ -667,8 +667,8 @@ func retireContentEntity(tx *gorm.DB, entity *models.ContentEntity) error {
 		model = &models.MetaExercise{}
 	case "exercises":
 		model = &models.Exercise{}
-	case "meta_quests":
-		model = &models.MetaQuest{}
+	case "quests":
+		model = &models.Quest{}
 	case "quest_versions":
 		model = &models.QuestVersion{}
 	default:
@@ -788,7 +788,7 @@ func reconcileContentEdges(tx *gorm.DB, binding *models.ContentBinding, edges []
 
 func contentRelationType(nodeType string) string {
 	if nodeType == "quest" {
-		return "meta_quest"
+		return "quest"
 	}
 	return nodeType
 }

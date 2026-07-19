@@ -111,7 +111,7 @@ export const buildExportDataForCodes = async (
     throw new Error('Select definition, exercise, source, or quest nodes to export.');
   }
 
-  const [metaDefinitionEntries, metaExerciseEntries, metaQuestEntries, domainRelations] = await Promise.all([
+  const [metaDefinitionEntries, metaExerciseEntries, questEntries, domainRelations] = await Promise.all([
     Promise.all(
       Array.from(selectedDefinitionCodes).map(async (code) => {
         const metaId = codeToNumericIdMap.get(code);
@@ -138,8 +138,8 @@ export const buildExportDataForCodes = async (
         if (!questId) {
           throw new Error(`Missing metadata for quest "${code}".`);
         }
-        const metaQuest = await getQuest(questId);
-        return [code, metaQuest] as const;
+        const quest = await getQuest(questId);
+        return [code, quest] as const;
       })
     ),
     getDomainRelations(domainId),
@@ -237,28 +237,28 @@ export const buildExportDataForCodes = async (
     }
   }
 
-  if (metaQuestEntries.length > 0) {
-    const metaQuests: NonNullable<DomainExportData['metaQuests']> = {};
-    metaQuestEntries.forEach(([code, metaQuest]) => {
-      const rawVersions: Array<Partial<QuestVersionDTO>> = Array.isArray(metaQuest.versions) && metaQuest.versions.length > 0
-        ? metaQuest.versions
-        : [{ title: metaQuest.name || metaQuest.code }];
-      metaQuests[code] = {
-        code: metaQuest.code,
-        name: metaQuest.name,
-        kind: metaQuest.kind,
-        schedule: metaQuest.schedule,
-        xPosition: metaQuest.xPosition,
-        yPosition: metaQuest.yPosition,
+  if (questEntries.length > 0) {
+    const quests: NonNullable<DomainExportData['quests']> = {};
+    questEntries.forEach(([code, quest]) => {
+      const rawVersions: Array<Partial<QuestVersionDTO>> = Array.isArray(quest.versions) && quest.versions.length > 0
+        ? quest.versions
+        : [{ title: quest.name || quest.code }];
+      quests[code] = {
+        code: quest.code,
+        name: quest.name,
+        kind: quest.kind,
+        schedule: quest.schedule,
+        xPosition: quest.xPosition,
+        yPosition: quest.yPosition,
         versions: rawVersions.map(version => ({
-          title: (version.title || '').trim() || metaQuest.name || metaQuest.code,
+          title: (version.title || '').trim() || quest.name || quest.code,
           descriptionMd: version.descriptionMd || undefined,
           taskList: version.taskList,
           imagePath: version.imagePath || undefined,
         })),
       };
     });
-    exportData.metaQuests = metaQuests;
+    exportData.quests = quests;
   }
 
   const selectedCodeByTypedId = new Map<string, string>();
@@ -276,7 +276,7 @@ export const buildExportDataForCodes = async (
   });
   Array.from(selectedQuestCodes).forEach(code => {
     const id = graphData.quests?.[code]?.id;
-    if (id) selectedCodeByTypedId.set(`meta_quest:${id}`, code);
+    if (id) selectedCodeByTypedId.set(`quest:${id}`, code);
   });
 
   const relations = domainRelations.reduce<NonNullable<DomainExportData['relations']>>((acc, relation) => {
@@ -332,7 +332,7 @@ export const buildExportDataForCodes = async (
     Object.keys(exportData.metaDefinitions || {}).length +
     Object.keys(exportData.metaExercises || {}).length +
     Object.keys(exportData.sources || {}).length +
-    Object.keys(exportData.metaQuests || {}).length;
+    Object.keys(exportData.quests || {}).length;
 
   if (exportedNodeCount === 0) {
     throw new Error('No exportable nodes were found in the current selection.');

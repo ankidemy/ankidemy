@@ -23,6 +23,19 @@
   "Timezone used for quest timestamps, or nil for the Emacs local timezone."
   :type '(choice (const :tag "Emacs local timezone" nil) string))
 
+(defun ankidemy-org--effective-timezone ()
+  "Return an explicit IANA timezone when the local zone can be identified."
+  (or ankidemy-org-timezone
+      (let ((environment-zone (getenv "TZ")))
+        (when (and environment-zone (not (string-empty-p environment-zone)))
+          (string-remove-prefix ":" environment-zone)))
+      (condition-case nil
+          (let ((localtime (file-truename "/etc/localtime")))
+            (when (string-match "/zoneinfo/\\(.+\\)\\'" localtime)
+              (match-string 1 localtime)))
+        (error nil))
+      "local"))
+
 (defconst ankidemy-org--image-extensions
   '("avif" "gif" "jpeg" "jpg" "png" "svg" "webp")
   "Local file extensions treated as image assets.")
@@ -399,7 +412,23 @@ first outline node when a file has no document-level drawer."
       (list "" nil)
     (let* ((begin (org-element-property :begin section))
            (end (org-element-property :end section))
-           (org-text (buffer-substring-no-properties begin end))
+           ;; A detached section no longer gives Org's exporter the headline
+           ;; context it needs to recognize planning/property syntax. Remove
+           ;; those direct structural elements before exporting so timestamps
+           ;; and node properties never become user-facing Markdown.
+           (cursor begin)
+           chunks
+           (org-text
+            (progn
+              (dolist (element (org-element-contents section))
+                (when (memq (org-element-type element)
+                            '(planning property-drawer))
+                  (push (buffer-substring-no-properties
+                         cursor (org-element-property :begin element))
+                        chunks)
+                  (setq cursor (org-element-property :end element))))
+              (push (buffer-substring-no-properties cursor end) chunks)
+              (apply #'concat (nreverse chunks))))
            (markdown (string-trim
                       (org-export-string-as org-text 'md t
                                             '(:with-toc nil :with-tags nil
@@ -457,10 +486,11 @@ first outline node when a file has no document-level drawer."
                                     file (ankidemy-org--line headline) 1 source-id))
       (pcase-let* ((`(,year ,month ,day ,hour ,minute)
                      (ankidemy-org--timestamp-components timestamp))
+                    (timezone (ankidemy-org--effective-timezone))
                     (time (encode-time 0 minute hour day month year
-                                       ankidemy-org-timezone))
+                                       timezone))
                     (dtstart (format-time-string "%Y-%m-%dT%H:%M:%S%:z"
-                                                 time ankidemy-org-timezone))
+                                                 time timezone))
                     (repeater-type (org-element-property :repeater-type timestamp))
                     (value (org-element-property :repeater-value timestamp))
                     (unit (org-element-property :repeater-unit timestamp))
@@ -469,14 +499,17 @@ first outline node when a file has no document-level drawer."
         (cond
          ((not repeater-type)
           (list :kind "todo"
-                :schedule (list :type "rrule" :timezone (or ankidemy-org-timezone "local")
+                :schedule (list :type "rrule" :timezone timezone
                                 :dtstart dtstart :rrule "FREQ=DAILY;COUNT=1"
                                 :exdate [] :rdate [] :default-snooze-minutes 120)
                 :org-repeater-mode nil))
          ((and (= value 1) (eq unit 'day))
           (list :kind "daily"
                 :schedule (list :type "daily_pool"
-                                :timezone (or ankidemy-org-timezone "local")
+                                :timezone timezone
+                                :dtstart dtstart
+                                :rrule "FREQ=DAILY;INTERVAL=1"
+                                :org-repeater-mode mode
                                 :cooldown-days-override :json-null)
                 :org-repeater-mode mode))
          (t
@@ -489,16 +522,12 @@ first outline node when a file has no document-level drawer."
                                             (format "Unsupported repeater unit %s" unit)
                                             file (ankidemy-org--line headline) 1 source-id)
                   (list :kind "habit" :schedule nil :org-repeater-mode mode))
-              (when (memq repeater-type '(catch-up restart))
-                (ankidemy-org--push-diag
-                 context "warning" "quest.repeater_semantics_reduced"
-                 "Ankidemy retains but cannot exactly reproduce this Org repeater mode"
-                 file (ankidemy-org--line headline) 1 source-id))
               (list :kind "habit"
                     :schedule (list :type "habit"
-                                    :timezone (or ankidemy-org-timezone "local")
+                                    :timezone timezone
                                     :dtstart dtstart
                                     :rrule (format "FREQ=%s;INTERVAL=%d" frequency value)
+                                    :org-repeater-mode mode
                                     :required-completions-per-period 1
                                     :period (symbol-name unit)
                                     :consecutive-periods-to-auto-deactivate 0)
@@ -605,19 +634,29 @@ first outline node when a file has no document-level drawer."
               :file file :line line)
         (ankidemy-org--context-edges context)))
 
-(defun ankidemy-org--external-edge (context notebook-id external-from to evidence owner file line)
-  "Append an external notebook edge to CONTEXT."
-  (push (list :from-external-provider-notebook-id notebook-id
-              :from-external-source-id external-from :to-source-id to
-              :evidence evidence
-              :owner-source-id owner
-              :evidence-key
-              (format "%s:%s:%s:%s:%s:%d" evidence owner external-from to
-                      (file-relative-name file (ankidemy-org--context-root context)) line)
-              :file file :line line)
+(defun ankidemy-org--external-edge (context notebook-id external-id local-id
+                                            local-from-p evidence owner file line)
+  "Append an external notebook edge to CONTEXT.
+When LOCAL-FROM-P is non-nil the local node points to the external node."
+  (push (append
+         (if local-from-p
+             (list :from-source-id local-id
+                   :to-external-provider-notebook-id notebook-id
+                   :to-external-source-id external-id)
+           (list :from-external-provider-notebook-id notebook-id
+                 :from-external-source-id external-id
+                 :to-source-id local-id))
+         (list :evidence evidence
+               :owner-source-id owner
+               :evidence-key
+               (format "%s:%s:%s:%s:%s:%d" evidence owner
+                       (if local-from-p local-id external-id)
+                       (if local-from-p external-id local-id)
+                       (file-relative-name file (ankidemy-org--context-root context)) line)
+               :file file :line line))
         (ankidemy-org--context-edges context)))
 
-(defun ankidemy-org--collect-links (context headline file owner-id)
+(defun ankidemy-org--collect-links (context headline file owner-id owner-type)
   "Collect ID-link evidence owned by HEADLINE/OWNER-ID."
   (org-element-map headline 'link
     (lambda (link)
@@ -632,13 +671,22 @@ first outline node when a file has no document-level drawer."
             (ankidemy-org--push-diag context "warning" "link.self_ignored"
                                       "Self link does not create an edge"
                                       file line 1 owner-id))
-           (local (ankidemy-org--edge context target owner-id "link" owner-id file line))
+           (local
+            ;; Definitions/exercises use dependency direction (prerequisite ->
+            ;; dependent). Sources and quests use ordinary reference direction
+            ;; (link owner -> target) and materialize as relevant relations.
+            (if (member owner-type '("source" "quest"))
+                (ankidemy-org--edge context owner-id target "link" owner-id file line)
+              (ankidemy-org--edge context target owner-id "link" owner-id file line)))
            (excluded
             (ankidemy-org--push-diag context "warning" "link.target_excluded"
                                       (format "Link target %s is excluded" target)
                                       file line 1 owner-id))
            (external
-            (ankidemy-org--external-edge context external target owner-id "link" owner-id file line))
+            (ankidemy-org--external-edge
+             context external target owner-id
+             (member owner-type '("source" "quest"))
+             "link" owner-id file line))
            (t
             (ankidemy-org--push-diag context "warning" "link.external_id"
                                       (format "ID link target %s is not in an attached notebook" target)
@@ -728,12 +776,15 @@ first outline node when a file has no document-level drawer."
                                         "ANKIDEMY_PARENT conflicts with outline parent"
                                         file line 1 id (list parent-id property-parent)))
              (property-parent
-              (ankidemy-org--edge context
-                                   (string-remove-prefix "id:" property-parent)
-                                   id "hierarchy" id file line))
+              (let ((resolved-parent (string-remove-prefix "id:" property-parent)))
+                (if (string= type "quest")
+                    (ankidemy-org--edge context id resolved-parent "hierarchy" id file line)
+                  (ankidemy-org--edge context resolved-parent id "hierarchy" id file line))))
              (parent-id
-              (ankidemy-org--edge context parent-id id "hierarchy" id file line))))
-          (ankidemy-org--collect-links context headline file id)
+              (if (string= type "quest")
+                  (ankidemy-org--edge context id parent-id "hierarchy" id file line)
+                (ankidemy-org--edge context parent-id id "hierarchy" id file line)))))
+          (ankidemy-org--collect-links context headline file id type)
           (setq next-parent id))))
     ;; Explicit opt-out excludes only this entity; descendants retain the nearest
     ;; previously imported parent.
@@ -863,7 +914,7 @@ When EXTERNAL-NOTEBOOK-ID is non-nil, IDs map to that notebook boundary."
                       (ankidemy-org--context-nodes context))
                 (setf (ankidemy-org--context-assets context)
                       (append (cadr export) (ankidemy-org--context-assets context)))
-                (ankidemy-org--collect-links context section file file-id)
+                (ankidemy-org--collect-links context section file file-id "source")
                 (setq parent-id file-id))))
           (dolist (headline (ankidemy-org--immediate-headlines tree))
             (ankidemy-org--process-headline context headline file parent-id))))

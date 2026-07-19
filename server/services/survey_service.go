@@ -3,8 +3,8 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
-	"strconv"
 	"time"
 
 	"ankidemy/server/dao"
@@ -34,7 +34,7 @@ type RelationNodeRef struct {
 
 type SurveyService struct {
 	db              *gorm.DB
-	metaQuestDAO    *dao.MetaQuestDAO
+	questDAO        *dao.QuestDAO
 	relationDAO     *dao.NodeRelationDAO
 	settingsDAO     *dao.UserDomainSettingsDAO
 	codeRegistryDAO *dao.CodeRegistryDAO
@@ -43,7 +43,7 @@ type SurveyService struct {
 func NewSurveyService(db *gorm.DB) *SurveyService {
 	return &SurveyService{
 		db:              db,
-		metaQuestDAO:    dao.NewMetaQuestDAO(db),
+		questDAO:        dao.NewQuestDAO(db),
 		relationDAO:     dao.NewNodeRelationDAO(db),
 		settingsDAO:     dao.NewUserDomainSettingsDAO(db),
 		codeRegistryDAO: dao.NewCodeRegistryDAO(db),
@@ -52,7 +52,7 @@ func NewSurveyService(db *gorm.DB) *SurveyService {
 
 // EnsureQuestNextDue updates/persists state.NextDueAt based on the quest schedule.
 // This is intentionally used outside of Survey flows so the UI can show a correct "Next due".
-func (s *SurveyService) EnsureQuestNextDue(userID uint, meta *models.MetaQuest, state *models.UserMetaQuestState) (*models.UserMetaQuestState, error) {
+func (s *SurveyService) EnsureQuestNextDue(userID uint, meta *models.Quest, state *models.UserQuestState) (*models.UserQuestState, error) {
 	if meta == nil || state == nil {
 		return state, nil
 	}
@@ -62,11 +62,14 @@ func (s *SurveyService) EnsureQuestNextDue(userID uint, meta *models.MetaQuest, 
 	if err != nil {
 		return state, err
 	}
-	userLoc, _ := time.LoadLocation(coalesceTimezone(settings.Timezone))
+	userLoc, err := resolveTimezone(settings.Timezone, time.UTC)
+	if err != nil {
+		return state, err
+	}
 	return s.ensureQuestNextDueWithContext(meta, state, now, userLoc)
 }
 
-func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, state *models.UserMetaQuestState, now time.Time, userLoc *time.Location) (*models.UserMetaQuestState, error) {
+func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.Quest, state *models.UserQuestState, now time.Time, userLoc *time.Location) (*models.UserQuestState, error) {
 	if meta == nil || state == nil {
 		return state, nil
 	}
@@ -74,7 +77,7 @@ func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, st
 	if !state.Active {
 		if state.NextDueAt != nil {
 			state.NextDueAt = nil
-			_ = s.metaQuestDAO.UpdateUserState(state)
+			_ = s.questDAO.UpdateUserState(state)
 		}
 		return state, nil
 	}
@@ -84,7 +87,7 @@ func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, st
 		desired := state.SnoozedUntil.UTC()
 		if state.NextDueAt == nil || !desired.Equal(*state.NextDueAt) {
 			state.NextDueAt = &desired
-			_ = s.metaQuestDAO.UpdateUserState(state)
+			_ = s.questDAO.UpdateUserState(state)
 		}
 		return state, nil
 	}
@@ -115,7 +118,10 @@ func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, st
 			if err != nil {
 				return state, err
 			}
-			loc, _ := time.LoadLocation(coalesceTimezone(sched.Timezone))
+			loc, err := resolveTimezone(sched.Timezone, userLoc)
+			if err != nil {
+				return state, err
+			}
 			dtstart, err := parseScheduleTime(sched.Dtstart, loc)
 			if err != nil {
 				return state, err
@@ -127,7 +133,10 @@ func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, st
 			if err != nil {
 				return state, err
 			}
-			loc, _ := time.LoadLocation(coalesceTimezone(sched.Timezone))
+			loc, err := resolveTimezone(sched.Timezone, userLoc)
+			if err != nil {
+				return state, err
+			}
 			dtstart, err := parseScheduleTime(sched.Dtstart, loc)
 			if err != nil {
 				return state, err
@@ -147,14 +156,14 @@ func (s *SurveyService) ensureQuestNextDueWithContext(meta *models.MetaQuest, st
 	}
 	if state.NextDueAt == nil || !desired.Equal(*state.NextDueAt) {
 		state.NextDueAt = desired
-		_ = s.metaQuestDAO.UpdateUserState(state)
+		_ = s.questDAO.UpdateUserState(state)
 	}
 	return state, nil
 }
 
 func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem, error) {
 	now := time.Now().UTC()
-	quests, err := s.metaQuestDAO.ListVisible(domainID, userID)
+	quests, err := s.questDAO.ListVisible(domainID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -166,27 +175,30 @@ func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem,
 	for _, q := range quests {
 		ids = append(ids, q.ID)
 	}
-	states, err := s.metaQuestDAO.ListUserStates(userID, ids)
+	states, err := s.questDAO.ListUserStates(userID, ids)
 	if err != nil {
 		return nil, err
 	}
-	stateMap := map[uint]*models.UserMetaQuestState{}
+	stateMap := map[uint]*models.UserQuestState{}
 	for i := range states {
 		st := states[i]
-		stateMap[st.MetaQuestID] = &st
+		stateMap[st.QuestID] = &st
 	}
 
 	settings, err := s.settingsDAO.GetOrCreate(userID, domainID)
 	if err != nil {
 		return nil, err
 	}
-	userLoc, _ := time.LoadLocation(coalesceTimezone(settings.Timezone))
+	userLoc, err := resolveTimezone(settings.Timezone, time.UTC)
+	if err != nil {
+		return nil, err
+	}
 
 	queue := make([]SurveyQueueItem, 0)
 
 	// daily quests handled separately
-	regular := make([]models.MetaQuest, 0)
-	daily := make([]models.MetaQuest, 0)
+	regular := make([]models.Quest, 0)
+	daily := make([]models.Quest, 0)
 	for _, q := range quests {
 		if q.Kind == "daily" {
 			daily = append(daily, q)
@@ -199,7 +211,7 @@ func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem,
 		state := stateMap[q.ID]
 		if state == nil {
 			var err error
-			state, err = s.metaQuestDAO.EnsureUserState(userID, q.ID)
+			state, err = s.questDAO.EnsureUserState(userID, q.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -226,7 +238,7 @@ func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem,
 		queue = append(queue, item)
 
 		state.LastPresentedAt = &now
-		_ = s.metaQuestDAO.UpdateUserState(state)
+		_ = s.questDAO.UpdateUserState(state)
 	}
 
 	dailyItems, err := s.buildDailyQueue(daily, userID, domainID, settings, userLoc, now)
@@ -238,8 +250,8 @@ func (s *SurveyService) GetQueue(domainID uint, userID uint) ([]SurveyQueueItem,
 	return queue, nil
 }
 
-func (s *SurveyService) buildQueueItem(meta *models.MetaQuest, state *models.UserMetaQuestState, userID uint) (SurveyQueueItem, error) {
-	versions, err := s.metaQuestDAO.FindVersions(meta.ID)
+func (s *SurveyService) buildQueueItem(meta *models.Quest, state *models.UserQuestState, userID uint) (SurveyQueueItem, error) {
+	versions, err := s.questDAO.FindVersions(meta.ID)
 	if err != nil {
 		return SurveyQueueItem{}, err
 	}
@@ -251,7 +263,7 @@ func (s *SurveyService) buildQueueItem(meta *models.MetaQuest, state *models.Use
 	for _, v := range versions {
 		versionsResp = append(versionsResp, models.QuestVersionResponse{
 			ID:            v.ID,
-			MetaQuestID:   v.MetaQuestID,
+			QuestID:       v.QuestID,
 			Title:         v.Title,
 			DescriptionMd: v.DescriptionMd,
 			TaskList:      v.TaskList,
@@ -282,20 +294,22 @@ func (s *SurveyService) buildQueueItem(meta *models.MetaQuest, state *models.Use
 	return item, nil
 }
 
-func (s *SurveyService) getRelevantNodes(domainID uint, metaQuestID uint, versionID uint) ([]RelationNodeRef, error) {
-	contextKey := "quest_version:" + strconv.FormatUint(uint64(versionID), 10)
-	relations, err := s.relationDAO.ListByContext(domainID, contextKey)
+func (s *SurveyService) getRelevantNodes(domainID uint, questID uint, versionID uint) ([]RelationNodeRef, error) {
+	relations, err := s.relationDAO.ListQuestRelevant(domainID, questID, versionID)
 	if err != nil {
 		return nil, err
 	}
-	if len(relations) == 0 {
-		return []RelationNodeRef{}, nil
-	}
 	refs := make([]RelationNodeRef, 0, len(relations))
+	seen := make(map[string]bool)
 	for _, rel := range relations {
-		if rel.FromType != "meta_quest" || rel.FromID != metaQuestID {
+		if rel.FromType != "quest" || rel.FromID != questID {
 			continue
 		}
+		key := fmt.Sprintf("%s:%d:%s", rel.ToType, rel.ToID, rel.RelationType)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		code, _ := s.resolveCode(domainID, rel.ToType, rel.ToID)
 		refs = append(refs, RelationNodeRef{
 			NodeType: rel.ToType,
@@ -314,7 +328,7 @@ func (s *SurveyService) resolveCode(domainID uint, nodeType string, nodeID uint)
 	return entry.Code, nil
 }
 
-func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.UserMetaQuestState, now time.Time, userLoc *time.Location) (*time.Time, error) {
+func (s *SurveyService) computeNextDue(meta *models.Quest, state *models.UserQuestState, now time.Time, userLoc *time.Location) (*time.Time, error) {
 	scheduleType, err := parseScheduleType(meta.Schedule)
 	if err != nil {
 		return nil, err
@@ -330,7 +344,10 @@ func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.Use
 		if err != nil {
 			return nil, err
 		}
-		loc, _ := time.LoadLocation(coalesceTimezone(sched.Timezone))
+		loc, err := resolveTimezone(sched.Timezone, userLoc)
+		if err != nil {
+			return nil, err
+		}
 		dtstart, err := parseScheduleTime(sched.Dtstart, loc)
 		if err != nil {
 			return nil, err
@@ -342,7 +359,7 @@ func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.Use
 		}
 		exdates := parseDateList(sched.Exdate, loc)
 		rdates := parseDateList(sched.Rdate, loc)
-		next := nextOccurrence(spec, dtstart, after, exdates, rdates)
+		next := nextScheduledOccurrence(spec, dtstart, after, state.NextDueAt, sched.OrgRepeaterMode, exdates, rdates)
 		if next == nil {
 			return nil, nil
 		}
@@ -353,7 +370,10 @@ func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.Use
 		if err != nil {
 			return nil, err
 		}
-		loc, _ := time.LoadLocation(coalesceTimezone(sched.Timezone))
+		loc, err := resolveTimezone(sched.Timezone, userLoc)
+		if err != nil {
+			return nil, err
+		}
 		dtstart, err := parseScheduleTime(sched.Dtstart, loc)
 		if err != nil {
 			return nil, err
@@ -364,7 +384,7 @@ func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.Use
 		if state.LastCompletedAt != nil && state.LastCompletedAt.After(after) {
 			after = *state.LastCompletedAt
 		}
-		next := nextOccurrence(spec, dtstart, after, nil, nil)
+		next := nextScheduledOccurrence(spec, dtstart, after, state.NextDueAt, sched.OrgRepeaterMode, nil, nil)
 		if next == nil {
 			return nil, nil
 		}
@@ -377,7 +397,7 @@ func (s *SurveyService) computeNextDue(meta *models.MetaQuest, state *models.Use
 	}
 }
 
-func ensureHabitPeriod(state *models.UserMetaQuestState, sched *HabitSchedule, now time.Time, userLoc *time.Location) {
+func ensureHabitPeriod(state *models.UserQuestState, sched *HabitSchedule, now time.Time, userLoc *time.Location) {
 	if sched == nil {
 		return
 	}
@@ -393,35 +413,35 @@ func ensureHabitPeriod(state *models.UserMetaQuestState, sched *HabitSchedule, n
 	}
 }
 
-func (s *SurveyService) buildDailyQueue(daily []models.MetaQuest, userID uint, domainID uint, settings *models.UserDomainSettings, userLoc *time.Location, now time.Time) ([]SurveyQueueItem, error) {
+func (s *SurveyService) buildDailyQueue(daily []models.Quest, userID uint, domainID uint, settings *models.UserDomainSettings, userLoc *time.Location, now time.Time) ([]SurveyQueueItem, error) {
 	if len(daily) == 0 {
 		return []SurveyQueueItem{}, nil
 	}
 	dateKey := now.In(userLoc).Format("2006-01-02")
-	draw, err := s.metaQuestDAO.FindDailyDraw(userID, domainID, dateKey)
+	draw, err := s.questDAO.FindDailyDraw(userID, domainID, dateKey)
 	if err == nil && draw != nil {
 		return s.queueFromDraw(draw, daily, userID)
 	}
 
-	eligible := make([]models.MetaQuest, 0)
-	stateMap := map[uint]*models.UserMetaQuestState{}
+	eligible := make([]models.Quest, 0)
+	stateMap := map[uint]*models.UserQuestState{}
 	ids := make([]uint, 0, len(daily))
 	for _, q := range daily {
 		ids = append(ids, q.ID)
 	}
-	states, err := s.metaQuestDAO.ListUserStates(userID, ids)
+	states, err := s.questDAO.ListUserStates(userID, ids)
 	if err != nil {
 		return nil, err
 	}
 	for i := range states {
 		st := states[i]
-		stateMap[st.MetaQuestID] = &st
+		stateMap[st.QuestID] = &st
 	}
 
 	for _, q := range daily {
 		state := stateMap[q.ID]
 		if state == nil {
-			state, err = s.metaQuestDAO.EnsureUserState(userID, q.ID)
+			state, err = s.questDAO.EnsureUserState(userID, q.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -463,12 +483,12 @@ func (s *SurveyService) buildDailyQueue(daily []models.MetaQuest, userID uint, d
 		questIDs = append(questIDs, q.ID)
 		state := stateMap[q.ID]
 		if state == nil {
-			state, _ = s.metaQuestDAO.EnsureUserState(userID, q.ID)
+			state, _ = s.questDAO.EnsureUserState(userID, q.ID)
 		}
 		if state != nil {
 			state.LastShownAt = &now
 			state.LastPresentedAt = &now
-			_ = s.metaQuestDAO.UpdateUserState(state)
+			_ = s.questDAO.UpdateUserState(state)
 		}
 	}
 
@@ -479,17 +499,17 @@ func (s *SurveyService) buildDailyQueue(daily []models.MetaQuest, userID uint, d
 		DateKey:  dateKey,
 		QuestIDs: payload,
 	}
-	_ = s.metaQuestDAO.CreateDailyDraw(draw)
+	_ = s.questDAO.CreateDailyDraw(draw)
 
 	return s.queueFromDraw(draw, eligible, userID)
 }
 
-func (s *SurveyService) queueFromDraw(draw *models.UserDailyQuestDraw, daily []models.MetaQuest, userID uint) ([]SurveyQueueItem, error) {
+func (s *SurveyService) queueFromDraw(draw *models.UserDailyQuestDraw, daily []models.Quest, userID uint) ([]SurveyQueueItem, error) {
 	var ids []uint
 	if err := json.Unmarshal(draw.QuestIDs, &ids); err != nil {
 		return []SurveyQueueItem{}, nil
 	}
-	dailyMap := map[uint]models.MetaQuest{}
+	dailyMap := map[uint]models.Quest{}
 	for _, q := range daily {
 		dailyMap[q.ID] = q
 	}
@@ -499,7 +519,7 @@ func (s *SurveyService) queueFromDraw(draw *models.UserDailyQuestDraw, daily []m
 		if !ok {
 			continue
 		}
-		state, err := s.metaQuestDAO.EnsureUserState(userID, q.ID)
+		state, err := s.questDAO.EnsureUserState(userID, q.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -513,11 +533,11 @@ func (s *SurveyService) queueFromDraw(draw *models.UserDailyQuestDraw, daily []m
 }
 
 func (s *SurveyService) ApplyEvent(userID uint, req *models.QuestEventRequest) error {
-	meta, _, err := s.metaQuestDAO.FindByID(req.MetaQuestID)
+	meta, _, err := s.questDAO.FindByID(req.QuestID)
 	if err != nil {
 		return err
 	}
-	state, err := s.metaQuestDAO.EnsureUserState(userID, meta.ID)
+	state, err := s.questDAO.EnsureUserState(userID, meta.ID)
 	if err != nil {
 		return err
 	}
@@ -529,14 +549,14 @@ func (s *SurveyService) ApplyEvent(userID uint, req *models.QuestEventRequest) e
 
 	event := &models.QuestEvent{
 		UserID:         userID,
-		MetaQuestID:    meta.ID,
+		QuestID:        meta.ID,
 		QuestVersionID: req.QuestVersionID,
 		EventType:      req.EventType,
 		HappenedAt:     happenedAt,
 		Note:           req.Note,
 		Payload:        req.Payload,
 	}
-	if err := s.metaQuestDAO.CreateEvent(event); err != nil {
+	if err := s.questDAO.CreateEvent(event); err != nil {
 		return err
 	}
 
@@ -544,7 +564,10 @@ func (s *SurveyService) ApplyEvent(userID uint, req *models.QuestEventRequest) e
 	if err != nil {
 		return err
 	}
-	userLoc, _ := time.LoadLocation(coalesceTimezone(settings.Timezone))
+	userLoc, err := resolveTimezone(settings.Timezone, time.UTC)
+	if err != nil {
+		return err
+	}
 
 	switch req.EventType {
 	case "completed":
@@ -585,9 +608,9 @@ func (s *SurveyService) ApplyEvent(userID uint, req *models.QuestEventRequest) e
 				"periodKey": state.CurrentPeriodKey,
 				"questKind": meta.Kind,
 			})
-			_ = s.metaQuestDAO.CreateEvent(&models.QuestEvent{
+			_ = s.questDAO.CreateEvent(&models.QuestEvent{
 				UserID:         userID,
-				MetaQuestID:    meta.ID,
+				QuestID:        meta.ID,
 				QuestVersionID: req.QuestVersionID,
 				EventType:      "deactivated",
 				HappenedAt:     happenedAt,
@@ -627,5 +650,5 @@ func (s *SurveyService) ApplyEvent(userID uint, req *models.QuestEventRequest) e
 		// no state change
 	}
 
-	return s.metaQuestDAO.UpdateUserState(state)
+	return s.questDAO.UpdateUserState(state)
 }

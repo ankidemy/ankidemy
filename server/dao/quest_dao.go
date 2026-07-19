@@ -1,57 +1,57 @@
 package dao
 
 import (
+	"ankidemy/server/models"
 	"errors"
 	"fmt"
 	"gorm.io/gorm"
-	"ankidemy/server/models"
 )
 
-// MetaQuestDAO handles meta quests and versions.
-type MetaQuestDAO struct {
+// QuestDAO handles quests and versions.
+type QuestDAO struct {
 	db *gorm.DB
 }
 
-func NewMetaQuestDAO(db *gorm.DB) *MetaQuestDAO {
-	return &MetaQuestDAO{db: db}
+func NewQuestDAO(db *gorm.DB) *QuestDAO {
+	return &QuestDAO{db: db}
 }
 
-func (d *MetaQuestDAO) Create(meta *models.MetaQuest, initialVersion *models.QuestVersion, ownerID uint) error {
+func (d *QuestDAO) Create(meta *models.Quest, initialVersion *models.QuestVersion, ownerID uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(meta).Error; err != nil {
 			return err
 		}
 		registry := NewCodeRegistryDAO(tx)
-		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "meta_quest", meta.ID); err != nil {
+		if err := registry.ReserveCode(tx, meta.DomainID, meta.Code, "quest", meta.ID); err != nil {
 			return err
 		}
 		if initialVersion != nil {
-			initialVersion.MetaQuestID = meta.ID
+			initialVersion.QuestID = meta.ID
 			if err := tx.Create(initialVersion).Error; err != nil {
 				return err
 			}
 		}
 		// Ensure owner has state row
-		state := &models.UserMetaQuestState{
-			UserID:      ownerID,
-			MetaQuestID: meta.ID,
-			Active:      true,
+		state := &models.UserQuestState{
+			UserID:  ownerID,
+			QuestID: meta.ID,
+			Active:  true,
 		}
-		if err := tx.FirstOrCreate(state, "user_id = ? AND meta_quest_id = ?", ownerID, meta.ID).Error; err != nil {
+		if err := tx.FirstOrCreate(state, "user_id = ? AND quest_id = ?", ownerID, meta.ID).Error; err != nil {
 			return err
 		}
 		return nil
 	})
 }
 
-func (d *MetaQuestDAO) Update(meta *models.MetaQuest, codeChanged bool) error {
+func (d *QuestDAO) Update(meta *models.Quest, codeChanged bool) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(meta).Error; err != nil {
 			return err
 		}
 		if codeChanged {
 			registry := NewCodeRegistryDAO(tx)
-			if err := registry.UpdateCode(tx, meta.DomainID, "meta_quest", meta.ID, meta.Code); err != nil {
+			if err := registry.UpdateCode(tx, meta.DomainID, "quest", meta.ID, meta.Code); err != nil {
 				return err
 			}
 		}
@@ -59,30 +59,30 @@ func (d *MetaQuestDAO) Update(meta *models.MetaQuest, codeChanged bool) error {
 	})
 }
 
-func (d *MetaQuestDAO) Delete(meta *models.MetaQuest) error {
+func (d *QuestDAO) Delete(meta *models.Quest) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Delete(&models.MetaQuest{}, meta.ID).Error; err != nil {
+		if err := tx.Delete(&models.Quest{}, meta.ID).Error; err != nil {
 			return err
 		}
 		registry := NewCodeRegistryDAO(tx)
-		return registry.ReleaseCode(tx, meta.DomainID, "meta_quest", meta.ID)
+		return registry.ReleaseCode(tx, meta.DomainID, "quest", meta.ID)
 	})
 }
 
-func (d *MetaQuestDAO) FindByID(id uint) (*models.MetaQuest, []models.QuestVersion, error) {
-	var meta models.MetaQuest
+func (d *QuestDAO) FindByID(id uint) (*models.Quest, []models.QuestVersion, error) {
+	var meta models.Quest
 	if err := d.db.First(&meta, id).Error; err != nil {
 		return nil, nil, err
 	}
 	var versions []models.QuestVersion
-	if err := d.db.Where("meta_quest_id = ?", meta.ID).Order("id ASC").Find(&versions).Error; err != nil {
+	if err := d.db.Where("quest_id = ?", meta.ID).Order("id ASC").Find(&versions).Error; err != nil {
 		return &meta, nil, err
 	}
 	return &meta, versions, nil
 }
 
-func (d *MetaQuestDAO) ListVisible(domainID uint, userID uint) ([]models.MetaQuest, error) {
-	var quests []models.MetaQuest
+func (d *QuestDAO) ListVisible(domainID uint, userID uint) ([]models.Quest, error) {
+	var quests []models.Quest
 	if err := d.db.Where("domain_id = ? AND (visibility = 'domain' OR owner_id = ?)", domainID, userID).
 		Find(&quests).Error; err != nil {
 		return nil, err
@@ -90,31 +90,31 @@ func (d *MetaQuestDAO) ListVisible(domainID uint, userID uint) ([]models.MetaQue
 	return quests, nil
 }
 
-func (d *MetaQuestDAO) ListByDomain(domainID uint) ([]models.MetaQuest, error) {
-	var quests []models.MetaQuest
+func (d *QuestDAO) ListByDomain(domainID uint) ([]models.Quest, error) {
+	var quests []models.Quest
 	if err := d.db.Where("domain_id = ?", domainID).Find(&quests).Error; err != nil {
 		return nil, err
 	}
 	return quests, nil
 }
 
-func (d *MetaQuestDAO) AddVersion(metaQuestID uint, version *models.QuestVersion) error {
-	version.MetaQuestID = metaQuestID
+func (d *QuestDAO) AddVersion(questID uint, version *models.QuestVersion) error {
+	version.QuestID = questID
 	return d.db.Create(version).Error
 }
 
-func (d *MetaQuestDAO) UpdateVersion(version *models.QuestVersion) error {
+func (d *QuestDAO) UpdateVersion(version *models.QuestVersion) error {
 	return d.db.Save(version).Error
 }
 
-func (d *MetaQuestDAO) DeleteVersion(versionID uint) error {
+func (d *QuestDAO) DeleteVersion(versionID uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		var version models.QuestVersion
 		if err := tx.First(&version, versionID).Error; err != nil {
 			return err
 		}
 		var count int64
-		if err := tx.Model(&models.QuestVersion{}).Where("meta_quest_id = ?", version.MetaQuestID).Count(&count).Error; err != nil {
+		if err := tx.Model(&models.QuestVersion{}).Where("quest_id = ?", version.QuestID).Count(&count).Error; err != nil {
 			return err
 		}
 		if count <= 1 {
@@ -124,7 +124,7 @@ func (d *MetaQuestDAO) DeleteVersion(versionID uint) error {
 	})
 }
 
-func (d *MetaQuestDAO) FindVersionByID(versionID uint) (*models.QuestVersion, error) {
+func (d *QuestDAO) FindVersionByID(versionID uint) (*models.QuestVersion, error) {
 	var version models.QuestVersion
 	if err := d.db.First(&version, versionID).Error; err != nil {
 		return nil, err
@@ -132,58 +132,58 @@ func (d *MetaQuestDAO) FindVersionByID(versionID uint) (*models.QuestVersion, er
 	return &version, nil
 }
 
-func (d *MetaQuestDAO) FindVersions(metaQuestID uint) ([]models.QuestVersion, error) {
+func (d *QuestDAO) FindVersions(questID uint) ([]models.QuestVersion, error) {
 	var versions []models.QuestVersion
-	if err := d.db.Where("meta_quest_id = ?", metaQuestID).Order("id ASC").Find(&versions).Error; err != nil {
+	if err := d.db.Where("quest_id = ?", questID).Order("id ASC").Find(&versions).Error; err != nil {
 		return nil, err
 	}
 	return versions, nil
 }
 
-func (d *MetaQuestDAO) GetUserState(userID uint, metaQuestID uint) (*models.UserMetaQuestState, error) {
-	var state models.UserMetaQuestState
-	if err := d.db.Where("user_id = ? AND meta_quest_id = ?", userID, metaQuestID).First(&state).Error; err != nil {
+func (d *QuestDAO) GetUserState(userID uint, questID uint) (*models.UserQuestState, error) {
+	var state models.UserQuestState
+	if err := d.db.Where("user_id = ? AND quest_id = ?", userID, questID).First(&state).Error; err != nil {
 		return nil, err
 	}
 	return &state, nil
 }
 
-func (d *MetaQuestDAO) UpsertUserState(state *models.UserMetaQuestState) error {
+func (d *QuestDAO) UpsertUserState(state *models.UserQuestState) error {
 	return d.db.Save(state).Error
 }
 
-func (d *MetaQuestDAO) EnsureUserState(userID uint, metaQuestID uint) (*models.UserMetaQuestState, error) {
-	state := &models.UserMetaQuestState{
-		UserID:      userID,
-		MetaQuestID: metaQuestID,
-		Active:      true,
+func (d *QuestDAO) EnsureUserState(userID uint, questID uint) (*models.UserQuestState, error) {
+	state := &models.UserQuestState{
+		UserID:  userID,
+		QuestID: questID,
+		Active:  true,
 	}
-	if err := d.db.FirstOrCreate(state, "user_id = ? AND meta_quest_id = ?", userID, metaQuestID).Error; err != nil {
+	if err := d.db.FirstOrCreate(state, "user_id = ? AND quest_id = ?", userID, questID).Error; err != nil {
 		return nil, err
 	}
 	return state, nil
 }
 
-func (d *MetaQuestDAO) ListUserStates(userID uint, metaQuestIDs []uint) ([]models.UserMetaQuestState, error) {
-	if len(metaQuestIDs) == 0 {
-		return []models.UserMetaQuestState{}, nil
+func (d *QuestDAO) ListUserStates(userID uint, questIDs []uint) ([]models.UserQuestState, error) {
+	if len(questIDs) == 0 {
+		return []models.UserQuestState{}, nil
 	}
-	var states []models.UserMetaQuestState
-	if err := d.db.Where("user_id = ? AND meta_quest_id IN ?", userID, metaQuestIDs).Find(&states).Error; err != nil {
+	var states []models.UserQuestState
+	if err := d.db.Where("user_id = ? AND quest_id IN ?", userID, questIDs).Find(&states).Error; err != nil {
 		return nil, err
 	}
 	return states, nil
 }
 
-func (d *MetaQuestDAO) CreateEvent(event *models.QuestEvent) error {
+func (d *QuestDAO) CreateEvent(event *models.QuestEvent) error {
 	return d.db.Create(event).Error
 }
 
-func (d *MetaQuestDAO) CreateDailyDraw(draw *models.UserDailyQuestDraw) error {
+func (d *QuestDAO) CreateDailyDraw(draw *models.UserDailyQuestDraw) error {
 	return d.db.Create(draw).Error
 }
 
-func (d *MetaQuestDAO) FindDailyDraw(userID uint, domainID uint, dateKey string) (*models.UserDailyQuestDraw, error) {
+func (d *QuestDAO) FindDailyDraw(userID uint, domainID uint, dateKey string) (*models.UserDailyQuestDraw, error) {
 	var draw models.UserDailyQuestDraw
 	if err := d.db.Where("user_id = ? AND domain_id = ? AND date_key = ?", userID, domainID, dateKey).First(&draw).Error; err != nil {
 		return nil, err
@@ -191,9 +191,9 @@ func (d *MetaQuestDAO) FindDailyDraw(userID uint, domainID uint, dateKey string)
 	return &draw, nil
 }
 
-func (d *MetaQuestDAO) UpdateUserState(state *models.UserMetaQuestState) error {
+func (d *QuestDAO) UpdateUserState(state *models.UserQuestState) error {
 	if state.ID == 0 {
-		return fmt.Errorf("user_meta_quest_state missing ID")
+		return fmt.Errorf("user_quest_state missing ID")
 	}
 	return d.db.Save(state).Error
 }

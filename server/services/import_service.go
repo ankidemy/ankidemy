@@ -80,10 +80,35 @@ type ImportData struct {
 	MetaExercises   map[string]ImportMetaExerciseNode   `json:"metaExercises,omitempty"`
 	MetaDefinitions map[string]ImportMetaDefinitionNode `json:"metaDefinitions,omitempty"`
 	Sources         map[string]ImportSourceNode         `json:"sources,omitempty"`
-	MetaQuests      map[string]ImportMetaQuestNode      `json:"metaQuests,omitempty"`
+	Quests          map[string]ImportQuestNode          `json:"quests,omitempty"`
 	Relations       []ImportRelation                    `json:"relations,omitempty"`
 	// Optional node groups
 	Groups []ImportGroupData `json:"groups,omitempty"`
+}
+
+// UnmarshalJSON accepts the pre-modern `metaQuests` export key while all new
+// exports use `quests`. This keeps existing backups restorable without
+// perpetuating the legacy name in the current format.
+func (data *ImportData) UnmarshalJSON(raw []byte) error {
+	type importDataAlias ImportData
+	decoded := struct {
+		*importDataAlias
+		LegacyQuests map[string]ImportQuestNode `json:"metaQuests,omitempty"`
+	}{importDataAlias: (*importDataAlias)(data)}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.LegacyQuests) > 0 {
+		if data.Quests == nil {
+			data.Quests = make(map[string]ImportQuestNode, len(decoded.LegacyQuests))
+		}
+		for code, quest := range decoded.LegacyQuests {
+			if _, current := data.Quests[code]; !current {
+				data.Quests[code] = quest
+			}
+		}
+	}
+	return nil
 }
 
 // ImportGroupNodeRef represents a node reference inside a group (code-based).
@@ -190,7 +215,7 @@ type ImportSourceNode struct {
 	YPosition float64 `json:"yPosition,omitempty"`
 }
 
-// ImportQuestVersion represents a single quest version in a meta quest.
+// ImportQuestVersion represents a single quest version in a quest.
 type ImportQuestVersion struct {
 	Title         string          `json:"title"`
 	DescriptionMd string          `json:"descriptionMd,omitempty"`
@@ -198,8 +223,8 @@ type ImportQuestVersion struct {
 	ImagePath     *string         `json:"imagePath,omitempty"`
 }
 
-// ImportMetaQuestNode represents a quest definition with versions.
-type ImportMetaQuestNode struct {
+// ImportQuestNode represents a quest definition with versions.
+type ImportQuestNode struct {
 	Code      string               `json:"code"`
 	Name      string               `json:"name,omitempty"`
 	Kind      string               `json:"kind"`
@@ -371,6 +396,8 @@ func canonicalImportNodeType(t string) string {
 		return "definition"
 	case "meta_exercise":
 		return "exercise"
+	case "meta_quest":
+		return "quest"
 	default:
 		return t
 	}
@@ -447,8 +474,8 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 		data.Sources[key] = src
 	}
 
-	for _, key := range sortedMapKeys(data.MetaQuests) {
-		mq := data.MetaQuests[key]
+	for _, key := range sortedMapKeys(data.Quests) {
+		mq := data.Quests[key]
 		mq.Code = normalizeImportCodeWithKeyFallback(mq.Code, key, usedCodes)
 		mq.Name = normalizeImportName(mq.Name, mq.Code)
 		mq.Kind = normalizeOptionalText(mq.Kind)
@@ -471,7 +498,7 @@ func (s *ImportService) NormalizeImportData(data *ImportData) {
 				mq.Name = firstTitle
 			}
 		}
-		data.MetaQuests[key] = mq
+		data.Quests[key] = mq
 	}
 }
 
@@ -581,7 +608,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		MetaDefinitions: make(map[string]ImportMetaDefinitionNode),
 		MetaExercises:   make(map[string]ImportMetaExerciseNode),
 		Sources:         make(map[string]ImportSourceNode),
-		MetaQuests:      make(map[string]ImportMetaQuestNode),
+		Quests:          make(map[string]ImportQuestNode),
 		Relations:       make([]ImportRelation, 0),
 	}
 
@@ -589,7 +616,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		"definition": {},
 		"exercise":   {},
 		"source":     {},
-		"meta_quest": {},
+		"quest":      {},
 	}
 
 	// Bulk-load prerequisites, versions, and references for the whole domain
@@ -758,7 +785,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 	}
 
 	// Export quests (shareable only)
-	var quests []models.MetaQuest
+	var quests []models.Quest
 	if err := s.db.Where("domain_id = ? AND visibility = 'domain'", domainID).Find(&quests).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch quests: %v", err)
 	}
@@ -769,11 +796,11 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			questIDs = append(questIDs, q.ID)
 		}
 		var allVersions []models.QuestVersion
-		if err := s.db.Where("meta_quest_id IN ?", questIDs).Order("id ASC").Find(&allVersions).Error; err != nil {
+		if err := s.db.Where("quest_id IN ?", questIDs).Order("id ASC").Find(&allVersions).Error; err != nil {
 			return nil, fmt.Errorf("failed to fetch quest versions: %v", err)
 		}
 		for _, v := range allVersions {
-			questVersionsByMeta[v.MetaQuestID] = append(questVersionsByMeta[v.MetaQuestID], v)
+			questVersionsByMeta[v.QuestID] = append(questVersionsByMeta[v.QuestID], v)
 		}
 	}
 	for _, q := range quests {
@@ -790,7 +817,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 		if len(vnodes) == 0 {
 			vnodes = append(vnodes, ImportQuestVersion{Title: q.Code})
 		}
-		exportData.MetaQuests[q.Code] = ImportMetaQuestNode{
+		exportData.Quests[q.Code] = ImportQuestNode{
 			Code:      q.Code,
 			Name:      q.Name,
 			Kind:      q.Kind,
@@ -799,7 +826,7 @@ func (s *ImportService) ExportDomain(domainID uint) (*ImportData, error) {
 			YPosition: q.YPosition,
 			Versions:  vnodes,
 		}
-		exported["meta_quest"][q.Code] = true
+		exported["quest"][q.Code] = true
 	}
 
 	// Export relations among exported nodes
@@ -1060,23 +1087,23 @@ func (s *ImportService) ValidateImportData(data *ImportData) error {
 		allCodes[src.Code] = true
 	}
 
-	// Validate metaQuests
-	for code, mq := range data.MetaQuests {
+	// Validate quests
+	for code, mq := range data.Quests {
 		if strings.TrimSpace(mq.Code) == "" {
-			return fmt.Errorf("metaQuest %s has empty code", code)
+			return fmt.Errorf("quest %s has empty code", code)
 		}
 		if strings.TrimSpace(mq.Kind) == "" {
-			return fmt.Errorf("metaQuest %s has empty kind", code)
+			return fmt.Errorf("quest %s has empty kind", code)
 		}
 		if len(mq.Schedule) == 0 {
-			return fmt.Errorf("metaQuest %s has empty schedule", code)
+			return fmt.Errorf("quest %s has empty schedule", code)
 		}
 		if len(mq.Versions) == 0 {
-			return fmt.Errorf("metaQuest %s has no versions", code)
+			return fmt.Errorf("quest %s has no versions", code)
 		}
 		for idx, v := range mq.Versions {
 			if strings.TrimSpace(v.Title) == "" {
-				return fmt.Errorf("metaQuest %s version %d has empty title", code, idx)
+				return fmt.Errorf("quest %s version %d has empty title", code, idx)
 			}
 		}
 		if allCodes[mq.Code] {
@@ -1579,7 +1606,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 
 	// Assign unique codes for quests
 	questAssigned := make(map[string]string)
-	for code, mq := range data.MetaQuests {
+	for code, mq := range data.Quests {
 		baseCode := mq.Code
 		if baseCode == "" {
 			baseCode = code
@@ -1588,7 +1615,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 		existing, exists := existingCodeMap[baseCode]
 		if exists {
 			if strategy == DuplicateStrategyUpdate {
-				if existing.NodeType != "meta_quest" {
+				if existing.NodeType != "quest" {
 					return fmt.Errorf("code %s already used by %s", baseCode, existing.NodeType)
 				}
 				assigned = baseCode
@@ -2098,13 +2125,13 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 	}
 
 	// Import quests
-	questsByCode := map[string]*models.MetaQuest{}
-	for code, node := range data.MetaQuests {
+	questsByCode := map[string]*models.Quest{}
+	for code, node := range data.Quests {
 		assigned := questAssigned[code]
-		if existing, ok := existingCodeMap[assigned]; ok && strategy == DuplicateStrategyUpdate && existing.NodeType == "meta_quest" {
-			var mq models.MetaQuest
+		if existing, ok := existingCodeMap[assigned]; ok && strategy == DuplicateStrategyUpdate && existing.NodeType == "quest" {
+			var mq models.Quest
 			if err := tx.First(&mq, existing.NodeID).Error; err != nil {
-				return fmt.Errorf("failed to load meta quest %s: %v", assigned, err)
+				return fmt.Errorf("failed to load quest %s: %v", assigned, err)
 			}
 			if node.Name != "" {
 				mq.Name = node.Name
@@ -2114,14 +2141,14 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			mq.XPosition = node.XPosition
 			mq.YPosition = node.YPosition
 			if err := tx.Save(&mq).Error; err != nil {
-				return fmt.Errorf("failed to update meta quest %s: %v", assigned, err)
+				return fmt.Errorf("failed to update quest %s: %v", assigned, err)
 			}
-			if err := tx.Where("meta_quest_id = ?", mq.ID).Delete(&models.QuestVersion{}).Error; err != nil {
+			if err := tx.Where("quest_id = ?", mq.ID).Delete(&models.QuestVersion{}).Error; err != nil {
 				return fmt.Errorf("failed to clear quest versions for %s: %v", assigned, err)
 			}
 			for _, v := range node.Versions {
 				qv := &models.QuestVersion{
-					MetaQuestID:   mq.ID,
+					QuestID:       mq.ID,
 					Title:         v.Title,
 					DescriptionMd: v.DescriptionMd,
 					TaskList:      v.TaskList,
@@ -2135,7 +2162,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			continue
 		}
 
-		mq := &models.MetaQuest{
+		mq := &models.Quest{
 			DomainID:   domain.ID,
 			OwnerID:    ownerID,
 			Code:       assigned,
@@ -2147,19 +2174,19 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 			Visibility: "domain",
 		}
 		if err := tx.Create(mq).Error; err != nil {
-			return fmt.Errorf("failed to create meta quest %s: %v", assigned, err)
+			return fmt.Errorf("failed to create quest %s: %v", assigned, err)
 		}
 		if err := tx.Create(&models.DomainNodeCode{
 			DomainID: domain.ID,
 			Code:     assigned,
-			NodeType: "meta_quest",
+			NodeType: "quest",
 			NodeID:   mq.ID,
 		}).Error; err != nil {
-			return fmt.Errorf("failed to register code for meta quest %s: %v", assigned, err)
+			return fmt.Errorf("failed to register code for quest %s: %v", assigned, err)
 		}
 		for _, v := range node.Versions {
 			qv := &models.QuestVersion{
-				MetaQuestID:   mq.ID,
+				QuestID:       mq.ID,
 				Title:         v.Title,
 				DescriptionMd: v.DescriptionMd,
 				TaskList:      v.TaskList,
@@ -2184,7 +2211,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				fromCode = metaAssigned[fromCode]
 			case "source":
 				fromCode = sourceAssigned[fromCode]
-			case "meta_quest":
+			case "quest":
 				fromCode = questAssigned[fromCode]
 			}
 			switch rel.ToType {
@@ -2194,7 +2221,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				toCode = metaAssigned[toCode]
 			case "source":
 				toCode = sourceAssigned[toCode]
-			case "meta_quest":
+			case "quest":
 				toCode = questAssigned[toCode]
 			}
 
@@ -2212,7 +2239,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				if src, ok := sourcesByCode[fromCode]; ok {
 					fromID = src.ID
 				}
-			case "meta_quest":
+			case "quest":
 				if mq, ok := questsByCode[fromCode]; ok {
 					fromID = mq.ID
 				}
@@ -2231,7 +2258,7 @@ func (s *ImportService) importDataToDomain(tx *gorm.DB, domain *models.Domain, o
 				if src, ok := sourcesByCode[toCode]; ok {
 					toID = src.ID
 				}
-			case "meta_quest":
+			case "quest":
 				if mq, ok := questsByCode[toCode]; ok {
 					toID = mq.ID
 				}

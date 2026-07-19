@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/middleware"
 	"ankidemy/server/models"
+	"github.com/gin-gonic/gin"
 )
 
 // UserHandler handles user-related HTTP requests

@@ -580,7 +580,7 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
       });
       if (!quest.id) throw new Error('Quest created without id.');
       await createRelation(domainData.id, {
-        fromType: 'meta_quest',
+        fromType: 'quest',
         fromId: quest.id,
         toType: currentNode.type === 'definition' ? 'definition' : 'exercise',
         toId: numericId,

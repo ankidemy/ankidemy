@@ -278,7 +278,7 @@ CREATE TABLE IF NOT EXISTS sources (
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS meta_quests (
+CREATE TABLE IF NOT EXISTS quests (
     id SERIAL PRIMARY KEY,
     domain_id INT NOT NULL,
     owner_id INT NOT NULL,
@@ -297,7 +297,7 @@ CREATE TABLE IF NOT EXISTS meta_quests (
 
 CREATE TABLE IF NOT EXISTS quest_versions (
     id SERIAL PRIMARY KEY,
-    meta_quest_id INT NOT NULL,
+    quest_id INT NOT NULL,
     title TEXT NOT NULL,
     description_md TEXT NOT NULL DEFAULT '',
     task_list JSONB NULL,
@@ -305,13 +305,13 @@ CREATE TABLE IF NOT EXISTS quest_versions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP,
-    FOREIGN KEY (meta_quest_id) REFERENCES meta_quests(id) ON DELETE CASCADE
+    FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS user_meta_quest_state (
+CREATE TABLE IF NOT EXISTS user_quest_state (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL,
-    meta_quest_id INT NOT NULL,
+    quest_id INT NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     next_due_at TIMESTAMP NULL,
     snoozed_until TIMESTAMP NULL,
@@ -323,31 +323,31 @@ CREATE TABLE IF NOT EXISTS user_meta_quest_state (
     last_shown_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, meta_quest_id),
+    UNIQUE(user_id, quest_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (meta_quest_id) REFERENCES meta_quests(id) ON DELETE CASCADE
+    FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS quest_events (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL,
-    meta_quest_id INT NOT NULL,
+    quest_id INT NOT NULL,
     quest_version_id INT NULL,
     event_type VARCHAR(30) NOT NULL,
     happened_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     note TEXT NULL,
     payload JSONB NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (meta_quest_id) REFERENCES meta_quests(id) ON DELETE CASCADE,
+    FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE,
     FOREIGN KEY (quest_version_id) REFERENCES quest_versions(id)
 );
 
 CREATE TABLE IF NOT EXISTS node_relations (
     id SERIAL PRIMARY KEY,
     domain_id INT NOT NULL,
-    from_type VARCHAR(20) NOT NULL CHECK (from_type IN ('definition','exercise','source','meta_quest')),
+    from_type VARCHAR(20) NOT NULL CHECK (from_type IN ('definition','exercise','source','quest')),
     from_id INT NOT NULL,
-    to_type VARCHAR(20) NOT NULL CHECK (to_type IN ('definition','exercise','source','meta_quest')),
+    to_type VARCHAR(20) NOT NULL CHECK (to_type IN ('definition','exercise','source','quest')),
     to_id INT NOT NULL,
     relation_type VARCHAR(50) NOT NULL,
     context_key TEXT NOT NULL DEFAULT '',
@@ -364,7 +364,7 @@ CREATE TABLE IF NOT EXISTS domain_node_codes (
     id SERIAL PRIMARY KEY,
     domain_id INT NOT NULL,
     code VARCHAR(80) NOT NULL,
-    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('definition','exercise','source','meta_quest')),
+    node_type VARCHAR(20) NOT NULL CHECK (node_type IN ('definition','exercise','source','quest')),
     node_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(domain_id, code),
@@ -449,9 +449,9 @@ CREATE INDEX IF NOT EXISTS idx_group_members_group ON node_group_members(group_i
 CREATE INDEX IF NOT EXISTS idx_user_group_states_user ON user_group_states(user_id);
 CREATE INDEX IF NOT EXISTS idx_sources_domain_owner_visibility ON sources(domain_id, owner_id, visibility);
 CREATE INDEX IF NOT EXISTS idx_sources_domain_code ON sources(domain_id, code);
-CREATE INDEX IF NOT EXISTS idx_meta_quests_domain_code ON meta_quests(domain_id, code);
-CREATE INDEX IF NOT EXISTS idx_user_meta_quest_state_next_due ON user_meta_quest_state(user_id, next_due_at);
-CREATE INDEX IF NOT EXISTS idx_user_meta_quest_state_meta ON user_meta_quest_state(user_id, meta_quest_id);
-CREATE INDEX IF NOT EXISTS idx_quest_events_user_meta ON quest_events(user_id, meta_quest_id, happened_at);
+CREATE INDEX IF NOT EXISTS idx_quests_domain_code ON quests(domain_id, code);
+CREATE INDEX IF NOT EXISTS idx_user_quest_state_next_due ON user_quest_state(user_id, next_due_at);
+CREATE INDEX IF NOT EXISTS idx_user_quest_state_quest ON user_quest_state(user_id, quest_id);
+CREATE INDEX IF NOT EXISTS idx_quest_events_user_quest ON quest_events(user_id, quest_id, happened_at);
 CREATE INDEX IF NOT EXISTS idx_node_relations_domain ON node_relations(domain_id);
 CREATE INDEX IF NOT EXISTS idx_domain_node_codes_domain_node ON domain_node_codes(domain_id, node_type, node_id);

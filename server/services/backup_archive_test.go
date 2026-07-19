@@ -34,7 +34,7 @@ func buildZipArchive(t *testing.T, files map[string][]byte) *zip.Reader {
 
 func TestValidateBackupArchiveParsesBackupJSON(t *testing.T) {
 	reader := buildZipArchive(t, map[string][]byte{
-		"backup.json":                      []byte(`{"schemaVersion":2,"domain":{"name":"Demo","privacy":"private"},"data":{"metaQuests":{"Q1":{"code":"Q1","kind":"todo","schedule":{},"versions":[{"title":"Quest","imagePath":"/api/media/1/private/1-demo/image.png"}]}}}}`),
+		"backup.json":                      []byte(`{"schemaVersion":2,"domain":{"name":"Demo","privacy":"private"},"data":{"quests":{"Q1":{"code":"Q1","kind":"todo","schedule":{},"versions":[{"title":"Quest","imagePath":"/api/media/1/private/1-demo/image.png"}]}}}}`),
 		"media/1/private/1-demo/image.png": []byte("\x89PNG\r\n\x1a\npng"),
 	})
 

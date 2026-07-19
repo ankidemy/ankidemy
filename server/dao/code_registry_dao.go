@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"gorm.io/gorm"
 	"ankidemy/server/models"
+	"gorm.io/gorm"
 )
 
 var ErrCodeConflict = errors.New("code already exists in domain")

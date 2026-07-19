@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/middleware"
 	"ankidemy/server/models"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
 )
 
 type DomainAccessHandler struct {

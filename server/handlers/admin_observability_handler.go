@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
+	"github.com/gin-gonic/gin"
 )
 
 type AdminObservabilityHandler struct {

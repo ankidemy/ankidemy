@@ -18,7 +18,7 @@ func contentReconcilerTestDB(t *testing.T) *gorm.DB {
 	}
 	modelsToMigrate := []any{
 		&models.Domain{}, &models.Source{}, &models.MetaDefinition{}, &models.Definition{}, &models.Reference{},
-		&models.MetaExercise{}, &models.Exercise{}, &models.MetaQuest{}, &models.QuestVersion{},
+		&models.MetaExercise{}, &models.Exercise{}, &models.Quest{}, &models.QuestVersion{},
 		&models.DomainNodeCode{}, &models.NodePrerequisite{}, &models.NodeRelation{}, &models.ExternalNodeRelation{},
 		&models.ContentBinding{}, &models.ContentEntity{}, &models.ContentManagedEdge{}, &models.ContentAsset{}, &models.ContentSyncRun{},
 		&models.UserDomainProgress{},
@@ -159,6 +159,42 @@ func TestContentReconcilerPreservesIdentityProgressAndVersionStats(t *testing.T)
 	}
 }
 
+func TestContentReconcilerUsesCanonicalQuestCodeAndRelevantLinkDirections(t *testing.T) {
+	db := contentReconcilerTestDB(t)
+	reconciler, binding, snapshot := contentReconcilerFixture(t, db)
+	snapshot.Edges = append(snapshot.Edges,
+		ContentSnapshotEdge{FromSourceID: "source-1", ToSourceID: "definition-1", Evidence: "link", OwnerSourceID: "source-1", EvidenceKey: "source-to-definition"},
+		ContentSnapshotEdge{FromSourceID: "quest-1", ToSourceID: "source-1", Evidence: "hierarchy", OwnerSourceID: "quest-1", EvidenceKey: "quest-to-parent-source"},
+	)
+	if _, err := reconciler.Reconcile(binding.ID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	quest := contentEntityFor(t, db, binding.ID, "quest-1", "node")
+	var code models.DomainNodeCode
+	if err := db.Where("domain_id = ? AND code = ? AND node_id = ?", binding.DomainID, "quest.one", quest.RowID).First(&code).Error; err != nil {
+		t.Fatal(err)
+	}
+	if code.NodeType != "quest" {
+		t.Fatalf("imported quest used non-canonical registry type %q", code.NodeType)
+	}
+
+	source := contentEntityFor(t, db, binding.ID, "source-1", "node")
+	definition := contentEntityFor(t, db, binding.ID, "definition-1", "node")
+	for _, expected := range []models.NodeRelation{
+		{FromType: "source", FromID: source.RowID, ToType: "definition", ToID: definition.RowID},
+		{FromType: "quest", FromID: quest.RowID, ToType: "source", ToID: source.RowID},
+	} {
+		var relation models.NodeRelation
+		if err := db.Where("domain_id = ? AND from_type = ? AND from_id = ? AND to_type = ? AND to_id = ?", binding.DomainID, expected.FromType, expected.FromID, expected.ToType, expected.ToID).First(&relation).Error; err != nil {
+			t.Fatalf("missing relevant relation %s:%d -> %s:%d: %v", expected.FromType, expected.FromID, expected.ToType, expected.ToID, err)
+		}
+		if relation.RelationType != "relevant" {
+			t.Fatalf("relation materialized as %q, want relevant", relation.RelationType)
+		}
+	}
+}
+
 func TestContentReconcilerPlacesNewConnectedNodeWithoutMovingExistingLayout(t *testing.T) {
 	db := contentReconcilerTestDB(t)
 	reconciler, binding, snapshot := contentReconcilerFixture(t, db)
@@ -217,7 +253,7 @@ func TestContentReconcilerPreservesAnkidemyOnlySourceAndQuestFields(t *testing.T
 		Updates(map[string]any{"visibility": "domain", "bibtex_key": bibtex}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&models.MetaQuest{}).Where("id = ?", quest.RowID).
+	if err := db.Model(&models.Quest{}).Where("id = ?", quest.RowID).
 		Update("visibility", "domain").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +263,7 @@ func TestContentReconcilerPreservesAnkidemyOnlySourceAndQuestFields(t *testing.T
 		t.Fatal(err)
 	}
 	var sourceRow models.Source
-	var questRow models.MetaQuest
+	var questRow models.Quest
 	if err := db.First(&sourceRow, source.RowID).Error; err != nil {
 		t.Fatal(err)
 	}

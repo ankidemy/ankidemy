@@ -120,14 +120,14 @@ export interface SourceDTO {
 
 export interface QuestVersionDTO {
   id?: number;
-  metaQuestId?: number;
+  questId?: number;
   title: string;
   descriptionMd?: string;
   taskList?: unknown;
   imagePath?: string | null;
 }
 
-export interface MetaQuestDTO {
+export interface QuestDTO {
   id?: number;
   domainId?: number;
   ownerId?: number;
@@ -146,9 +146,9 @@ export interface MetaQuestDTO {
 export interface NodeRelationDTO {
   id?: number;
   domainId?: number;
-  fromType: 'definition' | 'exercise' | 'source' | 'meta_quest';
+  fromType: 'definition' | 'exercise' | 'source' | 'quest';
   fromId: number;
-  toType: 'definition' | 'exercise' | 'source' | 'meta_quest';
+  toType: 'definition' | 'exercise' | 'source' | 'quest';
   toId: number;
   relationType: string;
   contextKey?: string;

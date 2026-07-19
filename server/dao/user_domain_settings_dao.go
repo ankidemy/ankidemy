@@ -3,8 +3,8 @@ package dao
 import (
 	"encoding/json"
 
-	"gorm.io/gorm"
 	"ankidemy/server/models"
+	"gorm.io/gorm"
 )
 
 type UserDomainSettingsDAO struct {
@@ -17,8 +17,8 @@ func NewUserDomainSettingsDAO(db *gorm.DB) *UserDomainSettingsDAO {
 
 func (d *UserDomainSettingsDAO) GetOrCreate(userID uint, domainID uint) (*models.UserDomainSettings, error) {
 	settings := &models.UserDomainSettings{
-		UserID:   userID,
-		DomainID: domainID,
+		UserID:      userID,
+		DomainID:    domainID,
 		Preferences: json.RawMessage([]byte("{}")),
 	}
 	if err := d.db.FirstOrCreate(settings, "user_id = ? AND domain_id = ?", userID, domainID).Error; err != nil {

@@ -64,7 +64,7 @@ test('adaptDomainPayloadToGraphData maps payload to graph data and ids', () => {
         relationType: 'relevant',
       },
       {
-        fromType: 'meta_quest',
+        fromType: 'quest',
         fromId: 4,
         toType: 'exercise',
         toId: 2,
@@ -110,7 +110,7 @@ test('buildIdToCodeByTypeFromGraphData reconstructs relation lookup ids', () => 
   assert.equal(idMap.get('definition:10'), 'D1');
   assert.equal(idMap.get('exercise:11'), 'E1');
   assert.equal(idMap.get('source:12'), 'S1');
-  assert.equal(idMap.get('meta_quest:13'), 'Q1');
+  assert.equal(idMap.get('quest:13'), 'Q1');
 });
 
 test('buildRelationEdgesFromDomainRelations ignores unresolved ids', () => {

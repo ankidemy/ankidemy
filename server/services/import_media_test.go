@@ -11,7 +11,7 @@ func strPtr(v string) *string {
 
 func TestCollectImportMediaPathsIncludesQuestImages(t *testing.T) {
 	data := &ImportData{
-		MetaQuests: map[string]ImportMetaQuestNode{
+		Quests: map[string]ImportQuestNode{
 			"Q1": {
 				Code: "Q1",
 				Versions: []ImportQuestVersion{
@@ -36,7 +36,7 @@ func TestCollectImportMediaPathsIncludesQuestImages(t *testing.T) {
 func TestRewriteImportMediaPathsRewritesQuestImages(t *testing.T) {
 	taskList := json.RawMessage(`{"items":[]}`)
 	data := &ImportData{
-		MetaQuests: map[string]ImportMetaQuestNode{
+		Quests: map[string]ImportQuestNode{
 			"Q1": {
 				Code: "Q1",
 				Versions: []ImportQuestVersion{
@@ -54,7 +54,7 @@ func TestRewriteImportMediaPathsRewritesQuestImages(t *testing.T) {
 		t.Fatalf("unexpected rewrite error: %v", err)
 	}
 
-	v1 := data.MetaQuests["Q1"].Versions[0]
+	v1 := data.Quests["Q1"].Versions[0]
 	if v1.ImagePath == nil {
 		t.Fatal("expected rewritten image path, got nil")
 	}
@@ -62,7 +62,7 @@ func TestRewriteImportMediaPathsRewritesQuestImages(t *testing.T) {
 		t.Fatalf("unexpected rewritten path: %q", *v1.ImagePath)
 	}
 
-	v2 := data.MetaQuests["Q1"].Versions[1]
+	v2 := data.Quests["Q1"].Versions[1]
 	if v2.ImagePath != nil {
 		t.Fatalf("expected nil image path to stay nil, got %q", *v2.ImagePath)
 	}
@@ -81,7 +81,7 @@ func TestCollectBackupMediaPathsIncludesUserStateQuestImages(t *testing.T) {
 			},
 		},
 		UserState: &DomainUserStateBackup{
-			PrivateQuests: map[string]ImportMetaQuestNode{
+			PrivateQuests: map[string]ImportQuestNode{
 				"Q1": {
 					Code: "Q1",
 					Versions: []ImportQuestVersion{
@@ -104,7 +104,7 @@ func TestRewriteBackupMediaPathsRewritesUserStateQuestImages(t *testing.T) {
 	backup := &DomainBackup{
 		Data: ImportData{},
 		UserState: &DomainUserStateBackup{
-			PrivateQuests: map[string]ImportMetaQuestNode{
+			PrivateQuests: map[string]ImportQuestNode{
 				"Q1": {
 					Code: "Q1",
 					Versions: []ImportQuestVersion{

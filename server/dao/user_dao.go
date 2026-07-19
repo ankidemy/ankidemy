@@ -1,8 +1,8 @@
 package dao
 
 import (
-	"errors"
 	"ankidemy/server/models"
+	"errors"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -123,14 +123,14 @@ func (d *UserDAO) UpdateUser(user *models.User) error {
 	if user.Password == "" {
 		return d.db.Model(user).Omit("Password").Updates(user).Error
 	}
-	
+
 	// Hash password if it's being updated
 	hashedPassword, err := HashPassword(user.Password)
 	if err != nil {
 		return err
 	}
 	user.Password = hashedPassword
-	
+
 	return d.db.Save(user).Error
 }
 
@@ -142,7 +142,7 @@ func (d *UserDAO) CreateAdminUser(adminUser *models.User) error {
 	if count > 0 {
 		return nil // Admin already exists, no error
 	}
-	
+
 	// Hash the password
 	if adminUser.Password != "" {
 		hashedPassword, err := HashPassword(adminUser.Password)
@@ -151,10 +151,10 @@ func (d *UserDAO) CreateAdminUser(adminUser *models.User) error {
 		}
 		adminUser.Password = hashedPassword
 	}
-	
+
 	// Set admin flag
 	adminUser.IsAdmin = true
-	
+
 	return d.db.Create(adminUser).Error
 }
 
@@ -177,11 +177,11 @@ func (d *UserDAO) AuthenticateUser(email, password string) (*models.User, error)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Compare provided password with stored hash
 	if err := ComparePasswords(user.Password, password); err != nil {
 		return nil, errors.New("invalid credentials")
 	}
-	
+
 	return user, nil
 }

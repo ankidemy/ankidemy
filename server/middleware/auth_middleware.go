@@ -1,11 +1,11 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
-	"os"
-	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -26,8 +26,8 @@ func getJWTSecret() string {
 
 // Claims represents the JWT claims
 type Claims struct {
-	UserID  uint   `json:"userId"`
-	IsAdmin bool   `json:"isAdmin"`
+	UserID  uint `json:"userId"`
+	IsAdmin bool `json:"isAdmin"`
 	jwt.RegisteredClaims
 }
 

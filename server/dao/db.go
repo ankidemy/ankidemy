@@ -42,6 +42,13 @@ func InitDB() (*gorm.DB, error) {
 	// Store in package variable for global access if needed
 	DB = db
 
+	// Rename the legacy quest schema before AutoMigrate sees the canonical
+	// models. Running this first prevents GORM from creating parallel empty
+	// `quests` / `user_quest_state` tables beside the historical data.
+	if err := migrateQuestNomenclature(db); err != nil {
+		return nil, fmt.Errorf("migrate quest nomenclature: %w", err)
+	}
+
 	// Define the models to automigrate
 	models := []interface{}{
 		&models.User{},
@@ -71,9 +78,9 @@ func InitDB() (*gorm.DB, error) {
 		&models.UserDefinitionVersionStats{},
 		&models.ExternalPrerequisite{},
 		&models.Source{},
-		&models.MetaQuest{},
+		&models.Quest{},
 		&models.QuestVersion{},
-		&models.UserMetaQuestState{},
+		&models.UserQuestState{},
 		&models.QuestEvent{},
 		&models.NodeRelation{},
 		&models.DomainNodeCode{},
@@ -155,19 +162,19 @@ func ensureSRSDueIndexes(db *gorm.DB) {
 }
 
 func ensureQuestNames(db *gorm.DB) {
-	var quests []models.MetaQuest
+	var quests []models.Quest
 	if err := db.Where("name = '' OR name IS NULL").Find(&quests).Error; err != nil {
 		return
 	}
 	for _, quest := range quests {
 		var version models.QuestVersion
-		if err := db.Where("meta_quest_id = ?", quest.ID).Order("id ASC").First(&version).Error; err != nil {
+		if err := db.Where("quest_id = ?", quest.ID).Order("id ASC").First(&version).Error; err != nil {
 			continue
 		}
 		if strings.TrimSpace(version.Title) == "" {
 			continue
 		}
-		_ = db.Model(&models.MetaQuest{}).Where("id = ?", quest.ID).Update("name", strings.TrimSpace(version.Title)).Error
+		_ = db.Model(&models.Quest{}).Where("id = ?", quest.ID).Update("name", strings.TrimSpace(version.Title)).Error
 	}
 }
 

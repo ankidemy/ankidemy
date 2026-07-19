@@ -95,9 +95,13 @@ const buildRRule = (parts: {
 export const scheduleSummary = (schedule: unknown) => {
   if (!isRecord(schedule)) return 'No schedule';
   const type = String(getStringProp(schedule, 'type') || '');
-  if (type === 'daily_pool') return 'Daily pool';
   const dtstart = getStringProp(schedule, 'dtstart');
   const rrule = getStringProp(schedule, 'rrule');
+  if (type === 'daily_pool') {
+    if (!dtstart) return 'Daily pool';
+    const dt = new Date(dtstart);
+    return `Daily pool from ${dt.toLocaleString()} (${coalesceTimezone(getStringProp(schedule, 'timezone'))})`;
+  }
   if ((type === 'rrule' || type === 'habit') && dtstart && rrule) {
     const dt = new Date(dtstart);
     const r = parseRRule(rrule);
@@ -214,9 +218,15 @@ export const buildQuestSchedulePayload = (args: {
   if (args.kind === 'daily') {
     const scheduleType = String(getStringProp(existing, 'type') || '');
     const cooldownDaysOverride = scheduleType === 'daily_pool' ? getNumberProp(existing, 'cooldownDaysOverride') : undefined;
+    const existingDtstart = getStringProp(existing, 'dtstart');
+    const existingRrule = getStringProp(existing, 'rrule');
+    const orgRepeaterMode = getStringProp(existing, 'orgRepeaterMode');
     return {
       type: 'daily_pool',
       timezone: tz,
+      ...(existingDtstart ? { dtstart: existingDtstart } : {}),
+      ...(existingRrule ? { rrule: existingRrule } : {}),
+      ...(orgRepeaterMode ? { orgRepeaterMode } : {}),
       cooldownDaysOverride: cooldownDaysOverride ?? null,
     };
   }
@@ -279,22 +289,26 @@ export const buildQuestSchedulePayload = (args: {
   }
 
   if (args.kind === 'habit') {
+    const orgRepeaterMode = getStringProp(existing, 'orgRepeaterMode');
     return {
       type: 'habit',
       timezone: tz,
       dtstart: dtstartIso,
       rrule,
+      ...(orgRepeaterMode ? { orgRepeaterMode } : {}),
       requiredCompletionsPerPeriod: getNumberProp(existing, 'requiredCompletionsPerPeriod') ?? 1,
       period: getStringProp(existing, 'period') ?? 'day',
       consecutivePeriodsToAutoDeactivate: getNumberProp(existing, 'consecutivePeriodsToAutoDeactivate') ?? 0,
     };
   }
 
+  const orgRepeaterMode = getStringProp(existing, 'orgRepeaterMode');
   return {
     type: 'rrule',
     timezone: tz,
     dtstart: dtstartIso,
     rrule,
+    ...(orgRepeaterMode ? { orgRepeaterMode } : {}),
     exdate: getStringArrayProp(existing, 'exdate') ?? [],
     rdate: getStringArrayProp(existing, 'rdate') ?? [],
     defaultSnoozeMinutes: getNumberProp(existing, 'defaultSnoozeMinutes') ?? 120,

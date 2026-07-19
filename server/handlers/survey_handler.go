@@ -13,15 +13,15 @@ import (
 type SurveyHandler struct {
 	domainDAO     *dao.DomainDAO
 	permissionDAO *dao.DomainPermissionDAO
-	metaQuestDAO  *dao.MetaQuestDAO
+	questDAO      *dao.QuestDAO
 	service       *services.SurveyService
 }
 
-func NewSurveyHandler(domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, metaQuestDAO *dao.MetaQuestDAO, service *services.SurveyService) *SurveyHandler {
+func NewSurveyHandler(domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, questDAO *dao.QuestDAO, service *services.SurveyService) *SurveyHandler {
 	return &SurveyHandler{
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
-		metaQuestDAO:  metaQuestDAO,
+		questDAO:      questDAO,
 		service:       service,
 	}
 }
@@ -73,7 +73,7 @@ func (h *SurveyHandler) PostEvent(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	meta, _, err := h.metaQuestDAO.FindByID(req.MetaQuestID)
+	meta, _, err := h.questDAO.FindByID(req.QuestID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quest not found"})
 		return
@@ -97,12 +97,12 @@ func (h *SurveyHandler) PostEvent(c *gin.Context) {
 		return
 	}
 	if req.QuestVersionID != nil {
-		version, err := h.metaQuestDAO.FindVersionByID(*req.QuestVersionID)
+		version, err := h.questDAO.FindVersionByID(*req.QuestVersionID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid questVersionId"})
 			return
 		}
-		if version.MetaQuestID != meta.ID {
+		if version.QuestID != meta.ID {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "questVersionId does not belong to the requested quest"})
 			return
 		}

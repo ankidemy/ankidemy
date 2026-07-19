@@ -18,11 +18,11 @@ type RelationHandler struct {
 	metaDefDAO    *dao.MetaDefinitionDAO
 	metaExDAO     *dao.MetaExerciseDAO
 	sourceDAO     *dao.SourceDAO
-	metaQuestDAO  *dao.MetaQuestDAO
+	questDAO      *dao.QuestDAO
 	nodeResolver  nodeAccessResolver
 }
 
-func NewRelationHandler(relationDAO *dao.NodeRelationDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, metaDefDAO *dao.MetaDefinitionDAO, metaExDAO *dao.MetaExerciseDAO, sourceDAO *dao.SourceDAO, metaQuestDAO *dao.MetaQuestDAO) *RelationHandler {
+func NewRelationHandler(relationDAO *dao.NodeRelationDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, metaDefDAO *dao.MetaDefinitionDAO, metaExDAO *dao.MetaExerciseDAO, sourceDAO *dao.SourceDAO, questDAO *dao.QuestDAO) *RelationHandler {
 	return &RelationHandler{
 		relationDAO:   relationDAO,
 		domainDAO:     domainDAO,
@@ -30,7 +30,7 @@ func NewRelationHandler(relationDAO *dao.NodeRelationDAO, domainDAO *dao.DomainD
 		metaDefDAO:    metaDefDAO,
 		metaExDAO:     metaExDAO,
 		sourceDAO:     sourceDAO,
-		metaQuestDAO:  metaQuestDAO,
+		questDAO:      questDAO,
 		nodeResolver:  newDBNodeAccessResolver(domainDAO.DB()),
 	}
 }
@@ -201,7 +201,7 @@ func (h *RelationHandler) buildVisibleNodeSet(domainID uint, userID uint) map[st
 		"definition": {},
 		"exercise":   {},
 		"source":     {},
-		"meta_quest": {},
+		"quest":      {},
 	}
 	metaDefs, _ := h.metaDefDAO.ListByDomain(domainID)
 	for _, md := range metaDefs {
@@ -215,9 +215,9 @@ func (h *RelationHandler) buildVisibleNodeSet(domainID uint, userID uint) map[st
 	for _, s := range sources {
 		visible["source"][s.ID] = true
 	}
-	quests, _ := h.metaQuestDAO.ListVisible(domainID, userID)
+	quests, _ := h.questDAO.ListVisible(domainID, userID)
 	for _, q := range quests {
-		visible["meta_quest"][q.ID] = true
+		visible["quest"][q.ID] = true
 	}
 	return visible
 }
@@ -226,7 +226,7 @@ func (h *RelationHandler) canCreateRelation(domain *models.Domain, userID uint, 
 	switch fromNode.NodeType {
 	case "definition", "exercise":
 		return canEditDomain(domain, userID, isAdmin, h.permissionDAO)
-	case "source", "meta_quest":
+	case "source", "quest":
 		return canMutateVisibilityScopedNode(domain, fromNode, userID, isAdmin, h.permissionDAO)
 	default:
 		return false, nil
@@ -235,7 +235,7 @@ func (h *RelationHandler) canCreateRelation(domain *models.Domain, userID uint, 
 
 func (h *RelationHandler) resolveRelationNode(nodeType string, nodeID uint) (*resolvedNodeAccess, error) {
 	switch nodeType {
-	case "source", "definition", "exercise", "meta_quest":
+	case "source", "definition", "exercise", "quest":
 		return h.nodeResolver.ResolveNodeAccess(nodeType, nodeID)
 	default:
 		return nil, errors.New("unsupported node type")

@@ -145,7 +145,7 @@ Supported-but-legacy:
 
 | Endpoint                            | Method | Auth Required | Description | Key Request Fields |
 | :---------------------------------- | :----- | :------------ | :---------- | :----------------- |
-| `/api/survey/events`                | `POST` | Yes           | Record quest event; requires domain view access, validates `questVersionId`, and is throttled | `metaQuestId`, `eventType`, `questVersionId` |
+| `/api/survey/events`                | `POST` | Yes           | Record quest event; requires domain view access, validates `questVersionId`, and is throttled | `questId`, `eventType`, `questVersionId` |
 | `/api/media/:userId/:visibility/:domain/:filename` | `GET` | Yes | Serve media with `nosniff`; non-images download as attachments | - |
 
 ## Domain Network

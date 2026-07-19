@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
 	"ankidemy/server/services"
+	"github.com/gin-gonic/gin"
 )
 
 type UserDomainSettingsHandler struct {

@@ -11,7 +11,7 @@ import {
   getSurveyQueue,
   postSurveyEvent,
   getQuest,
-  MetaQuestDTO,
+  QuestDTO,
   SurveyEventRequest,
 } from '@/lib/api';
 import { GraphData } from '../utils/types';
@@ -20,7 +20,7 @@ interface SurveyWindowContentProps {
   domainId: number;
   graphData?: GraphData;
   onNavigateToNode?: (nodeCode: string) => void;
-  onQuestUpdated?: (updated: MetaQuestDTO) => void;
+  onQuestUpdated?: (updated: QuestDTO) => void;
   onStatsUpdated?: (count: number) => void;
 }
 
@@ -52,7 +52,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
       if (src.id) map.set(`source:${src.id}`, src.code);
     });
     Object.values(graphData?.quests || {}).forEach(q => {
-      if (q.id) map.set(`meta_quest:${q.id}`, q.code);
+      if (q.id) map.set(`quest:${q.id}`, q.code);
     });
     return map;
   }, [graphData]);
@@ -81,9 +81,13 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
     try {
       const relations = await getDomainRelations(domainId);
       const filtered = relations.filter(rel =>
-        rel.fromType === 'meta_quest' &&
+        rel.fromType === 'quest' &&
         rel.fromId === questId &&
-        (rel.contextKey || '') === `quest_version:${versionId}`
+        (
+          !(rel.contextKey || '')
+          || rel.contextKey === 'content-import'
+          || rel.contextKey === `quest_version:${versionId}`
+        )
       );
       const mapped = filtered
         .map(rel => {
@@ -110,7 +114,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
     const questVersionId = selectedVersions[item.questId] || item.selectedVersionId;
     try {
       await postSurveyEvent({
-        metaQuestId: item.questId,
+        questId: item.questId,
         eventType,
         questVersionId,
         payload,
@@ -128,7 +132,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
     loadRelevantForVersion(item.questId, versionId);
     try {
       await postSurveyEvent({
-        metaQuestId: item.questId,
+        questId: item.questId,
         eventType: 'version_swapped',
         questVersionId: versionId,
         payload: { swapToVersionId: versionId },

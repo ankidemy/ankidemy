@@ -48,7 +48,7 @@ interface OverwriteFieldDiff {
 }
 
 interface OverwriteNodeDiff {
-  nodeType: 'metaDefinition' | 'metaExercise' | 'source' | 'metaQuest';
+  nodeType: 'metaDefinition' | 'metaExercise' | 'source' | 'quest';
   code: string;
   nodeName: string;
   fieldDiffs: OverwriteFieldDiff[];
@@ -463,7 +463,7 @@ const prepareImportDataForSubmit = (
     usedCodes.add(code);
     registerPosition(knownPositions, code, node);
   });
-  Object.entries(existingDomainData?.metaQuests || {}).forEach(([key, node]) => {
+  Object.entries(existingDomainData?.quests || {}).forEach(([key, node]) => {
     const code = normalizeText((node as any).code || key);
     if (!code) return;
     existingQuests.set(code, node);
@@ -497,7 +497,7 @@ const prepareImportDataForSubmit = (
   ensureMapCodes(payload.metaDefinitions as Record<string, any> | undefined, 'concept', 'dot');
   ensureMapCodes(payload.metaExercises as Record<string, any> | undefined, 'exercise', 'dot');
   ensureMapCodes(payload.sources as Record<string, any> | undefined, 'source', 'source');
-  ensureMapCodes(payload.metaQuests as Record<string, any> | undefined, 'quest', 'quest');
+  ensureMapCodes(payload.quests as Record<string, any> | undefined, 'quest', 'quest');
 
   let rawMetaDefs = toRecord(rawImportData.metaDefinitions);
   if (Object.keys(rawMetaDefs).length === 0) {
@@ -562,7 +562,7 @@ const prepareImportDataForSubmit = (
   }
 
   const rawSources = toRecord(rawImportData.sources);
-  const rawQuests = toRecord(rawImportData.metaQuests);
+  const rawQuests = toRecord(rawImportData.quests);
   const relationIndex = buildRelationIndex(payload.relations);
   const fallback = computeFallbackPosition(knownPositions);
 
@@ -760,45 +760,45 @@ const prepareImportDataForSubmit = (
     });
   });
 
-  Object.entries(payload.metaQuests || {}).forEach(([key, node]) => {
-    const metaQuest = node as any;
-    const code = normalizeText(metaQuest.code || key);
+  Object.entries(payload.quests || {}).forEach(([key, node]) => {
+    const quest = node as any;
+    const code = normalizeText(quest.code || key);
     const rawNode = rawQuests[key];
     const existingNode = existingQuests.get(code);
     const linkedCodes = uniqueCodes(relationIndex.get(code) || []);
 
     if (existingNode && !importAsNewNodes) {
       const diffs: OverwriteFieldDiff[] = [];
-      mergeFieldFromExisting(metaQuest, existingNode, rawNode, 'name', diffs);
-      mergeFieldFromExisting(metaQuest, existingNode, rawNode, 'kind', diffs);
-      mergeFieldFromExisting(metaQuest, existingNode, rawNode, 'schedule', diffs);
-      mergeFieldFromExisting(metaQuest, existingNode, rawNode, 'xPosition', diffs);
-      mergeFieldFromExisting(metaQuest, existingNode, rawNode, 'yPosition', diffs);
+      mergeFieldFromExisting(quest, existingNode, rawNode, 'name', diffs);
+      mergeFieldFromExisting(quest, existingNode, rawNode, 'kind', diffs);
+      mergeFieldFromExisting(quest, existingNode, rawNode, 'schedule', diffs);
+      mergeFieldFromExisting(quest, existingNode, rawNode, 'xPosition', diffs);
+      mergeFieldFromExisting(quest, existingNode, rawNode, 'yPosition', diffs);
 
       if (!hasOwn(rawNode, 'versions')) {
-        metaQuest.versions = existingNode.versions;
+        quest.versions = existingNode.versions;
       } else {
-        metaQuest.versions = mergeVersionList(metaQuest.versions, existingNode.versions, rawNode?.versions, QUEST_VERSION_FIELDS);
-        if (!areEqual(metaQuest.versions, existingNode.versions)) {
+        quest.versions = mergeVersionList(quest.versions, existingNode.versions, rawNode?.versions, QUEST_VERSION_FIELDS);
+        if (!areEqual(quest.versions, existingNode.versions)) {
           diffs.push({
             field: 'versions',
             oldValue: existingNode.versions,
-            newValue: metaQuest.versions,
+            newValue: quest.versions,
           });
         }
       }
 
       if (diffs.length > 0) {
         overwriteNodes.push({
-          nodeType: 'metaQuest',
+          nodeType: 'quest',
           code,
-          nodeName: normalizeText(metaQuest.name) || normalizeText(existingNode?.name) || code,
+          nodeName: normalizeText(quest.name) || normalizeText(existingNode?.name) || code,
           fieldDiffs: diffs,
         });
       }
 
       ensureNodePosition({
-        node: metaQuest,
+        node: quest,
         rawNode,
         code,
         linkedCodes,
@@ -809,10 +809,10 @@ const prepareImportDataForSubmit = (
       return;
     }
 
-    if (!normalizeText(metaQuest.kind)) {
+    if (!normalizeText(quest.kind)) {
       errors.push(`New quest "${code}" is missing kind.`);
     }
-    if (typeof metaQuest.schedule === 'undefined') {
+    if (typeof quest.schedule === 'undefined') {
       errors.push(`New quest "${code}" is missing schedule.`);
     }
     const rawVersions = Array.isArray(rawNode?.versions) ? rawNode.versions : null;
@@ -821,7 +821,7 @@ const prepareImportDataForSubmit = (
     }
 
     ensureNodePosition({
-      node: metaQuest,
+      node: quest,
       rawNode,
       code,
       linkedCodes,
@@ -1051,9 +1051,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       }
     }
 
-    if (data.metaQuests && Object.keys(data.metaQuests).length > 0) {
-      questCount = Object.keys(data.metaQuests).length;
-      for (const [code, mq] of Object.entries(data.metaQuests)) {
+    if (data.quests && Object.keys(data.quests).length > 0) {
+      questCount = Object.keys(data.quests).length;
+      for (const [code, mq] of Object.entries(data.quests)) {
         if (!mq.code) {
           errors.push(`Quest ${code} has empty code`);
         }

@@ -71,7 +71,7 @@ func newPhase06TestDB(t *testing.T) *gorm.DB {
 		&models.Definition{},
 		&models.MetaExercise{},
 		&models.Exercise{},
-		&models.MetaQuest{},
+		&models.Quest{},
 		&models.QuestVersion{},
 		&models.QuestEvent{},
 		&models.Source{},
@@ -224,21 +224,21 @@ func TestSurveyPostEventRejectsMismatchedQuestVersion(t *testing.T) {
 	mustCreateModel(t, db, domain)
 
 	schedule := json.RawMessage(`{"frequency":"daily"}`)
-	metaQuestA := &models.MetaQuest{DomainID: domain.ID, OwnerID: 11, Code: "QA", Name: "Quest A", Kind: "habit", Schedule: schedule, Visibility: "domain"}
-	metaQuestB := &models.MetaQuest{DomainID: domain.ID, OwnerID: 11, Code: "QB", Name: "Quest B", Kind: "habit", Schedule: schedule, Visibility: "domain"}
-	mustCreateModel(t, db, metaQuestA)
-	mustCreateModel(t, db, metaQuestB)
+	questA := &models.Quest{DomainID: domain.ID, OwnerID: 11, Code: "QA", Name: "Quest A", Kind: "habit", Schedule: schedule, Visibility: "domain"}
+	questB := &models.Quest{DomainID: domain.ID, OwnerID: 11, Code: "QB", Name: "Quest B", Kind: "habit", Schedule: schedule, Visibility: "domain"}
+	mustCreateModel(t, db, questA)
+	mustCreateModel(t, db, questB)
 
-	versionB := &models.QuestVersion{MetaQuestID: metaQuestB.ID, Title: "Version B"}
+	versionB := &models.QuestVersion{QuestID: questB.ID, Title: "Version B"}
 	mustCreateModel(t, db, versionB)
 
 	handler := &SurveyHandler{
 		domainDAO:     dao.NewDomainDAO(db),
 		permissionDAO: dao.NewDomainPermissionDAO(db),
-		metaQuestDAO:  dao.NewMetaQuestDAO(db),
+		questDAO:      dao.NewQuestDAO(db),
 	}
 
-	body := fmt.Sprintf(`{"metaQuestId":%d,"eventType":"completed","questVersionId":%d}`, metaQuestA.ID, versionB.ID)
+	body := fmt.Sprintf(`{"questId":%d,"eventType":"completed","questVersionId":%d}`, questA.ID, versionB.ID)
 	c, recorder := testJSONContext(http.MethodPost, "/api/survey/events", body)
 	c.Set("userID", uint(11))
 
@@ -281,7 +281,7 @@ func TestRelationCreateRejectsCrossDomainNodes(t *testing.T) {
 		metaDefDAO:    dao.NewMetaDefinitionDAO(db),
 		metaExDAO:     dao.NewMetaExerciseDAO(db),
 		sourceDAO:     dao.NewSourceDAO(db),
-		metaQuestDAO:  dao.NewMetaQuestDAO(db),
+		questDAO:      dao.NewQuestDAO(db),
 		nodeResolver:  newDBNodeAccessResolver(db),
 	}
 

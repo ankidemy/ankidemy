@@ -149,7 +149,6 @@ func (r *dbNodeAccessResolver) ResolveNodeAccess(nodeType string, nodeID uint) (
 		"definition": r.loadMetaDefinition,
 		"exercise":   r.loadMetaExercise,
 		"source":     r.loadSource,
-		"meta_quest": r.loadQuest,
 		"quest":      r.loadQuest,
 	})
 }
@@ -200,7 +199,7 @@ func (r *dbNodeAccessResolver) loadSource(nodeID uint) (*resolvedNodeAccess, err
 }
 
 func (r *dbNodeAccessResolver) loadQuest(nodeID uint) (*resolvedNodeAccess, error) {
-	var quest models.MetaQuest
+	var quest models.Quest
 	if err := r.db.Select("domain_id", "owner_id", "visibility").First(&quest, nodeID).Error; err != nil {
 		return nil, err
 	}

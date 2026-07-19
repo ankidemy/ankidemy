@@ -1,7 +1,7 @@
 import type {
   MetaDefinition,
   MetaExercise,
-  MetaQuestDTO,
+  QuestDTO,
   NodeRelationDTO,
   SourceDTO,
 } from '@/lib/api';
@@ -10,7 +10,7 @@ import type {
   Definition,
   Exercise,
   GraphData,
-  MetaQuest,
+  Quest,
   SourceNode,
 } from '../utils/types';
 
@@ -18,7 +18,7 @@ export type DomainGraphPayload = {
   metaDefinitions: MetaDefinition[];
   metaExercises: MetaExercise[];
   sources: SourceDTO[];
-  quests: MetaQuestDTO[];
+  quests: QuestDTO[];
   relations: NodeRelationDTO[];
 };
 
@@ -84,7 +84,7 @@ export const buildIdToCodeByTypeFromGraphData = (
 
   Object.values(graphData.quests || {}).forEach(quest => {
     if (typeof quest.id === 'number') {
-      idToCodeByType.set(`meta_quest:${quest.id}`, quest.code);
+      idToCodeByType.set(`quest:${quest.id}`, quest.code);
     }
   });
 
@@ -180,7 +180,7 @@ export const adaptDomainPayloadToGraphData = (payload: DomainGraphPayload): Doma
     }
   });
 
-  const questsByCode: Record<string, MetaQuest> = {};
+  const questsByCode: Record<string, Quest> = {};
   quests.forEach(quest => {
     if (!quest?.code) return;
     questsByCode[quest.code] = {
@@ -200,7 +200,7 @@ export const adaptDomainPayloadToGraphData = (payload: DomainGraphPayload): Doma
       type: 'quest',
     };
     if (typeof quest.id === 'number') {
-      idToCodeByType.set(`meta_quest:${quest.id}`, quest.code);
+      idToCodeByType.set(`quest:${quest.id}`, quest.code);
     }
   });
 

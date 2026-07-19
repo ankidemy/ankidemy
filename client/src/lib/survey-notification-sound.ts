@@ -27,29 +27,29 @@ export const playSurveyQueueNotificationSound = () => {
 
     const masterGain = ctx.createGain();
     masterGain.gain.setValueAtTime(0.0001, now);
-    masterGain.gain.exponentialRampToValueAtTime(0.028, now + 0.02);
-    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.36);
+    masterGain.gain.exponentialRampToValueAtTime(0.08, now + 0.025);
+    masterGain.gain.setValueAtTime(0.08, now + 0.38);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.78);
     masterGain.connect(ctx.destination);
 
-    const toneA = ctx.createOscillator();
-    toneA.type = 'sine';
-    toneA.frequency.setValueAtTime(784, now);
-    toneA.frequency.exponentialRampToValueAtTime(659, now + 0.15);
-    toneA.connect(masterGain);
-    toneA.start(now);
-    toneA.stop(now + 0.16);
+    [
+      { frequency: 587.33, offset: 0, duration: 0.36 },
+      { frequency: 739.99, offset: 0.18, duration: 0.4 },
+      { frequency: 880, offset: 0.34, duration: 0.42 },
+    ].forEach(({ frequency, offset, duration }) => {
+      const toneGain = ctx.createGain();
+      toneGain.gain.setValueAtTime(0.0001, now + offset);
+      toneGain.gain.exponentialRampToValueAtTime(0.68, now + offset + 0.02);
+      toneGain.gain.exponentialRampToValueAtTime(0.0001, now + offset + duration);
+      toneGain.connect(masterGain);
 
-    const toneBGain = ctx.createGain();
-    toneBGain.gain.setValueAtTime(0.58, now + 0.17);
-    toneBGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.33);
-    toneBGain.connect(masterGain);
-
-    const toneB = ctx.createOscillator();
-    toneB.type = 'sine';
-    toneB.frequency.setValueAtTime(988, now + 0.17);
-    toneB.connect(toneBGain);
-    toneB.start(now + 0.17);
-    toneB.stop(now + 0.33);
+      const tone = ctx.createOscillator();
+      tone.type = 'sine';
+      tone.frequency.setValueAtTime(frequency, now + offset);
+      tone.connect(toneGain);
+      tone.start(now + offset);
+      tone.stop(now + offset + duration);
+    });
   } catch {}
 };
 

@@ -12,7 +12,7 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import { ArrowLeft, Clock, Edit, Loader2, Save, X, Lock, Unlock, SlidersHorizontal, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import VersionHeaderControls from '../components/VersionHeaderControls';
 import {
-  MetaQuestDTO,
+  QuestDTO,
   QuestVersionDTO,
   addQuestVersion,
   deleteQuest,
@@ -42,10 +42,10 @@ import {
 
 interface QuestWindowContentProps {
   windowId: string;
-  questData: Partial<MetaQuestDTO>;
+  questData: Partial<QuestDTO>;
   domainId: number;
   graphData?: GraphData;
-  onUpdateQuest?: (updated: MetaQuestDTO) => void;
+  onUpdateQuest?: (updated: QuestDTO) => void;
   onDeleteQuest?: (code: string) => void;
   onRelevantLinksUpdated?: () => void | Promise<void>;
   isFrenzyEditMode?: boolean;
@@ -58,7 +58,7 @@ interface QuestWindowContentProps {
   liveContentRevision?: string;
 }
 
-type RelationDraft = { relationType: string; toType: 'definition' | 'exercise' | 'source' | 'meta_quest'; toCode: string };
+type RelationDraft = { relationType: string; toType: 'definition' | 'exercise' | 'source' | 'quest'; toCode: string };
 
 type QuestKind = 'todo' | 'habit' | 'daily';
 type QuestVisibility = 'private' | 'domain';
@@ -69,7 +69,7 @@ const formatQuestKindLabel = (value: QuestKind) => value.charAt(0).toUpperCase()
 const isQuestKind = (value: string): value is QuestKind => value === 'todo' || value === 'habit' || value === 'daily';
 const isQuestVisibility = (value: string): value is QuestVisibility => value === 'private' || value === 'domain';
 const isRelationToType = (value: string): value is RelationDraft['toType'] =>
-  value === 'definition' || value === 'exercise' || value === 'source' || value === 'meta_quest';
+  value === 'definition' || value === 'exercise' || value === 'source' || value === 'quest';
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 const toLocalDateInputValue = (date: Date) => {
@@ -105,7 +105,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   liveContentRevision,
 }) => {
   const ui = useUI();
-  const [quest, setQuest] = useState<MetaQuestDTO | null>(null);
+  const [quest, setQuest] = useState<QuestDTO | null>(null);
   const [versions, setVersions] = useState<QuestVersionDTO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -267,16 +267,16 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   const codeLookup = useMemo(() => {
     const map = new Map<string, string>();
     Object.values(graphData?.definitions || {}).forEach(def => {
-      if (def.id) map.set(`meta_definition:${def.id}`, def.code);
+      if (def.id) map.set(`definition:${def.id}`, def.code);
     });
     Object.values(graphData?.exercises || {}).forEach(ex => {
-      if (ex.id) map.set(`meta_exercise:${ex.id}`, ex.code);
+      if (ex.id) map.set(`exercise:${ex.id}`, ex.code);
     });
     Object.values(graphData?.sources || {}).forEach(src => {
       if (src.id) map.set(`source:${src.id}`, src.code);
     });
     Object.values(graphData?.quests || {}).forEach(q => {
-      if (q.id) map.set(`meta_quest:${q.id}`, q.code);
+      if (q.id) map.set(`quest:${q.id}`, q.code);
     });
     return map;
   }, [graphData]);
@@ -317,7 +317,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (questData?.id) {
       loadQuest();
     } else if (questData?.code) {
-      const fallback = questData as MetaQuestDTO;
+      const fallback = questData as QuestDTO;
       setQuest(fallback);
       setVersions(fallback.versions || []);
       setSelectedVersionId(fallback.versions?.[0]?.id ?? null);
@@ -410,9 +410,13 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     try {
       const relations = await getDomainRelations(domainId);
       const filtered = relations.filter(rel =>
-        rel.fromType === 'meta_quest' &&
+        rel.fromType === 'quest' &&
         rel.fromId === quest.id &&
-        (rel.contextKey || '') === `quest_version:${versionId}`
+        (
+          !(rel.contextKey || '')
+          || rel.contextKey === 'content-import'
+          || rel.contextKey === `quest_version:${versionId}`
+        )
       );
       const mapped = filtered
         .map(rel => {
@@ -447,7 +451,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     setIsCompleting(true);
     try {
       await postSurveyEvent({
-        metaQuestId: quest.id,
+        questId: quest.id,
         eventType: 'completed',
         questVersionId: selectedVersionId ?? activeVersion?.id,
       });
@@ -502,7 +506,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (link.toType === 'source') {
       return graphData.sources?.[link.toCode]?.title || link.toCode;
     }
-    if (link.toType === 'meta_quest') {
+    if (link.toType === 'quest') {
       return graphData.quests?.[link.toCode]?.name || graphData.quests?.[link.toCode]?.versions?.[0]?.title || link.toCode;
     }
     return link.toCode;
@@ -563,12 +567,12 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
 
     setIsSaving(true);
     try {
-      let mergedQuest: MetaQuestDTO = quest;
+      let mergedQuest: QuestDTO = quest;
       let mergedVersions: QuestVersionDTO[] = versions;
 
       if (shouldSaveMeta) {
         const parsedSchedule = buildSchedulePayload(quest.schedule);
-        const payload: Partial<MetaQuestDTO> & { active?: boolean } = {
+        const payload: Partial<QuestDTO> & { active?: boolean } = {
           name: nameDraft.trim(),
           code: codeDraft.trim(),
           kind: kindDraft,
@@ -593,7 +597,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
         mergedVersions = baseVersions.map(v => (v.id === activeVersion.id ? { ...v, ...updatedVersion } : v));
       }
 
-      const finalQuest: MetaQuestDTO = {
+      const finalQuest: QuestDTO = {
         ...mergedQuest,
         versions: mergedVersions,
       };
@@ -917,7 +921,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
   }, [newRelation]);
 
   const handleCancelEdit = useCallback(() => {
-    const base = quest ?? (questData as MetaQuestDTO);
+    const base = quest ?? (questData as QuestDTO);
     setNameDraft(base.name || base.versions?.[0]?.title || '');
     setCodeDraft(base.code || '');
     setKindDraft(isQuestKind(base.kind) ? base.kind : 'todo');
@@ -999,7 +1003,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
     if (isLoading) return;
     if (nameDraft.trim().length === 0) return;
 
-    let payload: Partial<MetaQuestDTO> & { active?: boolean };
+    let payload: Partial<QuestDTO> & { active?: boolean };
     try {
       payload = {
         name: nameDraft.trim(),
@@ -1841,7 +1845,7 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   <option value="definition">Definition</option>
                   <option value="exercise">Exercise</option>
                   <option value="source">Source</option>
-                  <option value="meta_quest">Quest</option>
+                  <option value="quest">Quest</option>
                 </select>
                 <Input
                   value={newRelation.toCode}

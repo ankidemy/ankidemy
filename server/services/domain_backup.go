@@ -34,14 +34,14 @@ type DomainSRSBackup struct {
 }
 
 type DomainUserStateBackup struct {
-	Username           string                         `json:"username"`
-	PrivateSources     map[string]ImportSourceNode    `json:"privateSources,omitempty"`
-	PrivateQuests      map[string]ImportMetaQuestNode `json:"privateQuests,omitempty"`
-	PrivateRelations   []ImportRelation               `json:"privateRelations,omitempty"`
-	QuestStates        []QuestStateBackup             `json:"questStates,omitempty"`
-	QuestEvents        []QuestEventBackup             `json:"questEvents,omitempty"`
-	UserDomainSettings *UserDomainSettingsBackup      `json:"userDomainSettings,omitempty"`
-	SRSProgress        []SRSProgress                  `json:"srsProgress,omitempty"`
+	Username           string                      `json:"username"`
+	PrivateSources     map[string]ImportSourceNode `json:"privateSources,omitempty"`
+	PrivateQuests      map[string]ImportQuestNode  `json:"privateQuests,omitempty"`
+	PrivateRelations   []ImportRelation            `json:"privateRelations,omitempty"`
+	QuestStates        []QuestStateBackup          `json:"questStates,omitempty"`
+	QuestEvents        []QuestEventBackup          `json:"questEvents,omitempty"`
+	UserDomainSettings *UserDomainSettingsBackup   `json:"userDomainSettings,omitempty"`
+	SRSProgress        []SRSProgress               `json:"srsProgress,omitempty"`
 }
 
 type UserDomainSettingsBackup struct {
@@ -52,7 +52,8 @@ type UserDomainSettingsBackup struct {
 }
 
 type QuestStateBackup struct {
-	MetaQuestCode      string     `json:"metaQuestCode"`
+	QuestCode          string     `json:"questCode"`
+	LegacyQuestCode    string     `json:"metaQuestCode,omitempty"`
 	Active             bool       `json:"active"`
 	NextDueAt          *time.Time `json:"nextDueAt,omitempty"`
 	SnoozedUntil       *time.Time `json:"snoozedUntil,omitempty"`
@@ -65,7 +66,8 @@ type QuestStateBackup struct {
 }
 
 type QuestEventBackup struct {
-	MetaQuestCode     string          `json:"metaQuestCode"`
+	QuestCode         string          `json:"questCode"`
+	LegacyQuestCode   string          `json:"metaQuestCode,omitempty"`
 	QuestVersionIndex *int            `json:"questVersionIndex,omitempty"`
 	EventType         string          `json:"eventType"`
 	HappenedAt        time.Time       `json:"happenedAt"`
@@ -98,6 +100,18 @@ func NormalizeDomainBackupNodeTypes(b *DomainBackup) {
 		return
 	}
 	if b.UserState != nil {
+		for i := range b.UserState.QuestStates {
+			if b.UserState.QuestStates[i].QuestCode == "" {
+				b.UserState.QuestStates[i].QuestCode = b.UserState.QuestStates[i].LegacyQuestCode
+			}
+			b.UserState.QuestStates[i].LegacyQuestCode = ""
+		}
+		for i := range b.UserState.QuestEvents {
+			if b.UserState.QuestEvents[i].QuestCode == "" {
+				b.UserState.QuestEvents[i].QuestCode = b.UserState.QuestEvents[i].LegacyQuestCode
+			}
+			b.UserState.QuestEvents[i].LegacyQuestCode = ""
+		}
 		for i := range b.UserState.PrivateRelations {
 			b.UserState.PrivateRelations[i].FromType = canonicalImportNodeType(b.UserState.PrivateRelations[i].FromType)
 			b.UserState.PrivateRelations[i].ToType = canonicalImportNodeType(b.UserState.PrivateRelations[i].ToType)
@@ -172,7 +186,7 @@ func (s *ImportService) ExportDomainBackup(domainID uint, userID uint) (*DomainB
 func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUserStateBackup, error) {
 	state := &DomainUserStateBackup{
 		PrivateSources: make(map[string]ImportSourceNode),
-		PrivateQuests:  make(map[string]ImportMetaQuestNode),
+		PrivateQuests:  make(map[string]ImportQuestNode),
 	}
 
 	var privateSources []models.Source
@@ -191,13 +205,13 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 		}
 	}
 
-	var privateQuests []models.MetaQuest
+	var privateQuests []models.Quest
 	if err := s.db.Where("domain_id = ? AND owner_id = ? AND visibility = 'private'", domainID, userID).Find(&privateQuests).Error; err != nil {
 		return nil, err
 	}
 	for _, q := range privateQuests {
 		var versions []models.QuestVersion
-		if err := s.db.Where("meta_quest_id = ?", q.ID).Order("id ASC").Find(&versions).Error; err != nil {
+		if err := s.db.Where("quest_id = ?", q.ID).Order("id ASC").Find(&versions).Error; err != nil {
 			return nil, err
 		}
 		vnodes := make([]ImportQuestVersion, 0, len(versions))
@@ -209,7 +223,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 				ImagePath:     v.ImagePath,
 			})
 		}
-		state.PrivateQuests[q.Code] = ImportMetaQuestNode{
+		state.PrivateQuests[q.Code] = ImportQuestNode{
 			Code:      q.Code,
 			Kind:      q.Kind,
 			Schedule:  q.Schedule,
@@ -244,12 +258,12 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 		var relations []models.NodeRelation
 		query := s.db.Where("domain_id = ?", domainID)
 		if len(privateSourceIDs) > 0 && len(privateQuestIDs) > 0 {
-			query = query.Where("(from_type = 'source' AND from_id IN ?) OR (to_type = 'source' AND to_id IN ?) OR (from_type = 'meta_quest' AND from_id IN ?) OR (to_type = 'meta_quest' AND to_id IN ?)",
+			query = query.Where("(from_type = 'source' AND from_id IN ?) OR (to_type = 'source' AND to_id IN ?) OR (from_type = 'quest' AND from_id IN ?) OR (to_type = 'quest' AND to_id IN ?)",
 				privateSourceIDs, privateSourceIDs, privateQuestIDs, privateQuestIDs)
 		} else if len(privateSourceIDs) > 0 {
 			query = query.Where("(from_type = 'source' AND from_id IN ?) OR (to_type = 'source' AND to_id IN ?)", privateSourceIDs, privateSourceIDs)
 		} else if len(privateQuestIDs) > 0 {
-			query = query.Where("(from_type = 'meta_quest' AND from_id IN ?) OR (to_type = 'meta_quest' AND to_id IN ?)", privateQuestIDs, privateQuestIDs)
+			query = query.Where("(from_type = 'quest' AND from_id IN ?) OR (to_type = 'quest' AND to_id IN ?)", privateQuestIDs, privateQuestIDs)
 		}
 		if err := query.Find(&relations).Error; err != nil {
 			return nil, err
@@ -274,13 +288,13 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 
 	// User quest states
 	type stateRow struct {
-		models.UserMetaQuestState
+		models.UserQuestState
 		Code string
 	}
 	rows := []stateRow{}
-	if err := s.db.Table("user_meta_quest_state ums").
+	if err := s.db.Table("user_quest_state ums").
 		Select("ums.*, mq.code").
-		Joins("JOIN meta_quests mq ON mq.id = ums.meta_quest_id").
+		Joins("JOIN quests mq ON mq.id = ums.quest_id").
 		Where("ums.user_id = ? AND mq.domain_id = ?", userID, domainID).
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -288,7 +302,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 	state.QuestStates = make([]QuestStateBackup, 0, len(rows))
 	for _, row := range rows {
 		state.QuestStates = append(state.QuestStates, QuestStateBackup{
-			MetaQuestCode:      row.Code,
+			QuestCode:          row.Code,
 			Active:             row.Active,
 			NextDueAt:          row.NextDueAt,
 			SnoozedUntil:       row.SnoozedUntil,
@@ -309,7 +323,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 	events := []eventRow{}
 	if err := s.db.Table("quest_events qe").
 		Select("qe.*, mq.code").
-		Joins("JOIN meta_quests mq ON mq.id = qe.meta_quest_id").
+		Joins("JOIN quests mq ON mq.id = qe.quest_id").
 		Where("qe.user_id = ? AND mq.domain_id = ?", userID, domainID).
 		Order("qe.happened_at ASC").
 		Scan(&events).Error; err != nil {
@@ -318,7 +332,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 
 	versionIndexByID := map[uint]int{}
 	var versions []models.QuestVersion
-	if err := s.db.Joins("JOIN meta_quests mq ON mq.id = quest_versions.meta_quest_id").
+	if err := s.db.Joins("JOIN quests mq ON mq.id = quest_versions.quest_id").
 		Where("mq.domain_id = ?", domainID).
 		Order("quest_versions.id ASC").
 		Find(&versions).Error; err == nil {
@@ -335,7 +349,7 @@ func (s *ImportService) exportUserState(domainID uint, userID uint) (*DomainUser
 			}
 		}
 		state.QuestEvents = append(state.QuestEvents, QuestEventBackup{
-			MetaQuestCode:     ev.Code,
+			QuestCode:         ev.Code,
 			QuestVersionIndex: indexPtr,
 			EventType:         ev.EventType,
 			HappenedAt:        ev.HappenedAt,
@@ -435,7 +449,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 					name = firstTitle
 				}
 			}
-			meta := &models.MetaQuest{
+			meta := &models.Quest{
 				DomainID:   domainID,
 				OwnerID:    userID,
 				Code:       assigned,
@@ -452,14 +466,14 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 			if err := tx.Create(&models.DomainNodeCode{
 				DomainID: domainID,
 				Code:     assigned,
-				NodeType: "meta_quest",
+				NodeType: "quest",
 				NodeID:   meta.ID,
 			}).Error; err != nil {
 				return err
 			}
 			for _, v := range q.Versions {
 				qv := &models.QuestVersion{
-					MetaQuestID:   meta.ID,
+					QuestID:       meta.ID,
 					Title:         v.Title,
 					DescriptionMd: v.DescriptionMd,
 					TaskList:      v.TaskList,
@@ -473,7 +487,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 			existingCodeMap[assigned] = models.DomainNodeCode{
 				DomainID: domainID,
 				Code:     assigned,
-				NodeType: "meta_quest",
+				NodeType: "quest",
 				NodeID:   meta.ID,
 			}
 			privateQuestAssigned[code] = assigned
@@ -496,17 +510,17 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 
 		// Quest states
 		for _, qs := range state.QuestStates {
-			questCode := qs.MetaQuestCode
+			questCode := qs.QuestCode
 			if mapped, ok := privateQuestAssigned[questCode]; ok {
 				questCode = mapped
 			}
 			entry, ok := existingCodeMap[questCode]
-			if !ok || entry.NodeType != "meta_quest" {
+			if !ok || entry.NodeType != "quest" {
 				continue
 			}
-			stateRow := &models.UserMetaQuestState{
+			stateRow := &models.UserQuestState{
 				UserID:             userID,
-				MetaQuestID:        entry.NodeID,
+				QuestID:            entry.NodeID,
 				Active:             qs.Active,
 				NextDueAt:          qs.NextDueAt,
 				SnoozedUntil:       qs.SnoozedUntil,
@@ -518,7 +532,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 				LastShownAt:        qs.LastShownAt,
 			}
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "user_id"}, {Name: "meta_quest_id"}},
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "quest_id"}},
 				UpdateAll: true,
 			}).Create(stateRow).Error; err != nil {
 				return err
@@ -527,18 +541,18 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 
 		// Quest events
 		for _, ev := range state.QuestEvents {
-			questCode := ev.MetaQuestCode
+			questCode := ev.QuestCode
 			if mapped, ok := privateQuestAssigned[questCode]; ok {
 				questCode = mapped
 			}
 			entry, ok := existingCodeMap[questCode]
-			if !ok || entry.NodeType != "meta_quest" {
+			if !ok || entry.NodeType != "quest" {
 				continue
 			}
 			var versionID *uint
 			if ev.QuestVersionIndex != nil {
 				var versions []models.QuestVersion
-				if err := tx.Where("meta_quest_id = ?", entry.NodeID).Order("id ASC").Find(&versions).Error; err == nil {
+				if err := tx.Where("quest_id = ?", entry.NodeID).Order("id ASC").Find(&versions).Error; err == nil {
 					if *ev.QuestVersionIndex >= 0 && *ev.QuestVersionIndex < len(versions) {
 						id := versions[*ev.QuestVersionIndex].ID
 						versionID = &id
@@ -547,7 +561,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 			}
 			event := &models.QuestEvent{
 				UserID:         userID,
-				MetaQuestID:    entry.NodeID,
+				QuestID:        entry.NodeID,
 				QuestVersionID: versionID,
 				EventType:      ev.EventType,
 				HappenedAt:     ev.HappenedAt,
@@ -576,7 +590,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 						fromCode = mapped
 					}
 				}
-				if rel.FromType == "meta_quest" {
+				if rel.FromType == "quest" {
 					if mapped, ok := privateQuestAssigned[fromCode]; ok {
 						fromCode = mapped
 					}
@@ -586,7 +600,7 @@ func (s *ImportService) ImportUserState(domainID uint, userID uint, state *Domai
 						toCode = mapped
 					}
 				}
-				if rel.ToType == "meta_quest" {
+				if rel.ToType == "quest" {
 					if mapped, ok := privateQuestAssigned[toCode]; ok {
 						toCode = mapped
 					}

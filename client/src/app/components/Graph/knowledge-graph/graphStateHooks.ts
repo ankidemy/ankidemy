@@ -11,7 +11,7 @@ import type {
   Exercise,
   GraphLink,
   GraphNode,
-  MetaQuest,
+  Quest,
   SourceNode,
 } from '../utils/types';
 import { PositionManager } from '../utils/PositionManager';
@@ -29,7 +29,7 @@ export const buildGraphStructureState = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
   sources: Record<string, SourceNode>,
-  quests: Record<string, MetaQuest>,
+  quests: Record<string, Quest>,
   relations: Array<{ fromCode: string; toCode: string; relationType?: string }>,
   externalLinks: ExternalPrerequisiteLink[],
 ): GraphStructureState => {
@@ -247,7 +247,7 @@ export const useGraphStructure = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
   sources: Record<string, SourceNode>,
-  quests: Record<string, MetaQuest>,
+  quests: Record<string, Quest>,
   relations: Array<{ fromCode: string; toCode: string; relationType?: string }>,
   externalLinks: ExternalPrerequisiteLink[],
 ): GraphStructureState => {
@@ -262,7 +262,7 @@ export const buildGraphMetadataState = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
   sources: Record<string, SourceNode>,
-  quests: Record<string, MetaQuest>,
+  quests: Record<string, Quest>,
   srs: any,
   codeToNumericIdMap: Map<string, number>,
   groupNodeMetadata: Map<string, NodeMetadata>,
@@ -403,7 +403,7 @@ export const useGraphMetadata = (
   definitions: Record<string, Definition>,
   exercises: Record<string, Exercise>,
   sources: Record<string, SourceNode>,
-  quests: Record<string, MetaQuest>,
+  quests: Record<string, Quest>,
   srs: any,
   codeToNumericIdMap: Map<string, number>,
   groupNodeMetadata: Map<string, NodeMetadata>,

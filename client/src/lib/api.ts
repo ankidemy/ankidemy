@@ -389,14 +389,14 @@ export interface SourceDTO {
 
 export interface QuestVersionDTO {
   id?: number;
-  metaQuestId?: number;
+  questId?: number;
   title: string;
   descriptionMd?: string;
   taskList?: any;
   imagePath?: string | null;
 }
 
-export interface MetaQuestDTO {
+export interface QuestDTO {
   id?: number;
   domainId?: number;
   ownerId?: number;
@@ -415,9 +415,9 @@ export interface MetaQuestDTO {
 export interface NodeRelationDTO {
   id?: number;
   domainId?: number;
-  fromType: 'definition' | 'exercise' | 'source' | 'meta_quest';
+  fromType: 'definition' | 'exercise' | 'source' | 'quest';
   fromId: number;
-  toType: 'definition' | 'exercise' | 'source' | 'meta_quest';
+  toType: 'definition' | 'exercise' | 'source' | 'quest';
   toId: number;
   relationType: string;
   contextKey?: string;
@@ -439,7 +439,7 @@ export interface SurveyQueueItem {
 }
 
 export interface SurveyEventRequest {
-  metaQuestId: number;
+  questId: number;
   eventType: 'completed' | 'skipped' | 'snoozed' | 'deactivated' | 'reactivated' | 'version_swapped';
   questVersionId?: number;
   happenedAt?: string;
@@ -631,7 +631,7 @@ export interface DomainExportData {
       yPosition?: number;
     };
   };
-  metaQuests?: {
+  quests?: {
     [key: string]: {
       code: string;
       name?: string;
@@ -721,7 +721,8 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
   const hasEx = rawData.exercises && typeof rawData.exercises === 'object';
   const hasMetaEx = rawData.metaExercises && typeof rawData.metaExercises === 'object';
   const hasSources = rawData.sources && typeof rawData.sources === 'object';
-  const hasQuests = rawData.metaQuests && typeof rawData.metaQuests === 'object';
+  const rawQuests = rawData.quests ?? rawData.metaQuests;
+  const hasQuests = rawQuests && typeof rawQuests === 'object';
   if ((!hasDefs && !hasMetaDefs) && (!hasEx && !hasMetaEx) && !hasSources && !hasQuests) {
     throw new Error('Invalid JSON format: missing definitions/exercises and sources/quests');
   }
@@ -732,7 +733,7 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
     exercises: undefined,
     metaExercises: undefined,
     sources: undefined,
-    metaQuests: undefined,
+    quests: undefined,
     relations: Array.isArray(rawData.relations) ? rawData.relations : undefined,
     groups: Array.isArray(rawData.groups) ? rawData.groups : undefined,
   };
@@ -873,9 +874,9 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
     }
   }
 
-  if (rawData.metaQuests && typeof rawData.metaQuests === 'object') {
-    standardized.metaQuests = {};
-    for (const [key, mq] of Object.entries(rawData.metaQuests || {})) {
+  if (rawQuests && typeof rawQuests === 'object') {
+    standardized.quests = {};
+    for (const [key, mq] of Object.entries(rawQuests || {})) {
       const node = mq as any;
       const code = normalizeImportCode(node.code, key);
       let name = normalizeImportName(node.name, code);
@@ -894,7 +895,7 @@ export const standardizeImportData = (rawData: any): DomainExportData => {
         if (firstTitle) name = firstTitle;
       }
       const kind = normalizeImportText(node.kind) || 'todo';
-      (standardized.metaQuests as any)[key] = {
+      (standardized.quests as any)[key] = {
         code,
         name,
         kind,
@@ -1891,7 +1892,7 @@ export const deleteSource = async (sourceId: number): Promise<void> => {
 };
 
 // Quests API
-export const getDomainQuests = async (domainId: number): Promise<MetaQuestDTO[]> => {
+export const getDomainQuests = async (domainId: number): Promise<QuestDTO[]> => {
   const response = await observedFetch(`${API_URL}/api/domains/${domainId}/quests?scope=visible`, {
     headers: getAuthHeaders(),
   });
@@ -1899,7 +1900,7 @@ export const getDomainQuests = async (domainId: number): Promise<MetaQuestDTO[]>
   return handleResponse(response);
 };
 
-export const createQuest = async (domainId: number, payload: Partial<MetaQuestDTO> & { initialVersion: QuestVersionDTO }): Promise<MetaQuestDTO> => {
+export const createQuest = async (domainId: number, payload: Partial<QuestDTO> & { initialVersion: QuestVersionDTO }): Promise<QuestDTO> => {
   const response = await observedFetch(`${API_URL}/api/domains/${domainId}/quests`, {
     method: 'POST',
     headers: {
@@ -1914,14 +1915,14 @@ export const createQuest = async (domainId: number, payload: Partial<MetaQuestDT
   return handleResponse(response);
 };
 
-export const getQuest = async (questId: number): Promise<MetaQuestDTO> => {
+export const getQuest = async (questId: number): Promise<QuestDTO> => {
   const response = await observedFetch(`${API_URL}/api/quests/${questId}`, {
     headers: getAuthHeaders(),
   });
   return handleResponse(response);
 };
 
-export const updateQuest = async (questId: number, payload: Partial<MetaQuestDTO> & { active?: boolean }): Promise<MetaQuestDTO> => {
+export const updateQuest = async (questId: number, payload: Partial<QuestDTO> & { active?: boolean }): Promise<QuestDTO> => {
   const response = await observedFetch(`${API_URL}/api/quests/${questId}`, {
     method: 'PATCH',
     headers: {

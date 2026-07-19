@@ -1,44 +1,44 @@
 package models
 
 import (
-    "time"
-    "gorm.io/gorm"
+	"gorm.io/gorm"
+	"time"
 )
 
 // User represents a user in the system
 // NOTE: We declare ID/timestamps explicitly to control JSON casing (id, createdAt, ...)
 type User struct {
-    ID        uint           `gorm:"primaryKey" json:"id"`
-    CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
-    UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
-    DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index" json:"deletedAt,omitempty"`
+	ID        uint           `gorm:"primaryKey" json:"id"`
+	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index" json:"deletedAt,omitempty"`
 
-    Username  string `gorm:"column:username;unique;not null" json:"username"`
-    Email     string `gorm:"column:email;unique;not null" json:"email"`
-    Password  string `gorm:"column:password;not null" json:"-"`
-    Level     string `gorm:"column:level;default:user" json:"level"`
-    FirstName string `gorm:"column:first_name" json:"firstName"`
-    LastName  string `gorm:"column:last_name" json:"lastName"`
-    IsActive  bool   `gorm:"column:is_active;default:true" json:"isActive"`
-    IsAdmin   bool   `gorm:"column:is_admin;default:false" json:"isAdmin"`
+	Username  string `gorm:"column:username;unique;not null" json:"username"`
+	Email     string `gorm:"column:email;unique;not null" json:"email"`
+	Password  string `gorm:"column:password;not null" json:"-"`
+	Level     string `gorm:"column:level;default:user" json:"level"`
+	FirstName string `gorm:"column:first_name" json:"firstName"`
+	LastName  string `gorm:"column:last_name" json:"lastName"`
+	IsActive  bool   `gorm:"column:is_active;default:true" json:"isActive"`
+	IsAdmin   bool   `gorm:"column:is_admin;default:false" json:"isAdmin"`
 }
 
 // TableName overrides the table name to match our schema
 func (User) TableName() string {
-    return "users"
+	return "users"
 }
 
 // LoginRequest defines the structure for login requests
 type LoginRequest struct {
-    Email    string `json:"email"`
-    Password string `json:"password"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 // LoginResponse defines the structure for login responses
 type LoginResponse struct {
-    Success bool   `json:"success"`
-    Message string `json:"message"`
-    UserID  uint   `json:"user_id,omitempty"`
-    Level   string `json:"level,omitempty"`
-    IsAdmin bool   `json:"is_admin,omitempty"`
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	UserID  uint   `json:"user_id,omitempty"`
+	Level   string `json:"level,omitempty"`
+	IsAdmin bool   `json:"is_admin,omitempty"`
 }

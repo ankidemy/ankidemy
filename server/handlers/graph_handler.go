@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"ankidemy/server/dao"
+	"github.com/gin-gonic/gin"
 )
 
 // GraphHandler handles graph-related HTTP requests
@@ -15,17 +15,17 @@ type GraphHandler struct {
 	domainDAO     *dao.DomainDAO
 	permissionDAO *dao.DomainPermissionDAO
 	sourceDAO     *dao.SourceDAO
-	metaQuestDAO  *dao.MetaQuestDAO
+	questDAO      *dao.QuestDAO
 }
 
 // NewGraphHandler creates a new GraphHandler
-func NewGraphHandler(graphDAO *dao.GraphDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, sourceDAO *dao.SourceDAO, metaQuestDAO *dao.MetaQuestDAO) *GraphHandler {
+func NewGraphHandler(graphDAO *dao.GraphDAO, domainDAO *dao.DomainDAO, permissionDAO *dao.DomainPermissionDAO, sourceDAO *dao.SourceDAO, questDAO *dao.QuestDAO) *GraphHandler {
 	return &GraphHandler{
 		graphDAO:      graphDAO,
 		domainDAO:     domainDAO,
 		permissionDAO: permissionDAO,
 		sourceDAO:     sourceDAO,
-		metaQuestDAO:  metaQuestDAO,
+		questDAO:      questDAO,
 	}
 }
 
@@ -122,7 +122,7 @@ func (h *GraphHandler) UpdatePositions(c *gin.Context) {
 					filtered[nodeID] = pos
 				}
 			case "quest":
-				meta, _, err := h.metaQuestDAO.FindByID(uint(id))
+				meta, _, err := h.questDAO.FindByID(uint(id))
 				if err == nil && meta.OwnerID == userID {
 					filtered[nodeID] = pos
 				}

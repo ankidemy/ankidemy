@@ -51,9 +51,7 @@
     (should (= 1 (length (plist-get snapshot :external-notebooks))))
     (should (equal "fixture-research-notebook"
                    (plist-get (car (plist-get snapshot :external-notebooks))
-                              :provider-notebook-id)))
-    (should (member "quest.repeater_semantics_reduced"
-                    (ankidemy-org-test--diagnostic-codes snapshot)))))
+                              :provider-notebook-id)))))
 
 (ert-deftest ankidemy-org-normalizes-xenops-math-and-owns-image ()
   (let* ((snapshot (ankidemy-org-parse-root ankidemy-org-test--technical-root))
@@ -109,21 +107,78 @@
     (let ((quest (plist-get (ankidemy-org-test--node snapshot "catch-up-quest")
                             :quest)))
       (should (string= "habit" (plist-get quest :kind)))
-      (should (string= "++" (plist-get quest :org-repeater-mode))))))
+      (should (string= "++" (plist-get quest :org-repeater-mode)))
+      (should (string= "++" (plist-get (plist-get quest :schedule)
+                                        :org-repeater-mode)))
+      (should (string-match-p "2026-07-15T09:00:00"
+                              (plist-get (plist-get quest :schedule) :dtstart)))
+      (should (string= "FREQ=DAILY;INTERVAL=2"
+                       (plist-get (plist-get quest :schedule) :rrule))))))
 
-(ert-deftest ankidemy-org-resolves-nested-link-as-external-from-endpoint ()
+(ert-deftest ankidemy-org-preserves-daily-start-time-and-catch-up-mode ()
+  (let* ((ankidemy-org-timezone "America/Mexico_City")
+         (root (ankidemy-org-test--temp-notebook
+                '(("daily.org" .
+                   "* TODO Daily at seven\nSCHEDULED: <2026-07-19 Sun 07:00 ++1d>\n:PROPERTIES:\n:ID: daily-at-seven\n:ANKIDEMY_TYPE: quest\n:END:\n"))))
+         (snapshot (unwind-protect (ankidemy-org-parse-root root)
+                     (delete-directory root t)))
+         (quest (plist-get (ankidemy-org-test--node snapshot "daily-at-seven")
+                           :quest))
+         (schedule (plist-get quest :schedule)))
+    (should (plist-get snapshot :complete))
+    (should (string= "daily" (plist-get quest :kind)))
+    (should (string= "daily_pool" (plist-get schedule :type)))
+    (should (string= "2026-07-19T07:00:00-06:00" (plist-get schedule :dtstart)))
+    (should (string= "FREQ=DAILY;INTERVAL=1" (plist-get schedule :rrule)))
+    (should (string= "++" (plist-get schedule :org-repeater-mode)))
+    (should (string-empty-p (plist-get quest :description-md)))))
+
+(ert-deftest ankidemy-org-quest-description-excludes-structural-metadata ()
+  (let* ((root (ankidemy-org-test--temp-notebook
+                '(("details.org" .
+                   "* TODO Quest details\nSCHEDULED: <2026-07-19 Sun 07:00 ++1d>\n:PROPERTIES:\n:ID: quest-details\n:ANKIDEMY_TYPE: quest\n:END:\nPlain text details.\n"))))
+         (snapshot (unwind-protect (ankidemy-org-parse-root root)
+                     (delete-directory root t)))
+         (quest (plist-get (ankidemy-org-test--node snapshot "quest-details")
+                           :quest))
+         (description (plist-get quest :description-md)))
+    (should (plist-get snapshot :complete))
+    (should (string= "Plain text details." description))
+    (should-not (string-match-p "SCHEDULED" description))
+    (should-not (string-match-p "ANKIDEMY_TYPE" description))
+    (should-not (string-match-p "quest-details" description))))
+
+(ert-deftest ankidemy-org-uses-reference-direction-for-sources-and-quests ()
+  (let* ((root (ankidemy-org-test--temp-notebook
+                '(("links.org" .
+                   "* Parent source\n:PROPERTIES:\n:ID: parent-source\n:ANKIDEMY_TYPE: source\n:END:\n** TODO Child quest\nSCHEDULED: <2026-07-19 Sun 07:00 ++1d>\n:PROPERTIES:\n:ID: child-quest\n:ANKIDEMY_TYPE: quest\n:END:\n[[id:target-source][target]]\n* Linking source\n:PROPERTIES:\n:ID: linking-source\n:ANKIDEMY_TYPE: source\n:END:\n[[id:target-source][target]]\n* Target source\n:PROPERTIES:\n:ID: target-source\n:ANKIDEMY_TYPE: source\n:END:\n"))))
+         (snapshot (unwind-protect (ankidemy-org-parse-root root)
+                     (delete-directory root t)))
+         (edges (plist-get snapshot :edges)))
+    (should (plist-get snapshot :complete))
+    (dolist (expected '(("child-quest" "parent-source" "hierarchy")
+                        ("child-quest" "target-source" "link")
+                        ("linking-source" "target-source" "link")))
+      (should (cl-find-if
+               (lambda (edge)
+                 (and (string= (nth 0 expected) (plist-get edge :from-source-id))
+                      (string= (nth 1 expected) (plist-get edge :to-source-id))
+                      (string= (nth 2 expected) (plist-get edge :evidence))))
+               edges)))))
+
+(ert-deftest ankidemy-org-resolves-nested-source-link-as-external-to-endpoint ()
   (let* ((snapshot (ankidemy-org-parse-root ankidemy-org-test--technical-root))
          (edge (cl-find-if
                 (lambda (item)
-                  (plist-get item :from-external-provider-notebook-id))
+                  (plist-get item :to-external-provider-notebook-id))
                 (plist-get snapshot :edges))))
     (should edge)
     (should (string= "fixture-research-notebook"
-                     (plist-get edge :from-external-provider-notebook-id)))
+                     (plist-get edge :to-external-provider-notebook-id)))
     (should (string= "research-external-node"
-                     (plist-get edge :from-external-source-id)))
+                     (plist-get edge :to-external-source-id)))
     (should (string= "technical-research-handoff"
-                     (plist-get edge :to-source-id)))))
+                     (plist-get edge :from-source-id)))))
 
 (ert-deftest ankidemy-org-malformed-file-is-actionable-and-atomic ()
   (let* ((snapshot (ankidemy-org-parse-root ankidemy-org-test--invalid-root))
@@ -166,7 +221,7 @@
   (let ((json (ankidemy-org-snapshot-json ankidemy-org-test--technical-root)))
     (should (string-match-p (regexp-quote "\"protocolVersion\":1") json))
     (should (string-match-p (regexp-quote "\"providerNotebookId\":\"fixture-technical-notebook\"") json))
-    (should (string-match-p (regexp-quote "\"fromExternalProviderNotebookId\":\"fixture-research-notebook\"") json))
+    (should (string-match-p (regexp-quote "\"toExternalProviderNotebookId\":\"fixture-research-notebook\"") json))
     (should-not (string-match-p (regexp-quote "protocol-version") json))))
 
 (ert-deftest ankidemy-org-rejects-malformed-latex-before-emitting-nodes ()

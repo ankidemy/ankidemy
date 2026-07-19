@@ -1,8 +1,8 @@
 package models
 
 import (
-	"time"
 	"gorm.io/gorm"
+	"time"
 )
 
 // MetaDefinition represents a pool of definition versions that share code/name and prerequisites
@@ -26,12 +26,12 @@ func (MetaDefinition) TableName() string { return "meta_definitions" }
 
 // MetaDefinitionRequest is used to create/update a meta definition and optionally initial versions
 type MetaDefinitionRequest struct {
-	Code        string   `json:"code"`
-	Name        string   `json:"name"`
-	DomainID    uint     `json:"domainId"`
-	XPosition   float64  `json:"xPosition,omitempty"`
-	YPosition   float64  `json:"yPosition,omitempty"`
-	PrerequisiteIDs []uint `json:"prerequisiteIds,omitempty"`
+	Code            string  `json:"code"`
+	Name            string  `json:"name"`
+	DomainID        uint    `json:"domainId"`
+	XPosition       float64 `json:"xPosition,omitempty"`
+	YPosition       float64 `json:"yPosition,omitempty"`
+	PrerequisiteIDs []uint  `json:"prerequisiteIds,omitempty"`
 	// Optional weights per prerequisite ID (0.01 - 1.0)
 	PrerequisiteWeights map[uint]float64 `json:"prerequisiteWeights,omitempty"`
 	// Optional initial version to create
@@ -40,28 +40,28 @@ type MetaDefinitionRequest struct {
 
 // DefinitionVersionRequest is used to create/update individual versions under a meta definition
 type DefinitionVersionRequest struct {
-	Prompt      string   `json:"prompt"`
-	Type        string   `json:"type,omitempty"` // default "open_ended"
-	Description string   `json:"description,omitempty"`
-	Notes       string   `json:"notes,omitempty"`
-	References  []string `json:"references,omitempty"`
-	PromptImagePath      string `json:"promptImagePath,omitempty"`
-	DescriptionImagePath string `json:"descriptionImagePath,omitempty"`
+	Prompt               string   `json:"prompt"`
+	Type                 string   `json:"type,omitempty"` // default "open_ended"
+	Description          string   `json:"description,omitempty"`
+	Notes                string   `json:"notes,omitempty"`
+	References           []string `json:"references,omitempty"`
+	PromptImagePath      string   `json:"promptImagePath,omitempty"`
+	DescriptionImagePath string   `json:"descriptionImagePath,omitempty"`
 }
 
 // MetaDefinitionResponse bundles meta definition info, prerequisites and aggregate/version info
 type MetaDefinitionResponse struct {
-	ID         uint      `json:"id"`
-	Code       string    `json:"code"`
-	Name       string    `json:"name"`
-	DomainID   uint      `json:"domainId"`
-	OwnerID    uint      `json:"ownerId"`
-	XPosition  float64   `json:"xPosition"`
-	YPosition  float64   `json:"yPosition"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
-	Prerequisites []string `json:"prerequisites,omitempty"`
-	PrerequisiteWeights map[string]float64 `json:"prerequisiteWeights,omitempty"`
-	VersionCount int `json:"versionCount"`
-	Versions []DefinitionResponse `json:"versions,omitempty"`
+	ID                  uint                 `json:"id"`
+	Code                string               `json:"code"`
+	Name                string               `json:"name"`
+	DomainID            uint                 `json:"domainId"`
+	OwnerID             uint                 `json:"ownerId"`
+	XPosition           float64              `json:"xPosition"`
+	YPosition           float64              `json:"yPosition"`
+	CreatedAt           time.Time            `json:"createdAt"`
+	UpdatedAt           time.Time            `json:"updatedAt"`
+	Prerequisites       []string             `json:"prerequisites,omitempty"`
+	PrerequisiteWeights map[string]float64   `json:"prerequisiteWeights,omitempty"`
+	VersionCount        int                  `json:"versionCount"`
+	Versions            []DefinitionResponse `json:"versions,omitempty"`
 }

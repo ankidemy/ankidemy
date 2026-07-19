@@ -55,7 +55,7 @@ import {
 	  GroupNodeRefRequest,
   MetaDefinition,
   MetaExercise,
-  MetaQuestDTO,
+  QuestDTO,
     SourceDTO,
     NodeRelationDTO,
 	  ExternalPrerequisiteLink,
@@ -497,7 +497,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
               next.sources![value.code] = { ...value, xPosition: position.x, yPosition: position.y, type: 'source' };
               positionManagerRef.current.fixPosition(value.code, position.x, position.y);
             } else {
-              const value = entry.value as MetaQuestDTO;
+              const value = entry.value as QuestDTO;
               const position = retainedPosition || { x: value.xPosition || 0, y: value.yPosition || 0 };
               next.quests![value.code] = { ...value, xPosition: position.x, yPosition: position.y, type: 'quest' };
               positionManagerRef.current.fixPosition(value.code, position.x, position.y);
@@ -1427,7 +1427,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
         getExternalPrerequisites(domainId).catch(err => { console.warn("Failed to load external prerequisites:", err); return [] as ExternalPrerequisiteLink[]; }),
         getDomainGroups(domainId).catch(err => { console.warn("Failed to load groups:", err); return [] as GroupData[]; }),
         getDomainSources(domainId).catch(err => { console.warn("Failed to load sources:", err); return [] as SourceDTO[]; }),
-        getDomainQuests(domainId).catch(err => { console.warn("Failed to load quests:", err); return [] as MetaQuestDTO[]; }),
+        getDomainQuests(domainId).catch(err => { console.warn("Failed to load quests:", err); return [] as QuestDTO[]; }),
         getDomainRelations(domainId).catch(err => { console.warn("Failed to load relations:", err); return [] as NodeRelationDTO[]; }),
       ]);
 
@@ -2600,7 +2600,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     currentStructuralGraphData.quests,
   ]);
 
-  const resolveRelationTarget = useCallback((node: GraphNode): { type: 'definition' | 'exercise' | 'source' | 'meta_quest'; id: number; code: string } | null => {
+  const resolveRelationTarget = useCallback((node: GraphNode): { type: 'definition' | 'exercise' | 'source' | 'quest'; id: number; code: string } | null => {
     if (node.type === 'definition') {
       const id = codeToNumericIdMap.get(node.id);
       if (!id) return null;
@@ -2619,7 +2619,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     if (node.type === 'quest') {
       const quest = currentStructuralGraphData.quests?.[node.id];
       if (!quest?.id) return null;
-      return { type: 'meta_quest', id: quest.id, code: quest.code };
+      return { type: 'quest', id: quest.id, code: quest.code };
     }
     return null;
   }, [codeToNumericIdMap, currentStructuralGraphData.sources, currentStructuralGraphData.quests]);
@@ -2710,7 +2710,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       showToast('Missing node identifiers for linking.', 'error');
       return;
     }
-    if (otherInfo.type === 'meta_quest') {
+    if (otherInfo.type === 'quest') {
       showToast('Quests cannot be linked to other quests in Frenzy mode.', 'warning');
       return;
     }
@@ -2728,7 +2728,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
     try {
       await createRelation(domainId, {
-        fromType: 'meta_quest',
+        fromType: 'quest',
         fromId: questInfo.id,
         toType: otherInfo.type,
         toId: otherInfo.id,
@@ -2810,7 +2810,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     try {
       const relations = await getDomainRelations(domainId);
       const toDelete = relations.filter(rel =>
-        rel.fromType === 'meta_quest' &&
+        rel.fromType === 'quest' &&
         rel.fromId === questInfo.id &&
         rel.toType === otherInfo.type &&
         rel.toId === otherInfo.id &&
@@ -3283,7 +3283,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
     }
   }, [pendingLinkSourceId, frenzyNote, frenzyQuestNote, clearFrenzyNoteState]);
 
-	  const applyQuestUpdateToGraph = useCallback((updated: MetaQuestDTO) => {
+	  const applyQuestUpdateToGraph = useCallback((updated: QuestDTO) => {
 	    if (!updated?.id || !updated?.code) return;
 	    setCurrentStructuralGraphData(prev => {
 	      const nextQuests = { ...(prev.quests || {}) };
@@ -3307,7 +3307,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 
   // Inserts a quest created from a window (detail/source) plus its relation.
   const handleQuestCreated = useCallback((
-    quest: { code: string } & Partial<MetaQuestDTO>,
+    quest: { code: string } & Partial<QuestDTO>,
     relation: { fromCode: string; toCode: string; relationType: string },
   ) => {
     setCurrentStructuralGraphData(prev => {

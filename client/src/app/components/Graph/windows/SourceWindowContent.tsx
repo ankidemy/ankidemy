@@ -6,7 +6,7 @@ import { Button } from "@/app/components/core/button";
 import { Input } from "@/app/components/core/input";
 import MarkdownPreviewField from '../components/MarkdownPreviewField';
 import { showToast } from '@/app/components/core/ToastNotification';
-import { createQuest, createRelation, deleteRelation, deleteSource, getDomainRelations, getSource, updateSource, SourceDTO, MetaQuestDTO } from '@/lib/api';
+import { createQuest, createRelation, deleteRelation, deleteSource, getDomainRelations, getSource, updateSource, SourceDTO, QuestDTO } from '@/lib/api';
 import { getAppTimeZone } from '@/lib/app-preferences';
 import { useUI } from '@/contexts/UIContext';
 import { GraphData } from '../utils/types';
@@ -20,7 +20,7 @@ interface SourceWindowContentProps {
   domainId: number;
   graphData?: GraphData;
   onUpdateSource?: (updated: SourceDTO) => void;
-  onQuestCreated?: (quest: MetaQuestDTO, relation: { fromCode: string; toCode: string; relationType: string }) => void;
+  onQuestCreated?: (quest: QuestDTO, relation: { fromCode: string; toCode: string; relationType: string }) => void;
   onDeleteSource?: (code: string) => void;
   onRelevantLinksUpdated?: () => void | Promise<void>;
   onNavigateToNode?: (nodeId: string) => void;
@@ -30,7 +30,7 @@ interface SourceWindowContentProps {
   liveContentRevision?: string;
 }
 
-type RelationDraft = { id?: number; relationType: string; toType: 'definition' | 'exercise'; toCode: string };
+type RelationDraft = { id?: number; relationType: string; toType: 'definition' | 'exercise' | 'source'; toCode: string };
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
@@ -131,10 +131,13 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   const codeLookup = useMemo(() => {
     const map = new Map<string, string>();
     Object.values(graphData?.definitions || {}).forEach(def => {
-      if (def.id) map.set(`meta_definition:${def.id}`, def.code);
+      if (def.id) map.set(`definition:${def.id}`, def.code);
     });
     Object.values(graphData?.exercises || {}).forEach(ex => {
-      if (ex.id) map.set(`meta_exercise:${ex.id}`, ex.code);
+      if (ex.id) map.set(`exercise:${ex.id}`, ex.code);
+    });
+    Object.values(graphData?.sources || {}).forEach(target => {
+      if (target.id) map.set(`source:${target.id}`, target.code);
     });
     return map;
   }, [graphData]);
@@ -149,15 +152,20 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
   }, [graphData]);
 
   const targetLookup = useMemo(() => {
-    const map = new Map<string, { type: 'definition' | 'exercise'; id: number }>();
+    const map = new Map<string, { type: RelationDraft['toType']; id: number }>();
     Object.values(graphData?.definitions || {}).forEach(def => {
       if (def.id) map.set(def.code, { type: 'definition', id: def.id });
     });
     Object.values(graphData?.exercises || {}).forEach(ex => {
       if (ex.id) map.set(ex.code, { type: 'exercise', id: ex.id });
     });
+    Object.values(graphData?.sources || {}).forEach(target => {
+      if (target.id && target.id !== source?.id) {
+        map.set(target.code, { type: 'source', id: target.id });
+      }
+    });
     return map;
-  }, [graphData]);
+  }, [graphData, source?.id]);
 
   useEffect(() => {
     if (!sourceData) return;
@@ -225,7 +233,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
         .map(rel => {
           const code = codeLookup.get(`${rel.toType}:${rel.toId}`);
           if (!code) return null;
-          if (rel.toType !== 'definition' && rel.toType !== 'exercise') return null;
+          if (rel.toType !== 'definition' && rel.toType !== 'exercise' && rel.toType !== 'source') return null;
           return {
             id: rel.id,
             relationType: rel.relationType || 'relevant',
@@ -380,7 +388,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
       });
       if (!quest.id) throw new Error('Quest created without id.');
       await createRelation(domainId, {
-        fromType: 'meta_quest',
+        fromType: 'quest',
         fromId: quest.id,
         toType: 'source',
         toId: source.id,
@@ -489,6 +497,9 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
     }
     if (link.toType === 'exercise') {
       return graphData.exercises?.[link.toCode]?.name || link.toCode;
+    }
+    if (link.toType === 'source') {
+      return graphData.sources?.[link.toCode]?.title || link.toCode;
     }
     return link.toCode;
   }, [graphData]);
@@ -752,7 +763,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
               {relevantLinks.map((link, idx) => (
                 <div key={`${link.toCode}-${idx}`} className="flex items-center gap-2 text-xs">
                   <span className="kg-font-tag px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                    {link.toType === 'definition' ? 'Definition' : 'Exercise'}
+                    {link.toType === 'definition' ? 'Definition' : link.toType === 'exercise' ? 'Exercise' : 'Source'}
                   </span>
                   <span className="text-gray-800">{link.toCode}</span>
                   <Button
@@ -772,6 +783,7 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
                 >
                   <option value="definition">Definition</option>
                   <option value="exercise">Exercise</option>
+                  <option value="source">Source</option>
                 </select>
                 <Input
                   value={newRelation.toCode}

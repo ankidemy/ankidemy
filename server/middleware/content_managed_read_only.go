@@ -125,7 +125,7 @@ func managedContentMutationDomain(c *gin.Context, db *gorm.DB) (uint, bool) {
 	case strings.HasPrefix(pattern, "/api/sources/:id"):
 		query = db.Model(&models.Source{}).Select("domain_id").Where("id = ?", id).Scan(&domainID)
 	case strings.HasPrefix(pattern, "/api/quests/:id"):
-		query = db.Model(&models.MetaQuest{}).Select("domain_id").Where("id = ?", id).Scan(&domainID)
+		query = db.Model(&models.Quest{}).Select("domain_id").Where("id = ?", id).Scan(&domainID)
 	case strings.HasPrefix(pattern, "/api/relations/:id"):
 		query = db.Model(&models.NodeRelation{}).Select("domain_id").Where("id = ?", id).Scan(&domainID)
 	default:

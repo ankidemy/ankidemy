@@ -136,3 +136,33 @@ func TestNormalizeImportDataLeavesUnresolvableDuplicateForValidation(t *testing.
 		t.Fatalf("expected duplicate code error for X, got: %v", err)
 	}
 }
+
+func TestLegacyQuestImportIsReadButOnlyCanonicalVocabularyIsWritten(t *testing.T) {
+	raw := []byte(`{
+		"metaQuests":{"legacy-q":{"code":"legacy-q","name":"Legacy quest"}},
+		"relations":[{"fromType":"meta_quest","fromCode":"legacy-q","toType":"source","toCode":"source-a"}]
+	}`)
+	var data ImportData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := data.Quests["legacy-q"]; !ok {
+		t.Fatal("expected legacy metaQuests entry to load into canonical quests")
+	}
+
+	(&ImportService{}).NormalizeImportData(&data)
+	if got := data.Relations[0].FromType; got != "quest" {
+		t.Fatalf("expected legacy node type to normalize to quest, got %q", got)
+	}
+
+	encoded, err := json.Marshal(&data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "metaQuest") || strings.Contains(string(encoded), "meta_quest") {
+		t.Fatalf("canonical export leaked legacy quest vocabulary: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"quests"`) {
+		t.Fatalf("canonical export omitted quests: %s", encoded)
+	}
+}
