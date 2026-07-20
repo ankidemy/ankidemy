@@ -18,6 +18,7 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import type { UserDomainSettings, UserDomainSettingsUpdate } from '@/lib/api';
 import { getSessionItem, gradeSession } from '@/lib/srs-api';
 import { dispatchReviewSubmissionState, REVIEW_ITEM_CONTENT_UPDATED_EVENT, type ReviewItemContentUpdatedDetail } from '../utils/reviewSyncEvents';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface ReviewWindowContentProps {
   domainId: number;
@@ -314,14 +315,18 @@ export const ReviewWindowContent: React.FC<ReviewWindowContentProps> = ({
         {/* Item header */}
         <div className="flex justify-between items-center p-2 bg-gray-50 rounded-md">
           <div className="flex items-center space-x-2 text-sm text-gray-600">
-            <span className="font-medium">{currentItem.nodeCode}</span>
+            <span className="font-medium" title={currentItem.nodeCode}>
+              {formatNodeIdForDisplay(currentItem.nodeCode)}
+            </span>
             <span>•</span>
             <span className="capitalize">{currentItem.nodeType}</span>
             {currentExerciseMeta && currentItem.nodeType === 'definition' && (
               <>
                 <span>•</span>
                 <span className="capitalize">exercise</span>
-                <span className="font-medium">{currentExerciseMeta.code}</span>
+                <span className="font-medium" title={currentExerciseMeta.code}>
+                  {formatNodeIdForDisplay(currentExerciseMeta.code)}
+                </span>
                 {currentExerciseMeta.name && (
                   <span className="text-gray-500">{currentExerciseMeta.name}</span>
                 )}

@@ -9,6 +9,7 @@ import { AppMode, Definition } from '../utils/types';
 import ZoomableImage from '../components/ZoomableImage';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface DefinitionViewProps {
   definition: Definition;
@@ -60,12 +61,12 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
     const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
-    return prereqDef ? prereqDef.name : prereqCode;
+    return prereqDef ? prereqDef.name : formatNodeIdForDisplay(prereqCode);
   };
 
   const getRelatedExerciseDisplayText = (exerciseCode: string): string => {
     const exercise = availableExercises.find(ex => ex.code === exerciseCode);
-    return exercise ? exercise.name : exerciseCode;
+    return exercise ? exercise.name : formatNodeIdForDisplay(exerciseCode);
   };
 
   // Reset collapsibles when version index changes (hide by default)
@@ -229,7 +230,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                   size="sm"
                   onClick={() => onNavigateToNode(prereqCode)}
                   className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                  title={`Navigate to ${getPrerequisiteDisplayText(prereqCode)}`}
+                  title={`${prereqCode}\nNavigate to ${getPrerequisiteDisplayText(prereqCode)}`}
                 >
                   <span className="truncate max-w-[220px] inline-block align-middle">
                     <InlineMarkdownKatex className="pointer-events-none">
@@ -255,7 +256,7 @@ const DefinitionView: React.FC<DefinitionViewProps> = ({
                   size="sm"
                   onClick={() => onNavigateToNode(exerciseCode)}
                   className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
-                  title={`Navigate to ${getRelatedExerciseDisplayText(exerciseCode)}`}
+                  title={`${exerciseCode}\nNavigate to ${getRelatedExerciseDisplayText(exerciseCode)}`}
                 >
                   <InlineMarkdownKatex className="pointer-events-none">
                     {getRelatedExerciseDisplayText(exerciseCode)}

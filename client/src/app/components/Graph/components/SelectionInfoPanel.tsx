@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { GraphNode } from '../utils/types';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 type InfoFilter = 'general' | 'versions' | 'links' | 'groups' | 'status';
 
@@ -52,7 +53,9 @@ const SelectionInfoPanel: React.FC<SelectionInfoPanelProps> = ({
     })
   );
 
-  const formatList = (items: string[]) => (items.length > 0 ? items.join(', ') : 'None');
+  const formatList = (items: string[]) => (items.length > 0
+    ? items.map(formatNodeIdForDisplay).join(', ')
+    : 'None');
 
   return (
     <div className="w-48">
@@ -107,13 +110,15 @@ const SelectionInfoPanel: React.FC<SelectionInfoPanelProps> = ({
                     <span className="truncate">{node.name}</span>
                     <span className="text-[8px] font-semibold text-gray-400">{isExpanded ? 'v' : '>'}</span>
                   </button>
-                  <div className="text-[8px] text-gray-400">{node.id}</div>
+                  <div className="text-[8px] text-gray-400" title={node.id}>
+                    {formatNodeIdForDisplay(node.id)}
+                  </div>
                   {isExpanded && (
                     <div className="mt-1 space-y-0.5">
                       {shouldShow('general') && (
                         <div>
                           <div>Type: {node.type}</div>
-                          <div>Code: {node.id}</div>
+                          <div title={node.id}>Code: {formatNodeIdForDisplay(node.id)}</div>
                           <div>Name: {node.name}</div>
                         </div>
                       )}
@@ -124,8 +129,8 @@ const SelectionInfoPanel: React.FC<SelectionInfoPanelProps> = ({
                       )}
                       {shouldShow('links') && (
                         <div>
-                          <div>Parents ({incoming.length}): {formatList(incoming)}</div>
-                          <div>Children ({outgoing.length}): {formatList(outgoing)}</div>
+                          <div title={incoming.join(', ')}>Parents ({incoming.length}): {formatList(incoming)}</div>
+                          <div title={outgoing.join(', ')}>Children ({outgoing.length}): {formatList(outgoing)}</div>
                         </div>
                       )}
                       {shouldShow('groups') && (

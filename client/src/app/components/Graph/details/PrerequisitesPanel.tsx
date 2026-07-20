@@ -18,6 +18,7 @@ import {
   ExternalPrerequisiteLink,
   AccessibleDomain,
 } from '@/lib/api';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 type AvailableItem = { code: string; name: string; numericId: number };
 
@@ -403,8 +404,8 @@ const PrerequisitesPanel: React.FC<Props> = ({
               return (
                 <div key={r.id} className="flex items-center justify-between p-2 border rounded">
                   <div className="flex-1">
-                    <div className="text-sm font-medium">
-                      {d ? `${d.code}: ${d.name}` : `#${r.prerequisiteId}`}
+                    <div className="text-sm font-medium" title={d?.code}>
+                      {d ? `${formatNodeIdForDisplay(d.code)}: ${d.name}` : `#${r.prerequisiteId}`}
                     </div>
                     <div className="text-xs text-gray-500">{typeLabel}</div>
                   </div>
@@ -477,7 +478,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
                 }}
               >
                 {filteredDefOptions.map(d => (
-                  <option key={`def-${d.numericId}`} value={d.numericId}>{d.code}: {d.name}</option>
+                  <option key={`def-${d.numericId}`} value={d.numericId} title={d.code}>{formatNodeIdForDisplay(d.code)}: {d.name}</option>
                 ))}
               </select>
               {addingDefinitionIds.length > 0 && (
@@ -487,7 +488,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
                     if (!item) return null;
                     return (
                       <div key={`def-add-${id}`} className="flex items-center justify-between text-xs">
-                        <span className="truncate mr-2">{item.code}</span>
+                        <span className="mr-2 shrink-0 whitespace-nowrap font-mono" title={item.code}>{formatNodeIdForDisplay(item.code)}</span>
                         <Input
                           type="number"
                           min="0.01"
@@ -532,7 +533,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
                 }}
               >
                 {filteredMetaOptions.map(d => (
-                  <option key={`meta-${d.numericId}`} value={d.numericId}>{d.code}: {d.name}</option>
+                  <option key={`meta-${d.numericId}`} value={d.numericId} title={d.code}>{formatNodeIdForDisplay(d.code)}: {d.name}</option>
                 ))}
               </select>
               {addingExerciseIds.length > 0 && (
@@ -542,7 +543,7 @@ const PrerequisitesPanel: React.FC<Props> = ({
                     if (!item) return null;
                     return (
                       <div key={`meta-add-${id}`} className="flex items-center justify-between text-xs">
-                        <span className="truncate mr-2">{item.code}</span>
+                        <span className="mr-2 shrink-0 whitespace-nowrap font-mono" title={item.code}>{formatNodeIdForDisplay(item.code)}</span>
                         <Input
                           type="number"
                           min="0.01"
@@ -732,8 +733,8 @@ const PrerequisitesPanel: React.FC<Props> = ({
               >
                 <option value="">Select a node...</option>
                 {filteredExternalNodeOptions.map(node => (
-                  <option key={`external-${node.numericId}`} value={node.numericId}>
-                    {node.code}: {node.name}
+                  <option key={`external-${node.numericId}`} value={node.numericId} title={node.code}>
+                    {formatNodeIdForDisplay(node.code)}: {node.name}
                   </option>
                 ))}
               </select>

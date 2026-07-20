@@ -50,6 +50,7 @@ import { showToast } from '@/app/components/core/ToastNotification';
 import { getAppTimeZone } from '@/lib/app-preferences';
 import { getNextQuestCode as getNextQuestCodeFromUtils, getNextDotCode, getNextExerciseCode } from '../utils/codeGeneration';
 import { dispatchReviewItemContentUpdated } from '../utils/reviewSyncEvents';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface DetailWindowContentProps {
   nodeData: GraphNode;
@@ -1408,14 +1409,17 @@ export const DetailWindowContent: React.FC<DetailWindowContentProps> = ({
                   type="button"
                   onClick={() => setIsHeaderCodeEditing(true)}
                   className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700 hover:bg-gray-50"
-                  title="Click to edit code"
+                  title={`${codeDraft.trim() || currentNode.id}\nClick to edit code`}
                 >
-                  {codeDraft.trim() || currentNode.id}
+                  {formatNodeIdForDisplay(codeDraft.trim() || currentNode.id)}
                 </button>
               )
             ) : (
-              <span className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700">
-                {currentNode.id}
+              <span
+                className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700"
+                title={currentNode.id}
+              >
+                {formatNodeIdForDisplay(currentNode.id)}
               </span>
             )}
             {currentNode.type !== 'definition' ? (

@@ -13,6 +13,7 @@ import {
   importToDomain,
   standardizeImportData,
 } from '@/lib/api';
+import { formatNodeIdForDisplay } from './utils/nodeIdDisplay';
 
 interface ImportDialogProps {
   isOpen: boolean;
@@ -1660,8 +1661,11 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                   <div className="space-y-2">
                     {importPreparation.overwriteNodes.map((node) => (
                       <details key={`${node.nodeType}:${node.code}`} className="rounded border border-amber-200 bg-white">
-                        <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-gray-800">
-                          {node.nodeName} (code: {node.code})
+                        <summary
+                          className="cursor-pointer px-3 py-2 text-sm font-medium text-gray-800"
+                          title={node.code}
+                        >
+                          {node.nodeName} (code: {formatNodeIdForDisplay(node.code)})
                         </summary>
                         <div className="border-t px-3 py-3 space-y-3">
                           {node.fieldDiffs.map((fieldDiff) => (

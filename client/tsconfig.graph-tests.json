@@ -29,6 +29,7 @@
     "src/app/components/Graph/knowledge-graph/helpTopics.ts",
     "src/app/components/Graph/knowledge-graph/toolbarUiConfig.ts",
     "src/app/components/Graph/knowledge-graph/types.ts",
+    "src/app/components/Graph/utils/nodeIdDisplay.ts",
     "src/app/components/Graph/utils/types.tsx",
     "tests/knowledge-graph/**/*.ts"
   ]

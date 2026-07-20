@@ -10,6 +10,7 @@ import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
 import VersionHeaderControls from './VersionHeaderControls';
 import ZoomableImage from './ZoomableImage';
 import type { FrenzyNoteState } from '../knowledge-graph/types';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 type ImageTarget = 'prompt' | 'content' | 'solution';
 
@@ -188,14 +189,14 @@ export const FrenzyNoteCard: React.FC<FrenzyNoteCardProps> = ({
                   onSetCodeEditing(true);
                 }}
                 disabled={isNewVersion || isSaving}
-                className={`mt-0.5 text-[11px] text-left truncate ${
+                className={`mt-0.5 shrink-0 whitespace-nowrap font-mono text-[11px] text-left ${
                   isNewVersion || isSaving
                     ? 'text-yellow-700/70 cursor-default'
                     : 'text-yellow-700 hover:underline'
                 }`}
-                title="Click to edit code"
+                title={`${codeDraft.trim() || note.nodeId}\nClick to edit code`}
               >
-                {codeDraft.trim() || note.nodeId}
+                {formatNodeIdForDisplay(codeDraft.trim() || note.nodeId)}
               </button>
             )}
           </div>

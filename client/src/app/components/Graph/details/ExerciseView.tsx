@@ -9,6 +9,7 @@ import { Exercise, AnswerFeedback } from '../utils/types';
 import ZoomableImage from '../components/ZoomableImage';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { NodeStatus } from '@/types/srs';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface ExerciseViewProps {
   exercise: Exercise;
@@ -68,12 +69,12 @@ const ExerciseViewContent: React.FC<ExerciseViewProps> = ({
 
   const getPrerequisiteDisplayText = (prereqCode: string): string => {
     const prereqDef = availableDefinitions.find(def => def.code === prereqCode);
-    return prereqDef ? prereqDef.name : prereqCode;
+    return prereqDef ? prereqDef.name : formatNodeIdForDisplay(prereqCode);
   };
 
   const getExercisePrerequisiteDisplayText = (prereqCode: string): string => {
     const prereqEx = availableExercises.find(ex => ex.code === prereqCode);
-    return prereqEx ? prereqEx.name : prereqCode;
+    return prereqEx ? prereqEx.name : formatNodeIdForDisplay(prereqCode);
   };
 
   const definitionPrereqs = definitionPrerequisites ?? exercise.prerequisites ?? [];
@@ -277,7 +278,7 @@ const ExerciseViewContent: React.FC<ExerciseViewProps> = ({
                     size="sm"
                     onClick={() => onNavigateToNode(prereqCode)}
                     className="h-6 text-xs px-1.5 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                    title={`Navigate to ${getPrerequisiteDisplayText(prereqCode)}`}
+                    title={`${prereqCode}\nNavigate to ${getPrerequisiteDisplayText(prereqCode)}`}
                   >
                     <span className="truncate max-w-[220px] inline-block align-middle">
                       <InlineMarkdownKatex className="pointer-events-none">
@@ -302,7 +303,7 @@ const ExerciseViewContent: React.FC<ExerciseViewProps> = ({
                     size="sm"
                     onClick={() => onNavigateToNode(prereqCode)}
                     className="h-6 text-xs px-1.5 bg-orange-50 hover:bg-orange-100 border-orange-200"
-                    title={`Navigate to ${getExercisePrerequisiteDisplayText(prereqCode)}`}
+                    title={`${prereqCode}\nNavigate to ${getExercisePrerequisiteDisplayText(prereqCode)}`}
                   >
                     <span className="truncate max-w-[220px] inline-block align-middle">
                       <InlineMarkdownKatex className="pointer-events-none">

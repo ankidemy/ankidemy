@@ -39,6 +39,7 @@ import {
   WeekdayCode,
   weekdayLabels,
 } from './questScheduleDrafts';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface QuestWindowContentProps {
   windowId: string;
@@ -1396,10 +1397,10 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsFrenzyCodeEditing(true)}
-                    className="mt-0.5 text-[11px] text-amber-700 truncate hover:underline"
-                    title="Click to edit code"
+                    className="mt-0.5 shrink-0 whitespace-nowrap font-mono text-[11px] text-amber-700 hover:underline"
+                    title={`${codeDraft.trim() || quest?.code || questData.code || 'Q?'}\nClick to edit code`}
                   >
-                    {codeDraft.trim() || quest?.code || questData.code || 'Q?'}
+                    {formatNodeIdForDisplay(codeDraft.trim() || quest?.code || questData.code || 'Q?')}
                   </button>
                 )}
               </div>
@@ -1577,9 +1578,9 @@ export const QuestWindowContent: React.FC<QuestWindowContentProps> = ({
                   type="button"
                   onClick={() => setIsHeaderCodeEditing(true)}
                   className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700 hover:bg-gray-50"
-                  title="Click to edit code"
+                  title={`${codeDraft.trim() || quest?.code || questData.code || 'Q?'}\nClick to edit code`}
                 >
-                  {codeDraft.trim() || quest?.code || questData.code || 'Q?'}
+                  {formatNodeIdForDisplay(codeDraft.trim() || quest?.code || questData.code || 'Q?')}
                 </button>
               )}
               <span className="text-[11px] text-gray-500">

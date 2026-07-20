@@ -13,6 +13,7 @@ import { GraphData } from '../utils/types';
 import { getNextQuestCode as getNextQuestCodeFromUtils } from '../utils/codeGeneration';
 import { ArrowLeft, Edit, Save, X, Lock, Unlock, Copy, RefreshCw } from 'lucide-react';
 import { MarkdownKatex } from '@/app/components/core/MarkdownKatex';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface SourceWindowContentProps {
   windowId: string;
@@ -615,14 +616,17 @@ export const SourceWindowContent: React.FC<SourceWindowContentProps> = ({
                 type="button"
                 onClick={() => setIsHeaderCodeEditing(true)}
                 className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700 hover:bg-gray-50"
-                title="Click to edit code"
+                title={`${codeDraft.trim() || source?.code || sourceData.code || 'SRC?'}\nClick to edit code`}
               >
-                {codeDraft.trim() || source?.code || sourceData.code || 'SRC?'}
+                {formatNodeIdForDisplay(codeDraft.trim() || source?.code || sourceData.code || 'SRC?')}
               </button>
             )
           ) : (
-            <span className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700">
-              {source?.code || sourceData.code || 'SRC?'}
+            <span
+              className="h-6 rounded border border-gray-300 bg-white px-2 text-[11px] text-gray-700"
+              title={source?.code || sourceData.code || 'SRC?'}
+            >
+              {formatNodeIdForDisplay(source?.code || sourceData.code || 'SRC?')}
             </span>
           )}
           <span className="text-[11px] text-gray-500">{headerVisibility === 'domain' ? 'Domain' : 'Private'}</span>

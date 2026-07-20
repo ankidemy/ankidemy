@@ -15,6 +15,7 @@ import {
   SurveyEventRequest,
 } from '@/lib/api';
 import { GraphData } from '../utils/types';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 interface SurveyWindowContentProps {
   domainId: number;
@@ -22,6 +23,7 @@ interface SurveyWindowContentProps {
   onNavigateToNode?: (nodeCode: string) => void;
   onQuestUpdated?: (updated: QuestDTO) => void;
   onStatsUpdated?: (count: number) => void;
+  liveContentRevision?: string;
 }
 
 const snoozeForMinutes = (minutes: number) => {
@@ -34,6 +36,7 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
   onNavigateToNode,
   onQuestUpdated,
   onStatsUpdated,
+  liveContentRevision,
 }) => {
   const [queue, setQueue] = useState<SurveyQueueItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -107,8 +110,9 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
   }, [domainId, codeLookup]);
 
   useEffect(() => {
+    void liveContentRevision;
     refreshQueue();
-  }, [refreshQueue]);
+  }, [refreshQueue, liveContentRevision]);
 
   const handleEvent = useCallback(async (item: SurveyQueueItem, eventType: SurveyEventRequest['eventType'], payload?: any) => {
     const questVersionId = selectedVersions[item.questId] || item.selectedVersionId;
@@ -175,8 +179,8 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
           return (
             <div key={item.questId} className="rounded-md border border-gray-200 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-semibold text-gray-900">
-                  {selectedVersion?.title || item.questName || item.questCode}
+                <div className="text-sm font-semibold text-gray-900" title={item.questCode}>
+                  {selectedVersion?.title || item.questName || formatNodeIdForDisplay(item.questCode)}
                 </div>
                 <span className={`kg-font-tag text-[10px] uppercase px-2 py-0.5 rounded ${
                   item.questKind === 'habit'
@@ -228,7 +232,9 @@ export const SurveyWindowContent: React.FC<SurveyWindowContentProps> = ({
                         variant="outline"
                         onClick={() => node.code && onNavigateToNode?.(node.code)}
                       >
-                        {node.code || `${node.nodeType}:${node.nodeId}`}
+                        <span title={node.code || undefined}>
+                          {node.code ? formatNodeIdForDisplay(node.code) : `${node.nodeType}:${node.nodeId}`}
+                        </span>
                       </Button>
                     ))}
                   </div>

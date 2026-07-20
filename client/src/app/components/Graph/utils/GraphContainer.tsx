@@ -12,6 +12,7 @@ import { CreditFlowAnimation } from '@/types/srs';
 import CreditFlowOverlay from '../components/CreditFlowOverlay';
 import { LabelRenderer } from './HybridLatexRenderer';
 import { MATHJAX_READY_EVENT } from '@/app/components/core/mathjaxReady';
+import { escapeNodeIdTooltip, formatNodeIdForDisplay } from './nodeIdDisplay';
 import * as d3 from 'd3';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -238,7 +239,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
     for (let i = 0; i < BUDGET; i++) {
       const n = graphNodes[i];
       if (!n) break;
-      const displayId = (n as GraphNode).displayId ?? n.id;
+      const fullDisplayId = (n as GraphNode).displayId ?? n.id;
+      const displayId = n.type === 'group' || n.isExternal
+        ? fullDisplayId
+        : formatNodeIdForDisplay(fullDisplayId);
       let text = '';
       if (labelDisplayMode === 'codes') text = displayId;
       else if (labelDisplayMode === 'names') text = n.name;
@@ -398,7 +402,10 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
 
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const { id, name, type, x = 0, y = 0, status, isDue, color } = node;
-    const displayId = (node as GraphNode).displayId ?? id;
+    const fullDisplayId = (node as GraphNode).displayId ?? id;
+    const displayId = type === 'group' || (node as GraphNode).isExternal
+      ? fullDisplayId
+      : formatNodeIdForDisplay(fullDisplayId);
     const isGroup = type === 'group';
     const nodeSizeBase = getNodeBaseSize(type);
     const nodeSize = nodeSizeBase / Math.sqrt(globalScale);
@@ -1032,6 +1039,7 @@ const GraphContainer: React.FC<GraphContainerProps> = React.memo(({
         width={canvasWidth}
         height={canvasHeight}
         nodeId="id"
+        nodeLabel={(node: any) => escapeNodeIdTooltip(String((node as GraphNode).displayId ?? node.id))}
         linkSource="source"
         linkTarget="target"
         dagMode={dagMode || undefined}

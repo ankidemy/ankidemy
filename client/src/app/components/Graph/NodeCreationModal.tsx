@@ -17,6 +17,7 @@ import { X } from 'lucide-react';
 import ImageUploadField from './components/ImageUploadField';
 import MarkdownPreviewField from './components/MarkdownPreviewField';
 import { getNextDotCode, getNextExerciseCode } from './utils/codeGeneration';
+import { formatNodeIdForDisplay } from './utils/nodeIdDisplay';
 
 interface PrerequisiteOption {
   code: string; // The string code for display and internal graph use
@@ -872,8 +873,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                 {availableDefinitionPrerequisites
                   .filter(p => (p.code + ' ' + p.name).toLowerCase().includes(searchDef.toLowerCase()))
                   .map((prereq) => (
-                    <option key={`def-${prereq.code}`} value={String(prereq.numericId)}>
-                      {prereq.code}: {prereq.name}
+                    <option key={`def-${prereq.code}`} value={String(prereq.numericId)} title={prereq.code}>
+                      {formatNodeIdForDisplay(prereq.code)}: {prereq.name}
                     </option>
                   ))}
               </select>
@@ -885,7 +886,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                       if (!item) return null;
                       return (
                         <div key={`defw-${item.code}`} className="flex items-center justify-between text-xs">
-                          <span className="truncate mr-2">{item.code}</span>
+                          <span className="mr-2 shrink-0 whitespace-nowrap font-mono" title={item.code}>{formatNodeIdForDisplay(item.code)}</span>
                           <input type="number" min="0.01" max="1.00" step="0.01" value={defPrereqWeights[id] || 1.0} onChange={(e)=> handleDefWeightChange(id, e.target.value)} className="w-16 px-1 py-0.5 border rounded" />
                         </div>
                       );
@@ -911,8 +912,8 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                   {(availableExercisePrerequisites || [])
                     .filter(p => (p.code + ' ' + p.name).toLowerCase().includes(searchEx.toLowerCase()))
                     .map((prereq) => (
-                      <option key={`ex-${prereq.code}`} value={String(prereq.numericId)}>
-                        {prereq.code}: {prereq.name}
+                      <option key={`ex-${prereq.code}`} value={String(prereq.numericId)} title={prereq.code}>
+                        {formatNodeIdForDisplay(prereq.code)}: {prereq.name}
                       </option>
                     ))}
                 </select>
@@ -924,7 +925,7 @@ const NodeCreationModal: React.FC<NodeCreationModalProps> = ({
                         if (!item) return null;
                         return (
                           <div key={`exw-${item.code}`} className="flex items-center justify-between text-xs">
-                            <span className="truncate mr-2">{item.code}</span>
+                            <span className="mr-2 shrink-0 whitespace-nowrap font-mono" title={item.code}>{formatNodeIdForDisplay(item.code)}</span>
                             <input type="number" min="0.01" max="1.00" step="0.01" value={exPrereqWeights[id] || 1.0} onChange={(e)=> handleExWeightChange(id, e.target.value)} className="w-16 px-1 py-0.5 border rounded" />
                           </div>
                         );

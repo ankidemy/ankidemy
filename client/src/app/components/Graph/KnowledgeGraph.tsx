@@ -31,6 +31,7 @@ import {
   getDomainRelations,
   getQuest,
   getSurveyQueue,
+  SurveyQueueItem,
   createSource,
   updateSource,
   deleteSource,
@@ -1372,6 +1373,12 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
       setSurveyDueCount(0);
     }
   }, [subjectMatterId]);
+
+  const handleSurveyQueueUpdated = useCallback((items: SurveyQueueItem[]) => {
+    setSurveyDueCount(items.length);
+    setSurveyDueQuestCodes(new Set(items.map(item => item.questCode).filter(Boolean)));
+    setHasSurveyQueueSnapshot(true);
+  }, []);
 
   useEffect(() => {
     seenSurveyQuestIdsRef.current = new Set();
@@ -6020,11 +6027,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           onOpenSurvey={() => ui.openSurveyWindow()}
           surveyDueCount={surveyDueCount}
           onSurveyDueCountUpdated={setSurveyDueCount}
-          onSurveyQueueUpdated={(items) => {
-            setSurveyDueCount(items.length);
-            setSurveyDueQuestCodes(new Set(items.map(item => item.questCode).filter(Boolean)));
-            setHasSurveyQueueSnapshot(true);
-          }}
+          onSurveyQueueUpdated={handleSurveyQueueUpdated}
           onSurveyQuestUpdated={applyQuestUpdateToGraph}
           currentDomainId={parseInt(subjectMatterId, 10)}
           canEdit={canEdit}
@@ -6046,6 +6049,7 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
           isExportingJson={isExporting}
           isExportingYaml={isExporting}
           isBackingUpDomain={isBackingUp}
+          contentRevision={liveContentUpdate?.revision}
         />
 
         {/* Main Content */}
@@ -6445,7 +6449,8 @@ const KnowledgeGraphInner: React.FC<KnowledgeGraphProps> = ({
 	                  onQuestUpdated={(updated) => {
 	                    applyQuestUpdateToGraph(updated);
 	                  }}
-	                  onStatsUpdated={(count) => setSurveyDueCount(count)}
+	                  onStatsUpdated={setSurveyDueCount}
+	                  liveContentRevision={liveContentUpdate?.revision}
 	                />
 	              )}
               </DraggableWindow>

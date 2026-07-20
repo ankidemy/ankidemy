@@ -21,6 +21,7 @@ import {
   ExplorerFontSizeSteps,
   getExplorerFontSizeSteps,
 } from '@/lib/explorer-font-sizes';
+import { formatNodeIdForDisplay } from '../utils/nodeIdDisplay';
 
 const SRS_INTERVAL_MULTIPLIER_MIN = 0.25;
 const SRS_INTERVAL_MULTIPLIER_MAX = 4;
@@ -93,6 +94,7 @@ interface TopControlsProps {
   isExportingJson?: boolean;
   isExportingYaml?: boolean;
   isBackingUpDomain?: boolean;
+  contentRevision?: string;
 }
 
 const TopControls: React.FC<TopControlsProps> = ({
@@ -129,6 +131,7 @@ const TopControls: React.FC<TopControlsProps> = ({
   isExportingJson = false,
   isExportingYaml = false,
   isBackingUpDomain = false,
+  contentRevision,
 }) => {
   const srs = useSRS();
 
@@ -365,6 +368,26 @@ const TopControls: React.FC<TopControlsProps> = ({
       setSurveyLoading(false);
     }
   }, [currentDomainId, onSurveyDueCountUpdated, onSurveyQueueUpdated]);
+
+  useEffect(() => {
+    if (!contentRevision || !isEnrolled || !currentDomainId) return;
+
+    // Org live-import revisions can change quest schedules and therefore both
+    // queue badges, the dropdown contents, and graph due highlighting.
+    void refreshSurveyQueue();
+    if (currentSrsDomainId === currentDomainId) {
+      void loadDueReviews('mixed').catch(error => {
+        console.warn('Failed to refresh review queue after live content update:', error);
+      });
+    }
+  }, [
+    contentRevision,
+    currentDomainId,
+    currentSrsDomainId,
+    isEnrolled,
+    loadDueReviews,
+    refreshSurveyQueue,
+  ]);
 
   const handleCompleteSurveyQuest = useCallback(async (item: SurveyQueueItem) => {
     if (!item?.questId) return;
@@ -683,16 +706,21 @@ const TopControls: React.FC<TopControlsProps> = ({
                             className="w-full text-left px-4 py-3 hover:bg-orange-50 transition-colors"
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium text-gray-800 truncate">
-                                {review.nodeName || review.nodeCode}
+                              <span
+                                className={`text-sm font-medium text-gray-800 ${review.nodeName ? 'truncate' : 'shrink-0 whitespace-nowrap font-mono'}`}
+                                title={review.nodeCode}
+                              >
+                                {review.nodeName || formatNodeIdForDisplay(review.nodeCode)}
                               </span>
                               <span className="text-[10px] font-semibold uppercase text-gray-400">
                                 {review.nodeType === 'definition' ? 'Def' : 'Ex'}
                               </span>
                             </div>
                             <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                              <span className="truncate">{review.nodeCode}</span>
-                              <span>{review.isDue ? 'Due now' : 'Scheduled'}</span>
+                              <span className="shrink-0 whitespace-nowrap font-mono" title={review.nodeCode}>
+                                {formatNodeIdForDisplay(review.nodeCode)}
+                              </span>
+                              <span className="ml-2 min-w-0 text-right">{review.isDue ? 'Due now' : 'Scheduled'}</span>
                             </div>
                           </button>
                         </li>
@@ -781,16 +809,21 @@ const TopControls: React.FC<TopControlsProps> = ({
                                 className="flex-1 text-left"
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-sm font-medium text-gray-800 truncate">
-                                    {item.questName || item.questCode}
+                                  <span
+                                    className={`text-sm font-medium text-gray-800 ${item.questName ? 'truncate' : 'shrink-0 whitespace-nowrap font-mono'}`}
+                                    title={item.questCode}
+                                  >
+                                    {item.questName || formatNodeIdForDisplay(item.questCode)}
                                   </span>
                                   <span className="text-[10px] font-semibold uppercase text-gray-400">
                                     {item.questKind}
                                   </span>
                                 </div>
                                 <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                                  <span className="truncate">{item.questCode}</span>
-                                  <span>
+                                  <span className="shrink-0 whitespace-nowrap font-mono" title={item.questCode}>
+                                    {formatNodeIdForDisplay(item.questCode)}
+                                  </span>
+                                  <span className="ml-2 min-w-0 text-right">
                                     {item.nextDueAt
                                       ? `${item.isOverdue ? 'Overdue' : 'Due'} ${new Date(item.nextDueAt).toLocaleString()}`
                                       : 'Not scheduled'}
