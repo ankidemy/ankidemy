@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -55,6 +56,7 @@ func (h *SurveyHandler) GetQueue(c *gin.Context) {
 
 	queue, err := h.service.GetQueue(uint(domainID64), userID)
 	if err != nil {
+		log.Printf("survey queue failed for domain=%d user=%d: %v", domainID64, userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load survey queue"})
 		return
 	}

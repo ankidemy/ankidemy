@@ -920,7 +920,7 @@ const getAuthHeaders = (): Record<string, string> => {
 };
 
 // Enhance the handleResponse function to better handle API responses
-const handleResponse = async (response: Response) => {
+const handleResponse = async (response: Response, options?: { logError?: boolean }) => {
   if (!response.ok) {
     let errorMessage = 'An error occurred';
     try {
@@ -967,7 +967,7 @@ const handleResponse = async (response: Response) => {
         break;
     }
     
-    if (response.status !== 401) {
+    if (response.status !== 401 && options?.logError !== false) {
       console.error(`API Error: ${errorMessage}`, { status: response.status, url: response.url });
     }
     throw new Error(errorMessage);
@@ -2022,7 +2022,10 @@ export const getSurveyQueue = async (domainId: number): Promise<SurveyQueueItem[
     headers: getAuthHeaders(),
   });
   if (response.status === 404) return [];
-  return handleResponse(response);
+  // Survey queues are refreshed in the background and their callers already
+  // surface a local warning/error state. Avoid promoting a caught transient
+  // failure into the Next.js development error overlay.
+  return handleResponse(response, { logError: false });
 };
 
 export const postSurveyEvent = async (payload: SurveyEventRequest): Promise<void> => {

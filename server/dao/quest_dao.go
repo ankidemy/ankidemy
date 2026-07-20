@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // QuestDAO handles quests and versions.
@@ -164,15 +165,26 @@ func (d *QuestDAO) UpsertUserState(state *models.UserQuestState) error {
 }
 
 func (d *QuestDAO) EnsureUserState(userID uint, questID uint) (*models.UserQuestState, error) {
-	state := &models.UserQuestState{
+	candidate := &models.UserQuestState{
 		UserID:  userID,
 		QuestID: questID,
 		Active:  true,
 	}
-	if err := d.db.FirstOrCreate(state, "user_id = ? AND quest_id = ?", userID, questID).Error; err != nil {
+	// Queue refreshes can overlap immediately after a live import. Use an
+	// atomic insert instead of FirstOrCreate's read-then-insert sequence so two
+	// requests cannot race into the unique (user_id, quest_id) constraint.
+	if err := d.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "quest_id"}},
+		DoNothing: true,
+	}).Create(candidate).Error; err != nil {
 		return nil, err
 	}
-	return state, nil
+
+	var state models.UserQuestState
+	if err := d.db.Where("user_id = ? AND quest_id = ?", userID, questID).First(&state).Error; err != nil {
+		return nil, err
+	}
+	return &state, nil
 }
 
 func (d *QuestDAO) ListUserStates(userID uint, questIDs []uint) ([]models.UserQuestState, error) {
