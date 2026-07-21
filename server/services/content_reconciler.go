@@ -234,6 +234,9 @@ func (r *ContentReconciler) Reconcile(bindingID uint, snapshot ContentSnapshot) 
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&lockedBinding, bindingID).Error; err != nil {
 			return err
 		}
+		if lockedBinding.AuthorizationState != "attached" {
+			return errors.New("content binding is detached")
+		}
 		if lockedBinding.LastRevision == validation.Revision {
 			return nil
 		}

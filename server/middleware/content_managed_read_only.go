@@ -142,8 +142,14 @@ func protectedDomainRoute(pattern, method string) bool {
 		pattern == "/api/domains/:id/groups/positions" {
 		return false
 	}
-	if pattern == "/api/domains/:id" || pattern == "/api/domains/:id/purge" || pattern == "/api/domains/:id/restore" {
-		return true
+	// Archiving, restoring, and permanently deleting are domain lifecycle
+	// operations. Their handlers own binding cleanup and must work without the
+	// provider, its files, or its currently selected root.
+	if pattern == "/api/domains/:id" {
+		return method == http.MethodPut || method == http.MethodPatch
+	}
+	if pattern == "/api/domains/:id/purge" || pattern == "/api/domains/:id/restore" {
+		return false
 	}
 	if pattern == "/api/domains/:id/import" || pattern == "/api/domains/:id/import-graph" || pattern == "/api/domains/:id/import-backup" {
 		return true

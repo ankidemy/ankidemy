@@ -51,9 +51,8 @@ export default function ArchivedDomainsPage() {
       await restoreDomain(domain.id);
       setDomains(prev => prev.filter(d => d.id !== domain.id));
       showToast(`Restored "${domain.name}"`, 'success');
-    } catch (e) {
-      console.error('Restore failed', e);
-      showToast('Failed to restore domain', 'error');
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to restore domain', 'error');
     }
   };
 
@@ -64,9 +63,8 @@ export default function ArchivedDomainsPage() {
       await purgeDomain(domain.id);
       setDomains(prev => prev.filter(d => d.id !== domain.id));
       showToast('Domain permanently deleted', 'success');
-    } catch (e) {
-      console.error('Purge failed', e);
-      showToast('Failed to delete domain', 'error');
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to delete domain', 'error');
     }
   };
 

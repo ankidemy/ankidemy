@@ -47,6 +47,10 @@ func TestContentManagedReadOnlyBlocksContentButAllowsLearningState(t *testing.T)
 	router := gin.New()
 	router.Use(ContentManagedReadOnly(db))
 	router.POST("/api/domains/:id/definitions", func(c *gin.Context) { c.Status(http.StatusCreated) })
+	router.PUT("/api/domains/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.DELETE("/api/domains/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.POST("/api/domains/:id/restore", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.DELETE("/api/domains/:id/purge", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.PUT("/api/domains/:id/graph/positions", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.PUT("/api/domains/:id/external-prerequisites/positions", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.PUT("/api/meta-definitions/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
@@ -60,6 +64,10 @@ func TestContentManagedReadOnlyBlocksContentButAllowsLearningState(t *testing.T)
 		body   string
 	}{
 		{http.MethodPost, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/definitions", http.StatusConflict, `{}`},
+		{http.MethodPut, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10), http.StatusConflict, `{}`},
+		{http.MethodDelete, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10), http.StatusNoContent, `{}`},
+		{http.MethodPost, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/restore", http.StatusNoContent, `{}`},
+		{http.MethodDelete, "/api/domains/" + strconv.FormatUint(uint64(domain.ID), 10) + "/purge", http.StatusNoContent, `{}`},
 		{http.MethodPut, "/api/meta-definitions/" + strconv.FormatUint(uint64(definition.ID), 10), http.StatusConflict, `{}`},
 		{http.MethodPut, "/api/meta-definitions/" + strconv.FormatUint(uint64(definition.ID), 10), http.StatusNoContent, `{"xPosition":12,"yPosition":34}`},
 		{http.MethodPatch, "/api/sources/" + strconv.FormatUint(uint64(source.ID), 10), http.StatusNoContent, `{"visibility":"domain"}`},

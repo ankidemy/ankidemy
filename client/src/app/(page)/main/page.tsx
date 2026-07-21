@@ -338,10 +338,17 @@ export default function MainPage() {
       setMyDomains(prev => prev.filter(d => d.id !== domain.id));
       setEnrolledDomains(prev => prev.filter(d => d.id !== domain.id));
       setPublicDomains(prev => prev.filter(d => d.id !== domain.id));
+      setLiveImportStatus(prev => prev ? {
+        ...prev,
+        bindings: prev.bindings.map(binding => binding.domainId === domain.id ? {
+          ...binding,
+          authorizationState: 'detached',
+          connectionState: 'offline',
+        } : binding),
+      } : prev);
       showToast(`Archived "${domain.name}"`, 'success');
-    } catch (e) {
-      console.error('Failed to archive domain', e);
-      showToast('Failed to archive domain', 'error');
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to archive domain', 'error');
     }
   };
 
@@ -765,7 +772,7 @@ export default function MainPage() {
                 const isManaged = managedDomainIds.has(domain.id);
 
                 return (
-                  <Card key={domain.id} className="p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm relative">
+                  <Card key={domain.id} className="flex h-full flex-col p-6 hover:shadow-lg transition-all duration-200 rounded-xl border-0 shadow-sm relative">
                     {/* Card actions: 3-dot menu in upper-right */}
                     <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -777,7 +784,7 @@ export default function MainPage() {
                       </button>
                       {menuOpenId === domain.id && (
                         <div className="kg-font-ui absolute right-0 mt-2 w-44 bg-white border rounded-md shadow-lg" onClick={(e) => e.stopPropagation()}>
-                          {isOwned && !isManaged && (
+                          {isOwned && (
                             <button
                               className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                               onClick={() => { setMenuOpenId(null); handleArchive(domain); }}
@@ -809,7 +816,7 @@ export default function MainPage() {
                       )}
                     </div>
                     <div className="flex items-start justify-between gap-2 pr-8">
-                      <h3 className="text-xl font-semibold mb-2 text-gray-800">{domain.name}</h3>
+                      <h3 className="text-xl font-semibold mb-2 min-h-[3.5rem] line-clamp-2 text-gray-800">{domain.name}</h3>
                       {domainDueCounts[domain.id] > 0 && (
                         <span className={`kg-font-tag mt-1 inline-flex items-center rounded-full text-xs font-semibold px-2 py-0.5 ${
                           isDarkMode ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700'
@@ -820,8 +827,8 @@ export default function MainPage() {
                     </div>
                     <p className="text-gray-600 mb-4 line-clamp-2 min-h-[2.5rem]">{domain.description || "No description"}</p>
                     
-                    <div className="flex justify-between items-center relative">
-                      <div className="flex items-center space-x-2">
+                    <div className="mt-auto flex flex-wrap justify-between items-center gap-3 relative">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className={`kg-font-tag text-sm px-2 py-1 rounded-full flex items-center ${statusInfo.className}`}>
                           {statusInfo.icon}
                           <span className="ml-1">{statusInfo.label}</span>
@@ -833,7 +840,7 @@ export default function MainPage() {
                         )}
                       </div>
                       
-                      <div className="flex items-center space-x-2">
+                      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                         {/* Export button */}
                         <Button
                           size="sm"
@@ -859,7 +866,7 @@ export default function MainPage() {
                         {/* Explore button */}
                         <button
                           onClick={() => handleDomainAccess(domain)}
-                          className="text-orange-500 hover:text-orange-700 flex items-center font-medium transition-colors"
+                          className="text-orange-500 hover:text-orange-700 flex items-center whitespace-nowrap font-medium transition-colors"
                           disabled={isEnrolling}
                         >
                           Explore

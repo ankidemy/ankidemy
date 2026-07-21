@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"ankidemy/server/dao"
 	"ankidemy/server/models"
 )
 
@@ -85,6 +86,20 @@ func TestContentLiveImportRequiresExplicitAttachment(t *testing.T) {
 	}
 	if err := db.First(&models.Domain{}, binding.DomainID).Error; err != nil {
 		t.Fatalf("detach deleted imported domain: %v", err)
+	}
+
+	if err := dao.NewDomainDAO(db).Delete(binding.DomainID); err != nil {
+		t.Fatal(err)
+	}
+	reattached, _, err := service.AttachCurrent(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("reattach of archived notebook failed: %v", err)
+	}
+	if reattached.DomainID != binding.DomainID {
+		t.Fatalf("reattach created a duplicate domain: old=%d new=%d", binding.DomainID, reattached.DomainID)
+	}
+	if err := db.First(&models.Domain{}, binding.DomainID).Error; err != nil {
+		t.Fatalf("reattach did not restore archived domain: %v", err)
 	}
 }
 

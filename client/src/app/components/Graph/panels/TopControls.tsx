@@ -896,7 +896,7 @@ const TopControls: React.FC<TopControlsProps> = ({
             <Wrench size={14} className="ml-1" />
           </Button>
           {showOptions && (
-            <div className="absolute right-0 mt-2 w-96 rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
+            <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-6rem)] overflow-y-auto overscroll-contain rounded-lg border border-gray-200 bg-white shadow-lg z-30 p-4 text-sm">
               <div className="font-semibold text-gray-800 mb-3">Options</div>
               <div className="space-y-3">
                 <label className="flex items-start justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">

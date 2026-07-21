@@ -44,9 +44,47 @@ func (d *DomainDAO) Update(domain *models.Domain) error {
 	return d.db.Save(domain).Error
 }
 
-// Delete deletes a domain by ID
+// Delete archives a domain by ID. Managed notebooks are detached but retain
+// their identity map so attaching the notebook again can restore and update
+// this same domain instead of creating a duplicate.
 func (d *DomainDAO) Delete(id uint) error {
-	return d.db.Delete(&models.Domain{}, id).Error
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.ContentBinding{}).Where("domain_id = ?", id).Updates(map[string]any{
+			"authorization_state": "detached",
+			"connection_state":    "offline",
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.Domain{}, id).Error
+	})
+}
+
+func deleteContentBindingsForDomain(tx *gorm.DB, domainID uint) error {
+	var bindingIDs []uint
+	if err := tx.Model(&models.ContentBinding{}).Where("domain_id = ?", domainID).Pluck("id", &bindingIDs).Error; err != nil {
+		return err
+	}
+	if len(bindingIDs) == 0 {
+		return nil
+	}
+	// Other notebooks can retain external evidence that once resolved to a
+	// binding being purged. Keep the evidence but clear its stale resolution.
+	if err := tx.Model(&models.ContentManagedEdge{}).
+		Where("external_binding_id IN ?", bindingIDs).
+		Update("external_binding_id", nil).Error; err != nil {
+		return err
+	}
+	for _, record := range []any{
+		&models.ContentSyncRun{},
+		&models.ContentAsset{},
+		&models.ContentManagedEdge{},
+		&models.ContentEntity{},
+	} {
+		if err := tx.Where("binding_id IN ?", bindingIDs).Delete(record).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Where("id IN ?", bindingIDs).Delete(&models.ContentBinding{}).Error
 }
 
 // Restore restores a soft-deleted domain by clearing deleted_at
@@ -293,6 +331,12 @@ func (d *DomainDAO) domainsToDomainsWithStats(domains []models.Domain) ([]Domain
 // NOTE: This operation cannot be undone. Use with care.
 func (d *DomainDAO) HardDeleteCascade(domainID uint) error {
 	return d.db.Transaction(func(tx *gorm.DB) error {
+		// Purging intentionally forgets the provider identity. A later attach of
+		// the same notebook must therefore create and import a new domain.
+		if err := deleteContentBindingsForDomain(tx, domainID); err != nil {
+			return err
+		}
+
 		// Collect definition and exercise IDs for the domain (include soft-deleted too)
 		var defIDs []uint
 		if err := tx.Unscoped().Model(&models.Definition{}).Where("domain_id = ?", domainID).Pluck("id", &defIDs).Error; err != nil {

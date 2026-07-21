@@ -1428,7 +1428,7 @@ export const archiveDomain = async (id: number): Promise<void> => {
     headers: getAuthHeaders(),
   });
 
-  return handleResponse(response);
+  return handleResponse(response, { logError: false });
 };
 
 // List archived domains owned by current user
@@ -1445,7 +1445,7 @@ export const restoreDomain = async (id: number): Promise<void> => {
     method: 'POST',
     headers: getAuthHeaders(),
   });
-  return handleResponse(response);
+  return handleResponse(response, { logError: false });
 };
 
 // Permanently delete a domain and all related data
@@ -1454,7 +1454,7 @@ export const purgeDomain = async (id: number): Promise<void> => {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });
-  return handleResponse(response);
+  return handleResponse(response, { logError: false });
 };
 
 export const enrollInDomain = async (id: number): Promise<void> => {
