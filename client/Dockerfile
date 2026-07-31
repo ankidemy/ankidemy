@@ -1,4 +1,4 @@
-FROM node:20-slim AS deps
+FROM node:20-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS deps
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Build stage
-FROM node:20-slim AS builder
+FROM node:20-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # Production stage
-FROM node:20-slim AS production
+FROM node:20-slim@sha256:3d0f05455dea2c82e2f76e7e2543964c30f6b7d673fc1a83286736d44fe4c41c AS production
 
 WORKDIR /app
 
@@ -40,12 +40,12 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.* ./
 
-# Create cache directories with appropriate permissions
+# Create cache directories with least-privilege ownership and permissions
 RUN mkdir -p .next/cache/images .next/cache/fetch \
-    && chmod -R 777 .next
+    && chown -R node:node /app \
+    && chmod 0750 .next/cache .next/cache/images .next/cache/fetch
 
-# Set appropriate user for security
-RUN chown -R node:node /app
+# Run as the image's unprivileged user
 USER node
 
 # Disable telemetry

@@ -1,11 +1,18 @@
 import { defineConfig } from "eslint/config";
-import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
-import nextTypescript from "eslint-config-next/typescript";
+import nextPlugin from "@next/eslint-plugin-next";
+import reactHooks from "eslint-plugin-react-hooks";
+import tseslint from "typescript-eslint";
 
 const eslintConfig = defineConfig([
-  ...nextCoreWebVitals,
-  ...nextTypescript,
   {
+    ignores: [".next/**", ".tmp-tests/**", "node_modules/**"],
+  },
+  ...tseslint.configs.recommended,
+  nextPlugin.configs["core-web-vitals"],
+  {
+    plugins: {
+      "react-hooks": reactHooks,
+    },
     linterOptions: {
       reportUnusedDisableDirectives: true,
     },
@@ -21,10 +28,10 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-empty-object-type": "error",
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-expressions": "error",
+      "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
-      "react/no-unescaped-entities": "error",
       "@next/next/no-img-element": "error",
-    }
+    },
   }
 ]);
 
