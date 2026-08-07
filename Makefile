@@ -11,7 +11,12 @@ DEV_COMPOSE_ALL_PROFILES := $(DEV_COMPOSE) --profile "*"
 PROD_COMPOSE_ALL_PROFILES := $(PROD_COMPOSE) --profile "*"
 
 # Development and Production Commands
-.PHONY: dev prod prod-build dev-build down dev-down prod-down logs prod-logs clean purge nuke wipe-db
+.PHONY: dev prod prod-build dev-build down dev-down prod-down logs prod-logs clean purge nuke wipe-db test-org-authoring
+
+test-org-authoring:
+	python3 -m unittest -v integrations/emacs/tests/test_ankidemy_org_tool.py
+	emacs --batch -Q -L integrations/emacs -L integrations/emacs/tests \
+		-l ankidemy-org-import-test.el -f ert-run-tests-batch-and-exit
 
 # Start development environment with logs (without -d)
 dev:

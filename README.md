@@ -255,6 +255,10 @@ docker-compose -f docker-compose.yml -f docker-compose.test.yml up  # Tests
 
 ### Documentation
 
+Para crear y validar notebooks conectados desde Org-roam, consulta el
+[contrato de autoría Org-roam](docs/ORG_ROAM_AUTHORING.md) y la
+[propiedad de campos durante la sincronización](docs/ORG_ROAM_FIELD_OWNERSHIP.md).
+
 Accede a la [Wiki del repositorio](https://github.com/ankidemy/ankidemy/wiki) para más información.
 
 ## 🤝 Contribuir
