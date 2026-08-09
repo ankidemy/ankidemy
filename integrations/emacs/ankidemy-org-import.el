@@ -1146,8 +1146,13 @@ When EXTERNAL-NOTEBOOK-ID is non-nil, IDs map to that notebook boundary."
     ;; proper JSON boolean rather than null on the wire.
     (unless (plist-get snapshot :complete)
       (setq snapshot (plist-put snapshot :complete :json-false)))
-    (json-serialize (ankidemy-org--json-value snapshot)
-                    :null-object nil :false-object :json-false)))
+    ;; `json-serialize' returns a unibyte UTF-8 string.  Decode it before a
+    ;; caller such as the headless Python adapter prints it; otherwise Emacs
+    ;; can encode each raw byte as a character and emit invalid UTF-8.
+    (decode-coding-string
+     (json-serialize (ankidemy-org--json-value snapshot)
+                     :null-object nil :false-object :json-false)
+     'utf-8)))
 
 ;;;###autoload
 (defun ankidemy-org-lint-root (root)

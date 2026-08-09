@@ -251,6 +251,17 @@
     (should (string-match-p (regexp-quote "\"toExternalProviderNotebookId\":\"fixture-research-notebook\"") json))
     (should-not (string-match-p (regexp-quote "protocol-version") json))))
 
+(ert-deftest ankidemy-org-json-returns-printable-utf-8-text ()
+  (let ((root (ankidemy-org-test--temp-notebook
+               '(("unicode.org" .
+                  "* Résumé guidance\n:PROPERTIES:\n:ID: unicode-source\n:END:\nKeep résumé wording concise.\n")))))
+    (unwind-protect
+        (let ((json (ankidemy-org-snapshot-json root)))
+          (should (multibyte-string-p json))
+          (should (string-match-p (regexp-quote "Résumé guidance") json))
+          (should (string-match-p (regexp-quote "résumé wording") json)))
+      (delete-directory root t))))
+
 (ert-deftest ankidemy-org-rejects-malformed-latex-before-emitting-nodes ()
   (let* ((root (ankidemy-org-test--temp-notebook
                 '(("math.org" .

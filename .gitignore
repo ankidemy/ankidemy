@@ -19,3 +19,5 @@ media/
 server/server
 
 client/.tmp-tests
+
+*__pycache__*

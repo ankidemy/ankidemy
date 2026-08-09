@@ -9,6 +9,7 @@ JSON interchange format for agent-authored notes.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -26,17 +27,89 @@ GENERATED_MARKER = "distill-notes-to-ankidemy/v1"
 NODE_TYPES = {"source", "definition", "exercise", "quest"}
 MANAGED_TYPES = {"definition", "exercise"}
 COVERAGE_DISPOSITIONS = {"definition", "exercise", "source", "omit", "uncertain"}
+DEFINITION_VERSION_ROLES = {
+    "core",
+    "components",
+    "use",
+    "rationale",
+    "contrast",
+    "constraints",
+    "failure",
+    "focused-part",
+    "application",
+}
 CODE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+ORG_HEADING_PATTERN = re.compile(r"^(\*+)\s+(.+?)\s*$")
+ORG_TRAILING_TAGS_PATTERN = re.compile(r"\s+:(?:[A-Za-z0-9_@#%]+:)+\s*$")
+GENERIC_DEFINITION_PROMPT_PATTERN = re.compile(
+    r"^(?:"
+    r"what\s+(?:(?:interview|source|section)\s+)?(?:guidance|information|advice)\s+"
+    r"(?:applies\s+to|does\s+.+?\s+give\s+(?:for|about)|is\s+given\s+(?:for|about))"
+    r"|how\s+should\s+(?:you|one)\s+handle\s*:"
+    r"|what\s+guidance\s+does\s+.+?\s+provide\s+(?:for|about)"
+    r"|what\s+should\s+(?:you|one)\s+remember\s+about\s*:"
+    r"|what\s+does\s+(?:the\s+)?source\s+say\s+about\s*:"
+    r")",
+    re.IGNORECASE,
+)
+GENERIC_DEFINITION_ANSWER_PATTERN = re.compile(
+    r"(?:"
+    r"(?:question|scenario)\s+that\s+(?:this|the)\s+(?:response\s+)?"
+    r"(?:pattern|method|framework)\s+addresses"
+    r"|while\s+preparing\s+for\s+and\s+conducting\s+an\s+interview"
+    r"|question\s+types?\s+listed\s+in\s+the\s+source"
+    r"|(?:the\s+)?source(?:'s|’s)\s+response\s+guidance"
+    r"|use\s+a\s+prepared,?\s+specific\s+response\s+that\s+connects\s+"
+    r"relevant\s+evidence\s+to\s+the\s+role\s+and\s+emphasizes"
+    r")",
+    re.IGNORECASE,
+)
+INVALID_UNCERTAIN_REASON_PATTERN = re.compile(
+    r"(?:not\s+(?:separately\s+)?rendered|compact\s+batch|out\s+of\s+scope|"
+    r"time\s+(?:expired|limit)|not\s+included)",
+    re.IGNORECASE,
+)
+GENERIC_SOURCE_CLAIM_PATTERN = re.compile(
+    r"(?:"
+    r"is\s+retained\s+as\s+(?:a\s+)?(?:concise\s+)?navigation\s+umbrella"
+    r"|organizes\s+the\s+detailed\s+guidance(?:\s+and\s+named\s+response\s+cards)?\s+"
+    r"in\s+this\s+study\s+bundle"
+    r"|this\s+map\s+groups\s+the\s+covered\s+.+?\s+into\s+the\s+linked\s+recall\s+cards"
+    r"|this\s+reading-map\s+section\s+organizes\s+the\s+related\s+.+?\s+under"
+    r"|section\s+connects\s+the\s+specific\s+interview\s+practices\s+in\s+the\s+primer"
+    r")",
+    re.IGNORECASE,
+)
+
+SOURCE_TERM_STOPWORDS = {
+    "about", "after", "again", "also", "because", "before", "being",
+    "between", "could", "does", "from", "have", "into", "itself", "only",
+    "other", "should", "than", "that", "their", "there", "these", "they",
+    "this", "those", "through", "under", "using", "very", "what", "when",
+    "where", "which", "while", "with", "would", "your",
+}
 
 
 class ToolError(RuntimeError):
     """An actionable command or plan error."""
 
 
+def _is_canonical_uuid(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError):
+        return False
+
+
 def _emacs_snapshot(root: Path) -> dict[str, Any]:
     root = root.resolve()
     expression = (
-        "(progn (require 'ankidemy-org-import) "
+        "(progn (set-language-environment \"UTF-8\") "
+        "(prefer-coding-system 'utf-8-unix) "
+        "(set-terminal-coding-system 'utf-8-unix) "
+        "(require 'ankidemy-org-import) "
         f"(princ (ankidemy-org-snapshot-json {json.dumps(str(root))})))"
     )
     command = [
@@ -49,14 +122,22 @@ def _emacs_snapshot(root: Path) -> dict[str, Any]:
         expression,
     ]
     try:
-        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        environment = os.environ.copy()
+        environment["LANG"] = "C.UTF-8"
+        environment["LC_ALL"] = "C.UTF-8"
+        result = subprocess.run(command, capture_output=True, check=False, env=environment)
     except FileNotFoundError as exc:
         raise ToolError(f"cannot run Emacs: {command[0]}") from exc
+    try:
+        stdout = result.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolError(f"Org adapter emitted non-UTF-8 output: {exc}") from exc
+    stderr = result.stderr.decode("utf-8", errors="replace")
     if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
+        detail = stderr.strip() or stdout.strip()
         raise ToolError(f"Org adapter failed: {detail}")
     try:
-        return json.loads(result.stdout)
+        return json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise ToolError(f"Org adapter returned invalid JSON: {exc}") from exc
 
@@ -128,6 +209,16 @@ def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             )
         else:
             seen_ids[value] = role
+            if not _is_canonical_uuid(value):
+                diagnostics.append(
+                    _diagnostic(
+                        "warning",
+                        "id.non_uuid",
+                        f"{role} ID is not a canonical UUID and may be collision-prone",
+                        owner_id,
+                        (value,),
+                    )
+                )
 
     for node_id, node in nodes.items():
         record_id(node_id, node.get("type", "node"), node_id)
@@ -199,6 +290,77 @@ def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
                     diagnostics.append(
                         _diagnostic("error", "version.title_missing", "title is required", version_id)
                     )
+
+    definition_version_counts = {
+        node_id: len((node.get("definition") or {}).get("versions") or [])
+        for node_id, node in nodes.items()
+        if node["type"] == "definition"
+    }
+    single_version_definition_ids = sorted(
+        node_id for node_id, count in definition_version_counts.items() if count == 1
+    )
+    multi_version_definition_ids = sorted(
+        node_id for node_id, count in definition_version_counts.items() if count > 1
+    )
+    definition_count = len(definition_version_counts)
+    if definition_count >= 4 and len(single_version_definition_ids) == definition_count:
+        diagnostics.append(
+            _diagnostic(
+                "warning",
+                "versions.uniform_single",
+                f"all {definition_count} definitions have exactly one version; audit concept boundaries and omitted retrieval facets",
+                related=single_version_definition_ids,
+            )
+        )
+    elif definition_count >= 8 and len(single_version_definition_ids) * 5 >= definition_count * 3:
+        diagnostics.append(
+            _diagnostic(
+                "warning",
+                "versions.single_dominated",
+                f"{len(single_version_definition_ids)} of {definition_count} definitions have exactly one version",
+                related=single_version_definition_ids,
+            )
+        )
+    two_version_definition_ids = sorted(
+        node_id for node_id, count in definition_version_counts.items() if count == 2
+    )
+    if (
+        definition_count >= 8
+        and len(two_version_definition_ids) * 4 >= definition_count * 3
+    ):
+        diagnostics.append(
+            _diagnostic(
+                "warning",
+                "versions.two_dominated",
+                f"{len(two_version_definition_ids)} of {definition_count} definitions have exactly two versions; audit for an artificial per-node cap or omitted facets",
+                related=two_version_definition_ids,
+            )
+        )
+
+    total_definition_versions = sum(definition_version_counts.values())
+    for node_id, version_count in sorted(definition_version_counts.items()):
+        if version_count > 8:
+            diagnostics.append(
+                _diagnostic(
+                    "warning",
+                    "versions.large_node",
+                    f"definition has {version_count} versions; audit whether it groups named methods, unrelated applications, or source sections instead of one stable referent",
+                    node_id,
+                )
+            )
+    if total_definition_versions >= 20 and definition_version_counts:
+        concentrated_id, concentrated_count = max(
+            definition_version_counts.items(), key=lambda item: item[1]
+        )
+        if concentrated_count >= 10 and concentrated_count * 3 >= total_definition_versions:
+            diagnostics.append(
+                _diagnostic(
+                    "warning",
+                    "versions.concentrated",
+                    f"definition contains {concentrated_count} of {total_definition_versions} versions; audit for a catch-all chapter, question-bank, or example-bucket node",
+                    concentrated_id,
+                )
+            )
 
     managed_ids = {node_id for node_id, node in nodes.items() if node["type"] in MANAGED_TYPES}
     adjacency: dict[str, set[str]] = {node_id: set() for node_id in managed_ids}
@@ -303,6 +465,23 @@ def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
+    for node_id in sorted(managed_ids):
+        if nodes[node_id]["type"] == "exercise" and in_degree[node_id] > 8:
+            diagnostics.append(
+                _diagnostic(
+                    "warning",
+                    "graph.exercise_prerequisites_excessive",
+                    f"exercise has {in_degree[node_id]} direct prerequisites; split a mega-exercise "
+                    "or retain only concepts directly required by its prompt",
+                    node_id,
+                    sorted(
+                        source_id
+                        for source_id, dependents in adjacency.items()
+                        if node_id in dependents
+                    ),
+                )
+            )
+
     components: list[list[str]] = []
     unvisited = set(managed_ids)
     while unvisited:
@@ -356,6 +535,31 @@ def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
                 related=root_ids,
             )
         )
+    if managed_count >= 8 and len(leaf_ids) * 3 >= managed_count * 2:
+        diagnostics.append(
+            _diagnostic(
+                "warning",
+                "graph.leaf_dominated",
+                f"{len(leaf_ids)} of {managed_count} managed nodes are leaves; audit for a hub-and-spoke graph that lost specialization or composition dependencies",
+                related=leaf_ids,
+            )
+        )
+    if (
+        managed_count >= 8
+        and len(root_ids) == 1
+        and len(leaf_ids) == 1
+        and max_depth is not None
+        and max_depth >= managed_count - 2
+    ):
+        diagnostics.append(
+            _diagnostic(
+                "warning",
+                "graph.chain_like",
+                f"managed graph is an almost linear chain (depth {max_depth} across "
+                f"{managed_count} nodes); audit for source-order links rather than prerequisites",
+                related=root_ids + leaf_ids,
+            )
+        )
 
     graph = {
         "managedNodeCount": managed_count,
@@ -377,6 +581,23 @@ def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "singletons": singleton_ids,
         "maxDepth": max_depth,
     }
+    identifiers = {
+        "entityCount": len(seen_ids),
+        "uuidCount": sum(1 for identifier in seen_ids if _is_canonical_uuid(identifier)),
+        "nonUuidCount": sum(1 for identifier in seen_ids if not _is_canonical_uuid(identifier)),
+        "nonUuidIds": sorted(
+            identifier for identifier in seen_ids if not _is_canonical_uuid(identifier)
+        ),
+    }
+    versions = {
+        "definitionCount": definition_count,
+        "definitionVersionCount": sum(definition_version_counts.values()),
+        "singleVersionDefinitionCount": len(single_version_definition_ids),
+        "singleVersionDefinitionIds": single_version_definition_ids,
+        "multiVersionDefinitionCount": len(multi_version_definition_ids),
+        "multiVersionDefinitionIds": multi_version_definition_ids,
+        "maxVersionsPerDefinition": max(definition_version_counts.values(), default=0),
+    }
 
     return {
         "complete": snapshot.get("complete") is True
@@ -384,6 +605,8 @@ def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "nodeCount": len(nodes),
         "edgeCount": len(edges),
         "graph": graph,
+        "identifiers": identifiers,
+        "versions": versions,
         "diagnostics": diagnostics,
     }
 
@@ -430,12 +653,20 @@ def inventory(snapshot: dict[str, Any]) -> dict[str, Any]:
     records = []
     for node in snapshot.get("nodes") or []:
         node_id = node["sourceId"]
+        version_count = 0
+        if node["type"] == "definition":
+            version_count = len((node.get("definition") or {}).get("versions") or [])
+        elif node["type"] == "exercise":
+            version_count = len((node.get("exercise") or {}).get("versions") or [])
+        elif node["type"] == "quest":
+            version_count = len((node.get("quest") or {}).get("versions") or [])
         records.append(
             {
                 "id": node_id,
                 "code": node.get("code", ""),
                 "type": node["type"],
                 "name": node["name"],
+                "versionCount": version_count,
                 "file": (node.get("location") or {}).get("file", ""),
                 "prerequisites": sorted(prerequisites.get(node_id, [])),
                 "dependents": sorted(dependents.get(node_id, [])),
@@ -494,6 +725,120 @@ def _require_string(value: Any, context: str, allow_empty: bool = False) -> str:
     return value
 
 
+def _require_uuid(value: Any, context: str) -> str:
+    identifier = _require_string(value, context)
+    if not _is_canonical_uuid(identifier):
+        raise ToolError(f"{context} must be a canonical UUID generated by org-id/new-id")
+    compact = identifier.replace("-", "")
+    if max(Counter(compact).values()) >= 20:
+        raise ToolError(
+            f"{context} is a suspicious low-entropy UUID; generate it with the new-id command "
+            "instead of handcrafting sequential or repeated-digit IDs"
+        )
+    return identifier
+
+
+def _normalized_prose(value: Any) -> str:
+    """Normalize prose for exact claim/prompt identity checks."""
+    return re.sub(r"\s+", " ", str(value)).strip().casefold()
+
+
+def _normalized_evidence(value: Any) -> str:
+    value = re.sub(r"[*_~/=]+", "", str(value))
+    return _normalized_prose(value)
+
+
+def _source_tokens(value: Any) -> set[str]:
+    """Return exact content tokens used to bridge source evidence to a claim."""
+    return {
+        token.casefold()
+        for token in re.findall(
+            r"[^\W_]+(?:[-'’][^\W_]+)*",
+            str(value),
+            flags=re.UNICODE,
+        )
+    }
+
+
+def _validate_source_claim_bridge(
+    context: str,
+    source_text: str,
+    source_evidence: str,
+    claim: str,
+) -> None:
+    source_tokens = _source_tokens(source_text)
+    evidence_tokens = _source_tokens(source_evidence)
+    claim_tokens = _source_tokens(claim)
+    meaningful_source_tokens = {
+        token for token in source_tokens
+        if len(token) >= 4 and token not in SOURCE_TERM_STOPWORDS
+    }
+    required = 2 if len(meaningful_source_tokens) >= 12 else 1
+    meaningful_evidence_tokens = meaningful_source_tokens & evidence_tokens
+    shared = meaningful_evidence_tokens & claim_tokens
+    if len(shared) < required:
+        raise ToolError(
+            f"{context} must share at least {required} distinctive source word(s) with "
+            "sourceEvidence; choose evidence that directly supports the rewritten claim "
+            "or mark a heading/body mismatch uncertain"
+        )
+
+
+def _version_coverage_text(node_type: str, version: dict[str, Any]) -> str:
+    """Return answer-bearing version text used by the coverage contract."""
+    if node_type == "definition":
+        fields = (version.get("description"), version.get("descriptionMd"))
+    else:
+        fields = (
+            version.get("description"),
+            version.get("descriptionMd"),
+            version.get("solution"),
+            version.get("solutionMd"),
+        )
+    return "\n".join(str(field) for field in fields if field is not None)
+
+
+def _validate_coverage_claim(
+    value: Any,
+    context: str,
+    body_preview: str = "",
+) -> str:
+    claim = _require_string(value, context)
+    normalized = _normalized_prose(claim)
+    if len(claim) > 280:
+        raise ToolError(f"{context} must be a concise distilled claim of at most 280 characters")
+    if "#+" in claim:
+        raise ToolError(f"{context} contains raw Org syntax; distill the claim instead of copying source markup")
+    normalized_preview = _normalized_prose(body_preview)
+    if len(normalized_preview) >= 160 and normalized == normalized_preview:
+        raise ToolError(
+            f"{context} copies the bounded outline bodyPreview; rewrite the complete claim "
+            "from the actual section body"
+        )
+    return claim
+
+
+def _normalized_concept_name(value: str) -> str:
+    value = re.sub(r"--+|[–—−]", "-", value.casefold())
+    value = re.sub(r"[^\w]+", " ", value, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _enumerated_named_concept(section: str) -> str | None:
+    leaf = section.rsplit(" > ", 1)[-1]
+    match = re.match(r"^[A-Z]\.\s+(.+?)\s*$", leaf)
+    return match.group(1) if match else None
+
+
+def _definition_template_key(node_title: str, version: dict[str, Any]) -> str:
+    title = _normalized_prose(node_title)
+    prompt = _normalized_prose(version.get("prompt", "")).replace(title, "<concept>")
+    description = _normalized_prose(version.get("description", "")).replace(
+        title, "<concept>"
+    )
+    return prompt + "\n" + description
+
+
 def _relations(value: Any, context: str) -> list[dict[str, str]]:
     if value is None:
         return []
@@ -513,6 +858,91 @@ def _relations(value: Any, context: str) -> list[dict[str, str]]:
     return result
 
 
+def _source_path(root: Path, source: str) -> Path:
+    relative = Path(source)
+    if relative.is_absolute() or ".." in relative.parts or relative.suffix.lower() != ".org":
+        raise ToolError(f"source file must be a relative .org path: {source}")
+    path = (root / relative).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ToolError(f"source file escapes notebook root: {source}") from exc
+    if not path.is_file():
+        raise ToolError(f"source file does not exist: {source}")
+    return path
+
+
+def source_outline(root: Path, source: str, max_level: int = 2) -> dict[str, Any]:
+    """Return stable coverage keys for the first N relative Org heading levels."""
+    if isinstance(max_level, bool) or not isinstance(max_level, int) or not 1 <= max_level <= 6:
+        raise ToolError("max heading level must be an integer from 1 to 6")
+    path = _source_path(root.resolve(), source)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ToolError(f"cannot read source file {source}: {exc}") from exc
+
+    headings: list[tuple[int, int, str]] = []
+    for line_number, line in enumerate(lines, start=1):
+        match = ORG_HEADING_PATTERN.match(line)
+        if not match:
+            continue
+        title = ORG_TRAILING_TAGS_PATTERN.sub("", match.group(2)).strip()
+        headings.append((line_number, len(match.group(1)), title))
+
+    if not headings:
+        return {
+            "source": source,
+            "maxLevel": max_level,
+            "sections": [
+                {
+                    "section": "whole-file",
+                    "heading": "whole-file",
+                    "level": 0,
+                    "line": 1,
+                }
+            ],
+        }
+
+    minimum_level = min(level for _, level, _ in headings)
+    stack: list[tuple[int, str]] = []
+    sections: list[dict[str, Any]] = []
+    for heading_index, (line_number, level, title) in enumerate(headings):
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack.append((level, title))
+        relative_level = level - minimum_level + 1
+        if relative_level > max_level:
+            continue
+        path_text = " > ".join(item_title for _, item_title in stack)
+        end_line = len(lines) + 1
+        nested_headings: list[str] = []
+        for next_line, next_level, next_title in headings[heading_index + 1 :]:
+            if next_level <= level:
+                end_line = next_line
+                break
+            nested_headings.append(next_title)
+        body_preview = " ".join(
+            part.strip()
+            for part in lines[line_number:end_line - 1]
+            if part.strip() and not ORG_HEADING_PATTERN.match(part)
+        )
+        body_preview = re.sub(r"\s+", " ", body_preview)[:320]
+        sections.append(
+            {
+                "section": f"L{line_number}: {path_text}",
+                "heading": title,
+                "level": relative_level,
+                "line": line_number,
+                "endLine": end_line - 1,
+                "bodyPreview": body_preview,
+                "nestedHeadingCount": len(nested_headings),
+                "nestedHeadings": nested_headings,
+            }
+        )
+    return {"source": source, "maxLevel": max_level, "sections": sections}
+
+
 def _validate_plan(
     plan: dict[str, Any],
     snapshot: dict[str, Any],
@@ -521,7 +951,7 @@ def _validate_plan(
 ) -> dict[str, Any]:
     if plan.get("schema") != 1:
         raise ToolError("plan.schema must be 1")
-    plan_id = _require_string(plan.get("planId"), "plan.planId")
+    plan_id = _require_uuid(plan.get("planId"), "plan.planId")
     files = plan.get("files")
     if not isinstance(files, list) or not files:
         raise ToolError("plan.files must be a non-empty list")
@@ -534,6 +964,25 @@ def _validate_plan(
     }
     known_types = {node_id: node["type"] for node_id, node in existing.items()}
     known_names = {node_id: node["name"] for node_id, node in existing.items()}
+    coverage_target_types = dict(known_types)
+    coverage_target_kinds = {node_id: "node" for node_id in known_types}
+    coverage_target_owner_titles: dict[str, str] = {}
+    coverage_target_owner_version_counts: dict[str, int] = {}
+    coverage_target_text = {
+        node_id: str((node.get("source") or {}).get("contentMd", ""))
+        for node_id, node in existing.items()
+        if node["type"] == "source"
+    }
+    for node_id, node in existing.items():
+        versions = ((node.get("definition") or {}).get("versions") or []) if node["type"] == "definition" else ((node.get("exercise") or {}).get("versions") or [])
+        for version in versions:
+            version_id = str(version.get("sourceId", "")).strip()
+            if version_id:
+                coverage_target_types[version_id] = node["type"]
+                coverage_target_kinds[version_id] = "version"
+                coverage_target_text[version_id] = _version_coverage_text(node["type"], version)
+                coverage_target_owner_titles[version_id] = str(node.get("name", ""))
+                coverage_target_owner_version_counts[version_id] = len(versions)
     new_ids: set[str] = set()
     normalized_files: list[dict[str, Any]] = []
     output_paths: set[Path] = set()
@@ -564,23 +1013,31 @@ def _validate_plan(
             if not isinstance(raw_node, dict):
                 raise ToolError(f"{context} must be an object")
             node = dict(raw_node)
-            node_id = _require_string(node.get("id"), f"{context}.id")
+            node_id = _require_uuid(node.get("id"), f"{context}.id")
             if node_id in existing or node_id in new_ids:
                 raise ToolError(f"duplicate or existing node ID: {node_id}")
             node_type = _require_string(node.get("type"), f"{context}.type")
             if node_type not in NODE_TYPES:
                 raise ToolError(f"unsupported node type {node_type!r}")
             _require_string(node.get("title"), f"{context}.title")
+            if node.get("code") is not None:
+                _require_string(node.get("code"), f"{context}.code")
+                _require_string(node.get("codeReason"), f"{context}.codeReason")
             node["prerequisites"] = _relations(node.get("prerequisites"), f"{context}.prerequisites")
             node["references"] = _relations(node.get("references"), f"{context}.references")
             new_ids.add(node_id)
             known_types[node_id] = node_type
+            coverage_target_types[node_id] = node_type
+            coverage_target_kinds[node_id] = "node"
+            if node_type == "source":
+                coverage_target_text[node_id] = str(node.get("body", ""))
             known_names[node_id] = node["title"]
             nodes.append(node)
         normalized_files.append(
             {"path": relative, "destination": destination, "title": title, "nodes": nodes}
         )
 
+    definition_template_owners: dict[str, list[tuple[str, str]]] = {}
     for file_spec in normalized_files:
         file_node_ids = {node["id"] for node in file_spec["nodes"]}
         for node in file_spec["nodes"]:
@@ -594,6 +1051,23 @@ def _validate_plan(
             unknown = sorted(relation_ids - known_types.keys())
             if unknown:
                 raise ToolError(f"{context} refers to unknown IDs: {', '.join(unknown)}")
+            if node["type"] == "source":
+                body = _require_string(node.get("body"), f"{context}.body")
+                if GENERIC_SOURCE_CLAIM_PATTERN.search(body):
+                    raise ToolError(
+                        f"{context}.body is generic navigation filler; synthesize actual "
+                        "relationships among the referenced concepts"
+                    )
+                managed_references = {
+                    relation["id"]
+                    for relation in node["references"]
+                    if known_types[relation["id"]] in MANAGED_TYPES
+                }
+                if len(managed_references) < 2:
+                    raise ToolError(
+                        f"{context} must reference at least two definitions/exercises whose "
+                        "relationship its synthesis explains"
+                    )
             if node["type"] in MANAGED_TYPES and parent in relation_ids:
                 raise ToolError(f"{context} repeats its hierarchy parent as a prerequisite")
             if node["type"] == "definition":
@@ -606,8 +1080,49 @@ def _validate_plan(
                 versions = node.get("versions")
                 if not isinstance(versions, list) or not versions:
                     raise ToolError(f"{context}.versions must be a non-empty list")
+                if node["type"] == "definition" and len(versions) == 1:
+                    _require_string(
+                        node.get("singleVersionReason"),
+                        f"{context}.singleVersionReason",
+                    )
+                if node["type"] == "definition" and len(versions) > 1:
+                    roles = {
+                        str(version.get("role", "")).strip() for version in versions
+                        if isinstance(version, dict)
+                    }
+                    if not roles.intersection({"core", "components"}):
+                        raise ToolError(
+                            f"{context}.versions must include a core or components facet; "
+                            "an application/use-only definition is usually a catch-all bucket"
+                        )
+                seen_prompts: dict[str, int] = {}
                 for version_index, version in enumerate(versions):
-                    _validate_version(node["type"], version, f"{context}.versions[{version_index}]", new_ids)
+                    version_id = _validate_version(
+                        node["type"],
+                        version,
+                        f"{context}.versions[{version_index}]",
+                        new_ids,
+                    )
+                    coverage_target_types[version_id] = node["type"]
+                    coverage_target_kinds[version_id] = "version"
+                    coverage_target_text[version_id] = _version_coverage_text(
+                        node["type"], version
+                    )
+                    coverage_target_owner_titles[version_id] = str(node["title"])
+                    coverage_target_owner_version_counts[version_id] = len(versions)
+                    if node["type"] == "definition":
+                        normalized_prompt = _normalized_prose(version.get("prompt", ""))
+                        previous = seen_prompts.get(normalized_prompt)
+                        if previous is not None:
+                            raise ToolError(
+                                f"{context}.versions[{version_index}].prompt duplicates "
+                                f"versions[{previous}]; every card on a node needs a distinct cue"
+                            )
+                        seen_prompts[normalized_prompt] = version_index
+                        template_key = _definition_template_key(node["title"], version)
+                        definition_template_owners.setdefault(template_key, []).append(
+                            (node["id"], node["title"])
+                        )
             elif node["type"] == "quest":
                 scheduled = _require_string(node.get("scheduled"), f"{context}.scheduled")
                 if not (scheduled.startswith("<") and scheduled.endswith(">")):
@@ -632,6 +1147,16 @@ def _validate_plan(
                     raise ToolError(f"outline parent cycle in {file_spec['path']}: {cursor}")
                 seen.add(cursor)
                 cursor = local_parents[cursor]
+
+    for owners in definition_template_owners.values():
+        distinct = {node_id: title for node_id, title in owners}
+        if len(distinct) >= 3:
+            titles = ", ".join(repr(title) for title in list(distinct.values())[:5])
+            raise ToolError(
+                "the same title-substituted definition prompt/answer template is repeated "
+                f"across {len(distinct)} nodes ({titles}); move shared knowledge to a "
+                "prerequisite or write concept-specific facets"
+            )
 
     planned_nodes = [node for file_spec in normalized_files for node in file_spec["nodes"]]
     planned_managed_ids = {
@@ -676,26 +1201,304 @@ def _validate_plan(
         not isinstance(item, str) or not item.strip() for item in source_files
     ):
         raise ToolError("plan.sourceFiles must be a list of non-empty strings")
+    coverage_mode = plan.get("coverageMode")
+    coverage_max_level = plan.get("coverageMaxLevel")
+    required_coverage: set[tuple[str, str]] = set()
+    coverage_body_previews: dict[tuple[str, str], str] = {}
+    coverage_source_texts: dict[tuple[str, str], str] = {}
+    coverage_has_children: dict[tuple[str, str], bool] = {}
+    coverage_nested_heading_counts: dict[tuple[str, str], int] = {}
+    if source_files:
+        if coverage_mode != "outline-v1":
+            raise ToolError("plan.coverageMode must be 'outline-v1' when sourceFiles are present")
+        if (
+            isinstance(coverage_max_level, bool)
+            or not isinstance(coverage_max_level, int)
+            or not 2 <= coverage_max_level <= 6
+        ):
+            raise ToolError("plan.coverageMaxLevel must be an integer from 2 to 6")
+        for source in source_files:
+            outline = source_outline(root, source, coverage_max_level)
+            source_lines = _source_path(root, source).read_text(encoding="utf-8").splitlines()
+            required_coverage.update(
+                (source, section["section"]) for section in outline["sections"]
+            )
+            coverage_body_previews.update(
+                {
+                    (source, section["section"]): str(section.get("bodyPreview", ""))
+                    for section in outline["sections"]
+                }
+            )
+            coverage_source_texts.update(
+                {
+                    (source, section["section"]): "\n".join(
+                        source_lines[
+                            int(section.get("line", 1)) : int(
+                                section.get("endLine", len(source_lines))
+                            )
+                        ]
+                    )
+                    for section in outline["sections"]
+                }
+            )
+            coverage_nested_heading_counts.update(
+                {
+                    (source, section["section"]): int(
+                        section.get("nestedHeadingCount", 0)
+                    )
+                    for section in outline["sections"]
+                }
+            )
+            outlined_paths = [
+                section["section"].split(": ", 1)[1]
+                for section in outline["sections"]
+            ]
+            coverage_has_children.update(
+                {
+                    (source, section["section"]): any(
+                        candidate.startswith(path + " > ")
+                        for candidate in outlined_paths
+                    )
+                    for section, path in zip(outline["sections"], outlined_paths)
+                }
+            )
     coverage = plan.get("coverage", [])
     if not isinstance(coverage, list):
         raise ToolError("plan.coverage must be a list")
+    seen_coverage: set[tuple[str, str]] = set()
+    version_coverage_owner: dict[str, str] = {}
+    source_coverage_count = 0
+    uncertain_coverage_count = 0
+    source_claim_owners: dict[str, str] = {}
     for index, item in enumerate(coverage):
         context = f"plan.coverage[{index}]"
         if not isinstance(item, dict):
             raise ToolError(f"{context} must be an object")
-        _require_string(item.get("source"), f"{context}.source")
-        _require_string(item.get("section"), f"{context}.section")
+        source = _require_string(item.get("source"), f"{context}.source")
+        section = _require_string(item.get("section"), f"{context}.section")
+        coverage_key = (source, section)
+        if coverage_key in seen_coverage:
+            raise ToolError(f"{context} duplicates coverage for {source!r} {section!r}")
+        seen_coverage.add(coverage_key)
+        if required_coverage and coverage_key not in required_coverage:
+            raise ToolError(
+                f"{context}.section is not an outline coverage key; run the outline command"
+            )
+        source_evidence = _require_string(
+            item.get("sourceEvidence"), f"{context}.sourceEvidence"
+        )
+        normalized_evidence = _normalized_evidence(source_evidence)
+        if len(normalized_evidence) < 8:
+            raise ToolError(
+                f"{context}.sourceEvidence must be a distinctive verbatim anchor of at least 8 characters"
+            )
+        if normalized_evidence not in _normalized_evidence(
+            coverage_source_texts.get(coverage_key, "")
+        ):
+            raise ToolError(
+                f"{context}.sourceEvidence must occur verbatim in that exact source section body"
+            )
         disposition = _require_string(item.get("disposition"), f"{context}.disposition")
         if disposition not in COVERAGE_DISPOSITIONS:
             raise ToolError(f"{context}.disposition is unsupported: {disposition!r}")
+        heading_body_audit = _require_string(
+            item.get("headingBodyAudit"), f"{context}.headingBodyAudit"
+        )
+        expected_audit = (
+            "umbrella" if disposition == "source" else
+            "mismatch" if disposition == "uncertain" else
+            "aligned"
+        )
+        if heading_body_audit != expected_audit:
+            raise ToolError(
+                f"{context}.headingBodyAudit must be {expected_audit!r} for "
+                f"disposition {disposition!r}"
+            )
         targets = item.get("targets", [])
         if not isinstance(targets, list) or any(not isinstance(target, str) for target in targets):
             raise ToolError(f"{context}.targets must be a list of IDs")
-        unknown_targets = sorted(set(targets) - known_types.keys())
+        unknown_targets = sorted(set(targets) - coverage_target_types.keys())
         if unknown_targets:
             raise ToolError(f"{context} refers to unknown IDs: {', '.join(unknown_targets)}")
-        if disposition in {"omit", "uncertain"}:
+        if disposition in {"definition", "exercise"}:
+            claim = _validate_coverage_claim(
+                item.get("claim"),
+                f"{context}.claim",
+                coverage_body_previews.get(coverage_key, ""),
+            )
+            if not targets:
+                raise ToolError(f"{context}.targets must not be empty for {disposition!r}")
+            invalid_targets = [
+                target
+                for target in targets
+                if coverage_target_types[target] != disposition
+                or coverage_target_kinds[target] != "version"
+            ]
+            if invalid_targets:
+                raise ToolError(
+                    f"{context}.targets must contain only {disposition} version IDs"
+                )
+            if disposition == "definition" and (
+                coverage_nested_heading_counts.get(coverage_key, 0) >= 2
+                or len(coverage_body_previews.get(coverage_key, "")) >= 280
+            ) and max(
+                (coverage_target_owner_version_counts.get(target, 0) for target in targets),
+                default=0,
+            ) < 2:
+                raise ToolError(
+                    f"{context}.targets assigns a rich section to a single-version concept; "
+                    "split its supported facets into multiple cards on the same stable owner"
+                )
+            named_concept = _enumerated_named_concept(section)
+            if disposition == "definition" and named_concept:
+                expected = _normalized_concept_name(named_concept)
+                mismatched_owners = sorted(
+                    {
+                        coverage_target_owner_titles.get(target, "")
+                        for target in targets
+                        if _normalized_concept_name(
+                            coverage_target_owner_titles.get(target, "")
+                        ) != expected
+                    }
+                )
+                if mismatched_owners:
+                    raise ToolError(
+                        f"{context}.targets assigns named concept {named_concept!r} to "
+                        f"different owner node(s): {', '.join(repr(owner) for owner in mismatched_owners)}"
+                    )
+            normalized_claim = _normalized_prose(claim)
+            if not any(
+                normalized_claim in _normalized_prose(coverage_target_text.get(target, ""))
+                for target in targets
+            ):
+                raise ToolError(
+                    f"{context}.claim must appear verbatim in a targeted version answer or solution"
+                )
+            for target in targets:
+                previous = version_coverage_owner.get(target)
+                if previous:
+                    raise ToolError(
+                        f"{context}.targets reuses version {target} already assigned by {previous}; "
+                        "give this section a dedicated version or mark a true duplicate as omit"
+                    )
+                version_coverage_owner[target] = context
+        elif disposition == "source":
+            source_coverage_count += 1
+            if required_coverage and not coverage_has_children.get(coverage_key, False):
+                raise ToolError(
+                    f"{context} assigns an outline leaf to source prose; source rows are "
+                    "reserved for narrative umbrella sections that actually have child sections"
+                )
+            claim = _validate_coverage_claim(
+                item.get("claim"),
+                f"{context}.claim",
+                coverage_body_previews.get(coverage_key, ""),
+            )
+            if GENERIC_SOURCE_CLAIM_PATTERN.search(claim):
+                raise ToolError(
+                    f"{context}.claim is generic navigation filler; synthesize this "
+                    "umbrella's specific concept relationships"
+                )
+            normalized_source_claim = _normalized_prose(claim)
+            previous_source_claim = source_claim_owners.get(normalized_source_claim)
+            if previous_source_claim:
+                raise ToolError(
+                    f"{context}.claim duplicates the source synthesis used by "
+                    f"{previous_source_claim}; each umbrella needs relationship-specific glue"
+                )
+            source_claim_owners[normalized_source_claim] = context
+            if not targets:
+                raise ToolError(f"{context}.targets must not be empty for 'source'")
+            invalid_targets = [
+                target
+                for target in targets
+                if coverage_target_types[target] != "source"
+                or coverage_target_kinds[target] != "node"
+            ]
+            if invalid_targets:
+                raise ToolError(f"{context}.targets must contain only source node IDs")
+            normalized_claim = _normalized_prose(claim)
+            if not any(
+                normalized_claim in _normalized_prose(coverage_target_text.get(target, ""))
+                for target in targets
+            ):
+                raise ToolError(
+                    f"{context}.claim must appear in the targeted generated source body"
+                )
+        elif disposition == "omit":
+            claim = _validate_coverage_claim(
+                item.get("claim"),
+                f"{context}.claim",
+                coverage_body_previews.get(coverage_key, ""),
+            )
+            if not targets:
+                raise ToolError(f"{context}.targets must not be empty for 'omit'")
+            normalized_claim = _normalized_prose(claim)
+            if not any(
+                normalized_claim in _normalized_prose(coverage_target_text.get(target, ""))
+                for target in targets
+            ):
+                raise ToolError(
+                    f"{context}.claim must appear verbatim in the already preserving target"
+                )
+        elif disposition == "uncertain":
+            uncertain_coverage_count += 1
+            if targets:
+                raise ToolError(
+                    f"{context}.targets must be empty for uncertain source content; "
+                    "do not publish a speculative card"
+                )
+            claim = _validate_coverage_claim(
+                item.get("claim"),
+                f"{context}.claim",
+                coverage_body_previews.get(coverage_key, ""),
+            )
+            reason = _require_string(item.get("reason"), f"{context}.reason")
+            if INVALID_UNCERTAIN_REASON_PATTERN.search(reason):
+                raise ToolError(
+                    f"{context}.reason describes incomplete execution, not source ambiguity"
+                )
+        if disposition in {"source", "omit", "uncertain"}:
             _require_string(item.get("reason"), f"{context}.reason")
+        _validate_source_claim_bridge(
+            f"{context}.claim",
+            coverage_source_texts.get(coverage_key, ""),
+            source_evidence,
+            claim,
+        )
+
+    missing_coverage = sorted(required_coverage - seen_coverage)
+    if missing_coverage:
+        preview = ", ".join(f"{source}: {section}" for source, section in missing_coverage[:5])
+        suffix = " ..." if len(missing_coverage) > 5 else ""
+        raise ToolError(f"coverage is missing {len(missing_coverage)} outline section(s): {preview}{suffix}")
+    if required_coverage:
+        source_coverage_budget = max(1, len(required_coverage) // 4)
+        if source_coverage_count > source_coverage_budget:
+            raise ToolError(
+                "coverage assigns "
+                f"{source_coverage_count} of {len(required_coverage)} outline sections to source "
+                f"prose, above the default minority budget of {source_coverage_budget}; "
+                "durable rules, methods, criteria, templates, and applications must become "
+                "definition/exercise versions rather than a parallel textbook"
+            )
+        uncertain_coverage_budget = max(1, len(required_coverage) // 20)
+        if uncertain_coverage_count > uncertain_coverage_budget:
+            raise ToolError(
+                "coverage marks "
+                f"{uncertain_coverage_count} of {len(required_coverage)} outline sections uncertain, "
+                f"above the review budget of {uncertain_coverage_budget}; pause for user review "
+                "instead of publishing an incomplete graph"
+            )
+        if (
+            len(required_coverage) >= 12
+            and len(planned_managed_ids) * 5 >= len(required_coverage) * 4
+        ):
+            raise ToolError(
+                f"plan creates {len(planned_managed_ids)} managed nodes for "
+                f"{len(required_coverage)} outline sections; this nearly one-node-per-heading "
+                "mapping mirrors the source outline instead of grouping stable concepts into versions"
+            )
 
     return {
         "schema": 1,
@@ -705,15 +1508,30 @@ def _validate_plan(
     }
 
 
-def _validate_version(node_type: str, version: Any, context: str, all_new_ids: set[str]) -> None:
+def _validate_version(node_type: str, version: Any, context: str, all_new_ids: set[str]) -> str:
     if not isinstance(version, dict):
         raise ToolError(f"{context} must be an object")
-    version_id = _require_string(version.get("id"), f"{context}.id")
+    version_id = _require_uuid(version.get("id"), f"{context}.id")
     if version_id in all_new_ids:
         raise ToolError(f"duplicate node/version ID: {version_id}")
     all_new_ids.add(version_id)
     title_field = {"definition": "prompt", "exercise": "statement", "quest": "title"}[node_type]
-    _require_string(version.get(title_field), f"{context}.{title_field}")
+    title = _require_string(version.get(title_field), f"{context}.{title_field}")
+    if node_type == "definition":
+        if GENERIC_DEFINITION_PROMPT_PATTERN.search(title.strip()):
+            raise ToolError(
+                f"{context}.prompt is a vague source-summary prompt; ask for a specific retrieval target"
+            )
+        role = _require_string(version.get("role"), f"{context}.role")
+        if role not in DEFINITION_VERSION_ROLES:
+            choices = ", ".join(sorted(DEFINITION_VERSION_ROLES))
+            raise ToolError(f"{context}.role must be one of: {choices}")
+        description = _require_string(version.get("description"), f"{context}.description")
+        if GENERIC_DEFINITION_ANSWER_PATTERN.search(description):
+            raise ToolError(
+                f"{context}.description is circular or source-referential; write the "
+                "actual self-contained answer"
+            )
     if node_type == "exercise":
         difficulty = version.get("difficulty", 3)
         if isinstance(difficulty, bool) or not isinstance(difficulty, int) or not 1 <= difficulty <= 7:
@@ -723,6 +1541,7 @@ def _validate_version(node_type: str, version: Any, context: str, all_new_ids: s
             raise ToolError(f"{context}.verifiable must be a boolean")
         if verifiable and not str(version.get("solution", "")).strip():
             raise ToolError(f"{context}.solution is required when verifiable is true")
+    return version_id
 
 
 def _properties(values: list[tuple[str, str]], level: int) -> list[str]:
@@ -964,6 +1783,53 @@ def render_plan(root: Path, plan_path: Path, replace: bool) -> dict[str, Any]:
     }
 
 
+def check_plan(root: Path, plan_path: Path) -> dict[str, Any]:
+    """Validate and preflight a retained plan without publishing any files."""
+    root = root.resolve()
+    snapshot = _emacs_snapshot(root)
+    if snapshot.get("notebook") is None:
+        raise ToolError("destination is not a manifested Ankidemy notebook; run init first")
+    try:
+        raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ToolError(f"cannot read plan {plan_path}: {exc}") from exc
+
+    replacing_paths: set[Path] = set()
+    for relative, destination in _candidate_outputs(raw_plan, root):
+        if not destination.exists():
+            continue
+        if _generated_plan_id(destination) != raw_plan.get("planId"):
+            raise ToolError(f"retained plan does not own existing output: {destination}")
+        replacing_paths.add(relative)
+
+    plan = _validate_plan(raw_plan, snapshot, root, replacing_paths)
+    rendered = _render_files(plan)
+    analysis = _preflight(root, rendered)
+    planned_node_ids = {
+        node["id"] for file_spec in plan["files"] for node in file_spec["nodes"]
+    }
+    relevant_warnings = []
+    for diagnostic in analysis["diagnostics"]:
+        if diagnostic.get("severity") != "warning":
+            continue
+        related = set(diagnostic.get("relatedSourceIds") or [])
+        if diagnostic.get("sourceId") in planned_node_ids or related.intersection(
+            planned_node_ids
+        ):
+            relevant_warnings.append(diagnostic)
+    if relevant_warnings:
+        detail = "; ".join(
+            f'{item.get("code")}: {item.get("message")}' for item in relevant_warnings
+        )
+        raise ToolError(f"retained plan has unresolved quality warnings: {detail}")
+    return {
+        "complete": True,
+        "planId": plan["planId"],
+        "files": [str(path.relative_to(root)) for path in rendered],
+        "analysis": analysis,
+    }
+
+
 def init_notebook(root: Path, title: str, notebook_id: str | None) -> dict[str, Any]:
     root = root.resolve()
     if not root.is_dir():
@@ -971,7 +1837,7 @@ def init_notebook(root: Path, title: str, notebook_id: str | None) -> dict[str, 
     manifest = root / "ankidemy.org"
     if manifest.exists():
         raise ToolError(f"manifest already exists: {manifest}")
-    identifier = notebook_id or str(uuid.uuid4())
+    identifier = _require_uuid(notebook_id, "notebook ID") if notebook_id else str(uuid.uuid4())
     content = (
         f"#+title: {title.strip()}\n"
         f"#+ankidemy_notebook_id: {identifier}\n"
@@ -991,7 +1857,10 @@ def _print_json(value: Any) -> None:
 
 def _print_inventory(value: dict[str, Any]) -> None:
     for node in value["nodes"]:
-        print(f'{node["type"]:10} {node["id"]}  {node["name"]}  [{node["file"]}]')
+        print(
+            f'{node["type"]:10} {node["id"]}  {node["name"]}  '
+            f'({node["versionCount"]} versions)  [{node["file"]}]'
+        )
         if node["prerequisites"]:
             print("  prerequisites: " + ", ".join(node["prerequisites"]))
         if node["dependents"]:
@@ -1019,6 +1888,13 @@ def main(argv: list[str] | None = None) -> int:
         command_parser = subparsers.add_parser(name)
         command_parser.add_argument("root", type=Path)
 
+    outline_parser = subparsers.add_parser(
+        "outline", help="list stable source-heading keys required by the coverage ledger"
+    )
+    outline_parser.add_argument("root", type=Path)
+    outline_parser.add_argument("source", nargs="+")
+    outline_parser.add_argument("--max-level", type=int, default=2)
+
     find_parser = subparsers.add_parser("find", help="find nodes by name, code, or ID")
     find_parser.add_argument("root", type=Path)
     find_parser.add_argument("query")
@@ -1036,6 +1912,12 @@ def main(argv: list[str] | None = None) -> int:
     render_parser.add_argument("plan", type=Path)
     render_parser.add_argument("--replace", action="store_true")
 
+    check_plan_parser = subparsers.add_parser(
+        "check-plan", help="preflight a retained plan without publishing files"
+    )
+    check_plan_parser.add_argument("root", type=Path)
+    check_plan_parser.add_argument("plan", type=Path)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -1044,8 +1926,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.count < 1 or args.count > 1000:
                 raise ToolError("--count must be between 1 and 1000")
             value = {"ids": [str(uuid.uuid4()) for _ in range(args.count)]}
+        elif args.command == "outline":
+            value = {
+                "coverageMode": "outline-v1",
+                "coverageMaxLevel": args.max_level,
+                "sources": [source_outline(args.root, source, args.max_level) for source in args.source],
+            }
         elif args.command == "render":
             value = render_plan(args.root, args.plan, args.replace)
+        elif args.command == "check-plan":
+            value = check_plan(args.root, args.plan)
         else:
             snapshot = _emacs_snapshot(args.root)
             if args.command == "snapshot":
