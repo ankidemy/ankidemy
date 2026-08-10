@@ -161,7 +161,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	// Parse token
 	token, err := jwt.ParseWithClaims(req.Token, &middleware.Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return middleware.JWTSecret, nil
+		return middleware.JWTSecret(), nil
 	})
 
 	if err != nil {

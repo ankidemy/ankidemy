@@ -11,17 +11,22 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWTSecret is the secret key used to sign JWT tokens
-var JWTSecret = []byte(getJWTSecret())
-
 // getJWTSecret returns the JWT secret from environment or a default
 func getJWTSecret() string {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		// For development only - in production, always set this environment variable
+		if os.Getenv("APP_ENV") == "production" {
+			panic("JWT_SECRET is required in production")
+		}
 		return "your-default-jwt-secret-for-dev"
 	}
 	return secret
+}
+
+// JWTSecret returns the configured signing key after startup has loaded any
+// local dotenv file. Production never receives the development fallback.
+func JWTSecret() []byte {
+	return []byte(getJWTSecret())
 }
 
 // Claims represents the JWT claims
@@ -50,7 +55,7 @@ func GenerateToken(userID uint, isAdmin bool) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	// Sign the token with the secret key
-	tokenString, err := token.SignedString(JWTSecret)
+	tokenString, err := token.SignedString(JWTSecret())
 	if err != nil {
 		return "", err
 	}
@@ -79,7 +84,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// Validate token
 		token, err := jwt.ParseWithClaims(parts[1], &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			return JWTSecret, nil
+			return JWTSecret(), nil
 		})
 
 		if err != nil {

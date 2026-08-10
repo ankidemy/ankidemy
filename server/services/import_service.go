@@ -1206,14 +1206,30 @@ func (s *ImportService) ImportTutorialIfNotExists() error {
 
 	log.Println("Tutorial domain not found, importing tutorial data...")
 
-	// Get or create admin user
-	adminUser, err := s.userDAO.FindUserByEmail("admin@example.com")
+	// Get or create the configured admin user. Production must never fall back
+	// to a known credential if this importer is called outside normal startup.
+	adminEmail := strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))
+	adminPassword := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
+	production := os.Getenv("APP_ENV") == "production"
+	if adminEmail == "" {
+		if production {
+			return errors.New("ADMIN_EMAIL is required to import the tutorial in production")
+		}
+		adminEmail = "admin@example.com"
+	}
+
+	adminUser, err := s.userDAO.FindUserByEmail(adminEmail)
 	if err != nil {
-		// Create admin user if it doesn't exist
+		if adminPassword == "" {
+			if production {
+				return errors.New("ADMIN_PASSWORD is required to import the tutorial in production")
+			}
+			adminPassword = "admin_password"
+		}
 		adminUser = &models.User{
 			Username:  "admin",
-			Email:     "admin@example.com",
-			Password:  "admin_password",
+			Email:     adminEmail,
+			Password:  adminPassword,
 			Level:     "admin",
 			FirstName: "Admin",
 			LastName:  "User",
@@ -1222,7 +1238,7 @@ func (s *ImportService) ImportTutorialIfNotExists() error {
 		if err := s.userDAO.CreateAdminUser(adminUser); err != nil {
 			return fmt.Errorf("failed to create admin user: %v", err)
 		}
-		adminUser, err = s.userDAO.FindUserByEmail("admin@example.com")
+		adminUser, err = s.userDAO.FindUserByEmail(adminEmail)
 		if err != nil {
 			return fmt.Errorf("failed to find admin user after creation: %v", err)
 		}

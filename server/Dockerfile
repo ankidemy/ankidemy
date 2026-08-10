@@ -1,4 +1,4 @@
-FROM golang:1.25.12-alpine AS builder
+FROM golang:1.25.12-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587 AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git
@@ -18,7 +18,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w" -o main .
 
 # Final lightweight image
-FROM alpine:latest
+FROM alpine:latest@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata wget

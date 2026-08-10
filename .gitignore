@@ -1,5 +1,11 @@
 *node_modules*
 */.next/*
+client/.tmp-tests
+
+# Local environment files may contain credentials.
+.env
+.env.*
+!.env.example
 
 server/tmp/*
 server/sample.json

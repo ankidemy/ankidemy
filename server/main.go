@@ -35,6 +35,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Info: .env file not found, relying on environment variables: %v", err)
 	}
+	// Validate the signing key at startup, after local dotenv loading.
+	_ = middleware.JWTSecret()
 
 	// Set Gin mode based on environment
 	if os.Getenv("APP_ENV") == "production" {
@@ -61,6 +63,9 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
+	userDAO := dao.NewUserDAO(db)
+	bootstrapAdmin(userDAO)
+
 	// Initialize ImportService
 	importService := services.NewImportService(db)
 
@@ -76,7 +81,6 @@ func main() {
 	}
 
 	// Initialize DAOs
-	userDAO := dao.NewUserDAO(db)
 	domainDAO := dao.NewDomainDAO(db)
 	definitionDAO := dao.NewDefinitionDAO(db)
 	exerciseDAO := dao.NewExerciseDAO(db)
@@ -101,21 +105,6 @@ func main() {
 	queryCache := services.NewQueryCacheServiceFromEnv()
 	notificationReadModelService := services.NewNotificationReadModelService(db, queryCache)
 	notificationReadModelService.StartWorker()
-
-	// Create admin user if it doesn't exist
-	adminUser := &models.User{
-		Username:  "admin",
-		Email:     "admin@example.com",
-		Password:  "admin_password", // In production, use a strong password and store as environment variable
-		Level:     "admin",
-		FirstName: "Admin",
-		LastName:  "User",
-	}
-	if err := userDAO.CreateAdminUser(adminUser); err != nil {
-		log.Printf("Warning: Failed to create admin user: %v", err)
-	} else {
-		log.Println("Admin user created or already exists")
-	}
 
 	// Initialize handlers with ImportService
 	userHandler := handlers.NewUserHandler(userDAO)
@@ -536,6 +525,39 @@ func firstEnv(names ...string) string {
 	return ""
 }
 
+func bootstrapAdmin(userDAO *dao.UserDAO) {
+	password := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
+	email := strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))
+	production := os.Getenv("APP_ENV") == "production"
+
+	if password == "" || email == "" {
+		if production {
+			log.Println("Admin bootstrap disabled: ADMIN_EMAIL and ADMIN_PASSWORD are required in production")
+			return
+		}
+		if password == "" {
+			password = "admin_password"
+		}
+		if email == "" {
+			email = "admin@example.com"
+		}
+	}
+
+	adminUser := &models.User{
+		Username:  "admin",
+		Email:     email,
+		Password:  password,
+		Level:     "admin",
+		FirstName: "Admin",
+		LastName:  "User",
+	}
+	if err := userDAO.CreateAdminUser(adminUser); err != nil {
+		log.Printf("Warning: Failed to create admin user: %v", err)
+	} else {
+		log.Println("Admin user created or already exists")
+	}
+}
+
 // runTestImportWithService imports test JSON data using ImportService
 func runTestImportWithService(importService *services.ImportService, jsonFilePath, domainName, domainDesc string) {
 	log.Println("Starting test import with ImportService...")
@@ -566,7 +588,11 @@ func runTestImportWithService(importService *services.ImportService, jsonFilePat
 
 	// Get admin user
 	userDAO := dao.NewUserDAO(db)
-	adminUser, err := userDAO.FindUserByEmail("admin@example.com")
+	adminEmail := strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))
+	if adminEmail == "" {
+		adminEmail = "admin@example.com"
+	}
+	adminUser, err := userDAO.FindUserByEmail(adminEmail)
 	if err != nil {
 		log.Fatalf("Failed to find admin user: %v", err)
 	}
