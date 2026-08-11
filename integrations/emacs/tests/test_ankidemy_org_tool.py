@@ -509,7 +509,7 @@ class AnkidemyOrgToolTest(unittest.TestCase):
             "targets": [ROOT_VERSION_ID],
             "reason": "The reduced fixture treats this removed child claim as a duplicate of the root.",
         }
-        plan["files"][1]["nodes"][0]["versions"][0]["description"] += (
+        root["versions"][0]["description"] += (
             " The child concept is dependent on the root."
         )
         with self.assertRaisesRegex(tool.ToolError, "singletonReason"):
