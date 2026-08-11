@@ -11,7 +11,15 @@ DEV_COMPOSE_ALL_PROFILES := $(DEV_COMPOSE) --profile "*"
 PROD_COMPOSE_ALL_PROFILES := $(PROD_COMPOSE) --profile "*"
 
 # Development and Production Commands
-.PHONY: dev prod prod-build dev-build down dev-down prod-down logs prod-logs clean purge nuke wipe-db test-org-authoring
+.PHONY: setup-env dev prod prod-build dev-build down dev-down prod-down logs prod-logs clean purge nuke wipe-db test-org-authoring
+
+# Bootstrap local-only development settings without committing credentials.
+# Existing .env files are intentionally never overwritten.
+.env:
+	@install -m 600 .env.example .env
+	@echo "Created .env from .env.example; edit it to customize local settings."
+
+setup-env: .env
 
 test-org-authoring:
 	python3 -m unittest -v integrations/emacs/tests/test_ankidemy_org_tool.py
@@ -19,7 +27,7 @@ test-org-authoring:
 		-l ankidemy-org-import-test.el -f ert-run-tests-batch-and-exit
 
 # Start development environment with logs (without -d)
-dev:
+dev: setup-env
 	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DEV_COMPOSE) up
 
 # Start production environment with logs (without -d)
@@ -31,7 +39,7 @@ prod-build:
 	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(PROD_COMPOSE) up --build
 
 # Build and start dev environment
-dev-build:
+dev-build: setup-env
 	DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DEV_COMPOSE) up --build
 
 # Stop both environments without deleting their data volumes

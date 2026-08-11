@@ -99,10 +99,16 @@ La aplicación utiliza los siguientes puertos para evitar conflictos con otras a
 
 2. **Configurar variables de entorno**
 
-   El archivo `.env` ya está configurado con valores por defecto. Si necesitas personalizarlos:
+   `make dev` crea automáticamente un archivo `.env` local (ignorado por Git) a
+   partir de `.env.example` la primera vez. Si necesitas personalizarlo:
    ```bash
-   # Edita el archivo .env según tus necesidades
    nano .env
+   ```
+
+   En Nix/NixOS también puedes entrar al entorno reproducible antes de iniciar:
+   ```bash
+   nix develop
+   make dev
    ```
 
 3. **Iniciar el entorno de desarrollo**
